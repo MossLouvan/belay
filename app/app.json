@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Tether",
+    "slug": "tether",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "tether",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0b0d12",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "backgroundColor": "#0b0d12",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mosslouvan.tether",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Tether connects to your PC on your local network or Tailscale to control it.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.mosslouvan.tether",
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0d12",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["expo-router", "expo-system-ui"],
+    "experiments": { "typedRoutes": false }
+  }
+}

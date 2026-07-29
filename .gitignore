@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+
+# builds / artifacts
+dist/
+build/
+web-build/
+.expo/
+.expo-shared/
+server/native/TetherHost.exe
+server/dist/
+
+# runtime state (contains device tokens)
+tether-state.json
+server/tether-state.json
+
+# test output
+test-results/
+playwright-report/
+blob-report/
+screenshots/
+.tmp/
+
+# logs
+*.log
+npm-debug.log*
+
+# native ios/android generated projects (use EAS/prebuild)
+app/ios/
+app/android/
+
+# harness / editor
+.claude/
+.DS_Store
+Thumbs.db
+.env
+.env.local

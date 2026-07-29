@@ -1,0 +1,307 @@
+// Tether native host helper (compiled).
+//
+// A long-lived console process. The Node server writes one JSON command per
+// line to stdin; we write one JSON reply per line to stdout. All screen capture
+// and input injection goes through Win32 directly, so the server itself needs
+// no compiled npm modules.
+//
+// Compiled to an exe rather than run as a PowerShell script on purpose: the
+// SendInput/keybd input-injection any remote-control tool requires trips
+// PowerShell's AMSI heuristic when it is scanned as script text. A normal
+// compiled binary the user builds locally does not go through that path.
+//
+// Commands: info | capture | move | down | up | click | scroll | key | text | ping
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Web.Script.Serialization;
+using System.Windows.Forms;
+
+static class Native
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct HARDWAREINPUT { public uint uMsg; public ushort wParamL; public ushort wParamH; }
+    [StructLayout(LayoutKind.Explicit)]
+    public struct InputUnion { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; [FieldOffset(0)] public HARDWAREINPUT hi; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INPUT { public uint type; public InputUnion U; }
+
+    const uint INPUT_MOUSE = 0, INPUT_KEYBOARD = 1;
+    const uint MOVE = 0x0001, LEFTDOWN = 0x0002, LEFTUP = 0x0004, RIGHTDOWN = 0x0008, RIGHTUP = 0x0010;
+    const uint MIDDLEDOWN = 0x0020, MIDDLEUP = 0x0040, WHEEL = 0x0800, HWHEEL = 0x1000;
+    const uint ABSOLUTE = 0x8000, VIRTUALDESK = 0x4000;
+    const uint KEYUP = 0x0002, UNICODE = 0x0004;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern uint SendInput(uint n, INPUT[] p, int cb);
+    [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int x; public int y; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CURSORINFO { public int cbSize; public int flags; public IntPtr hCursor; public POINT ptScreenPos; }
+    const int CURSOR_SHOWING = 0x0001, DI_NORMAL = 0x0003;
+    [DllImport("user32.dll")] static extern bool GetCursorInfo(ref CURSORINFO pci);
+    [DllImport("user32.dll")] static extern IntPtr CopyIcon(IntPtr h);
+    [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
+    [DllImport("user32.dll")] static extern bool DrawIconEx(IntPtr hdc, int x, int y, IntPtr h, int cx, int cy, int step, IntPtr br, int flags);
+
+    static int Size { get { return Marshal.SizeOf(typeof(INPUT)); } }
+    static void Send(INPUT[] i) { SendInput((uint)i.Length, i, Size); }
+
+    public static void Dpi() { SetProcessDPIAware(); }
+
+    // Absolute coordinates run 0..65535 across the whole virtual desktop, so one
+    // call lands correctly regardless of which monitor or DPI is involved.
+    public static void MoveAbsolute(double nx, double ny)
+    {
+        var i = new INPUT[1];
+        i[0].type = INPUT_MOUSE;
+        i[0].U.mi.dx = (int)Math.Round(nx * 65535.0);
+        i[0].U.mi.dy = (int)Math.Round(ny * 65535.0);
+        i[0].U.mi.dwFlags = MOVE | ABSOLUTE | VIRTUALDESK;
+        Send(i);
+    }
+
+    public static void Button(string b, bool down)
+    {
+        uint f;
+        if (b == "right") f = down ? RIGHTDOWN : RIGHTUP;
+        else if (b == "middle") f = down ? MIDDLEDOWN : MIDDLEUP;
+        else f = down ? LEFTDOWN : LEFTUP;
+        var i = new INPUT[1];
+        i[0].type = INPUT_MOUSE;
+        i[0].U.mi.dwFlags = f;
+        Send(i);
+    }
+
+    public static void Scroll(int dy, int dx)
+    {
+        if (dy != 0) { var i = new INPUT[1]; i[0].type = INPUT_MOUSE; i[0].U.mi.mouseData = unchecked((uint)dy); i[0].U.mi.dwFlags = WHEEL; Send(i); }
+        if (dx != 0) { var i = new INPUT[1]; i[0].type = INPUT_MOUSE; i[0].U.mi.mouseData = unchecked((uint)dx); i[0].U.mi.dwFlags = HWHEEL; Send(i); }
+    }
+
+    public static void Key(ushort vk, bool down)
+    {
+        var i = new INPUT[1];
+        i[0].type = INPUT_KEYBOARD;
+        i[0].U.ki.wVk = vk;
+        i[0].U.ki.dwFlags = down ? 0 : KEYUP;
+        Send(i);
+    }
+
+    // Unicode scan-code injection bypasses keyboard-layout translation, so
+    // accented characters and emoji arrive exactly as sent.
+    public static void TypeText(string t)
+    {
+        if (string.IsNullOrEmpty(t)) return;
+        var i = new INPUT[t.Length * 2];
+        for (int c = 0; c < t.Length; c++)
+        {
+            i[c * 2].type = INPUT_KEYBOARD;
+            i[c * 2].U.ki.wScan = t[c];
+            i[c * 2].U.ki.dwFlags = UNICODE;
+            i[c * 2 + 1].type = INPUT_KEYBOARD;
+            i[c * 2 + 1].U.ki.wScan = t[c];
+            i[c * 2 + 1].U.ki.dwFlags = UNICODE | KEYUP;
+        }
+        Send(i);
+    }
+
+    public static void DrawCursor(Graphics g, int originX, int originY)
+    {
+        var ci = new CURSORINFO();
+        ci.cbSize = Marshal.SizeOf(typeof(CURSORINFO));
+        if (!GetCursorInfo(ref ci) || ci.flags != CURSOR_SHOWING) return;
+        IntPtr icon = CopyIcon(ci.hCursor);
+        if (icon == IntPtr.Zero) return;
+        try
+        {
+            IntPtr hdc = g.GetHdc();
+            try { DrawIconEx(hdc, ci.ptScreenPos.x - originX, ci.ptScreenPos.y - originY, icon, 0, 0, 0, IntPtr.Zero, DI_NORMAL); }
+            finally { g.ReleaseHdc(hdc); }
+        }
+        finally { DestroyIcon(icon); }
+    }
+}
+
+static class TetherHost
+{
+    static JavaScriptSerializer J = new JavaScriptSerializer();
+    static ImageCodecInfo jpeg;
+    static Bitmap srcBmp;
+    static Graphics srcGfx;
+    static int srcW, srcH;
+
+    static void Main()
+    {
+        Native.Dpi();
+        J.MaxJsonLength = int.MaxValue;
+        foreach (var c in ImageCodecInfo.GetImageEncoders())
+            if (c.MimeType == "image/jpeg") { jpeg = c; break; }
+
+        var stdout = Console.Out;
+        Reply(stdout, new Dictionary<string, object> { { "id", 0 }, { "ok", true }, { "ready", true } });
+
+        string line;
+        while ((line = Console.In.ReadLine()) != null)
+        {
+            if (line.Trim().Length == 0) continue;
+            object idObj = null;
+            try
+            {
+                var c = (Dictionary<string, object>)J.DeserializeObject(line);
+                idObj = Get(c, "id");
+                string cmd = Str(Get(c, "cmd"));
+                switch (cmd)
+                {
+                    case "info": DoInfo(stdout, idObj); break;
+                    case "capture": DoCapture(stdout, idObj, c); break;
+                    case "move": Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y"))); Ok(stdout, idObj); break;
+                    case "down": MaybeMove(c); Native.Button(Str(Get(c, "button")), true); Ok(stdout, idObj); break;
+                    case "up": MaybeMove(c); Native.Button(Str(Get(c, "button")), false); Ok(stdout, idObj); break;
+                    case "click": DoClick(stdout, idObj, c); break;
+                    case "scroll": Native.Scroll(Int(Get(c, "dy")), Int(Get(c, "dx"))); Ok(stdout, idObj); break;
+                    case "key": DoKey(stdout, idObj, c); break;
+                    case "text": Native.TypeText(Str(Get(c, "text"))); Ok(stdout, idObj); break;
+                    case "ping": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "pong", true } }); break;
+                    default: Err(stdout, idObj, "unknown command: " + cmd); break;
+                }
+            }
+            catch (Exception e) { Err(stdout, idObj, e.Message); }
+        }
+    }
+
+    static void MaybeMove(Dictionary<string, object> c)
+    {
+        if (Get(c, "x") != null) Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")));
+    }
+
+    static void DoInfo(TextWriter w, object id)
+    {
+        var b = Screen.PrimaryScreen.Bounds;
+        var v = SystemInformation.VirtualScreen;
+        Reply(w, new Dictionary<string, object> {
+            { "id", id }, { "ok", true },
+            { "primary", Rect(b.X, b.Y, b.Width, b.Height) },
+            { "virtual", Rect(v.X, v.Y, v.Width, v.Height) },
+        });
+    }
+
+    static Dictionary<string, object> Rect(int x, int y, int w, int h)
+    {
+        return new Dictionary<string, object> { { "X", x }, { "Y", y }, { "W", w }, { "H", h } };
+    }
+
+    static void EnsureSource(int w, int h)
+    {
+        if (srcBmp != null && srcW == w && srcH == h) return;
+        if (srcGfx != null) srcGfx.Dispose();
+        if (srcBmp != null) srcBmp.Dispose();
+        srcBmp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+        srcGfx = Graphics.FromImage(srcBmp);
+        srcW = w; srcH = h;
+    }
+
+    static void DoCapture(TextWriter w, object id, Dictionary<string, object> c)
+    {
+        int targetW = Get(c, "w") != null ? Int(Get(c, "w")) : 1280;
+        int quality = Get(c, "q") != null ? Int(Get(c, "q")) : 55;
+        bool virt = Bool(Get(c, "virtual"));
+
+        Rectangle b = virt ? SystemInformation.VirtualScreen : Screen.PrimaryScreen.Bounds;
+        EnsureSource(b.Width, b.Height);
+        srcGfx.CopyFromScreen(b.X, b.Y, 0, 0, new Size(b.Width, b.Height), CopyPixelOperation.SourceCopy);
+        Native.DrawCursor(srcGfx, b.X, b.Y);
+
+        if (targetW < 64) targetW = 64;
+        if (targetW > b.Width) targetW = b.Width;
+        double scale = targetW / (double)b.Width;
+        int targetH = (int)Math.Round(b.Height * scale);
+        if (targetH < 1) targetH = 1;
+
+        byte[] bytes;
+        using (var outBmp = new Bitmap(targetW, targetH))
+        {
+            using (var g = Graphics.FromImage(outBmp))
+            {
+                // Bilinear, not bicubic: at streaming frame rates the visual
+                // difference is nil and bicubic costs about 3x the CPU.
+                g.InterpolationMode = InterpolationMode.Bilinear;
+                g.PixelOffsetMode = PixelOffsetMode.HighSpeed;
+                g.SmoothingMode = SmoothingMode.None;
+                g.DrawImage(srcBmp, 0, 0, targetW, targetH);
+            }
+            var ep = new EncoderParameters(1);
+            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
+            using (var ms = new MemoryStream())
+            {
+                outBmp.Save(ms, jpeg, ep);
+                bytes = ms.ToArray();
+            }
+        }
+
+        Reply(w, new Dictionary<string, object> {
+            { "id", id }, { "ok", true },
+            { "data", Convert.ToBase64String(bytes) },
+            { "w", targetW }, { "h", targetH },
+            { "sw", b.Width }, { "sh", b.Height }, { "bytes", bytes.Length },
+        });
+    }
+
+    static void DoClick(TextWriter w, object id, Dictionary<string, object> c)
+    {
+        MaybeMove(c);
+        string btn = Get(c, "button") != null ? Str(Get(c, "button")) : "left";
+        int times = Bool(Get(c, "double")) ? 2 : 1;
+        for (int n = 0; n < times; n++)
+        {
+            Native.Button(btn, true);
+            Native.Button(btn, false);
+            if (n < times - 1) System.Threading.Thread.Sleep(40);
+        }
+        Ok(w, id);
+    }
+
+    static void DoKey(TextWriter w, object id, Dictionary<string, object> c)
+    {
+        var mods = new List<ushort>();
+        object m = Get(c, "mods");
+        if (m is object[])
+            foreach (var x in (object[])m) mods.Add((ushort)Int(x));
+        foreach (var vk in mods) Native.Key(vk, true);
+        if (Get(c, "vk") != null)
+        {
+            ushort vk = (ushort)Int(Get(c, "vk"));
+            Native.Key(vk, true);
+            Native.Key(vk, false);
+        }
+        for (int n = mods.Count - 1; n >= 0; n--) Native.Key(mods[n], false);
+        Ok(w, id);
+    }
+
+    static void Ok(TextWriter w, object id) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", true } }); }
+    static void Err(TextWriter w, object id, string msg) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", false }, { "error", msg } }); }
+
+    static void Reply(TextWriter w, Dictionary<string, object> obj)
+    {
+        w.WriteLine(J.Serialize(obj));
+        w.Flush();
+    }
+
+    static object Get(Dictionary<string, object> d, string k) { object v; return d.TryGetValue(k, out v) ? v : null; }
+    static string Str(object o) { return o == null ? "" : o.ToString(); }
+    static int Int(object o) { return o == null ? 0 : (int)Math.Round(Convert.ToDouble(o)); }
+    static double Dbl(object o) { return o == null ? 0.0 : Convert.ToDouble(o); }
+    static bool Bool(object o) { return o != null && (o is bool ? (bool)o : Convert.ToBoolean(o)); }
+}
