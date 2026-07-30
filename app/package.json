@@ -11,22 +11,23 @@
   "private": true,
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
-    "expo": "^56.0.18",
-    "expo-constants": "~56.0.22",
-    "expo-linking": "~56.0.16",
-    "expo-router": "~56.2.17",
-    "expo-status-bar": "~56.0.4",
-    "expo-system-ui": "~56.0.5",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-native": "0.85.3",
-    "react-native-gesture-handler": "~2.31.1",
-    "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.26.0",
+    "expo": "^55.0.28",
+    "expo-constants": "~55.0.17",
+    "expo-linking": "~55.0.16",
+    "expo-router": "~55.0.17",
+    "expo-status-bar": "~55.0.6",
+    "expo-system-ui": "~55.0.20",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-native": "0.83.10",
+    "react-native-gesture-handler": "~2.30.0",
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-screens": "~4.23.0",
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
     "@types/react": "~19.2.4",
-    "typescript": "~6.0.3"
+    "babel-preset-expo": "~55.0.24",
+    "typescript": "~5.9.2"
   }
 }

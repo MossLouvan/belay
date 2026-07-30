@@ -36,8 +36,7 @@
     },
     "plugins": [
       "expo-router",
-      "expo-system-ui",
-      "expo-status-bar"
+      "expo-system-ui"
     ],
     "experiments": {
       "typedRoutes": false
