@@ -1,50 +1,155 @@
-// Bottom tab bar for the four control surfaces. Icons are simple vector glyphs
-// drawn with Views so there's no icon-font dependency to load on web.
+// Bottom tab bar for the four control surfaces.
+//
+// Icons stay hand-drawn from Views: @expo/vector-icons is not a dependency of
+// this app, and adding an icon font purely for four glyphs would cost a network
+// fetch on web for no visual gain. Each glyph gets a filled/active treatment so
+// selection reads at a glance.
 
 import React from 'react';
-import { View, Text } from 'react-native';
-import { Tabs, Redirect } from 'expo-router';
+import { Animated, Platform, Text, View, ViewStyle } from 'react-native';
+import { Redirect, Tabs } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
-import { colors } from '../../src/theme';
+import { useTheme } from '../../src/theme';
+import { useToggleAnimation } from '../../src/ui';
 
-function Glyph({ name, color }: { name: string; color: any }) {
-  // Minimal geometric icons keyed by tab name.
-  const base = { alignItems: 'center' as const, justifyContent: 'center' as const, width: 24, height: 24 };
-  if (name === 'screen') {
-    return (
-      <View style={base}>
-        <View style={{ width: 22, height: 15, borderRadius: 3, borderWidth: 2, borderColor: color }} />
-        <View style={{ width: 8, height: 2, backgroundColor: color, marginTop: 2 }} />
-      </View>
-    );
-  }
-  if (name === 'terminal') {
-    return (
-      <View style={[base, { borderRadius: 4, borderWidth: 2, borderColor: color }]}>
-        <Text style={{ color, fontSize: 11, fontWeight: '900', marginTop: -1 }}>{'>_'}</Text>
-      </View>
-    );
-  }
-  if (name === 'files') {
-    return (
-      <View style={base}>
-        <View style={{ width: 20, height: 15, borderRadius: 3, borderWidth: 2, borderColor: color }} />
-        <View style={{ position: 'absolute', top: 4, left: 2, width: 8, height: 3, backgroundColor: color, borderRadius: 1 }} />
-      </View>
-    );
-  }
-  // system
+type TabName = 'screen' | 'terminal' | 'files' | 'system';
+
+const GLYPH_BOX: ViewStyle = { alignItems: 'center', justifyContent: 'center', width: 24, height: 24 };
+
+/** Monitor outline with a stand. */
+function ScreenGlyph({ color, active }: GlyphProps) {
   return (
-    <View style={[base, { flexDirection: 'row', alignItems: 'flex-end', gap: 2 }]}>
-      <View style={{ width: 4, height: 8, backgroundColor: color, borderRadius: 1 }} />
-      <View style={{ width: 4, height: 15, backgroundColor: color, borderRadius: 1 }} />
-      <View style={{ width: 4, height: 11, backgroundColor: color, borderRadius: 1 }} />
+    <View style={GLYPH_BOX}>
+      <View
+        style={{
+          width: 22,
+          height: 15,
+          borderRadius: 4,
+          borderWidth: 2,
+          borderColor: color,
+          backgroundColor: active ? color : 'transparent',
+          opacity: active ? 0.9 : 1,
+        }}
+      />
+      <View style={{ width: 9, height: 2, backgroundColor: color, marginTop: 2.5, borderRadius: 1 }} />
     </View>
   );
 }
 
+/** Terminal window with a prompt. */
+function TerminalGlyph({ color, active, onActive }: GlyphProps) {
+  return (
+    <View style={[GLYPH_BOX, { borderRadius: 5, borderWidth: 2, borderColor: color, backgroundColor: active ? color : 'transparent' }]}>
+      <Text allowFontScaling={false} style={{ color: active ? onActive : color, fontSize: 11, fontWeight: '900', marginTop: -1 }}>
+        {'>_'}
+      </Text>
+    </View>
+  );
+}
+
+/** Folder with a tab. */
+function FilesGlyph({ color, active }: GlyphProps) {
+  return (
+    <View style={GLYPH_BOX}>
+      <View style={{ position: 'absolute', top: 3.5, left: 2, width: 9, height: 4, backgroundColor: color, borderTopLeftRadius: 2, borderTopRightRadius: 2 }} />
+      <View
+        style={{
+          position: 'absolute',
+          top: 6,
+          width: 20,
+          height: 14,
+          borderRadius: 4,
+          borderWidth: 2,
+          borderColor: color,
+          backgroundColor: active ? color : 'transparent',
+        }}
+      />
+    </View>
+  );
+}
+
+/** Three-bar activity chart. */
+function SystemGlyph({ color, active }: GlyphProps) {
+  const bar = (height: number, dim: boolean): ViewStyle => ({
+    width: 4,
+    height,
+    backgroundColor: color,
+    borderRadius: 2,
+    opacity: active || !dim ? 1 : 0.75,
+  });
+  return (
+    <View style={[GLYPH_BOX, { flexDirection: 'row', alignItems: 'flex-end', gap: 2.5 }]}>
+      <View style={bar(8, true)} />
+      <View style={bar(16, false)} />
+      <View style={bar(11, true)} />
+    </View>
+  );
+}
+
+interface GlyphProps {
+  /** Current tint — the active or inactive tab colour. */
+  color: string;
+  active: boolean;
+  /** Foreground to use on top of a `color`-filled shape. */
+  onActive: string;
+}
+
+const GLYPHS: Record<TabName, (props: GlyphProps) => React.JSX.Element> = {
+  screen: ScreenGlyph,
+  terminal: TerminalGlyph,
+  files: FilesGlyph,
+  system: SystemGlyph,
+};
+
+/**
+ * Wraps a glyph with the active-state treatment: a soft accent pill that fades
+ * and lifts in. `useToggleAnimation` no-ops when reduced motion is enabled.
+ */
+function TabIcon({ name, color, focused }: { name: TabName; color: string; focused: boolean }) {
+  const theme = useTheme();
+  const progress = useToggleAnimation(focused, theme.motion.fast);
+  const Glyph = GLYPHS[name];
+
+  return (
+    // Hidden from assistive tech: the tab's own label already names it, and the
+    // terminal glyph's ">_" text would otherwise be read as part of that name.
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden
+      style={{ width: 56, height: 32, alignItems: 'center', justifyContent: 'center' }}
+    >
+      <Animated.View
+        style={{
+          position: 'absolute',
+          width: 52,
+          height: 30,
+          borderRadius: theme.radius.pill,
+          backgroundColor: theme.colors.accentSoft,
+          opacity: progress,
+          transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }],
+        }}
+      />
+      <Animated.View style={{ transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }] }}>
+        <Glyph color={color} active={focused} onActive={theme.colors.onAccent} />
+      </Animated.View>
+    </View>
+  );
+}
+
+const TABS: readonly { readonly name: TabName; readonly title: string }[] = [
+  { name: 'screen', title: 'Screen' },
+  { name: 'terminal', title: 'Terminal' },
+  { name: 'files', title: 'Files' },
+  { name: 'system', title: 'System' },
+];
+
 export default function TabsLayout() {
   const { ready, connection } = useConnection();
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+
   // Guard: never show the tabs without a connection.
   if (ready && !connection) return <Redirect href="/" />;
 
@@ -52,35 +157,35 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.textFaint,
+        tabBarActiveTintColor: theme.colors.accent,
+        tabBarInactiveTintColor: theme.colors.textFaint,
+        // The label is redundant next to the icon for screen readers.
+        tabBarAccessibilityLabel: undefined,
         tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          borderTopWidth: 1,
-          height: 62,
+          backgroundColor: theme.colors.surface,
+          borderTopColor: theme.colors.border,
+          borderTopWidth: theme.layout.hairline,
+          // Honour the home-indicator inset instead of a hardcoded bottom pad.
+          height: theme.layout.tabBarHeight + insets.bottom,
           paddingTop: 6,
-          paddingBottom: 8,
+          paddingBottom: Math.max(insets.bottom, 8),
+          ...(Platform.OS === 'web' ? {} : theme.elevation.md),
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+        tabBarItemStyle: { minHeight: theme.layout.minTouch },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.2 },
+        tabBarAllowFontScaling: true,
       }}
     >
-      <Tabs.Screen
-        name="screen"
-        options={{ title: 'Screen', tabBarIcon: ({ color }) => <Glyph name="screen" color={color} /> }}
-      />
-      <Tabs.Screen
-        name="terminal"
-        options={{ title: 'Terminal', tabBarIcon: ({ color }) => <Glyph name="terminal" color={color} /> }}
-      />
-      <Tabs.Screen
-        name="files"
-        options={{ title: 'Files', tabBarIcon: ({ color }) => <Glyph name="files" color={color} /> }}
-      />
-      <Tabs.Screen
-        name="system"
-        options={{ title: 'System', tabBarIcon: ({ color }) => <Glyph name="system" color={color} /> }}
-      />
+      {TABS.map(({ name, title }) => (
+        <Tabs.Screen
+          key={name}
+          name={name}
+          options={{
+            title,
+            tabBarIcon: ({ color, focused }) => <TabIcon name={name} color={color} focused={focused} />,
+          }}
+        />
+      ))}
     </Tabs>
   );
 }
