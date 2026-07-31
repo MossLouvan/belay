@@ -149,10 +149,24 @@ const TAB_LABEL_FONT_SIZE = 11;
 const TAB_LABEL_LINE_RATIO = 1.35;
 const TAB_BAR_PAD_TOP = 6;
 const TAB_BAR_PAD_BOTTOM = 8;
+/** Breathing room so the label is never the thing flex decides to shrink. */
+const TAB_ITEM_SLACK = 4;
+
+/**
+ * Height one tab needs: the icon, its label, and a little slack.
+ *
+ * The label is a flex child with `overflow: hidden`, so if the item is shorter
+ * than its contents the label is silently shrunk and sliced through the middle
+ * rather than overflowing visibly. Sizing the item from its contents is what
+ * actually prevents that — making only the bar taller leaves the item starved.
+ */
+function tabItemHeight(fontScale: number): number {
+  const label = Math.ceil(TAB_LABEL_FONT_SIZE * TAB_LABEL_LINE_RATIO * fontScale);
+  return TAB_ICON_HEIGHT + label + TAB_ITEM_SLACK;
+}
 
 function tabBarContentHeight(fontScale: number): number {
-  const label = Math.ceil(TAB_LABEL_FONT_SIZE * TAB_LABEL_LINE_RATIO * fontScale);
-  return TAB_ICON_HEIGHT + label + TAB_BAR_PAD_TOP + TAB_BAR_PAD_BOTTOM;
+  return tabItemHeight(fontScale) + TAB_BAR_PAD_TOP + TAB_BAR_PAD_BOTTOM;
 }
 
 const TABS: readonly { readonly name: TabName; readonly title: string }[] = [
@@ -166,7 +180,9 @@ export default function TabsLayout() {
   const { ready, connection } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const contentHeight = tabBarContentHeight(PixelRatio.getFontScale());
+  const fontScale = PixelRatio.getFontScale();
+  const contentHeight = tabBarContentHeight(fontScale);
+  const itemHeight = tabItemHeight(fontScale);
 
   // Guard: never show the tabs without a connection.
   if (ready && !connection) return <Redirect href="/" />;
@@ -191,7 +207,9 @@ export default function TabsLayout() {
           paddingBottom: TAB_BAR_PAD_BOTTOM + insets.bottom,
           ...(Platform.OS === 'web' ? {} : theme.elevation.md),
         },
-        tabBarItemStyle: { minHeight: theme.layout.minTouch },
+        // Sized to its contents, with the default vertical padding removed so the
+        // label keeps its full line box instead of being shrunk and clipped.
+        tabBarItemStyle: { height: itemHeight, paddingTop: 0, paddingBottom: 0 },
         tabBarLabelStyle: { fontSize: TAB_LABEL_FONT_SIZE, fontWeight: '700', letterSpacing: 0.2 },
         tabBarAllowFontScaling: true,
       }}
