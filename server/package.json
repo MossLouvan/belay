@@ -3,15 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Tether host agent - lets the Tether iOS app control this Windows machine",
+  "description": "Tether host agent - lets the Tether iOS app control this Windows or macOS machine",
   "main": "dist/index.js",
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "build:native": "powershell -NoProfile -ExecutionPolicy Bypass -File native/build.ps1",
+    "build:native": "node -e \"const cp=process.getBuiltinModule('node:child_process');const p=process.platform;if(p!=='win32'&&p!=='darwin'){console.error('[build:native] no native helper for '+p);process.exit(1)}const win=p==='win32';const f=win?'powershell':'/bin/bash';const a=win?['-NoProfile','-ExecutionPolicy','Bypass','-File','native/build.ps1']:['native/build-mac.sh'];try{cp.execFileSync(f,a,{stdio:'inherit'})}catch(e){console.error('[build:native] '+(win?'native/build.ps1':'native/build-mac.sh')+' failed: '+e.message);process.exit(1)}\"",
+    "build:native:win": "powershell -NoProfile -ExecutionPolicy Bypass -File native/build.ps1",
+    "build:native:mac": "bash native/build-mac.sh",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test test/*.test.js"
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

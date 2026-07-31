@@ -6,7 +6,7 @@ There are three ways to get Tether onto an iPhone, from easiest to most
 ## Option A — Expo Go (fastest, no Apple account needed)
 
 1. Install **Expo Go** from the App Store.
-2. On the PC: `cd app && npx expo start`.
+2. On the computer: `cd app && npx expo start`.
 3. Scan the QR code with the Camera app.
 
 The app runs inside Expo Go. This is the quickest way to use it day to day and
@@ -20,7 +20,7 @@ that you can invite others to via TestFlight. Requires an
 [Apple Developer account](https://developer.apple.com/) ($99/yr) and
 [EAS](https://docs.expo.dev/eas/) (free tier is fine).
 
-```powershell
+```bash
 cd app
 npm install -g eas-cli
 eas login
@@ -28,9 +28,10 @@ eas build:configure
 eas build --platform ios --profile preview
 ```
 
-EAS builds in the cloud (no Mac required). When it finishes:
+EAS builds in the cloud (no Mac required — this works the same whether your
+Tether host is a Mac or a Windows PC). When it finishes:
 
-```powershell
+```bash
 eas submit --platform ios --latest
 ```
 
