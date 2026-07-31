@@ -156,9 +156,18 @@ app.post('/input/key', auth, async (req, res) => {
 });
 
 app.get('/devices', auth, (_req, res) => res.json({ devices: listDevices() }));
+// Revoking matches on a token prefix. An empty prefix is a prefix of every
+// token, so accepting one would let a single request unpair every device;
+// require a prefix long enough to identify one deliberately.
+const MIN_REVOKE_PREFIX = 4;
+
 app.post('/devices/revoke', auth, (req, res) => {
-  const ok = revokeDevice(String(req.body.prefix || ''));
-  res.json({ ok });
+  const prefix = String(req.body?.prefix || '').trim();
+  if (prefix.length < MIN_REVOKE_PREFIX) {
+    res.status(400).json({ error: `prefix must be at least ${MIN_REVOKE_PREFIX} characters` });
+    return;
+  }
+  res.json({ ok: revokeDevice(prefix) });
 });
 
 // ---- server + websockets -------------------------------------------------
