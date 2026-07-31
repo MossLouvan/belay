@@ -6,7 +6,7 @@
 // selection reads at a glance.
 
 import React from 'react';
-import { Animated, Platform, Text, View, ViewStyle } from 'react-native';
+import { Animated, PixelRatio, Platform, Text, View, ViewStyle } from 'react-native';
 import { Redirect, Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
@@ -118,7 +118,7 @@ function TabIcon({ name, color, focused }: { name: TabName; color: string; focus
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       aria-hidden
-      style={{ width: 56, height: 32, alignItems: 'center', justifyContent: 'center' }}
+      style={{ width: TAB_ICON_WIDTH, height: TAB_ICON_HEIGHT, alignItems: 'center', justifyContent: 'center' }}
     >
       <Animated.View
         style={{
@@ -138,6 +138,23 @@ function TabIcon({ name, color, focused }: { name: TabName; color: string; focus
   );
 }
 
+/**
+ * The tab bar sizes itself from what it actually holds. A fixed height clipped
+ * the bottom of every label, and clipped it worse at larger text sizes, since
+ * labels scale with Dynamic Type but a constant does not.
+ */
+const TAB_ICON_HEIGHT = 32;
+const TAB_ICON_WIDTH = 56;
+const TAB_LABEL_FONT_SIZE = 11;
+const TAB_LABEL_LINE_RATIO = 1.35;
+const TAB_BAR_PAD_TOP = 6;
+const TAB_BAR_PAD_BOTTOM = 8;
+
+function tabBarContentHeight(fontScale: number): number {
+  const label = Math.ceil(TAB_LABEL_FONT_SIZE * TAB_LABEL_LINE_RATIO * fontScale);
+  return TAB_ICON_HEIGHT + label + TAB_BAR_PAD_TOP + TAB_BAR_PAD_BOTTOM;
+}
+
 const TABS: readonly { readonly name: TabName; readonly title: string }[] = [
   { name: 'screen', title: 'Screen' },
   { name: 'terminal', title: 'Terminal' },
@@ -149,6 +166,7 @@ export default function TabsLayout() {
   const { ready, connection } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const contentHeight = tabBarContentHeight(PixelRatio.getFontScale());
 
   // Guard: never show the tabs without a connection.
   if (ready && !connection) return <Redirect href="/" />;
@@ -165,14 +183,16 @@ export default function TabsLayout() {
           backgroundColor: theme.colors.surface,
           borderTopColor: theme.colors.border,
           borderTopWidth: theme.layout.hairline,
-          // Honour the home-indicator inset instead of a hardcoded bottom pad.
-          height: theme.layout.tabBarHeight + insets.bottom,
-          paddingTop: 6,
-          paddingBottom: Math.max(insets.bottom, 8),
+          // Sized from the icon and the scaled label, so nothing is clipped at
+          // any text size. The home-indicator inset is added on top rather than
+          // eating into that content box.
+          height: contentHeight + insets.bottom,
+          paddingTop: TAB_BAR_PAD_TOP,
+          paddingBottom: TAB_BAR_PAD_BOTTOM + insets.bottom,
           ...(Platform.OS === 'web' ? {} : theme.elevation.md),
         },
         tabBarItemStyle: { minHeight: theme.layout.minTouch },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.2 },
+        tabBarLabelStyle: { fontSize: TAB_LABEL_FONT_SIZE, fontWeight: '700', letterSpacing: 0.2 },
         tabBarAllowFontScaling: true,
       }}
     >
