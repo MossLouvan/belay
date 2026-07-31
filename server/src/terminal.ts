@@ -166,6 +166,19 @@ function createPtySession(pty: any, ctx: SpawnContext): TermSession {
   };
 }
 
+/**
+ * Translate the Enter key for a shell reading from a pipe.
+ *
+ * Terminals send a carriage return for Enter, and a pty's line discipline turns
+ * that into a newline before the shell ever sees it. A pipe has no line
+ * discipline, so a bare CR is not a line terminator and the shell waits forever
+ * for a command it will never consider finished. Since the piped fallback is
+ * standing in for a terminal, it does the translation the terminal would.
+ */
+export function pipeInput(data: string): string {
+  return data.replace(/\r\n?/g, '\n');
+}
+
 export async function createTerminal(cols: number, rows: number): Promise<TermSession> {
   const pty = await loadPty();
   const { file, args } = resolveShell();
@@ -213,7 +226,7 @@ export async function createTerminal(cols: number, rows: number): Promise<TermSe
 
   return {
     mode: 'pipe',
-    write: (d) => { try { child.stdin?.write(d); } catch { /* closed */ } },
+    write: (d) => { try { child.stdin?.write(pipeInput(d)); } catch { /* closed */ } },
     resize: () => { /* not supported for piped shells */ },
     onData: (cb) => dataCbs.push(cb),
     onExit: (cb) => exitCbs.push(cb),

@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveShell, shellEnv, shellCwd } from '../src/terminal.js';
+import { resolveShell, shellEnv, shellCwd, pipeInput } from '../src/terminal.js';
 
 test('windows defaults to PowerShell with the original flags', () => {
   const spec = resolveShell({} as NodeJS.ProcessEnv, 'win32');
@@ -90,4 +90,25 @@ test('win32 shellCwd falls back to cwd when USERPROFILE is unset', () => {
 test('posix shellCwd still uses homedir()', () => {
   const env = { USERPROFILE: 'C:\\Users\\ignored' } as NodeJS.ProcessEnv;
   assert.equal(shellCwd(env, 'darwin', () => process.cwd()), process.cwd());
+});
+
+test('pipeInput turns a bare carriage return into a newline so a piped shell runs the line', () => {
+  assert.equal(pipeInput('echo hi\r'), 'echo hi\n');
+});
+
+test('pipeInput collapses CRLF to a single newline rather than leaving a blank line', () => {
+  assert.equal(pipeInput('echo hi\r\n'), 'echo hi\n');
+});
+
+test('pipeInput leaves an existing newline alone', () => {
+  assert.equal(pipeInput('echo hi\n'), 'echo hi\n');
+});
+
+test('pipeInput translates every terminator in a multi-line paste', () => {
+  assert.equal(pipeInput('a\rb\r\nc\n'), 'a\nb\nc\n');
+});
+
+test('pipeInput passes through text with no terminator, including control bytes', () => {
+  assert.equal(pipeInput('\x03'), '\x03');
+  assert.equal(pipeInput('partial'), 'partial');
 });
