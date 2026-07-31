@@ -8,6 +8,7 @@ web-build/
 .expo/
 .expo-shared/
 server/native/TetherHost.exe
+server/native/TetherHostMac
 server/dist/
 
 # runtime state (contains device tokens)

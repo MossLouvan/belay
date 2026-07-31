@@ -62,9 +62,16 @@ export function normalizeHost(input: string): string {
   return url.origin;
 }
 
-export async function checkHost(host: string): Promise<{ ok: boolean; name?: string; native?: boolean; paired?: boolean; error?: string }> {
+export interface HostCheck { ok: boolean; name?: string; native?: boolean; paired?: boolean; error?: string; }
+
+/**
+ * Probe a host's /health. Pass a signal to actually cancel the request —
+ * racing a timeout only abandons the fetch, which leaves it free to resolve
+ * later and clobber a newer check.
+ */
+export async function checkHost(host: string, signal?: AbortSignal): Promise<HostCheck> {
   try {
-    const res = await fetch(host + '/health', { method: 'GET' });
+    const res = await fetch(host + '/health', { method: 'GET', signal });
     if (!res.ok) return { ok: false, error: `host returned ${res.status}` };
     const j = await res.json();
     return { ok: true, name: j.name, native: j.native, paired: j.paired };
@@ -143,6 +150,9 @@ export interface ScreenInfo {
 
 export interface FileEntry { name: string; path: string; dir: boolean; size: number; mtime: number; }
 
+/** A device paired with the host. `token` is truncated by the host — never the real token. */
+export interface PairedDevice { token: string; name: string; createdAt: number; lastSeen: number; }
+
 export const api = {
   system: () => get<SystemStats>('/system'),
   fileRoots: () => get<{ roots: { name: string; path: string }[] }>('/files/roots'),
@@ -155,7 +165,18 @@ export const api = {
   drag: (x1: number, y1: number, x2: number, y2: number) => post('/input/drag', { x1, y1, x2, y2 }),
   typeText: (text: string) => post('/input/text', { text }),
   key: (key: string, mods: string[] = []) => post('/input/key', { key, mods }),
-  devices: () => get<{ devices: any[] }>('/devices'),
+  devices: () => get<{ devices: PairedDevice[] }>('/devices'),
+  /**
+   * Revoke a paired device. The host only ever sends a truncated token, so the
+   * ellipsis it appends has to come back off before the prefix can match. An
+   * empty prefix is refused here as well as on the host, because a prefix that
+   * matches everything would unpair every device at once.
+   */
+  revokeDevice: (tokenPrefix: string) => {
+    const prefix = tokenPrefix.replace(/[…\s]+$/u, '');
+    if (!prefix) throw new Error('a device prefix is required to revoke');
+    return post<{ ok: boolean }>('/devices/revoke', { prefix });
+  },
 };
 
 // WebSocket URLs use ws:// derived from the http host and carry the token as a
