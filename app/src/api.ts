@@ -112,12 +112,33 @@ async function post<T>(path: string, body: object): Promise<T> {
 
 // ---- typed API surface ----
 
+export interface BatteryInfo { percent: number; charging: boolean; source: string; }
+
 export interface SystemStats {
   hostname: string; platform: string; release: string;
   cpuCount: number; cpuModel: string; cpuPercent: number;
   memTotal: number; memUsed: number; memPercent: number;
   diskTotal: number; diskFree: number; diskPercent: number;
   uptimeSec: number; serverTime: number;
+  // Added by the macOS host agent; absent on older/Windows hosts, so both the
+  // friendly OS name and battery must be treated as optional at every use site.
+  osName?: string;
+  osVersion?: string;
+  battery?: BatteryInfo | null;
+}
+
+export interface Rect { X: number; Y: number; W: number; H: number; }
+
+/** Which capture/input permissions the host has. macOS only — undefined elsewhere. */
+export interface HostPermissions { screenRecording: boolean; accessibility: boolean; }
+
+export interface ScreenInfo {
+  primary: Rect;
+  virtual: Rect;
+  scale?: number;
+  displays?: number;
+  platform?: string;
+  permissions?: HostPermissions;
 }
 
 export interface FileEntry { name: string; path: string; dir: boolean; size: number; mtime: number; }
@@ -127,7 +148,7 @@ export const api = {
   fileRoots: () => get<{ roots: { name: string; path: string }[] }>('/files/roots'),
   listDir: (path: string) => get<{ path: string; entries: FileEntry[] }>(`/files/list?path=${encodeURIComponent(path)}`),
   readFile: (path: string) => get<{ path: string; name: string; content: string; truncated: boolean; size: number }>(`/files/read?path=${encodeURIComponent(path)}`),
-  screenInfo: () => get<{ primary: any; virtual: any }>('/screen/info'),
+  screenInfo: () => get<ScreenInfo>('/screen/info'),
   click: (x: number, y: number, button = 'left', double = false) => post('/input/click', { x, y, button, double }),
   move: (x: number, y: number) => post('/input/move', { x, y }),
   scroll: (dy: number, dx = 0) => post('/input/scroll', { dy, dx }),
