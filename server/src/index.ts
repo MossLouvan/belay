@@ -8,7 +8,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { hostname, networkInterfaces } from 'node:os';
+import { hostname } from 'node:os';
 import { URL } from 'node:url';
 
 import { loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices, revokeDevice, Device } from './state.js';
@@ -18,6 +18,7 @@ import { createTerminal } from './terminal.js';
 import { listDir, readTextFile, ROOTS } from './files.js';
 import { getStats } from './system.js';
 import { VK, MOD_VK, charToVk } from './keys.js';
+import { printBanner, buildNativeHint } from './banner.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
 
@@ -29,7 +30,7 @@ const nativeReady = native.available();
 if (nativeReady) {
   native.start().catch((e) => console.error('[native] failed to start:', e.message));
 } else {
-  console.warn('[native] TetherHost.exe not built — screen/input disabled. Run: npm run build:native');
+  console.warn(`[native] helper not built — screen/input disabled. To fix, ${buildNativeHint()}`);
 }
 
 const app = express();
@@ -250,40 +251,14 @@ function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
 // ---- boot ----------------------------------------------------------------
 
-function localIPs(): string[] {
-  const out: string[] = [];
-  const ifaces = networkInterfaces();
-  for (const list of Object.values(ifaces)) {
-    for (const i of list || []) {
-      if (i.family === 'IPv4' && !i.internal) out.push(i.address);
-    }
-  }
-  return out;
-}
-
 server.listen(PORT, () => {
-  const code = currentCode();
-  const ips = localIPs();
-  console.log('');
-  console.log('  Tether host agent running');
-  console.log('  ─────────────────────────');
-  console.log(`  Host name : ${getHostName()}`);
-  console.log(`  Port      : ${PORT}`);
-  console.log(`  Native    : ${nativeReady ? 'ready (screen + input)' : 'NOT BUILT — run npm run build:native'}`);
-  console.log('');
-  console.log('  Reachable at:');
-  for (const ip of ips) console.log(`    http://${ip}:${PORT}`);
-  if (ips.some((ip) => ip.startsWith('100.'))) {
-    console.log('    (a 100.x address is your Tailscale IP — use it from anywhere)');
-  }
-  console.log('');
-  if (listDevices().length === 0 && code) {
-    console.log(`  Pairing code: ${code.code}   (expires in ${code.expiresInSec}s)`);
-    console.log('  Enter this in the Tether app on your phone.');
-  } else {
-    console.log(`  Paired devices: ${listDevices().length}. Use the app to connect.`);
-  }
-  console.log('');
+  printBanner({
+    hostName: getHostName(),
+    port: PORT,
+    nativeReady,
+    pairingCode: currentCode(),
+    deviceCount: listDevices().length,
+  });
 });
 
 // While no device is paired, keep a valid pairing code alive and reprint it
