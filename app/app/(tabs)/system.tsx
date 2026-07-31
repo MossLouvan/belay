@@ -1,112 +1,258 @@
-// System. Live host stats — CPU, memory, disk, uptime — polled once a second,
-// plus the disconnect action that clears the stored token and returns to pairing.
+// System. Live host stats — CPU, memory, disk, power, uptime — with a short
+// rolling history, a selectable poll rate, and honest behaviour when the host
+// stops answering. Also the place where this device forgets the computer.
 
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, ScrollView, RefreshControl } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { api, SystemStats } from '../../src/api';
-import { Card, Button, Label, Meter, Row } from '../../src/ui';
-import { colors, radius, space } from '../../src/theme';
+import { useTheme } from '../../src/theme';
+import { Badge, Banner, Button, Caption, Card, Column, Dot, IconButton, Label, Row, SegmentedControl, Txt } from '../../src/ui';
+import { StatCard } from '../../src/system/stat-card';
+import { BatteryCard, DevicesCard, HostCard, PairedDevice, parseDevices } from '../../src/system/cards';
+import { EMPTY_SERIES, pushSeries, Series } from '../../src/system/history';
+import { fmtAgo, fmtBytes, hasFriendlyOsName, osLabel } from '../../src/system/format';
+import { ThemeToggle } from '../../src/settings/theme-toggle';
 
-function fmtBytes(n: number): string {
-  if (!n) return '0';
-  const gb = n / 1024 / 1024 / 1024;
-  if (gb >= 1) return `${gb.toFixed(1)} GB`;
-  return `${(n / 1024 / 1024).toFixed(0)} MB`;
-}
+type Rate = 'fast' | 'normal' | 'slow' | 'paused';
 
-function fmtUptime(sec: number): string {
-  const d = Math.floor(sec / 86400);
-  const h = Math.floor((sec % 86400) / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h ${m}m`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
+const RATE_MS: Readonly<Record<Rate, number | null>> = {
+  fast: 1000,
+  normal: 2000,
+  slow: 5000,
+  paused: null,
+};
+
+const RATE_OPTIONS = [
+  { value: 'fast' as const, label: '1s' },
+  { value: 'normal' as const, label: '2s' },
+  { value: 'slow' as const, label: '5s' },
+  { value: 'paused' as const, label: 'Paused' },
+];
+
+/** Ceiling for the retry backoff once the host stops answering. */
+const MAX_BACKOFF_MS = 15000;
+const MAX_FAILURE_STEPS = 4;
+/** How often the "updated Ns ago" line re-renders. */
+const CLOCK_MS = 1000;
+
+const message = (e: unknown): string =>
+  e instanceof Error ? e.message : 'Could not read system stats from the host.';
 
 export default function SystemTab() {
   const { connection, disconnect } = useConnection();
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
+
   const [stats, setStats] = useState<SystemStats | null>(null);
-  const [error, setError] = useState('');
+  const [series, setSeries] = useState<Series>(EMPTY_SERIES);
+  const [devices, setDevices] = useState<readonly PairedDevice[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [lastOkAt, setLastOkAt] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const timer = useRef<any>(null);
+  const [rate, setRate] = useState<Rate>('normal');
+  const [clock, setClock] = useState(() => Date.now());
 
-  const load = async () => {
-    try { setStats(await api.system()); setError(''); }
-    catch (e: any) { setError(e.message); }
-  };
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
 
+  const load = useCallback(async (): Promise<boolean> => {
+    try {
+      const next = await api.system();
+      if (!live.current) return true;
+      setStats(next);
+      setSeries((prev) => pushSeries(prev, next.cpuPercent, next.memPercent));
+      setLastOkAt(Date.now());
+      setError(null);
+      return true;
+    } catch (e: unknown) {
+      if (live.current) setError(message(e));
+      return false;
+    }
+  }, []);
+
+  const loadDevices = useCallback(async (): Promise<void> => {
+    try {
+      const payload: unknown = await api.devices();
+      if (live.current) setDevices(parseDevices(payload));
+    } catch {
+      // Non-essential: the stats above are the point of this screen, and a
+      // failure here is already reported by the stats poll.
+      if (live.current) setDevices([]);
+    }
+  }, []);
+
+  // Self-scheduling poll. Backs off while the host is unreachable so a machine
+  // that has gone to sleep is not hammered once a second.
   useEffect(() => {
     if (!connection) return;
-    load();
-    timer.current = setInterval(load, 1000);
-    return () => clearInterval(timer.current);
-  }, [connection]);
+    const interval = RATE_MS[rate];
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
 
-  const onDisconnect = async () => {
-    clearInterval(timer.current);
+    const tick = async (): Promise<void> => {
+      const ok = await load();
+      if (cancelled) return;
+      failures = ok ? 0 : Math.min(failures + 1, MAX_FAILURE_STEPS);
+      if (interval === null) return;
+      const delay = ok ? interval : Math.min(interval * 2 ** failures, MAX_BACKOFF_MS);
+      timer = setTimeout(() => void tick(), delay);
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [connection, rate, load]);
+
+  useEffect(() => {
+    if (connection) void loadDevices();
+  }, [connection, loadDevices]);
+
+  useEffect(() => {
+    const id = setInterval(() => setClock(Date.now()), CLOCK_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([load(), loadDevices()]);
+    if (live.current) setRefreshing(false);
+  }, [load, loadDevices]);
+
+  const onDisconnect = useCallback(async () => {
     await disconnect();
     router.replace('/');
-  };
+  }, [disconnect]);
+
+  const stale = Boolean(error);
+  const title = stats?.hostname || connection?.hostName || 'Host';
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ padding: space.md, paddingTop: insets.top + space.sm, paddingBottom: insets.bottom + space.xl }}
-      refreshControl={<RefreshControl refreshing={refreshing} tintColor={colors.accent} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
+      style={{ flex: 1, backgroundColor: theme.colors.bg }}
+      contentContainerStyle={{
+        padding: theme.space.md,
+        paddingTop: insets.top + theme.space.sm,
+        paddingBottom: insets.bottom + theme.space.xxl,
+        gap: theme.space.md,
+        width: '100%',
+        maxWidth: theme.layout.contentMaxWidth,
+        alignSelf: 'center',
+      }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} tintColor={theme.colors.accent} onRefresh={onRefresh} />
+      }
     >
-      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 22, marginBottom: space.md }}>
-        {stats?.hostname || connection?.hostName || 'System'}
-      </Text>
-
-      {!!error && (
-        <Card style={{ marginBottom: space.md, borderColor: '#5c2a30', backgroundColor: '#2a161a' }}>
-          <Text style={{ color: colors.bad }}>{error}</Text>
-        </Card>
-      )}
-
-      <View style={{ gap: space.md }}>
-        <StatCard label="CPU" percent={stats?.cpuPercent ?? 0} detail={stats ? `${stats.cpuModel} · ${stats.cpuCount} cores` : ''} value={stats ? `${stats.cpuPercent}%` : '—'} />
-        <StatCard label="Memory" percent={stats?.memPercent ?? 0} detail={stats ? `${fmtBytes(stats.memUsed)} of ${fmtBytes(stats.memTotal)}` : ''} value={stats ? `${stats.memPercent}%` : '—'} />
-        <StatCard label="Disk (system)" percent={stats?.diskPercent ?? 0} detail={stats ? `${fmtBytes(stats.diskFree)} free of ${fmtBytes(stats.diskTotal)}` : ''} value={stats ? `${stats.diskPercent}%` : '—'} />
-
-        <Card>
-          <Row style={{ justifyContent: 'space-between' }}>
-            <View>
-              <Label>Uptime</Label>
-              <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700' }}>{stats ? fmtUptime(stats.uptimeSec) : '—'}</Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Label>OS</Label>
-              <Text style={{ color: colors.text, fontSize: 15, fontWeight: '700' }}>{stats ? `${stats.platform} ${stats.release}` : '—'}</Text>
-            </View>
+      <Row justify="space-between" align="flex-start" gap="sm">
+        <Column style={{ flex: 1 }} gap="xs">
+          <Txt variant="title" heading numberOfLines={1}>
+            {title}
+          </Txt>
+          <Row gap="xs">
+            <Dot status={stale ? 'bad' : 'good'} pulse={!stale} label={stale ? 'Host unreachable' : 'Live'} />
+            <Caption>
+              {stale
+                ? lastOkAt
+                  ? `No response · updated ${fmtAgo(clock - lastOkAt)}`
+                  : 'No response from host'
+                : lastOkAt
+                  ? `Updated ${fmtAgo(clock - lastOkAt)}`
+                  : 'Connecting…'}
+            </Caption>
           </Row>
-        </Card>
-
-        <Card>
-          <Label>Connection</Label>
-          <Text style={{ color: colors.textDim, fontSize: 13, marginBottom: space.md }} numberOfLines={1}>
-            {connection?.host}
-          </Text>
-          <Button testID="disconnect" label="Disconnect this device" variant="danger" onPress={onDisconnect} />
-        </Card>
-      </View>
-    </ScrollView>
-  );
-}
-
-function StatCard({ label, value, percent, detail }: { label: string; value: string; percent: number; detail: string }) {
-  return (
-    <Card>
-      <Row style={{ justifyContent: 'space-between', marginBottom: space.sm }}>
-        <Label>{label}</Label>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>{value}</Text>
+        </Column>
+        <IconButton accessibilityLabel="Refresh stats" onPress={onRefresh} testID="refresh">
+          <Txt variant="subheading" tone="dim">
+            ↻
+          </Txt>
+        </IconButton>
       </Row>
-      <Meter percent={percent} />
-      {!!detail && <Text style={{ color: colors.textFaint, fontSize: 12, marginTop: space.sm }}>{detail}</Text>}
-    </Card>
+
+      {stats && hasFriendlyOsName(stats) ? <Badge label={osLabel(stats)} status="accent" /> : null}
+
+      {error ? (
+        <Banner
+          testID="system-error"
+          status="warn"
+          title="Lost contact with the host"
+          message={`${error} Tether keeps retrying, and the numbers below are the last ones it received.`}
+          action={{ label: 'Retry now', onPress: onRefresh }}
+        />
+      ) : null}
+
+      <StatCard
+        title="CPU"
+        percent={stats ? stats.cpuPercent : null}
+        detail={stats ? `${stats.cpuModel} · ${stats.cpuCount} cores` : undefined}
+        history={series.cpu}
+        testID="stat-cpu"
+      />
+      <StatCard
+        title="Memory"
+        percent={stats ? stats.memPercent : null}
+        detail={stats ? `${fmtBytes(stats.memUsed)} of ${fmtBytes(stats.memTotal)} in use` : undefined}
+        history={series.mem}
+        testID="stat-memory"
+      />
+      <StatCard
+        title="Disk"
+        percent={stats ? stats.diskPercent : null}
+        // A host that cannot query its own drive reports zeros. Rendering that
+        // as "0% used, 0 B free" would read as a real, alarming measurement.
+        unavailable={Boolean(stats && stats.diskTotal <= 0)}
+        detail={
+          stats
+            ? stats.diskTotal > 0
+              ? `${fmtBytes(stats.diskFree)} free of ${fmtBytes(stats.diskTotal)}`
+              : 'This host does not report drive usage'
+            : undefined
+        }
+        testID="stat-disk"
+      />
+
+      {stats?.battery ? <BatteryCard battery={stats.battery} /> : null}
+
+      <HostCard stats={stats} />
+
+      <Card padding="sm">
+        <View style={{ paddingHorizontal: theme.space.xs, paddingTop: theme.space.xs }}>
+          <Label>Update rate</Label>
+        </View>
+        <SegmentedControl
+          options={RATE_OPTIONS}
+          value={rate}
+          onChange={setRate}
+          accessibilityLabel="Update rate"
+          testID="poll-rate"
+        />
+        <View style={{ paddingHorizontal: theme.space.xs, paddingTop: theme.space.sm }}>
+          <Label>Appearance</Label>
+        </View>
+        <ThemeToggle testID="theme-toggle" />
+      </Card>
+
+      <DevicesCard devices={devices} now={clock} />
+
+      <Card>
+        <Label>Connection</Label>
+        <Txt variant="monoSmall" tone="dim" numberOfLines={1} style={{ marginBottom: theme.space.md }}>
+          {connection?.host ?? '—'}
+        </Txt>
+        <Button testID="disconnect" label="Disconnect this device" variant="danger" onPress={onDisconnect} fullWidth />
+        <Caption style={{ marginTop: theme.space.sm }}>
+          Forgets the saved token on this phone. The computer keeps running; pair again any time with a new code.
+        </Caption>
+      </Card>
+    </ScrollView>
   );
 }
