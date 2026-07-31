@@ -277,12 +277,12 @@ export function getTheme(scheme: ColorScheme): Theme {
 
 const MODES: readonly ThemeMode[] = ['system', 'light', 'dark'];
 
-// Dark-first on purpose. app.json pins `userInterfaceStyle: "dark"`, and the
-// screens that have not yet been migrated to `useTheme()` still paint hardcoded
-// dark backgrounds — following the OS before they are migrated would render
-// light-theme text on those dark surfaces. Flip this to 'system' (or call
-// `setThemeMode('system')` at the app root) once every screen reads the theme.
-const DEFAULT_MODE: ThemeMode = 'dark';
+// Follow the OS by default, which is only safe because every screen now reads
+// the theme through `useTheme()` rather than the static dark palette. app.json
+// asks for `userInterfaceStyle: "automatic"` to match; pinning it to dark there
+// would report a dark scheme on native no matter what this says. The user can
+// still override to light or dark, and that choice is persisted.
+const DEFAULT_MODE: ThemeMode = 'system';
 
 let currentMode: ThemeMode = DEFAULT_MODE;
 const listeners = new Set<() => void>();
