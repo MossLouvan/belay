@@ -8,7 +8,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { hostname, networkInterfaces } from 'node:os';
+import { hostname } from 'node:os';
 import { URL } from 'node:url';
 
 import { loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices, revokeDevice, Device } from './state.js';
@@ -18,8 +18,20 @@ import { createTerminal } from './terminal.js';
 import { listDir, readTextFile, ROOTS } from './files.js';
 import { getStats } from './system.js';
 import { VK, MOD_VK, charToVk } from './keys.js';
+import { printBanner, buildNativeHint } from './banner.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
+
+/**
+ * Ceiling on one /input/text request, in UTF-16 code units (what
+ * `String.length` counts). Injected text is typed into whatever window
+ * currently has OS focus, so an unbounded payload is a real hazard, not just a
+ * performance one. The macOS helper enforces the identical number one layer
+ * down — see `InputController.maxTextUnits` in server/native/mac/Input.swift —
+ * so a caller that reaches the helper by another route still cannot type an
+ * unbounded string. Larger text must be chunked by the client.
+ */
+const MAX_INPUT_TEXT_UNITS = 4096;
 
 loadState();
 if (!getHostName()) setHostName(hostname());
@@ -29,7 +41,7 @@ const nativeReady = native.available();
 if (nativeReady) {
   native.start().catch((e) => console.error('[native] failed to start:', e.message));
 } else {
-  console.warn('[native] TetherHost.exe not built — screen/input disabled. Run: npm run build:native');
+  console.warn(`[native] helper not built — screen/input disabled. To fix, ${buildNativeHint()}`);
 }
 
 const app = express();
@@ -132,8 +144,19 @@ app.post('/input/drag', auth, async (req, res) => {
 });
 
 app.post('/input/text', auth, async (req, res) => {
-  try { await native.text(String(req.body.text || '')); res.json({ ok: true }); }
-  catch (e: any) { res.status(500).json({ error: e.message }); }
+  try {
+    const text = String(req.body?.text ?? '');
+    if (text.length > MAX_INPUT_TEXT_UNITS) {
+      res.status(413).json({
+        error: `text is ${text.length} characters, over the ${MAX_INPUT_TEXT_UNITS} limit for one request; send it in chunks`,
+        limit: MAX_INPUT_TEXT_UNITS,
+        length: text.length,
+      });
+      return;
+    }
+    await native.text(text);
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // A named key (enter, tab, arrows...) optionally with modifiers, or a single
@@ -155,9 +178,18 @@ app.post('/input/key', auth, async (req, res) => {
 });
 
 app.get('/devices', auth, (_req, res) => res.json({ devices: listDevices() }));
+// Revoking matches on a token prefix. An empty prefix is a prefix of every
+// token, so accepting one would let a single request unpair every device;
+// require a prefix long enough to identify one deliberately.
+const MIN_REVOKE_PREFIX = 4;
+
 app.post('/devices/revoke', auth, (req, res) => {
-  const ok = revokeDevice(String(req.body.prefix || ''));
-  res.json({ ok });
+  const prefix = String(req.body?.prefix || '').trim();
+  if (prefix.length < MIN_REVOKE_PREFIX) {
+    res.status(400).json({ error: `prefix must be at least ${MIN_REVOKE_PREFIX} characters` });
+    return;
+  }
+  res.json({ ok: revokeDevice(prefix) });
 });
 
 // ---- server + websockets -------------------------------------------------
@@ -250,40 +282,14 @@ function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
 // ---- boot ----------------------------------------------------------------
 
-function localIPs(): string[] {
-  const out: string[] = [];
-  const ifaces = networkInterfaces();
-  for (const list of Object.values(ifaces)) {
-    for (const i of list || []) {
-      if (i.family === 'IPv4' && !i.internal) out.push(i.address);
-    }
-  }
-  return out;
-}
-
 server.listen(PORT, () => {
-  const code = currentCode();
-  const ips = localIPs();
-  console.log('');
-  console.log('  Tether host agent running');
-  console.log('  ─────────────────────────');
-  console.log(`  Host name : ${getHostName()}`);
-  console.log(`  Port      : ${PORT}`);
-  console.log(`  Native    : ${nativeReady ? 'ready (screen + input)' : 'NOT BUILT — run npm run build:native'}`);
-  console.log('');
-  console.log('  Reachable at:');
-  for (const ip of ips) console.log(`    http://${ip}:${PORT}`);
-  if (ips.some((ip) => ip.startsWith('100.'))) {
-    console.log('    (a 100.x address is your Tailscale IP — use it from anywhere)');
-  }
-  console.log('');
-  if (listDevices().length === 0 && code) {
-    console.log(`  Pairing code: ${code.code}   (expires in ${code.expiresInSec}s)`);
-    console.log('  Enter this in the Tether app on your phone.');
-  } else {
-    console.log(`  Paired devices: ${listDevices().length}. Use the app to connect.`);
-  }
-  console.log('');
+  printBanner({
+    hostName: getHostName(),
+    port: PORT,
+    nativeReady,
+    pairingCode: currentCode(),
+    deviceCount: listDevices().length,
+  });
 });
 
 // While no device is paired, keep a valid pairing code alive and reprint it
