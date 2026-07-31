@@ -1,73 +1,198 @@
-// A confined file browser. Listing and reading are limited to an allow-list of
-// roots (the user's home by default) and every path is resolved and re-checked
-// against those roots, so `..` traversal cannot escape.
+// A confined, read-only file browser. Listing and reading are limited to an
+// allow-list of roots (the user's home by default).
+//
+// Confinement is enforced on *real* paths, not lexical ones. `path.resolve`
+// collapses `..` but knows nothing about symlinks, and a macOS home directory
+// (or /tmp, or /Volumes) is full of them — a single `ln -s /etc ~/x` would
+// otherwise expose the whole filesystem through an "allowed" path. Every path
+// is therefore passed through `fs.realpath` before the prefix check, and the
+// roots themselves are realpath'd too so the comparison is like-for-like.
+//
+// Threat model and residual window. What this guarantees is that no path the
+// caller supplies can escape the roots *via symlinks*: confinement is decided
+// on the fully resolved path, not the lexical one. What it does not eliminate
+// is the check-then-use window inherent to a path-based API — the resolved path
+// is validated and then the same path *string* is reopened by readdir/readFile/
+// stat, so in principle a symlink could be swapped in between. Exploiting that
+// requires an attacker who can already write to that exact path on this
+// machine, i.e. someone with local filesystem access who could simply read the
+// file directly; the window itself is sub-millisecond and dominated by network
+// round-trip time. Against Tether's threat model (a remote client on the LAN or
+// a Tailnet, with the local user trusted) that residual risk is accepted rather
+// than paid for with an fd-based rewrite of the whole file API.
 
-import { readdir, stat, readFile } from 'node:fs/promises';
+import { readdir, stat, lstat, readFile, realpath } from 'node:fs/promises';
+import { realpathSync, existsSync, statSync } from 'node:fs';
 import { resolve, join, sep, basename } from 'node:path';
 import { homedir } from 'node:os';
 
 const HOME = homedir();
 
-// Roots the app is allowed to browse. Home covers the normal dev use case;
-// drive roots are handy for jumping to projects elsewhere.
-export const ROOTS: { name: string; path: string }[] = [
-  { name: 'Home', path: HOME },
-  { name: 'Desktop', path: join(HOME, 'Desktop') },
-  { name: 'Documents', path: join(HOME, 'Documents') },
-  { name: 'Downloads', path: join(HOME, 'Downloads') },
-];
+const MAX_READ = 512 * 1024; // 512 KB cap; this is a viewer, not a download tool.
 
-function allowed(target: string): boolean {
-  const t = resolve(target);
-  return ROOTS.some((r) => {
-    const root = resolve(r.path);
-    return t === root || t.startsWith(root + sep);
+// macOS mounts external and network drives under /Volumes. It also contains a
+// symlink to `/` ("Macintosh HD"); that is harmless because the guard below
+// resolves symlinks before checking, so it simply reads as outside the roots.
+const DARWIN_VOLUMES = '/Volumes';
+
+export interface Root {
+  readonly name: string;
+  readonly path: string;
+}
+
+function candidateRoots(): Root[] {
+  const common: Root[] = [
+    { name: 'Home', path: HOME },
+    { name: 'Desktop', path: join(HOME, 'Desktop') },
+    { name: 'Documents', path: join(HOME, 'Documents') },
+    { name: 'Downloads', path: join(HOME, 'Downloads') },
+  ];
+  if (process.platform !== 'darwin') return common;
+  return [...common, { name: 'Volumes', path: DARWIN_VOLUMES }];
+}
+
+function isExistingDir(path: string): boolean {
+  try {
+    return existsSync(path) && statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// Roots the app is allowed to browse. Anything that does not exist is dropped
+// so the app never offers a shortcut that errors when tapped; Home is always
+// kept so the list can never be empty.
+export const ROOTS: readonly Root[] = candidateRoots().filter(
+  (r) => r.path === HOME || isExistingDir(r.path),
+);
+
+/**
+ * The real (symlink-free) form of each root, computed once at startup.
+ * If a root cannot be resolved we fall back to its lexical form rather than
+ * dropping it, which keeps the allow-list conservative either way.
+ *
+ * `realpathSync.native` — not plain `realpathSync` — on purpose: see the note
+ * on `isInsideRoots` below.
+ */
+const REAL_ROOTS: readonly string[] = ROOTS.map((r) => {
+  try {
+    return realpathSync.native(r.path);
+  } catch {
+    return resolve(r.path);
+  }
+});
+
+/**
+ * True when `realTarget` (already symlink-free) is a root or lives inside one.
+ *
+ * The comparison is case-SENSITIVE, and that is only safe because both sides
+ * are canonicalised the same way. APFS and NTFS are case-insensitive by
+ * default, so `~/documents` and `~/Documents` name the same directory; if the
+ * roots were canonicalised differently from the user paths, a wrong-case
+ * request could fail the prefix check (breaking legitimate access) or, worse,
+ * a wrong-case *root* prefix could be sidestepped.
+ *
+ * Both sides therefore go through the OS's own realpath, which normalises case
+ * to the on-disk form: user paths via `fs.promises.realpath` and the roots via
+ * `fs.realpathSync.native`. Do NOT swap either for the legacy JS
+ * `fs.realpathSync` (or any lexical `resolve()`-only path) — it resolves
+ * symlinks but does *not* canonicalise case, which would silently reintroduce a
+ * case-based prefix-check bypass. `test/files.test.ts` covers this.
+ */
+export function isInsideRoots(realTarget: string, roots: readonly string[] = REAL_ROOTS): boolean {
+  const target = resolve(realTarget);
+  return roots.some((root) => {
+    const r = resolve(root);
+    return target === r || target.startsWith(r + sep);
   });
+}
+
+/**
+ * Resolve a caller-supplied path to its real location and assert it is inside
+ * the allow-list. Throws with a user-safe message on anything else.
+ */
+async function resolveInsideRoots(target: string): Promise<string> {
+  const lexical = resolve(target);
+  let real: string;
+  try {
+    real = await realpath(lexical);
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === 'ENOENT') throw new Error('path does not exist');
+    if (code === 'EACCES' || code === 'EPERM') throw new Error('path is not readable');
+    throw new Error('path could not be resolved');
+  }
+  if (!isInsideRoots(real)) throw new Error('path is outside the allowed roots');
+  return real;
 }
 
 export interface Entry {
-  name: string;
-  path: string;
-  dir: boolean;
-  size: number;
-  mtime: number;
+  readonly name: string;
+  readonly path: string;
+  readonly dir: boolean;
+  readonly size: number;
+  readonly mtime: number;
+  /** True when the entry is a symlink that points somewhere inside the roots. */
+  readonly link: boolean;
+}
+
+/**
+ * Describe one directory entry, or null if it should not be shown.
+ *
+ * Symlinks are resolved and checked against the allow-list: one pointing
+ * outside is omitted entirely rather than listed with its target's metadata,
+ * so the listing cannot leak anything about files beyond the roots.
+ */
+async function describeEntry(dir: string, name: string): Promise<Entry | null> {
+  const full = join(dir, name);
+  try {
+    const link = await lstat(full);
+    if (!link.isSymbolicLink()) {
+      return {
+        name,
+        path: full,
+        dir: link.isDirectory(),
+        size: link.size,
+        mtime: link.mtimeMs,
+        link: false,
+      };
+    }
+    const real = await realpath(full);
+    if (!isInsideRoots(real)) return null;
+    const s = await stat(full);
+    return { name, path: full, dir: s.isDirectory(), size: s.size, mtime: s.mtimeMs, link: true };
+  } catch {
+    // Unreadable entries (permissions, broken symlinks) are simply skipped.
+    return null;
+  }
 }
 
 export async function listDir(target: string): Promise<{ path: string; entries: Entry[] }> {
-  const dir = resolve(target || HOME);
-  if (!allowed(dir)) throw new Error('path is outside the allowed roots');
+  const dir = await resolveInsideRoots(target || HOME);
   const names = await readdir(dir);
-  const entries: Entry[] = [];
-  for (const name of names) {
-    const full = join(dir, name);
-    try {
-      const s = await stat(full);
-      entries.push({
-        name,
-        path: full,
-        dir: s.isDirectory(),
-        size: s.size,
-        mtime: s.mtimeMs,
-      });
-    } catch {
-      // Unreadable entries (permissions, locked files) are simply skipped.
-    }
-  }
+  const described = await Promise.all(names.map((name) => describeEntry(dir, name)));
+  const entries = described.filter((e): e is Entry => e !== null);
   // Folders first, then alphabetical — the order people expect in a file list.
-  entries.sort((a, b) => {
+  const sorted = [...entries].sort((a, b) => {
     if (a.dir !== b.dir) return a.dir ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
-  return { path: dir, entries };
+  return { path: dir, entries: sorted };
 }
 
-const MAX_READ = 512 * 1024; // 512 KB cap; this is a viewer, not a download tool.
+export interface TextFile {
+  readonly path: string;
+  readonly name: string;
+  readonly content: string;
+  readonly truncated: boolean;
+  readonly size: number;
+}
 
-export async function readTextFile(target: string): Promise<{ path: string; name: string; content: string; truncated: boolean; size: number }> {
-  const file = resolve(target);
-  if (!allowed(file)) throw new Error('path is outside the allowed roots');
+export async function readTextFile(target: string): Promise<TextFile> {
+  const file = await resolveInsideRoots(target);
   const s = await stat(file);
   if (s.isDirectory()) throw new Error('path is a directory');
+  if (!s.isFile()) throw new Error('path is not a regular file');
   const buf = await readFile(file);
   const truncated = buf.length > MAX_READ;
   const slice = truncated ? buf.subarray(0, MAX_READ) : buf;

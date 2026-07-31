@@ -180,7 +180,13 @@ export type TypeVariant = keyof typeof type;
 export const layout = Object.freeze({
   minTouch: 44,
   hairline: 1,
-  tabBarHeight: 58,
+  /**
+   * Nominal tab bar height at the default text size. The bar itself measures
+   * its own contents, adds the home-indicator inset, and grows with Dynamic
+   * Type, so treat this as a floor for laying content out above the bar rather
+   * than as the bar's actual height.
+   */
+  tabBarHeight: 61,
   contentMaxWidth: 760,
   hitSlop: Object.freeze({ top: 8, bottom: 8, left: 8, right: 8 }),
 });
