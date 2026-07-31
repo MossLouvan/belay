@@ -80,6 +80,14 @@ final class InputController {
     /// Gap between the two clicks of a synthetic double-click.
     private static let doubleClickGapSeconds = 0.04
     private static let maxUnicodeUnitsPerEvent = 16
+    /// Ceiling on a single `text` command, in UTF-16 code units — the same unit
+    /// JavaScript's `String.length` counts, so the Node-side guard in
+    /// server/src/index.ts can use the identical number and the two layers can
+    /// never disagree about whether a payload fits. 4096 is roughly a page of
+    /// prose: comfortably more than any phone keyboard burst, far less than a
+    /// runaway paste. Genuinely large text must be chunked by the client, which
+    /// also lets the user see it landing and stop it.
+    static let maxTextUnits = 4096
 
     private var heldButtons: Set<MouseButton> = []
 
@@ -161,6 +169,10 @@ final class InputController {
     /// A key press with modifiers. `mods` are CGKeyCodes of modifier keys; they
     /// are folded into the event's flags rather than posted as separate key
     /// events, which is what applications actually read.
+    ///
+    /// Like `type(_:)`, the event goes to the HID tap, so it lands in whatever
+    /// window currently owns OS focus — not in any window this process chose.
+    /// The caller decides what is focused; this layer cannot.
     func key(_ keyCode: Int?, modifiers: [Int]) throws {
         try Permissions.require(.accessibility)
         let flags = ModifierKeys.flags(for: modifiers)
@@ -178,10 +190,21 @@ final class InputController {
     }
 
     /// Types arbitrary Unicode independently of the active keyboard layout.
+    ///
+    /// The keystrokes land in whatever window currently owns OS focus, exactly
+    /// as if they came from the keyboard — this process has no say in the
+    /// destination. Length is therefore capped: an oversized payload is
+    /// rejected whole, before a single event is posted, because a half-typed
+    /// wall of text scattered across an unknown window is worse than an error.
     func type(_ text: String) throws {
         guard !text.isEmpty else { return }
-        try Permissions.require(.accessibility)
         let units = Array(text.utf16)
+        guard units.count <= Self.maxTextUnits else {
+            throw HostError(.badArgument,
+                            "'text' is \(units.count) UTF-16 units, over the \(Self.maxTextUnits) limit for one command; send it in chunks",
+                            details: ["field": "text", "limit": Self.maxTextUnits, "length": units.count])
+        }
+        try Permissions.require(.accessibility)
         for chunk in stride(from: 0, to: units.count, by: Self.maxUnicodeUnitsPerEvent).map({ start in
             Array(units[start..<min(start + Self.maxUnicodeUnitsPerEvent, units.count)])
         }) {

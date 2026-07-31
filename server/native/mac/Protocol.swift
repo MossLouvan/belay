@@ -16,9 +16,19 @@ struct Command {
     private let raw: [String: Any]
 
     /// Parses one line of stdin. Throws `HostError` for anything malformed.
+    ///
+    /// Note on encoding: by the time a line reaches here it is already a Swift
+    /// `String`, and `readLine` repairs malformed UTF-8 lossily on the way in —
+    /// bad bytes become U+FFFD rather than being rejected. Re-encoding a
+    /// `String` to UTF-8 therefore always succeeds, so the guard below is a
+    /// belt-and-braces check, not the encoding gate. That is deliberate: JSON's
+    /// structural characters are all ASCII, so lossy repair can only ever
+    /// corrupt the *contents* of a string value (into replacement characters),
+    /// never the shape of the message. Reading raw bytes to reject such input
+    /// outright would buy nothing beyond a slightly better error message.
     static func parse(line: String) throws -> Command {
         guard let data = line.data(using: .utf8) else {
-            throw HostError(.badJSON, "command line was not valid UTF-8")
+            throw HostError(.badJSON, "command line could not be encoded as UTF-8")
         }
         let any: Any
         do {

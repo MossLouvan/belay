@@ -73,10 +73,14 @@ else
 fi
 chmod +x "$out"
 
-# Ad-hoc signature. macOS ties the Screen Recording and Accessibility grants to a
-# code signature; without one the grant is invalidated on every rebuild and the
-# user has to re-tick the checkbox. An ad-hoc signature is stable enough to avoid
-# that for a locally built helper.
+# Ad-hoc signature. macOS identifies a binary for TCC (Screen Recording,
+# Accessibility) by its code signature, and an ad-hoc signature is keyed to the
+# binary's own content hash (CDHash) rather than to a stable Team ID. So this
+# does NOT make a grant survive rebuilds: any rebuild that changes a single byte
+# produces a new CDHash and the user has to re-tick the checkbox. What it does
+# buy is a valid identity for one built binary — the grant sticks across runs,
+# moves and copies of that exact build instead of being re-evaluated each launch.
+# Surviving rebuilds would need a stable signing identity (a Developer ID).
 if command -v codesign >/dev/null 2>&1; then
   codesign --force --sign - "$out" >/dev/null 2>&1 || \
     echo "warning: ad-hoc codesign failed; permissions may need re-granting after each rebuild" >&2

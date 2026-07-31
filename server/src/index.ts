@@ -22,6 +22,17 @@ import { printBanner, buildNativeHint } from './banner.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
 
+/**
+ * Ceiling on one /input/text request, in UTF-16 code units (what
+ * `String.length` counts). Injected text is typed into whatever window
+ * currently has OS focus, so an unbounded payload is a real hazard, not just a
+ * performance one. The macOS helper enforces the identical number one layer
+ * down — see `InputController.maxTextUnits` in server/native/mac/Input.swift —
+ * so a caller that reaches the helper by another route still cannot type an
+ * unbounded string. Larger text must be chunked by the client.
+ */
+const MAX_INPUT_TEXT_UNITS = 4096;
+
 loadState();
 if (!getHostName()) setHostName(hostname());
 ensureCode();
@@ -133,8 +144,19 @@ app.post('/input/drag', auth, async (req, res) => {
 });
 
 app.post('/input/text', auth, async (req, res) => {
-  try { await native.text(String(req.body.text || '')); res.json({ ok: true }); }
-  catch (e: any) { res.status(500).json({ error: e.message }); }
+  try {
+    const text = String(req.body?.text ?? '');
+    if (text.length > MAX_INPUT_TEXT_UNITS) {
+      res.status(413).json({
+        error: `text is ${text.length} characters, over the ${MAX_INPUT_TEXT_UNITS} limit for one request; send it in chunks`,
+        limit: MAX_INPUT_TEXT_UNITS,
+        length: text.length,
+      });
+      return;
+    }
+    await native.text(text);
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // A named key (enter, tab, arrows...) optionally with modifiers, or a single

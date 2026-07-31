@@ -88,17 +88,31 @@ private func handleCapture(_ command: Command) throws {
     let bounds = wantsVirtual ? Displays.virtualBounds(all) : targets[0].bounds
 
     let tiles = try capture.frames(for: targets)
-    let composited = try ImageOutput.composite(tiles: tiles, bounds: bounds, targetWidth: width)
+    let composited = try ImageOutput.composite(
+        tiles: tiles.map { (geometry: $0.geometry, image: $0.image) },
+        bounds: bounds, targetWidth: width
+    )
     let jpeg = try ImageOutput.jpeg(composited.image, quality: quality)
 
-    replies.ok(id: command.id, [
+    // Age of the oldest tile in the composite. Reported on every reply so a
+    // frozen picture is visible in the data rather than only to the human
+    // looking at it; `stale` is advisory, not an error (see CaptureEngine).
+    let age = tiles.map(\.age).max() ?? 0
+    var payload: [String: Any] = [
         "data": jpeg.base64EncodedString(),
         "w": composited.width,
         "h": composited.height,
         "sw": composited.sourceWidth,
         "sh": composited.sourceHeight,
         "bytes": jpeg.count,
-    ])
+        "ageMs": Int((age * 1000).rounded()),
+    ]
+    if age >= CaptureEngine.staleFrameSeconds {
+        payload["stale"] = true
+        payload["warning"] = "frame is \(Int((age * 1000).rounded())) ms old — the desktop may simply be idle, "
+            + "as ScreenCaptureKit delivers no frames while nothing changes"
+    }
+    replies.ok(id: command.id, payload)
 }
 
 private func handleMove(_ command: Command) throws {
