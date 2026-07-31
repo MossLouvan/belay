@@ -1,20 +1,77 @@
-// Owns the compiled TetherHost.exe subprocess and exposes a promise-based API
+// Owns the compiled native helper subprocess and exposes a promise-based API
 // for capture and input. One request per line in, one reply per line out,
 // matched by an incrementing id. Serialized through a single process so frames
 // and input never interleave on the wire.
+//
+// The helper is platform-specific but the wire protocol is not: Windows runs
+// native/TetherHost.exe (C#), macOS runs native/TetherHostMac (Swift), and both
+// speak the identical JSON command set. Everything below this comment is
+// platform-agnostic.
 
-import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, ChildProcessWithoutNullStreams, SpawnOptions } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createInterface, Interface } from 'node:readline';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const EXE = join(__dirname, '..', 'native', 'TetherHost.exe');
+const NATIVE_DIR = join(__dirname, '..', 'native');
+
+/** How long a single native call may take before it is abandoned. */
+const CALL_TIMEOUT_MS = 8000;
+
+interface HelperTarget {
+  /** Absolute path to the compiled helper for this platform. */
+  readonly path: string;
+  /** Command that produces it, for error messages. */
+  readonly buildCommand: string;
+  readonly spawnOptions: SpawnOptions;
+}
+
+/**
+ * Resolves the helper for the current platform, or null when the platform has
+ * no native helper at all. Kept as a pure lookup so `available()` and `start()`
+ * can never disagree about which binary they mean.
+ */
+function resolveTarget(platform: NodeJS.Platform): HelperTarget | null {
+  switch (platform) {
+    case 'win32':
+      return {
+        path: join(NATIVE_DIR, 'TetherHost.exe'),
+        buildCommand: 'npm run build:native',
+        // Keeps the helper from flashing a console window on Windows.
+        spawnOptions: { windowsHide: true },
+      };
+    case 'darwin':
+      return {
+        path: join(NATIVE_DIR, 'TetherHostMac'),
+        buildCommand: 'bash native/build-mac.sh',
+        spawnOptions: {},
+      };
+    default:
+      return null;
+  }
+}
+
+const TARGET = resolveTarget(process.platform);
+
+function unsupportedPlatformError(): Error {
+  return new Error(
+    `Tether's screen capture and input injection are not implemented for platform '${process.platform}'. ` +
+      'Supported platforms are Windows (win32) and macOS (darwin). ' +
+      'Everything else — terminal, files, system stats — still works.'
+  );
+}
+
+function notBuiltError(target: HelperTarget): Error {
+  return new Error(`native helper not found at ${target.path}. Run: ${target.buildCommand}`);
+}
 
 export interface ScreenInfo {
   primary: { X: number; Y: number; W: number; H: number };
   virtual: { X: number; Y: number; W: number; H: number };
+  /** macOS only: whether the two TCC grants the helper needs are in place. */
+  permissions?: { screenRecording: boolean; accessibility: boolean };
 }
 
 export interface Frame {
@@ -37,18 +94,22 @@ class NativeHost {
   private starting: Promise<void> | null = null;
 
   available(): boolean {
-    return existsSync(EXE);
+    return TARGET !== null && existsSync(TARGET.path);
   }
 
   async start(): Promise<void> {
     if (this.ready) return;
     if (this.starting) return this.starting;
     this.starting = new Promise<void>((resolve, reject) => {
-      if (!existsSync(EXE)) {
-        reject(new Error(`TetherHost.exe not found at ${EXE}. Run: npm run build:native`));
+      if (!TARGET) {
+        reject(unsupportedPlatformError());
         return;
       }
-      const proc = spawn(EXE, [], { windowsHide: true });
+      if (!existsSync(TARGET.path)) {
+        reject(notBuiltError(TARGET));
+        return;
+      }
+      const proc = spawn(TARGET.path, [], TARGET.spawnOptions) as ChildProcessWithoutNullStreams;
       this.proc = proc;
       const rl = createInterface({ input: proc.stdout });
       this.rl = rl;
@@ -58,13 +119,27 @@ class NativeHost {
       rl.on('line', (line) => {
         let msg: any;
         try { msg = JSON.parse(line); } catch { return; }
-        if (msg.ready && !this.ready) { onReady(); return; }
+        if (msg.ready && !this.ready) {
+          // The macOS helper reports missing Screen Recording / Accessibility
+          // grants here. Surfacing them at startup is the difference between a
+          // black screen the user can fix and one they cannot explain.
+          for (const warning of msg.warnings || []) console.warn('[native]', warning);
+          onReady();
+          return;
+        }
         const id = msg.id;
         const p = this.pending.get(id);
         if (!p) return;
         this.pending.delete(id);
         if (msg.ok) p.resolve(msg);
         else p.reject(new Error(msg.error || 'native error'));
+      });
+
+      // The helper writes nothing to stderr in normal operation; anything there
+      // is a crash trace worth showing rather than discarding.
+      proc.stderr.on('data', (chunk: Buffer) => {
+        const text = chunk.toString().trim();
+        if (text) console.error('[native]', text);
       });
 
       proc.on('exit', (code) => {
@@ -92,7 +167,7 @@ class NativeHost {
           this.pending.delete(id);
           reject(new Error('native host timeout'));
         }
-      }, 8000);
+      }, CALL_TIMEOUT_MS);
     });
   }
 
