@@ -29,9 +29,14 @@ async function loadPty(): Promise<any> {
   return ptyModule;
 }
 
-const SHELL = process.env.ComSpec && process.env.TETHER_SHELL === 'cmd'
-  ? process.env.ComSpec
-  : 'powershell.exe';
+// Windows hosts get PowerShell, or cmd via TETHER_SHELL=cmd. Elsewhere fall
+// back to the login shell — powershell.exe does not exist there, and spawning
+// it just exits immediately with an empty terminal.
+const SHELL = process.platform === 'win32'
+  ? (process.env.ComSpec && process.env.TETHER_SHELL === 'cmd'
+    ? process.env.ComSpec
+    : 'powershell.exe')
+  : (process.env.TETHER_SHELL || process.env.SHELL || '/bin/sh');
 
 const SHELL_ARGS = SHELL.toLowerCase().includes('powershell')
   ? ['-NoLogo', '-NoProfile']
@@ -45,7 +50,7 @@ export async function createTerminal(cols: number, rows: number): Promise<TermSe
       name: 'xterm-color',
       cols: cols || 80,
       rows: rows || 24,
-      cwd: process.env.USERPROFILE || process.cwd(),
+      cwd: process.env.USERPROFILE || process.env.HOME || process.cwd(),
       env: process.env as Record<string, string>,
     });
     return {
@@ -60,7 +65,7 @@ export async function createTerminal(cols: number, rows: number): Promise<TermSe
 
   // Fallback: pipe a shell. No TTY, but line-oriented interaction works.
   const child: ChildProcess = spawnProc(SHELL, SHELL_ARGS, {
-    cwd: process.env.USERPROFILE || process.cwd(),
+    cwd: process.env.USERPROFILE || process.env.HOME || process.cwd(),
     env: process.env,
     windowsHide: true,
   });

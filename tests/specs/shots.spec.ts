@@ -1,10 +1,9 @@
 import { test } from '@playwright/test';
+import { CODE, HOST } from '../test-env';
 
 // Captures a screenshot of each screen at iPhone size for visual review.
 // Not an assertion test — it just produces images in ../screenshots.
 
-const HOST = '127.0.0.1:8787';
-const CODE = '123456';
 const DIR = '../screenshots';
 
 test('capture all screens', async ({ page }) => {

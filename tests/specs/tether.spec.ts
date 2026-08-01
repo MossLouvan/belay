@@ -1,11 +1,9 @@
 import { test, expect, Page } from '@playwright/test';
+import { CODE, HOST } from '../test-env';
 
 // End-to-end coverage of the Tether app web build against a live host agent.
 // The server runs with TETHER_TEST_CODE=123456 and starts unpaired, so each
 // run pairs fresh. Every interactive control on every screen is exercised.
-
-const HOST = '127.0.0.1:8787';
-const CODE = '123456';
 
 async function pair(page: Page) {
   await page.goto('/');
