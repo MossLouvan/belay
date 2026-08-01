@@ -8,7 +8,6 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ConnectionProvider, useConnection } from '../src/connection';
 import { useTheme } from '../src/theme';
 import { restoreThemeMode } from '../src/settings/theme-mode';
@@ -82,14 +81,19 @@ export default function RootLayout() {
     SystemUI.setBackgroundColorAsync(theme.colors.bg).catch(() => undefined);
   }, [theme.colors.bg]);
 
+  // A plain View, not GestureHandlerRootView: nothing here uses
+  // react-native-gesture-handler — the screen surface is built on PanResponder
+  // — and mounting its root view initialises the Reanimated worklets bridge,
+  // which segfaults the JS runtime on this SDK. Reintroduce it only alongside
+  // an actual gesture-handler gesture, and re-test on device if so.
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <SafeAreaProvider>
         <StatusBar style={theme.isDark ? 'light' : 'dark'} />
         <ConnectionProvider>
           {themeReady || bootTimedOut ? <Routes forced={bootTimedOut} /> : <Boot />}
         </ConnectionProvider>
       </SafeAreaProvider>
-    </GestureHandlerRootView>
+    </View>
   );
 }
