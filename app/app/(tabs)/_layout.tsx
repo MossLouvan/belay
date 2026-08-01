@@ -6,7 +6,7 @@
 // selection reads at a glance.
 
 import React from 'react';
-import { Animated, PixelRatio, Platform, Text, View, ViewStyle } from 'react-native';
+import { Animated, ColorValue, PixelRatio, Platform, Text, View, ViewStyle } from 'react-native';
 import { Redirect, Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
@@ -88,8 +88,12 @@ function SystemGlyph({ color, active }: GlyphProps) {
 }
 
 interface GlyphProps {
-  /** Current tint — the active or inactive tab colour. */
-  color: string;
+  /**
+   * Current tint — the active or inactive tab colour. Typed as ColorValue
+   * because that is what the navigator hands its icon renderer; it covers
+   * platform colour objects as well as plain strings.
+   */
+  color: ColorValue;
   active: boolean;
   /** Foreground to use on top of a `color`-filled shape. */
   onActive: string;
@@ -106,7 +110,7 @@ const GLYPHS: Record<TabName, (props: GlyphProps) => React.JSX.Element> = {
  * Wraps a glyph with the active-state treatment: a soft accent pill that fades
  * and lifts in. `useToggleAnimation` no-ops when reduced motion is enabled.
  */
-function TabIcon({ name, color, focused }: { name: TabName; color: string; focused: boolean }) {
+function TabIcon({ name, color, focused }: { name: TabName; color: ColorValue; focused: boolean }) {
   const theme = useTheme();
   const progress = useToggleAnimation(focused, theme.motion.fast);
   const Glyph = GLYPHS[name];
