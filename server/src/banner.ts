@@ -2,9 +2,7 @@
 // platform-specific guidance (macOS permission prompts, Windows firewall) can
 // grow without turning the entry point into a wall of console.log.
 
-import { networkInterfaces } from 'node:os';
-
-const TAILSCALE_PREFIX = '100.';
+import { localIPv4, isTailscaleAddress } from './addresses.js';
 
 export interface BannerInfo {
   readonly hostName: string;
@@ -12,15 +10,6 @@ export interface BannerInfo {
   readonly nativeReady: boolean;
   readonly pairingCode: { code: string; expiresInSec: number } | null;
   readonly deviceCount: number;
-}
-
-/** Non-internal IPv4 addresses this host can be reached on. */
-export function localIPs(): string[] {
-  const ifaces = networkInterfaces();
-  return Object.values(ifaces)
-    .flatMap((list) => list ?? [])
-    .filter((i) => i.family === 'IPv4' && !i.internal)
-    .map((i) => i.address);
 }
 
 /** Platform-appropriate label for the machine the agent is running on. */
@@ -50,7 +39,7 @@ const MACOS_PERMISSION_LINES: readonly string[] = [
 ];
 
 export function printBanner(info: BannerInfo): void {
-  const ips = localIPs();
+  const ips = localIPv4();
   const lines: string[] = [
     '',
     `  Tether host agent running on your ${hostKindLabel()}`,
@@ -63,8 +52,15 @@ export function printBanner(info: BannerInfo): void {
     ...ips.map((ip) => `    http://${ip}:${info.port}`),
   ];
 
-  if (ips.some((ip) => ip.startsWith(TAILSCALE_PREFIX))) {
-    lines.push('    (a 100.x address is your Tailscale IP — use it from anywhere)');
+  if (ips.some(isTailscaleAddress)) {
+    lines.push('    (a 100.x address is your Tailscale IP — reachable from anywhere)');
+  } else {
+    // Worth saying plainly: a LAN-only host is one DHCP lease away from being
+    // unreachable, and there is no way for the phone to learn the new address
+    // from outside the house.
+    lines.push('    These are LAN addresses only — they will not work away from');
+    lines.push('    this network, and they change. Install Tailscale on this machine');
+    lines.push('    and your phone to reach it from anywhere.');
   }
   lines.push('');
 

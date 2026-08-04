@@ -11,7 +11,11 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { hostname } from 'node:os';
 import { URL } from 'node:url';
 
-import { loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices, revokeDevice, Device } from './state.js';
+import {
+  loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices,
+  revokeDevice, deviceCount, getHostId, getLabel, setLabel, getPlatform, Device,
+} from './state.js';
+import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
 import { createPairGuard } from './pair-guard.js';
 import { resolveStreamParams, StreamParams } from './stream-params.js';
@@ -83,7 +87,7 @@ if (!getHostName()) setHostName(hostname());
 // Only open a pairing window when there is nothing paired yet. Previously this
 // ran unconditionally, so every restart of an already-paired host opened a live
 // 5-minute code that the banner does not print — an open door nobody could see.
-if (listDevices().length === 0) ensureCode();
+if (deviceCount() === 0) ensureCode();
 
 if (testCodeActive()) {
   console.warn(
@@ -121,8 +125,39 @@ function auth(req: AuthedRequest, res: Response, next: NextFunction) {
 
 // ---- public routes -------------------------------------------------------
 
+/**
+ * Everything the app needs to recognise and re-find this computer.
+ *
+ * `id` is the primary key the app stores a computer under — deliberately not
+ * the URL, because the URL is the thing that changes. `addresses` is the full
+ * set of paths to this host; the app saves all of them and races them at
+ * connect time, so it uses fast LAN at home and the tunnel on cellular without
+ * the user ever choosing.
+ *
+ * Returned unauthenticated from /health because the app needs it *before* it
+ * has a token. None of it is secret: it is the machine's name and the addresses
+ * it already answers on.
+ */
+function identity() {
+  const addresses = buildAddresses(PORT);
+  return {
+    id: getHostId(),
+    label: getLabel(),
+    platform: getPlatform(),
+    addresses,
+    /** False when only LAN addresses exist, i.e. unreachable once you leave. */
+    reachableFromAnywhere: hasStableAddress(addresses),
+  };
+}
+
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, name: getHostName(), native: nativeReady, paired: listDevices().length > 0 });
+  res.json({
+    ok: true,
+    name: getHostName(),
+    native: nativeReady,
+    paired: deviceCount() > 0,
+    ...identity(),
+  });
 });
 
 // The code is only ever shown on the PC (see banner.ts); the phone POSTs a code
@@ -170,7 +205,38 @@ app.post('/pair', (req, res) => {
 // ---- authed routes -------------------------------------------------------
 
 app.get('/me', auth, (req: AuthedRequest, res) => {
-  res.json({ device: { name: req.device!.name }, host: getHostName(), native: nativeReady });
+  res.json({
+    device: { name: req.device!.name },
+    host: getHostName(),
+    native: nativeReady,
+    ...identity(),
+  });
+});
+
+/**
+ * Cheap refresh of just the address list.
+ *
+ * This is how a saved computer self-heals across an IP change: on every
+ * successful connect the app re-reads this and updates what it has stored, so
+ * a new DHCP lease is learned the next time the phone is on the same network.
+ */
+app.get('/addresses', auth, (_req, res) => {
+  const addresses = buildAddresses(PORT);
+  res.json({ addresses, reachableFromAnywhere: hasStableAddress(addresses) });
+});
+
+/** Rename this computer, so the app's list reads "MacBook Air", not a hostname. */
+const MAX_LABEL_LENGTH = 64;
+
+app.post('/label', auth, (req, res) => {
+  const label = String(req.body?.label ?? '').trim();
+  if (!label) { res.status(400).json({ error: 'label is required' }); return; }
+  if (label.length > MAX_LABEL_LENGTH) {
+    res.status(400).json({ error: `label must be ${MAX_LABEL_LENGTH} characters or fewer` });
+    return;
+  }
+  setLabel(label);
+  res.json({ ok: true, label: getLabel() });
 });
 
 app.get('/system', auth, async (_req, res) => {
@@ -427,7 +493,7 @@ server.listen(PORT, () => {
     port: PORT,
     nativeReady,
     pairingCode: currentCode(),
-    deviceCount: listDevices().length,
+    deviceCount: deviceCount(),
   });
 });
 
@@ -436,7 +502,7 @@ server.listen(PORT, () => {
 // if the user takes more than the 5-minute window to pair.
 let lastPrintedCode = currentCode()?.code || '';
 setInterval(() => {
-  if (listDevices().length > 0) return;
+  if (deviceCount() > 0) return;
   ensureCode();
   const c = currentCode();
   if (c && c.code !== lastPrintedCode) {
