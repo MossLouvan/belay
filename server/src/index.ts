@@ -12,7 +12,9 @@ import { hostname } from 'node:os';
 import { URL } from 'node:url';
 
 import { loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices, revokeDevice, Device } from './state.js';
-import { ensureCode, currentCode, consumeCode } from './pairing.js';
+import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
+import { createPairGuard } from './pair-guard.js';
+import { resolveStreamParams, StreamParams } from './stream-params.js';
 import { native } from './native.js';
 import { createTerminal } from './terminal.js';
 import { listDir, readTextFile, ROOTS } from './files.js';
@@ -21,6 +23,29 @@ import { VK, MOD_VK, charToVk } from './keys.js';
 import { printBanner, buildNativeHint } from './banner.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
+
+/**
+ * Browser origins allowed to call the agent.
+ *
+ * The iOS app is a native client and sends no `Origin` header at all, so none
+ * of this applies to it. The only browser that legitimately talks to the agent
+ * is the local web build (used by the Playwright suite and for development).
+ *
+ * A wildcard here is not a small mistake: with `Access-Control-Allow-Origin: *`
+ * any page the user happens to visit can script requests against the agent on
+ * their own network *and read the responses* — including the token handed back
+ * by /pair. That turns a LAN-only weakness into remote takeover from a web ad.
+ */
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://localhost:8081',
+  'http://127.0.0.1:8081',
+] as const;
+
+function allowedOrigins(): readonly string[] {
+  const configured = process.env.TETHER_ALLOWED_ORIGINS;
+  if (!configured) return DEFAULT_ALLOWED_ORIGINS;
+  return configured.split(',').map((o) => o.trim()).filter(Boolean);
+}
 
 /**
  * Ceiling on one /input/text request, in UTF-16 code units (what
@@ -33,9 +58,41 @@ const PORT = Number(process.env.TETHER_PORT || 8787);
  */
 const MAX_INPUT_TEXT_UNITS = 4096;
 
+/**
+ * Send-buffer ceiling for the screen stream, in bytes.
+ *
+ * Roughly two frames at the default width/quality. Above this the client is
+ * consuming slower than the host is producing, so the next frame is dropped
+ * instead of queued — the alternative is unbounded growth of the socket's
+ * write buffer on a slow link, which is exactly the cellular case.
+ */
+const MAX_BUFFERED_BYTES = 256 * 1024;
+
+/** Pause when the send buffer is full, before re-checking. */
+const FRAME_DROP_BACKOFF_MS = 50;
+
+/** Pause after a capture failure, so a broken helper cannot spin the loop. */
+const CAPTURE_ERROR_BACKOFF_MS = 500;
+
+/** How often to rotate and reprint the pairing code while nothing is paired. */
+const CODE_REFRESH_INTERVAL_MS = 30_000;
+
 loadState();
 if (!getHostName()) setHostName(hostname());
-ensureCode();
+
+// Only open a pairing window when there is nothing paired yet. Previously this
+// ran unconditionally, so every restart of an already-paired host opened a live
+// 5-minute code that the banner does not print — an open door nobody could see.
+if (listDevices().length === 0) ensureCode();
+
+if (testCodeActive()) {
+  console.warn(
+    '[pairing] TETHER_TEST_CODE is set: the pairing code is fixed and reusable, ' +
+    'and expiry and single-use are both disabled. This is for automated tests only.',
+  );
+}
+
+const pairGuard = createPairGuard();
 
 const nativeReady = native.available();
 if (nativeReady) {
@@ -45,7 +102,7 @@ if (nativeReady) {
 }
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: [...allowedOrigins()] }));
 app.use(express.json({ limit: '2mb' }));
 
 // ---- auth ----------------------------------------------------------------
@@ -68,14 +125,44 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, name: getHostName(), native: nativeReady, paired: listDevices().length > 0 });
 });
 
-// The PC-side pairing display (see /pair-status) is what shows the code; the
-// phone only ever POSTs a code it was told out of band.
+// The code is only ever shown on the PC (see banner.ts); the phone POSTs a code
+// the user read off that screen. Wrong guesses are rate limited per client and
+// budgeted per code — see pair-guard.ts for why both limits are needed.
 app.post('/pair', (req, res) => {
+  const clientId = req.ip ?? 'unknown';
+
+  const decision = pairGuard.check(clientId);
+  if (!decision.allowed) {
+    res.set('Retry-After', String(decision.retryAfterSec));
+    res.status(429).json({
+      error: 'too many pairing attempts; wait and try again',
+      retryAfterSec: decision.retryAfterSec,
+    });
+    return;
+  }
+
   const { code, deviceName } = req.body || {};
   if (!consumeCode(String(code || ''))) {
+    const outcome = pairGuard.recordFailure(clientId);
+    if (outcome.burnCode) {
+      // The per-code budget is spent. Burn it rather than let a distributed
+      // attempt keep grinding the same code from fresh addresses.
+      burnCode();
+      pairGuard.resetCodeBudget();
+      console.warn('[pairing] too many failed attempts against this code — code invalidated');
+    }
+    if (outcome.clientLockedOut) {
+      console.warn(`[pairing] client ${clientId} locked out after repeated failures`);
+    }
+    // Deliberately the same message and status whether the code was wrong,
+    // expired, or burned — distinguishing them tells an attacker which of the
+    // three they hit.
     res.status(400).json({ error: 'invalid or expired pairing code' });
     return;
   }
+
+  pairGuard.recordSuccess(clientId);
+  pairGuard.resetCodeBudget();
   const device = addDevice(String(deviceName || 'iPhone'));
   res.json({ token: device.token, name: getHostName() });
 });
@@ -208,7 +295,14 @@ server.on('upgrade', (req, socket, head) => {
   if (url.pathname === '/ws/screen') {
     wss.handleUpgrade(req, socket, head, (ws) => handleScreen(ws, url));
   } else if (url.pathname === '/ws/terminal') {
-    wss.handleUpgrade(req, socket, head, (ws) => handleTerminal(ws, url));
+    // handleTerminal is async; an unhandled rejection here would exit the
+    // process under Node's default policy, so the promise is explicitly caught.
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      void handleTerminal(ws, url).catch((e: unknown) => {
+        console.error('[terminal] session failed:', messageOf(e));
+        if (ws.readyState === ws.OPEN) ws.close();
+      });
+    });
   } else {
     socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
     socket.destroy();
@@ -220,18 +314,19 @@ server.on('upgrade', (req, socket, head) => {
 // lowers the frame rate instead of piling up a backlog.
 function handleScreen(ws: WebSocket, url: URL) {
   let alive = true;
-  let width = Number(url.searchParams.get('w')) || 1024;
-  let quality = Number(url.searchParams.get('q')) || 50;
-  let fps = Number(url.searchParams.get('fps')) || 12;
+  // Query string and control message go through the same validation. Both are
+  // untrusted, and only clamping one of them is how `?fps=100000` and
+  // `{"fps":"abc"}` each turned into an uncapped capture loop.
+  let params: StreamParams = resolveStreamParams({
+    w: url.searchParams.get('w'),
+    q: url.searchParams.get('q'),
+    fps: url.searchParams.get('fps'),
+  });
 
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
-      if (msg.type === 'config') {
-        if (msg.w) width = Math.max(240, Math.min(1920, msg.w));
-        if (msg.q) quality = Math.max(20, Math.min(90, msg.q));
-        if (msg.fps) fps = Math.max(1, Math.min(30, msg.fps));
-      }
+      if (msg?.type === 'config') params = resolveStreamParams(msg, params);
     } catch { /* ignore malformed control messages */ }
   });
   ws.on('close', () => { alive = false; });
@@ -241,25 +336,63 @@ function handleScreen(ws: WebSocket, url: URL) {
     while (alive && ws.readyState === ws.OPEN) {
       const started = Date.now();
       try {
-        const frame = await native.capture(width, quality, false);
+        const frame = await native.capture(params.width, params.quality, false);
         if (!alive) break;
+        // Backpressure: ws.send() returns immediately and buffers, so without
+        // this check a link slower than the capture rate grows the send buffer
+        // without bound until the host runs out of memory. Dropping the frame
+        // is correct for a live stream — a stale frame has no value.
+        if (ws.bufferedAmount > MAX_BUFFERED_BYTES) {
+          await sleep(FRAME_DROP_BACKOFF_MS);
+          continue;
+        }
         ws.send(JSON.stringify({ type: 'frame', ...frame }));
-      } catch (e: any) {
-        if (alive) ws.send(JSON.stringify({ type: 'error', error: e.message }));
-        await sleep(500);
+      } catch (e: unknown) {
+        if (alive && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'error', error: messageOf(e) }));
+        }
+        await sleep(CAPTURE_ERROR_BACKOFF_MS);
       }
-      const budget = 1000 / fps;
+      const budget = 1000 / params.fps;
       const elapsed = Date.now() - started;
       if (elapsed < budget) await sleep(budget - elapsed);
     }
   };
-  loop();
+  void loop().catch((e: unknown) => console.error('[screen] stream loop failed:', messageOf(e)));
 }
 
 async function handleTerminal(ws: WebSocket, url: URL) {
   const cols = Number(url.searchParams.get('cols')) || 80;
   const rows = Number(url.searchParams.get('rows')) || 24;
-  const term = await createTerminal(cols, rows);
+
+  // Closed-during-startup guard. `createTerminal` awaits a dynamic import of
+  // node-pty and then a process spawn — tens of milliseconds during which the
+  // client can disconnect. Registering 'close' only after that await meant the
+  // event fired before the handler existed and the shell was never killed, so a
+  // connect/disconnect loop orphaned one login shell per iteration.
+  let closed = false;
+  const markClosed = () => { closed = true; };
+  ws.on('close', markClosed);
+  // Without an 'error' listener, ws emits on an EventEmitter with no handler,
+  // which throws and takes down the entire host agent — every other session
+  // with it. A TCP reset from one phone is enough.
+  ws.on('error', markClosed);
+
+  let term: Awaited<ReturnType<typeof createTerminal>>;
+  try {
+    term = await createTerminal(cols, rows);
+  } catch (e: unknown) {
+    if (!closed && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'error', error: messageOf(e) }));
+      ws.close();
+    }
+    return;
+  }
+
+  // The socket went away while the shell was starting: kill it immediately
+  // rather than leaking a process nobody is attached to.
+  if (closed || ws.readyState !== ws.OPEN) { term.kill(); return; }
+
   ws.send(JSON.stringify({ type: 'ready', mode: term.mode }));
   term.onData((data) => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data }));
@@ -276,9 +409,15 @@ async function handleTerminal(ws: WebSocket, url: URL) {
     } catch { /* ignore */ }
   });
   ws.on('close', () => term.kill());
+  ws.on('error', () => term.kill());
 }
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+
+/** Narrow an unknown thrown value to a message without assuming it is an Error. */
+function messageOf(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 // ---- boot ----------------------------------------------------------------
 
@@ -302,9 +441,23 @@ setInterval(() => {
   const c = currentCode();
   if (c && c.code !== lastPrintedCode) {
     lastPrintedCode = c.code;
+    // A rotated code gets a fresh failure budget; the old code's budget died
+    // with it.
+    pairGuard.resetCodeBudget();
     console.log(`  New pairing code: ${c.code}   (enter this in the Tether app)`);
   }
-}, 30000).unref();
+}, CODE_REFRESH_INTERVAL_MS).unref();
+
+// A host agent that exits on an unexpected rejection is a host agent you cannot
+// reach from your phone. Log and keep serving — every request path already has
+// its own error handling, so a stray rejection is a bug to diagnose, not a
+// reason to drop every other session.
+process.on('unhandledRejection', (reason: unknown) => {
+  console.error('[fatal] unhandled rejection:', messageOf(reason));
+});
+process.on('uncaughtException', (error: unknown) => {
+  console.error('[fatal] uncaught exception:', messageOf(error));
+});
 
 process.on('SIGINT', () => { native.stop(); process.exit(0); });
 process.on('SIGTERM', () => { native.stop(); process.exit(0); });
