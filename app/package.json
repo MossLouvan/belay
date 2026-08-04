@@ -6,7 +6,9 @@
     "start": "expo start",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "export:web": "expo export --platform web --output-dir dist"
+    "export:web": "expo export --platform web --output-dir dist",
+    "test": "node --test src/**/*.test.mjs src/*.test.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "private": true,
   "dependencies": {
