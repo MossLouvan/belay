@@ -36,3 +36,4 @@ app/android/
 Thumbs.db
 .env
 .env.local
+server/test-state.json

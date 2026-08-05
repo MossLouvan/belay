@@ -157,18 +157,17 @@ export function ListItem({
     onPress();
   }, [disabled, onPress]);
 
-  const body = (
-    <Row
-      gap="sm"
-      style={{
-        minHeight: theme.layout.minTouch + 8,
-        paddingVertical: theme.space.sm,
-        paddingHorizontal: theme.space.sm + 2,
-        borderRadius: theme.radius.md,
-        backgroundColor: selected ? theme.colors.accentSoft : 'transparent',
-        opacity: disabled ? 0.45 : 1,
-      }}
-    >
+  const rowStyle = {
+    minHeight: theme.layout.minTouch + 8,
+    paddingVertical: theme.space.sm,
+    paddingHorizontal: theme.space.sm + 2,
+    borderRadius: theme.radius.md,
+    backgroundColor: selected ? theme.colors.accentSoft : 'transparent',
+    opacity: disabled ? 0.45 : 1,
+  } as const;
+
+  const content = (
+    <>
       {leading ? <View accessibilityElementsHidden>{leading}</View> : null}
       <View style={{ flex: 1, gap: 2 }}>
         <Txt
@@ -187,13 +186,56 @@ export function ListItem({
           </Txt>
         ) : null}
       </View>
-      {trailing ? <View>{trailing}</View> : null}
-    </Row>
+    </>
   );
 
   if (!interactive) {
-    return <View style={style}>{body}</View>;
+    return (
+      <View style={style}>
+        <Row gap="sm" style={rowStyle}>
+          {content}
+          {trailing ? <View>{trailing}</View> : null}
+        </Row>
+      </View>
+    );
   }
+
+  // An interactive row with a trailing control is laid out as siblings rather
+  // than nesting the control inside the row's Pressable.
+  //
+  // On web, Pressable renders a <button>, and `trailing` is usually an
+  // IconButton — another <button>. Nested buttons are invalid HTML: React DOM
+  // logs a validateDOMNesting error, and in development that surfaces as an
+  // Expo LogBox toast which sits on top of the page and swallows clicks. That
+  // is exactly how the checked-in Playwright failures were produced — the suite
+  // could not click "Pair" because a warning about this was covering it.
+  //
+  // Splitting them also fixes the real interaction bug underneath: tapping the
+  // trailing control previously also fired the row's own onPress.
+  if (trailing) {
+    return (
+      <Row gap="sm" style={[{ borderRadius: theme.radius.md }, style]}>
+        <Pressable
+          testID={testID}
+          accessibilityRole="button"
+          accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
+          accessibilityHint={accessibilityHint}
+          accessibilityState={{ disabled, selected }}
+          disabled={disabled}
+          onPress={handlePress}
+          onLongPress={onLongPress}
+          onPressIn={press.onPressIn}
+          onPressOut={press.onPressOut}
+          style={{ flex: 1 }}
+        >
+          <Row gap="sm" style={rowStyle}>{content}</Row>
+        </Pressable>
+        <View style={{ paddingRight: theme.space.sm }}>{trailing}</View>
+      </Row>
+    );
+  }
+
+  const body = <Row gap="sm" style={rowStyle}>{content}</Row>;
 
   return (
     <Pressable
