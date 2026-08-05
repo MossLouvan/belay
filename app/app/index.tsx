@@ -12,6 +12,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../src/connection';
 import { checkHost, pair } from '../src/api';
+import { buildSavedDevice } from '../src/devices/from-host';
 import { useTheme } from '../src/theme';
 import { Caption, Card, Column, Label, Row, Txt, haptic } from '../src/ui';
 import { Brand } from '../src/connect/brand';
@@ -86,7 +87,7 @@ function SuccessCard({ name }: { name: string }) {
 }
 
 export default function Connect() {
-  const { ready, connection, setConnection } = useConnection();
+  const { ready, connection, addDevice } = useConnection();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
 
@@ -215,11 +216,16 @@ export default function Connect() {
 
     setBusy(true);
     try {
-      const conn = await pair(host.url, code, deviceName());
+      const result = await pair(host.url, code, deviceName());
+      // Re-read /health now that we are paired, so the saved computer gets the
+      // host's real identity and its full address list rather than just the one
+      // URL that happened to be typed in.
+      const identity = await checkHost(result.host);
+      const device = buildSavedDevice(result, identity, Date.now());
       haptic('success');
       setStage('success');
       successTimer.current = setTimeout(() => {
-        setConnection(conn);
+        void addDevice(device);
         router.replace('/(tabs)/screen');
       }, SUCCESS_DWELL_MS);
     } catch (e: unknown) {
@@ -229,7 +235,7 @@ export default function Connect() {
     } finally {
       setBusy(false);
     }
-  }, [host, code, setConnection]);
+  }, [host, code, addDevice]);
 
   const onBack = useCallback(() => {
     setStage('host');
