@@ -181,15 +181,19 @@ const TABS: readonly { readonly name: TabName; readonly title: string }[] = [
 ];
 
 export default function TabsLayout() {
-  const { ready, connection } = useConnection();
+  const { ready, connection, devices, phase } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const fontScale = PixelRatio.getFontScale();
   const contentHeight = tabBarContentHeight(fontScale);
   const itemHeight = tabItemHeight(fontScale);
 
-  // Guard: never show the tabs without a connection.
-  if (ready && !connection) return <Redirect href="/" />;
+  // Guard: never show the tabs without a live connection. Where to send the
+  // user depends on why there isn't one — with no computers saved they need the
+  // add flow, otherwise they need the list, which can say what went wrong.
+  if (ready && !connection && phase !== 'connecting') {
+    return <Redirect href={devices.length > 0 ? '/devices' : '/'} />;
+  }
 
   return (
     <Tabs

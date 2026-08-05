@@ -87,7 +87,7 @@ function SuccessCard({ name }: { name: string }) {
 }
 
 export default function Connect() {
-  const { ready, connection, addDevice } = useConnection();
+  const { ready, connection, addDevice, devices, phase } = useConnection();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
 
@@ -117,10 +117,14 @@ export default function Connect() {
     };
   }, []);
 
-  // Already paired from a previous launch -> go straight in.
+  // Already set up from a previous launch. One reachable computer goes straight
+  // in; anything else lands on the computer list, which is the only screen that
+  // can explain "your Mac did not answer" and offer somewhere to go next.
   useEffect(() => {
-    if (ready && connection) router.replace('/(tabs)/screen');
-  }, [ready, connection]);
+    if (!ready) return;
+    if (connection) { router.replace('/(tabs)/screen'); return; }
+    if (devices.length > 0 && phase !== 'connecting') router.replace('/devices');
+  }, [ready, connection, devices.length, phase]);
 
   useEffect(() => {
     let live = true;
@@ -225,8 +229,10 @@ export default function Connect() {
       haptic('success');
       setStage('success');
       successTimer.current = setTimeout(() => {
-        void addDevice(device);
-        router.replace('/(tabs)/screen');
+        // Save and connect *before* navigating. The tabs guard redirects away
+        // when there is no live connection, so leaving this unawaited bounces
+        // the user straight back to this screen.
+        void addDevice(device).then(() => router.replace('/(tabs)/screen'));
       }, SUCCESS_DWELL_MS);
     } catch (e: unknown) {
       haptic('error');

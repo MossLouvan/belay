@@ -48,6 +48,7 @@ function Routes({ forced }: { forced: boolean }) {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="devices" />
       <Stack.Screen name="(tabs)" />
     </Stack>
   );
