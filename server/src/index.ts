@@ -98,8 +98,12 @@ if (testCodeActive()) {
 
 const pairGuard = createPairGuard();
 
-const nativeReady = native.available();
-if (nativeReady) {
+/**
+ * Whether the helper binary exists at all. Distinct from whether it is running:
+ * the first is a build-time fact, the second changes while the agent runs.
+ */
+const nativeBuilt = native.available();
+if (nativeBuilt) {
   native.start().catch((e) => console.error('[native] failed to start:', e.message));
 } else {
   console.warn(`[native] helper not built — screen/input disabled. To fix, ${buildNativeHint()}`);
@@ -154,7 +158,10 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     name: getHostName(),
-    native: nativeReady,
+    // Live, not sampled at boot. Reporting a boot-time constant told the phone
+    // that capture worked while every call was failing against a dead helper.
+    native: native.isReady(),
+    nativeBuilt,
     paired: deviceCount() > 0,
     ...identity(),
   });
@@ -208,7 +215,8 @@ app.get('/me', auth, (req: AuthedRequest, res) => {
   res.json({
     device: { name: req.device!.name },
     host: getHostName(),
-    native: nativeReady,
+    native: native.isReady(),
+    nativeBuilt,
     ...identity(),
   });
 });
@@ -491,7 +499,7 @@ server.listen(PORT, () => {
   printBanner({
     hostName: getHostName(),
     port: PORT,
-    nativeReady,
+    nativeReady: nativeBuilt,
     pairingCode: currentCode(),
     deviceCount: deviceCount(),
   });

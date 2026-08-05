@@ -116,8 +116,12 @@ final class InputController {
     func press(_ button: MouseButton, at position: (x: Double, y: Double)?) throws {
         try Permissions.require(.accessibility)
         let point = try resolve(position)
-        heldButtons.insert(button)
+        // Recorded only after the event is actually posted. Inserting first
+        // meant a failed post left the button marked as held without it ever
+        // being pressed — and from then on every `move` was emitted as a drag
+        // instead of a move, until some later up/click happened to clear it.
         try post(type: button.downType, at: point, button: button.cgButton, clickState: 1)
+        heldButtons.insert(button)
     }
 
     func release(_ button: MouseButton, at position: (x: Double, y: Double)?) throws {
@@ -125,6 +129,24 @@ final class InputController {
         let point = try resolve(position)
         heldButtons.remove(button)
         try post(type: button.upType, at: point, button: button.cgButton, clickState: 1)
+    }
+
+    /**
+     Release every button we are still holding.
+
+     Called when stdin closes, i.e. Node has gone away. A phone that disconnects
+     mid-drag otherwise leaves the button physically down at the OS level, and
+     nothing on the desktop will clear it. Best-effort by design: this runs on
+     the way out, so a failure here must not prevent the rest of the shutdown.
+     */
+    func releaseAll() {
+        guard !heldButtons.isEmpty else { return }
+        let held = heldButtons
+        heldButtons.removeAll()
+        for button in held {
+            let point = currentCursor()
+            try? post(type: button.upType, at: point, button: button.cgButton, clickState: 1)
+        }
     }
 
     func click(_ button: MouseButton, at position: (x: Double, y: Double)?, double: Bool) throws {

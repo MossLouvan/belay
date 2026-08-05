@@ -23,6 +23,14 @@ private let capture = CaptureEngine()
 private let input = InputController()
 
 private func run() {
+    // Without this the process is killed outright the moment stdout closes —
+    // confirmed empirically: closing stdout produced an immediate SIGPIPE and
+    // the helper died. Node then has no capture or input until the whole agent
+    // is restarted, so one transient pipe hiccup took the feature away for the
+    // life of the session. Ignoring it turns the same event into a write error
+    // the loop can see and exit cleanly on.
+    signal(SIGPIPE, SIG_IGN)
+
     let permissions = Permissions.requestMissing()
     replies.ready([
         "platform": "darwin",
@@ -42,6 +50,11 @@ private func run() {
             replies.failure(id: id, HostError.wrap(error))
         }
     }
+    // stdin closed: Node is gone or shutting down. Release anything we are
+    // holding down before exiting, or the OS keeps a mouse button or modifier
+    // physically pressed — a phone that disconnects mid-drag would otherwise
+    // leave the desktop stuck in a drag with no way to clear it.
+    input.releaseAll()
     capture.stopAll()
 }
 
