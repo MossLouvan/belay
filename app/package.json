@@ -4,11 +4,13 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "ios": "expo start --ios",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "export:web": "expo export --platform web --output-dir dist",
     "test": "node --test src/**/*.test.mjs src/*.test.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "iphone": "bash scripts/iphone.sh",
+    "simulator": "expo run:ios"
   },
   "private": true,
   "dependencies": {
