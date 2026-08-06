@@ -211,8 +211,25 @@ Stop the Mac sleeping while you might want to reach it:
   external display attached — a closed lid otherwise means clamshell sleep.
 - `caffeinate -s` in a spare terminal is the quick, temporary version.
 
-Run it at login with a **LaunchAgent**. Create
-`~/Library/LaunchAgents/com.tether.host.plist`:
+Run it at login with a **LaunchAgent**. One command does the whole thing:
+
+```bash
+cd server
+npm run autostart            # install and start
+npm run autostart -- status  # is it running
+npm run autostart -- logs    # what it printed
+npm run autostart -- remove  # undo all of this
+```
+
+The script resolves the real `node` path and repo location itself, so there is
+nothing to fill in. It deliberately runs `node` directly rather than
+`npm start`: with npm in between, launchd's child is npm and the server is a
+*grandchild*, so unloading the agent kills npm and leaves node orphaned, still
+holding port 8787 — the next install then cannot bind while reporting itself
+healthy. This was observed in practice, not theorised.
+
+The rest of this section is the manual equivalent, if you would rather see what
+the script does. Create `~/Library/LaunchAgents/com.tether.host.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>

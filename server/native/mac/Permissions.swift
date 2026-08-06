@@ -16,6 +16,7 @@
 
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
 
 enum PermissionKind: String {
@@ -53,11 +54,41 @@ enum Permissions {
         ProcessInfo.processInfo.environment["TETHER_MAC_NO_PROMPT"] != "1"
     }
 
+    /// Whether we were started by launchd rather than from a terminal.
+    ///
+    /// It matters because the advice is completely different. Launched from a
+    /// terminal, the grant attaches to that terminal app and the user has to
+    /// find it by name. Launched by launchd there is no such app — the
+    /// responsible process is the node binary itself, macOS cannot show a
+    /// prompt for a background job, and the only route is adding that binary by
+    /// hand with the + button.
+    static var startedByLaunchd: Bool {
+        // launchd sets neither of these; every terminal emulator sets at least
+        // one. XPC_SERVICE_NAME is present for launchd-managed jobs.
+        let env = ProcessInfo.processInfo.environment
+        if env["TERM_PROGRAM"] != nil || env["TERM"] != nil { return false }
+        return env["XPC_SERVICE_NAME"] != nil
+    }
+
     /// Name of the process macOS will actually list in System Settings.
     static var responsibleProcessName: String {
-        ProcessInfo.processInfo.environment["TERM_PROGRAM"]
+        if startedByLaunchd { return nodeBinaryPath }
+        return ProcessInfo.processInfo.environment["TERM_PROGRAM"]
             ?? ProcessInfo.processInfo.environment["__CFBundleIdentifier"]
             ?? "the app that launched the Tether server (usually Terminal)"
+    }
+
+    /// Absolute path of the node binary running the server, for the + button.
+    private static var nodeBinaryPath: String {
+        // The helper's parent is the node process that spawned it. Reading the
+        // executable path off our own parent is more reliable than guessing at
+        // a Homebrew or system location.
+        let parent = getppid()
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        if proc_pidpath(parent, &buffer, UInt32(buffer.count)) > 0 {
+            return String(cString: buffer)
+        }
+        return "the node binary running the Tether server"
     }
 
     /// Test seam. `TETHER_MAC_FORCE_DENY=screen-recording,accessibility` makes
@@ -110,12 +141,26 @@ enum Permissions {
 
     static func denied(_ kind: PermissionKind) -> HostError {
         let owner = responsibleProcessName
-        let message = """
-        macOS \(kind.rawValue) permission is not granted. \
-        Open System Settings → \(kind.settingsPane) and enable "\(owner)" \
-        (the permission is granted to the app that launched the Tether server, not to node itself), \
-        then fully quit and reopen it and restart the server.
-        """
+        let message: String
+        if startedByLaunchd {
+            // No launching app exists, and macOS will not prompt for a
+            // background job, so naming a terminal here would send the user
+            // looking for something that is not involved.
+            message = """
+            macOS \(kind.rawValue) permission is not granted, and Tether was started by \
+            launchd so macOS cannot prompt for it. Open System Settings → \(kind.settingsPane), \
+            click +, and add this binary directly: \(owner). Then run: \
+            npm run autostart -- remove && npm run autostart. Terminal, Files and System \
+            work without this; only the Screen tab needs it.
+            """
+        } else {
+            message = """
+            macOS \(kind.rawValue) permission is not granted. \
+            Open System Settings → \(kind.settingsPane) and enable "\(owner)" \
+            (the permission is granted to the app that launched the Tether server, not to node itself), \
+            then fully quit and reopen it and restart the server.
+            """
+        }
         return HostError(kind.errorCode, message, details: [
             "permission": kind.rawValue,
             "settingsPane": kind.settingsPane,
