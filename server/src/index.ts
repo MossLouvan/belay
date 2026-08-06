@@ -502,6 +502,9 @@ server.listen(PORT, () => {
     nativeReady: nativeBuilt,
     pairingCode: currentCode(),
     deviceCount: deviceCount(),
+    hostId: getHostId(),
+    label: getLabel(),
+    platform: getPlatform(),
   });
 });
 

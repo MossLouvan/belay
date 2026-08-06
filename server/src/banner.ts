@@ -2,7 +2,10 @@
 // platform-specific guidance (macOS permission prompts, Windows firewall) can
 // grow without turning the entry point into a wall of console.log.
 
-import { localIPv4, isTailscaleAddress } from './addresses.js';
+import qrcode from 'qrcode-terminal';
+
+import { localIPv4, isTailscaleAddress, buildAddresses } from './addresses.js';
+import { buildPairLink } from './pair-link.js';
 
 export interface BannerInfo {
   readonly hostName: string;
@@ -10,6 +13,36 @@ export interface BannerInfo {
   readonly nativeReady: boolean;
   readonly pairingCode: { code: string; expiresInSec: number } | null;
   readonly deviceCount: number;
+  /** Stable machine id, so a scan can save this computer under the right key. */
+  readonly hostId: string;
+  readonly label: string;
+  readonly platform: string;
+}
+
+/**
+ * Print the pairing QR.
+ *
+ * Scanning removes the two typing steps — the address and the six digits — that
+ * are the clunkiest part of setup and the only part that requires being at the
+ * computer. The code is still shown underneath, because a terminal that
+ * mangles block characters, a remote SSH session, or simply a phone with no
+ * working camera all need the manual path to keep working.
+ */
+function printPairingQr(info: BannerInfo, code: string): void {
+  const addresses = buildAddresses(info.port);
+  if (addresses.length === 0) return;
+
+  const link = buildPairLink({
+    hostId: info.hostId,
+    label: info.label,
+    platform: info.platform,
+    code,
+    addresses,
+  });
+
+  // `small: true` uses half-block characters so the code fits an 80-column
+  // terminal; the default renders roughly twice as tall and wraps.
+  qrcode.generate(link, { small: true });
 }
 
 /** Platform-appropriate label for the machine the agent is running on. */
@@ -69,9 +102,15 @@ export function printBanner(info: BannerInfo): void {
   }
 
   if (info.deviceCount === 0 && info.pairingCode) {
+    lines.push('  Scan this in the Tether app to connect:', '');
+    for (const line of lines) console.log(line);
+    lines.length = 0;
+
+    printPairingQr(info, info.pairingCode.code);
+
     lines.push(
-      `  Pairing code: ${info.pairingCode.code}   (expires in ${info.pairingCode.expiresInSec}s)`,
-      '  Enter this in the Tether app on your phone.',
+      '',
+      `  ...or type it in manually — code: ${info.pairingCode.code}   (expires in ${info.pairingCode.expiresInSec}s)`,
     );
   } else {
     lines.push(`  Paired devices: ${info.deviceCount}. Use the app to connect.`);

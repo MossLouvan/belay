@@ -13,8 +13,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../src/connection';
 import { checkHost, pair } from '../src/api';
 import { buildSavedDevice } from '../src/devices/from-host';
+import { ScanStep } from '../src/connect/scan';
+import { ParsedPairLink } from '../src/connect/pair-link';
+import { raceAddresses } from '../src/devices/race';
 import { useTheme } from '../src/theme';
-import { Caption, Card, Column, Label, Row, Txt, haptic } from '../src/ui';
+import {
+  Button, Caption, Card, Column, Label, Row, Txt, haptic,
+} from '../src/ui';
 import { Brand } from '../src/connect/brand';
 import { Diagnosis, diagnoseHostFailure, diagnosePairFailure } from '../src/connect/diagnose';
 import { forgetHost, loadRecentHosts, prettyHost, rememberHost, resolveHost } from '../src/connect/host-input';
@@ -23,7 +28,7 @@ import { HostStep } from '../src/connect/host-step';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
 import { ThemeToggle } from '../src/settings/theme-toggle';
 
-type Stage = 'host' | 'code' | 'success';
+type Stage = 'host' | 'scan' | 'code' | 'success';
 
 /** How long to wait for `/health` before calling the address unreachable. */
 const HOST_CHECK_TIMEOUT_MS = 8000;
@@ -81,6 +86,42 @@ function SuccessCard({ name }: { name: string }) {
           Paired with {name}
         </Txt>
         <Caption style={{ textAlign: 'center' }}>You will not need the code again on this device.</Caption>
+      </Column>
+    </Card>
+  );
+}
+
+/**
+ * The first of a scanned computer's addresses that answers.
+ *
+ * A QR lists every path the host knows about, and only some of them work from
+ * wherever the phone is standing — the LAN address is useless on cellular, and
+ * the Tailscale one is useless if Tailscale is not running. They are raced
+ * rather than tried in order so a dead candidate costs one abandoned request
+ * instead of a visible delay.
+ */
+async function firstReachable(urls: readonly string[]): Promise<string | null> {
+  const winner = await raceAddresses(
+    urls.map((url) => ({ url })),
+    async (url, signal) => {
+      const health = await checkHost(url, signal);
+      return { ok: health.ok, hostId: health.id };
+    },
+  );
+  return winner?.url ?? null;
+}
+
+/** Offers the scanner from the manual-entry screen. */
+function ScanPrompt({ onPress }: { onPress: () => void }) {
+  return (
+    <Card>
+      <Column gap="sm">
+        <Txt variant="bodyStrong">Skip the typing</Txt>
+        <Caption>
+          The host agent prints a QR code when it starts. Scanning it fills in the
+          address and the code for you.
+        </Caption>
+        <Button label="Scan the code" variant="secondary" fullWidth onPress={onPress} testID="scan-btn" />
       </Column>
     </Card>
   );
@@ -207,20 +248,16 @@ export default function Connect() {
     }
   }, [hostText]);
 
-  const doPair = useCallback(async () => {
-    if (!host) return;
-    setPairError(null);
-    if (code.length !== CODE_LENGTH) {
-      setPairError({
-        title: `Enter all ${CODE_LENGTH} digits`,
-        message: 'The pairing code shown on your computer is six digits long.',
-      });
-      return;
-    }
-
-    setBusy(true);
+  /**
+   * Trade a code for a token and save the computer.
+   *
+   * Shared by the typed flow and the scanned one so the two cannot drift —
+   * scanning must produce exactly the same saved computer as typing, including
+   * the identity re-read below.
+   */
+  const completePairing = useCallback(async (hostUrl: string, pairingCode: string) => {
     try {
-      const result = await pair(host.url, code, deviceName());
+      const result = await pair(hostUrl, pairingCode, deviceName());
       // Re-read /health now that we are paired, so the saved computer gets the
       // host's real identity and its full address list rather than just the one
       // URL that happened to be typed in.
@@ -236,12 +273,57 @@ export default function Connect() {
       }, SUCCESS_DWELL_MS);
     } catch (e: unknown) {
       haptic('error');
-      setPairError(diagnosePairFailure(host.url, errorMessage(e)));
+      setStage('code');
+      setPairError(diagnosePairFailure(hostUrl, errorMessage(e)));
       setCode('');
+    }
+  }, [addDevice]);
+
+  const doPair = useCallback(async () => {
+    if (!host) return;
+    setPairError(null);
+    if (code.length !== CODE_LENGTH) {
+      setPairError({
+        title: `Enter all ${CODE_LENGTH} digits`,
+        message: 'The pairing code shown on your computer is six digits long.',
+      });
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await completePairing(host.url, code);
     } finally {
       setBusy(false);
     }
-  }, [host, code, addDevice]);
+  }, [host, code, completePairing]);
+
+  /**
+   * A scanned link carries the address and the code together, so there is
+   * nothing left to type. The addresses are raced rather than assumed: the QR
+   * lists every path the host knows, and only one of them is reachable from
+   * wherever the phone happens to be standing.
+   */
+  const onScanned = useCallback(async (link: ParsedPairLink) => {
+    setPairError(null);
+    setBusy(true);
+    try {
+      const reachable = await firstReachable(link.addresses);
+      if (!reachable) {
+        setStage('host');
+        setHostError({
+          title: `Could not reach ${link.label}`,
+          message:
+            'The code scanned fine, but none of that computer\'s addresses answered ' +
+            'from this network. Check it is awake and on the same Wi-Fi, or use Tailscale.',
+        });
+        return;
+      }
+      await completePairing(reachable, link.code);
+    } finally {
+      setBusy(false);
+    }
+  }, [completePairing]);
 
   const onBack = useCallback(() => {
     setStage('host');
@@ -295,10 +377,15 @@ export default function Connect() {
               onPickRecent={onPickRecent}
               onForgetRecent={onForgetRecent}
             />
+            <ScanPrompt onPress={() => setStage('scan')} />
             <SetupSteps />
             <AwayFromHomeNote />
             <AppearanceRow />
           </>
+        ) : null}
+
+        {stage === 'scan' ? (
+          <ScanStep onScanned={(link) => void onScanned(link)} onCancel={() => setStage('host')} />
         ) : null}
 
         {stage === 'code' && host ? (

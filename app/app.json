@@ -17,7 +17,8 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoads": true
-        }
+        },
+        "NSCameraUsageDescription": "Tether uses the camera only to scan the pairing code shown on your computer."
       }
     },
     "android": {
@@ -50,6 +51,13 @@
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Tether uses the camera only to scan the pairing code shown on your computer.",
+          "recordAudioAndroid": false
         }
       ]
     ],
