@@ -518,6 +518,50 @@ function messageOf(e: unknown): string {
 
 // ---- boot ----------------------------------------------------------------
 
+/**
+ * Explain a failure to bind instead of printing a stack trace.
+ *
+ * "address already in use" is the most common thing to go wrong when starting
+ * the agent, and Node's default output for it is an ECONNREFUSED-style stack
+ * that says nothing about which port, what is holding it, or what to do. The
+ * most likely cause is another copy of the agent already running — in which
+ * case the answer is not to fix anything, it is that the machine is already
+ * reachable.
+ */
+server.on('error', (e: NodeJS.ErrnoException) => {
+  if (e.code === 'EADDRINUSE') {
+    console.error(`
+  Port ${PORT} is already in use.
+
+  Most likely the Tether agent is already running — in which case your computer
+  is already reachable and there is nothing to do. Check with:
+
+      curl -s http://127.0.0.1:${PORT}/health
+
+  If that answers, you are done. To find what is holding the port:
+
+      lsof -nP -iTCP:${PORT} -sTCP:LISTEN          (macOS / Linux)
+      netstat -ano | findstr :${PORT}              (Windows)
+
+  To run on a different port instead:
+
+      TETHER_PORT=8788 npm start
+`);
+    process.exit(1);
+  }
+  if (e.code === 'EACCES') {
+    console.error(`
+  Not allowed to bind port ${PORT}. Ports below 1024 need elevated privileges;
+  pick a higher one:
+
+      TETHER_PORT=8787 npm start
+`);
+    process.exit(1);
+  }
+  console.error('[server] failed to start:', e.message);
+  process.exit(1);
+});
+
 server.listen(PORT, () => {
   printBanner({
     hostName: getHostName(),
