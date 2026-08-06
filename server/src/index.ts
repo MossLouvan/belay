@@ -18,6 +18,7 @@ import {
 import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
 import { createPairGuard } from './pair-guard.js';
+import { createTicketStore } from './tickets.js';
 import { resolveStreamParams, StreamParams } from './stream-params.js';
 import { native } from './native.js';
 import { createTerminal } from './terminal.js';
@@ -97,6 +98,7 @@ if (testCodeActive()) {
 }
 
 const pairGuard = createPairGuard();
+const tickets = createTicketStore();
 
 /**
  * Whether the helper binary exists at all. Distinct from whether it is running:
@@ -233,6 +235,20 @@ app.get('/addresses', auth, (_req, res) => {
   res.json({ addresses, reachableFromAnywhere: hasStableAddress(addresses) });
 });
 
+/**
+ * Exchange the bearer token for a one-shot WebSocket ticket.
+ *
+ * Browsers cannot set headers on a WebSocket handshake, so something has to
+ * travel in the URL. A ticket is the thing that is safe to put there: it is
+ * single-use and expires in seconds, so a URL captured from a proxy log is
+ * worthless, whereas the token itself would grant complete control of this
+ * machine to whoever read the log.
+ */
+app.post('/ws-ticket', auth, (req: AuthedRequest, res) => {
+  const issued = tickets.issue(req.device!.token);
+  res.json(issued);
+});
+
 /** Rename this computer, so the app's list reads "MacBook Air", not a hostname. */
 const MAX_LABEL_LENGTH = 64;
 
@@ -361,7 +377,14 @@ const wss = new WebSocketServer({ noServer: true });
 // One handler per WS path. Auth happens once here at the upgrade.
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url || '', 'http://localhost');
-  const token = url.searchParams.get('token') || '';
+
+  // A ticket is preferred; the raw token is still accepted so an app built
+  // before /ws-ticket existed keeps working. New clients should never send it —
+  // see the route above for why a token in a URL is a problem.
+  const ticket = url.searchParams.get('ticket') || '';
+  const redeemed = ticket ? tickets.redeem(ticket) : null;
+  const token = redeemed ?? url.searchParams.get('token') ?? '';
+
   const device = findDevice(token);
   if (!device) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
   touchDevice(device);

@@ -108,18 +108,33 @@ export default function TerminalTab() {
     setError('');
     setMode(null);
 
-    let socket: WebSocket;
-    try {
-      const { cols, rows } = geometryRef.current;
-      socket = new WebSocket(wsUrl('/ws/terminal', { cols, rows }));
-    } catch (e: unknown) {
-      setStatus('error');
-      setError(e instanceof Error ? e.message : 'could not open a terminal session');
-      return undefined;
-    }
-    wsRef.current = socket;
+    // The upgrade URL now needs a single-use ticket fetched over HTTP first, so
+    // opening is asynchronous. `cancelled` guards the gap: the effect can be
+    // torn down while that request is in flight, and a socket opened afterwards
+    // would have no cleanup attached to it.
+    let cancelled = false;
+    let socket: WebSocket | null = null;
 
-    socket.onopen = () => setStatus('open');
+    const openSocket = async (): Promise<void> => {
+      let opened: WebSocket;
+      try {
+        const { cols, rows } = geometryRef.current;
+        opened = new WebSocket(await wsUrl('/ws/terminal', { cols, rows }));
+      } catch (e: unknown) {
+        if (cancelled) return;
+        setStatus('error');
+        setError(e instanceof Error ? e.message : 'could not open a terminal session');
+        return;
+      }
+      if (cancelled) { opened.close(); return; }
+
+      socket = opened;
+      wsRef.current = opened;
+      attach(opened);
+    };
+
+    const attach = (socket: WebSocket): void => {
+      socket.onopen = () => setStatus('open');
     socket.onmessage = (event: MessageEvent) => {
       const msg = parseServerMessage(event.data);
       if (!msg) return;
@@ -137,10 +152,15 @@ export default function TerminalTab() {
       setStatus((s) => (s === 'exited' ? s : 'error'));
     };
     socket.onclose = () => setStatus((s) => (s === 'exited' || s === 'error' ? s : 'closed'));
+    };
+
+    void openSocket();
 
     const timer = setInterval(flush, FLUSH_MS);
     return () => {
+      cancelled = true;
       clearInterval(timer);
+      if (!socket) return;
       socket.onmessage = null;
       socket.onerror = null;
       socket.onclose = null;

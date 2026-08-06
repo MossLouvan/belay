@@ -202,21 +202,26 @@ export function useScreenStream(active: boolean, quality: QualityPreset): Stream
       setAttempt(tries);
       setPhase('reconnecting');
       const delay = Math.min(STREAM.backoffMaxMs, STREAM.backoffBaseMs * 2 ** (tries - 1));
-      retryTimer = setTimeout(open, delay);
+      retryTimer = setTimeout(() => void open().catch(() => scheduleRetry()), delay);
     };
 
-    function open(): void {
+    // Async because the upgrade URL now needs a ticket fetched over HTTP first.
+    // The `disposed` check is repeated after the await: the effect can be torn
+    // down while the ticket request is in flight, and opening a socket then
+    // would leak one that nothing ever closes.
+    async function open(): Promise<void> {
       if (disposed) return;
       setPhase(tries === 0 ? 'connecting' : 'reconnecting');
       const preset = qualityRef.current;
       let socket: WebSocket;
       try {
-        socket = new WebSocket(wsUrl('/ws/screen', { w: preset.w, q: preset.q, fps: preset.fps }));
+        socket = new WebSocket(await wsUrl('/ws/screen', { w: preset.w, q: preset.q, fps: preset.fps }));
       } catch (e: unknown) {
         setError(`Could not open the screen stream — ${messageOf(e)}`);
         scheduleRetry();
         return;
       }
+      if (disposed) { socket.close(); return; }
       socketRef.current = socket;
       socket.onopen = () => {
         if (disposed) return;
@@ -235,7 +240,7 @@ export function useScreenStream(active: boolean, quality: QualityPreset): Stream
       };
     }
 
-    open();
+    void open().catch(() => scheduleRetry());
 
     const ticker = setInterval(() => {
       const c = counters.current;

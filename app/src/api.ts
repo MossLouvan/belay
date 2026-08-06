@@ -281,14 +281,37 @@ export const api = {
   },
 };
 
-// WebSocket URLs use ws:// derived from the http host and carry the token as a
-// query param, since browsers can't set WebSocket auth headers.
-export function wsUrl(path: string, params: Record<string, string | number> = {}): string {
+/**
+ * Build a WebSocket URL authenticated with a single-use ticket.
+ *
+ * A WebSocket handshake cannot carry headers, so something has to go in the
+ * URL. Previously that was the bearer token, which grants complete control of
+ * the machine and ends up written to any proxy or access log that records a
+ * request line. A ticket is safe to put there instead: it is single-use and
+ * expires in seconds, so a captured URL is worthless.
+ *
+ * Falls back to the token when the host is too old to offer /ws-ticket, so an
+ * updated app still works against a host that has not been updated yet.
+ */
+export async function wsUrl(
+  path: string,
+  params: Record<string, string | number> = {},
+): Promise<string> {
   if (!conn) throw new Error('not connected');
   const u = new URL(conn.host);
   u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
   u.pathname = path;
-  u.searchParams.set('token', conn.token);
+
+  try {
+    const { ticket } = await post<{ ticket: string }>('/ws-ticket', {});
+    u.searchParams.set('ticket', ticket);
+  } catch (e: unknown) {
+    // An unauthorized here is real and must surface — the phone has been
+    // un-paired, and retrying with the token would fail the same way.
+    if (e instanceof UnauthorizedError) throw e;
+    u.searchParams.set('token', conn.token);
+  }
+
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
   return u.toString();
 }
