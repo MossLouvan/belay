@@ -4,7 +4,7 @@
 
 import qrcode from 'qrcode-terminal';
 
-import { localIPv4, isTailscaleAddress, buildAddresses } from './addresses.js';
+import { localAddresses, isTailscaleAddress, isCgnatAddress, buildAddresses } from './addresses.js';
 import { buildPairLink } from './pair-link.js';
 
 export interface BannerInfo {
@@ -72,7 +72,8 @@ const MACOS_PERMISSION_LINES: readonly string[] = [
 ];
 
 export function printBanner(info: BannerInfo): void {
-  const ips = localIPv4();
+  const found = localAddresses();
+  const ips = found.map((a) => a.address);
   const lines: string[] = [
     '',
     `  Tether host agent running on your ${hostKindLabel()}`,
@@ -85,15 +86,27 @@ export function printBanner(info: BannerInfo): void {
     ...ips.map((ip) => `    http://${ip}:${info.port}`),
   ];
 
-  if (ips.some(isTailscaleAddress)) {
-    lines.push('    (a 100.x address is your Tailscale IP — reachable from anywhere)');
+  const onTailscale = found.some((a) => isTailscaleAddress(a.address, a.interfaceName));
+  // A CGNAT address on a *physical* interface is the ISP's, not Tailscale's.
+  // Saying so matters: it looks identical to a tailnet address but means the
+  // opposite — no public address, nothing to port-forward, harder to reach.
+  const ispCgnat = found.filter((a) => isCgnatAddress(a.address) && !isTailscaleAddress(a.address, a.interfaceName));
+
+  if (onTailscale) {
+    lines.push('    (the 100.x address on a tunnel interface is Tailscale — reachable from anywhere)');
   } else {
-    // Worth saying plainly: a LAN-only host is one DHCP lease away from being
-    // unreachable, and there is no way for the phone to learn the new address
-    // from outside the house.
-    lines.push('    These are LAN addresses only — they will not work away from');
-    lines.push('    this network, and they change. Install Tailscale on this machine');
-    lines.push('    and your phone to reach it from anywhere.');
+    if (ispCgnat.length > 0) {
+      lines.push(
+        `    Note: ${ispCgnat[0].address} is in the 100.64.0.0/10 range but sits on`,
+        `    ${ispCgnat[0].interfaceName}, a physical interface — so it is your ISP's`,
+        '    carrier-grade NAT, not Tailscale. It looks similar and means the',
+        '    opposite: there is no public address and nothing to port-forward.',
+        '',
+      );
+    }
+    lines.push('    These addresses only work on this network, and they change.');
+    lines.push('    Install Tailscale on this machine and your phone to reach it');
+    lines.push('    from anywhere: https://tailscale.com/download');
   }
   lines.push('');
 

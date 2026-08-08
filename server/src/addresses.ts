@@ -17,11 +17,27 @@ import { networkInterfaces } from 'node:os';
 /**
  * Tailscale hands out addresses from the 100.64.0.0/10 CGNAT range.
  *
- * Note this range is also used by some ISPs for real carrier-grade NAT, so a
- * `100.x` address is a strong hint rather than proof. Mislabelling is cheap
- * here — the address still gets raced like any other; it only affects ordering.
+ * The range alone is NOT proof. 100.64.0.0/10 is the standard carrier-grade NAT
+ * range and plenty of ISPs hand it out on ordinary Wi-Fi — observed in practice
+ * on a machine with no Tailscale installed at all, where the address sat on
+ * `en0`. Treating that as Tailscale is worse than saying nothing: a CGNAT
+ * address means the opposite of reachable-from-anywhere, since there is no
+ * public address and no port to forward, so the host would claim it could be
+ * reached from outside precisely when it cannot be.
+ *
+ * So the range is necessary but not sufficient — the address must also sit on a
+ * tunnel interface, which is what Tailscale actually creates.
  */
-const TAILSCALE_CGNAT = { first: 0x64400000, last: 0x647fffff } as const;
+const CGNAT_RANGE = { first: 0x64400000, last: 0x647fffff } as const;
+
+/**
+ * Interface names Tailscale uses for its tunnel.
+ *
+ * macOS and iOS use `utun<N>`; Linux and Windows use `tailscale0`. An ISP's
+ * CGNAT address arrives on a physical interface (`en0`, `eth0`, `wlan0`), which
+ * is the distinction that makes this reliable.
+ */
+const TUNNEL_INTERFACE = /^(utun\d*|tailscale\d*|ts\d+)$/i;
 
 export type AddressKind = 'lan' | 'tailscale' | 'magicdns' | 'relay';
 
@@ -55,19 +71,56 @@ function ipv4ToInt(address: string): number | null {
   return value;
 }
 
-/** Whether an IPv4 address falls in Tailscale's CGNAT range. */
-export function isTailscaleAddress(address: string): boolean {
+/** Whether an IPv4 address falls in the CGNAT range. True for ISP NAT too. */
+export function isCgnatAddress(address: string): boolean {
   const value = ipv4ToInt(address);
   if (value === null) return false;
-  return value >= TAILSCALE_CGNAT.first && value <= TAILSCALE_CGNAT.last;
+  return value >= CGNAT_RANGE.first && value <= CGNAT_RANGE.last;
 }
 
-/** Non-internal IPv4 addresses this host is currently bound to. */
+/** Whether an interface name is a tunnel rather than a physical adapter. */
+export function isTunnelInterface(name: string): boolean {
+  return TUNNEL_INTERFACE.test(name);
+}
+
+/**
+ * Whether this address is genuinely a Tailscale address.
+ *
+ * Requires both the CGNAT range and a tunnel interface. Without the second
+ * check an ISP's CGNAT address on Wi-Fi is indistinguishable from a tailnet
+ * address, and the host ends up promising reachability it does not have.
+ */
+export function isTailscaleAddress(address: string, interfaceName: string): boolean {
+  return isCgnatAddress(address) && isTunnelInterface(interfaceName);
+}
+
+/** An address together with the interface it was found on. */
+export interface LocalAddress {
+  readonly address: string;
+  readonly interfaceName: string;
+}
+
+/**
+ * Non-internal IPv4 addresses this host is bound to, with their interfaces.
+ *
+ * The interface name is carried through because it is the only thing that
+ * distinguishes a Tailscale address from an ISP CGNAT address — see the note on
+ * CGNAT_RANGE.
+ */
+export function localAddresses(): readonly LocalAddress[] {
+  const out: LocalAddress[] = [];
+  for (const [interfaceName, list] of Object.entries(networkInterfaces())) {
+    for (const info of list ?? []) {
+      if (info.family !== 'IPv4' || info.internal) continue;
+      out.push({ address: info.address, interfaceName });
+    }
+  }
+  return out;
+}
+
+/** Just the addresses, for callers that do not care where they came from. */
 export function localIPv4(): readonly string[] {
-  return Object.values(networkInterfaces())
-    .flatMap((list) => list ?? [])
-    .filter((i) => i.family === 'IPv4' && !i.internal)
-    .map((i) => i.address);
+  return localAddresses().map((a) => a.address);
 }
 
 /**
@@ -81,11 +134,13 @@ export function localIPv4(): readonly string[] {
 export function buildAddresses(
   port: number,
   extra: readonly HostAddress[] = [],
-  ips: readonly string[] = localIPv4(),
+  found: readonly LocalAddress[] = localAddresses(),
 ): readonly HostAddress[] {
-  const discovered: HostAddress[] = ips.map((ip) => ({
-    kind: isTailscaleAddress(ip) ? ('tailscale' as const) : ('lan' as const),
-    url: `http://${ip}:${port}`,
+  const discovered: HostAddress[] = found.map((entry) => ({
+    kind: isTailscaleAddress(entry.address, entry.interfaceName)
+      ? ('tailscale' as const)
+      : ('lan' as const),
+    url: `http://${entry.address}:${port}`,
   }));
 
   const byUrl = new Map<string, HostAddress>();
