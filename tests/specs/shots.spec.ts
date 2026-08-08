@@ -3,7 +3,10 @@ import { test } from '@playwright/test';
 // Captures a screenshot of each screen at iPhone size for visual review.
 // Not an assertion test — it just produces images in ../screenshots.
 
-const HOST = '127.0.0.1:8787';
+// Port is overridable so the suite can run beside an agent you already have
+// going, instead of demanding sole ownership of 8787.
+const PORT = process.env.TETHER_TEST_PORT || '8787';
+const HOST = `127.0.0.1:${PORT}`;
 const CODE = '123456';
 const DIR = '../screenshots';
 

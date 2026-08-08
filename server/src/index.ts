@@ -562,7 +562,18 @@ server.on('error', (e: NodeJS.ErrnoException) => {
   process.exit(1);
 });
 
+/**
+ * Whether the server ever managed to bind.
+ *
+ * Used to decide whether an unexpected error is survivable. Before the socket
+ * is listening nothing works, so limping on is worse than exiting: the process
+ * sits there looking alive while the phone cannot reach it, and a service
+ * manager sees a healthy job and never restarts it.
+ */
+let listening = false;
+
 server.listen(PORT, () => {
+  listening = true;
   printBanner({
     hostName: getHostName(),
     port: PORT,
@@ -601,6 +612,12 @@ process.on('unhandledRejection', (reason: unknown) => {
 });
 process.on('uncaughtException', (error: unknown) => {
   console.error('[fatal] uncaught exception:', messageOf(error));
+  // Surviving an unexpected error is the right call once the agent is serving —
+  // every route already handles its own failures, and dropping every live
+  // session over one stray throw is worse. Before it is listening, the opposite
+  // is true: there is nothing to preserve, and staying up hides a dead agent
+  // behind a process that looks fine.
+  if (!listening) process.exit(1);
 });
 
 process.on('SIGINT', () => { native.stop(); process.exit(0); });

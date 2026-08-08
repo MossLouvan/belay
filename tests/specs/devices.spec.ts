@@ -5,7 +5,10 @@ import { test, expect, Page } from '@playwright/test';
 // global connection, and the list is what a user without a live connection is
 // sent to, because it is the only screen that can explain why.
 
-const HOST = '127.0.0.1:8787';
+// Port is overridable so the suite can run beside an agent you already have
+// going, instead of demanding sole ownership of 8787.
+const PORT = process.env.TETHER_TEST_PORT || '8787';
+const HOST = `127.0.0.1:${PORT}`;
 const CODE = '123456';
 const STORE_KEY = 'tether.devices.v1';
 
