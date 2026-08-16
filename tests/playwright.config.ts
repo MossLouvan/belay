@@ -25,7 +25,9 @@ export default defineConfig({
       url: `http://127.0.0.1:${HOST_PORT}/health`,
       env: { TETHER_PORT: String(HOST_PORT), TETHER_TEST_CODE: CODE },
       reuseExistingServer: false,
-      timeout: 60_000,
+      // 60s is not enough on a cold or loaded machine: `npm start` runs the
+      // agent through tsx, which type-strips the whole src tree on first boot.
+      timeout: 180_000,
     },
     {
       command: `npx expo start --web --port ${APP_PORT}`,
