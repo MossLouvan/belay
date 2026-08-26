@@ -65,8 +65,13 @@ switch ($Action) {
 
 # --- install ---------------------------------------------------------------
 
-$npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue) ??
-       (Get-Command npm -ErrorAction SilentlyContinue)
+# No `??` here (or ternaries, or `&&` chains): the npm script invokes Windows
+# PowerShell 5.1, which refuses to even parse PowerShell 7 syntax — the whole
+# file dies before doing anything.
+$npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+if ($null -eq $npm) {
+    $npm = Get-Command npm -ErrorAction SilentlyContinue
+}
 if ($null -eq $npm) {
     throw 'npm is not on PATH; install Node before setting up autostart.'
 }
