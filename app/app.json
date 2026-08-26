@@ -3,23 +3,22 @@
     "name": "Tether",
     "slug": "tether",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "scheme": "tether",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "backgroundColor": "#0b0d12",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "backgroundColor": "#0b0d12",
-      "resizeMode": "contain"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mosslouvan.tether",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Tether connects to your PC on your local network or Tailscale to control it.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSAllowsArbitraryLoads": true
+        },
+        "NSCameraUsageDescription": "Tether uses the camera only to scan the pairing code shown on your computer."
       }
     },
     "android": {
@@ -36,7 +35,31 @@
     },
     "plugins": [
       "expo-router",
-      "expo-system-ui"
+      "expo-system-ui",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#0b0d12",
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Tether uses the camera only to scan the pairing code shown on your computer.",
+          "recordAudioAndroid": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

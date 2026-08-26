@@ -1,212 +1,390 @@
-// Remote screen. Streams JPEG frames from the host over a WebSocket and renders
-// them; taps and drags on the image become normalized clicks/drags on the PC.
-// A key bar and a text-send row cover keyboard input without a native keyboard.
+// Remote screen — the flagship surface.
+//
+// Streams JPEG frames from the host over a WebSocket into a zoomable, pannable
+// stage. Two pointer models are offered: direct touch (tap where you want to
+// click) and trackpad (drag anywhere to nudge a visible cursor), because hitting
+// a 12px checkbox on a 1710x1107 desktop from a phone is otherwise guesswork.
+//
+// The socket, the gesture model and the presentational pieces live in
+// `src/screen/*` — sibling files inside `app/(tabs)/` are picked up by
+// expo-router's route context and would register as extra tabs.
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, Image, Pressable, TextInput, ScrollView, LayoutChangeEvent, GestureResponderEvent } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Image, LayoutChangeEvent, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from 'expo-router';
 import { useConnection } from '../../src/connection';
-import { api, wsUrl } from '../../src/api';
-import { Row, Dot } from '../../src/ui';
-import { colors, radius, space } from '../../src/theme';
-
-type Conn = 'connecting' | 'live' | 'error';
-
-const QUALITY = { w: 1024, q: 50, fps: 12 };
+import { api } from '../../src/api';
+import { useTheme } from '../../src/theme';
+import {
+  Badge,
+  Button,
+  Caption,
+  Column,
+  Dot,
+  Input,
+  Row,
+  SegmentedControl,
+  Sheet,
+  Txt,
+  haptic,
+  useReducedMotion,
+} from '../../src/ui';
+import {
+  DEFAULT_QUALITY,
+  EMPTY_SIZE,
+  fitBox,
+  findQuality,
+  GESTURE,
+  KEYS,
+  KeySpec,
+  LAUNCHER_NOTE,
+  MAC_STEPS,
+  messageOf,
+  modsFor,
+  QUALITY,
+  QualityId,
+  Size,
+  STREAM,
+} from '../../src/screen/model';
+import {
+  aspectOf,
+  isMacHost,
+  PHASE_LABEL,
+  readPermissions,
+  useHostFacts,
+  useScreenStream,
+} from '../../src/screen/stream';
+import { PendingButton, PointerMode, useViewport } from '../../src/screen/viewport';
+import {
+  CaptureBlocked,
+  Chip,
+  Crosshair,
+  KeyCap,
+  NoticeArea,
+  StageMessage,
+  statusColorFor,
+  StreamHud,
+  ZoomControls,
+} from '../../src/screen/parts';
 
 export default function ScreenTab() {
   const { connection } = useConnection();
+  const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [frame, setFrame] = useState<string | null>(null);
-  const [status, setStatus] = useState<Conn>('connecting');
-  const [fps, setFps] = useState(0);
+  const reducedMotion = useReducedMotion();
+
+  const [qualityId, setQualityId] = useState<QualityId>(DEFAULT_QUALITY);
+  const [mode, setMode] = useState<PointerMode>('touch');
+  const [button, setButton] = useState<PendingButton>('none');
   const [showKeys, setShowKeys] = useState(true);
-  const [rightClick, setRightClick] = useState(false);
+  const [showHud, setShowHud] = useState(false);
+  const [showQuality, setShowQuality] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [text, setText] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [box, setBox] = useState<Size>(EMPTY_SIZE);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const layout = useRef({ w: 1, h: 1 });
-  const dragStart = useRef<{ x: number; y: number; t: number } | null>(null);
-  const frameCount = useRef(0);
+  const quality = useMemo(() => findQuality(qualityId), [qualityId]);
 
-  // Open the stream; reconnect on drop. Cleaned up on unmount.
-  useEffect(() => {
-    if (!connection) return;
-    let closed = false;
-    let reconnectTimer: any;
+  // The tab navigator keeps every visited route mounted, so `connection` alone
+  // would leave the frame socket, the 15s info poll and the per-second stats
+  // ticker running while the user works in Terminal or Files. Gating on focus
+  // as well releases all three the moment the tab goes off screen.
+  const focused = useIsFocused();
+  const active = Boolean(connection) && focused;
+  const stream = useScreenStream(active, quality);
+  const facts = useHostFacts(active);
 
-    const connect = () => {
-      setStatus('connecting');
-      let ws: WebSocket;
-      try {
-        ws = new WebSocket(wsUrl('/ws/screen', QUALITY));
-      } catch {
-        setStatus('error');
-        return;
-      }
-      wsRef.current = ws;
-      ws.onopen = () => setStatus('live');
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data as string);
-          if (msg.type === 'frame') {
-            setFrame(`data:image/jpeg;base64,${msg.data}`);
-            frameCount.current += 1;
-          } else if (msg.type === 'error') {
-            setStatus('error');
-          }
-        } catch { /* ignore */ }
-      };
-      ws.onerror = () => setStatus('error');
-      ws.onclose = () => {
-        if (!closed) { setStatus('error'); reconnectTimer = setTimeout(connect, 1500); }
-      };
-    };
-    connect();
+  const permissions = useMemo(() => readPermissions(facts.info, stream.error), [facts.info, stream.error]);
+  const isMac = isMacHost(facts.info);
+  const displays = facts.info?.displays ?? 0;
 
-    const fpsTimer = setInterval(() => { setFps(frameCount.current); frameCount.current = 0; }, 1000);
-    return () => {
-      closed = true;
-      clearTimeout(reconnectTimer);
-      clearInterval(fpsTimer);
-      wsRef.current?.close();
-    };
-  }, [connection]);
+  // The stage is sized to the remote aspect ratio so the picture fills it
+  // exactly: no letterboxing means touch coordinates map straight through.
+  const aspect = useMemo(() => aspectOf(stream.stats, facts.info), [facts.info, stream.stats]);
+  const stage = useMemo(() => fitBox(box, aspect), [box, aspect]);
+  const stageRef = useRef<Size>(EMPTY_SIZE);
+  stageRef.current = stage;
 
-  const onLayout = (e: LayoutChangeEvent) => {
-    layout.current = { w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height };
-  };
+  // Transient toast for one-shot input failures. Timer cleared on unmount.
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const reportError = useCallback((message: string) => {
+    setActionError(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setActionError(null), STREAM.toastMs);
+  }, []);
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    []
+  );
 
-  const norm = (e: GestureResponderEvent) => {
-    const { locationX, locationY } = e.nativeEvent;
-    return {
-      x: Math.max(0, Math.min(1, locationX / layout.current.w)),
-      y: Math.max(0, Math.min(1, locationY / layout.current.h)),
-    };
-  };
+  const clearButton = useCallback(() => setButton('none'), []);
+  const viewport = useViewport({
+    sizeRef: stageRef,
+    mode,
+    button,
+    onButtonUsed: clearButton,
+    onError: reportError,
+    reducedMotion,
+    inputBlocked: permissions.inputBlocked,
+  });
 
-  const onStart = (e: GestureResponderEvent) => {
-    const p = norm(e);
-    dragStart.current = { ...p, t: Date.now() };
-  };
-
-  // Short press with little movement = click; longer movement = drag.
-  const onEnd = async (e: GestureResponderEvent) => {
-    const start = dragStart.current;
-    dragStart.current = null;
-    if (!start) return;
-    const p = norm(e);
-    const moved = Math.hypot(p.x - start.x, p.y - start.y);
-    try {
-      if (moved > 0.02) {
-        await api.drag(start.x, start.y, p.x, p.y);
-      } else {
-        await api.click(p.x, p.y, rightClick ? 'right' : 'left');
-        if (rightClick) setRightClick(false);
-      }
-    } catch { /* transient */ }
-  };
-
-  const sendKey = useCallback((key: string, mods: string[] = []) => {
-    api.key(key, mods).catch(() => {});
+  const onBoxLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setBox((prev) => (prev.w === width && prev.h === height ? prev : { w: width, h: height }));
   }, []);
 
-  const sendText = () => {
-    if (!text) return;
-    api.typeText(text).catch(() => {});
+  const sendKey = useCallback(
+    (spec: KeySpec) => {
+      haptic('light');
+      api
+        .key(spec.key, modsFor(spec, isMac))
+        .catch((e: unknown) => reportError(`Key ${spec.id} failed — ${messageOf(e)}`));
+    },
+    [isMac, reportError]
+  );
+
+  const sendText = useCallback(() => {
+    const value = text.trim();
+    if (!value) return;
+    haptic('light');
     setText('');
-  };
+    api.typeText(value).catch((e: unknown) => reportError(`Sending text failed — ${messageOf(e)}`));
+  }, [reportError, text]);
+
+  const recheck = useCallback(() => {
+    facts.refresh();
+    stream.retry();
+  }, [facts, stream]);
+
+  const live = stream.phase === 'live';
+  const connecting = stream.phase === 'connecting' || stream.phase === 'reconnecting';
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
-      <Row style={{ justifyContent: 'space-between', paddingHorizontal: space.md, paddingBottom: space.sm }}>
-        <Row style={{ gap: 8 }}>
-          <Dot color={status === 'live' ? colors.good : status === 'connecting' ? colors.warn : colors.bad} />
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16 }}>
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}>
+      <Row justify="space-between" style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.xs }}>
+        <Row gap="xs" style={{ flexShrink: 1 }}>
+          <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting} label={PHASE_LABEL[stream.phase]} />
+          <Txt variant="subheading" numberOfLines={1}>
             {connection?.hostName || 'Screen'}
-          </Text>
+          </Txt>
+          {displays > 1 ? <Badge label={`${displays} displays`} status="neutral" /> : null}
         </Row>
-        <Text testID="fps" style={{ color: colors.textFaint, fontSize: 12 }}>
-          {status === 'live' ? `${fps} fps` : status}
-        </Text>
+        <Row gap="xs">
+          <Txt testID="fps" variant="caption" tone="faint">
+            {live ? `${stream.stats.fps} fps` : PHASE_LABEL[stream.phase]}
+          </Txt>
+          <Chip
+            label="HUD"
+            active={showHud}
+            onPress={() => setShowHud((v) => !v)}
+            testID="toggle-hud"
+            accessibilityLabel="Toggle the connection quality overlay"
+          />
+        </Row>
       </Row>
 
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm }}>
+      <NoticeArea
+        permissions={permissions}
+        phase={stream.phase}
+        attempt={stream.attempt}
+        streamError={stream.error}
+        actionError={actionError}
+        onHelp={() => setShowHelp(true)}
+        onRetry={recheck}
+      />
+
+      <View
+        onLayout={onBoxLayout}
+        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space.sm }}
+      >
         <View
           testID="screen-surface"
-          onLayout={onLayout}
-          onStartShouldSetResponder={() => true}
-          onResponderGrant={onStart}
-          onResponderRelease={onEnd}
-          style={{ width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.black, borderRadius: radius.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.border }}
+          accessibilityLabel="Remote screen. Tap to click, long press to right-click, pinch to zoom, two fingers to scroll."
+          {...viewport.handlers}
+          style={{
+            width: stage.w > 0 ? stage.w : '100%',
+            height: stage.h > 0 ? stage.h : undefined,
+            aspectRatio: stage.h > 0 ? undefined : aspect,
+            backgroundColor: theme.colors.black,
+            borderRadius: theme.radius.md,
+            overflow: 'hidden',
+            borderWidth: theme.layout.hairline,
+            borderColor: theme.colors.border,
+          }}
         >
-          {frame ? (
-            <Image source={{ uri: frame }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-          ) : (
-            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: colors.textFaint }}>
-                {status === 'error' ? 'Reconnecting…' : 'Waiting for screen…'}
-              </Text>
-            </View>
+          {/* pointerEvents none on everything inside keeps `screen-surface`
+              the only touch target, so locationX/Y stay in stage coordinates
+              on both native and web regardless of the zoom transform. */}
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              width: '100%',
+              height: '100%',
+              transform: [
+                { translateX: viewport.translateX },
+                { translateY: viewport.translateY },
+                { scale: viewport.scale },
+              ],
+            }}
+          >
+            {stream.frameUri ? (
+              <Image
+                source={{ uri: stream.frameUri }}
+                accessibilityIgnoresInvertColors
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="cover"
+              />
+            ) : null}
+            {mode === 'trackpad' && stream.frameUri ? (
+              <Crosshair x={viewport.cursorX} y={viewport.cursorY} color={theme.colors.accent} />
+            ) : null}
+          </Animated.View>
+
+          {!stream.frameUri && !permissions.captureBlocked ? (
+            <StageMessage phase={stream.phase} attempt={stream.attempt} hostName={connection?.hostName || 'the host'} />
+          ) : null}
+
+          {showHud ? (
+            <StreamHud stats={stream.stats} pingMs={facts.pingMs} quality={quality} zoom={viewport.zoom} />
+          ) : null}
+
+          {/* Zooming a picture that will never arrive is just clutter. */}
+          {permissions.captureBlocked ? null : (
+            <ZoomControls
+              zoom={viewport.zoom}
+              onZoomIn={() => viewport.zoomBy(GESTURE.zoomStep)}
+              onZoomOut={() => viewport.zoomBy(1 / GESTURE.zoomStep)}
+              onReset={viewport.reset}
+            />
           )}
         </View>
+
+        {/* Outside the stage, which clips: the explanation needs the full area. */}
+        {permissions.captureBlocked ? (
+          <CaptureBlocked known={permissions.known} onHelp={() => setShowHelp(true)} onRetry={recheck} />
+        ) : null}
       </View>
 
-      <View style={{ paddingHorizontal: space.sm, paddingBottom: insets.bottom + space.sm, gap: space.sm }}>
-        <Row style={{ gap: space.sm }}>
-          <Chip label={rightClick ? 'Right-click: ON' : 'Right-click'} active={rightClick} onPress={() => setRightClick((v) => !v)} testID="right-click" />
+      <Column
+        gap="sm"
+        style={{
+          paddingHorizontal: theme.space.sm,
+          paddingTop: theme.space.xs,
+          paddingBottom: insets.bottom + theme.space.sm,
+        }}
+      >
+        <SegmentedControl
+          testID="pointer-mode"
+          accessibilityLabel="Pointer mode"
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'touch', label: 'Touch' },
+            { value: 'trackpad', label: 'Trackpad' },
+          ]}
+        />
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: theme.space.xs, paddingRight: theme.space.sm }}
+        >
+          <Chip
+            label={button === 'right' ? 'Right-click: ON' : 'Right-click'}
+            active={button === 'right'}
+            onPress={() => setButton((b) => (b === 'right' ? 'none' : 'right'))}
+            testID="right-click"
+          />
+          <Chip
+            label={button === 'double' ? 'Double-click: ON' : 'Double-click'}
+            active={button === 'double'}
+            onPress={() => setButton((b) => (b === 'double' ? 'none' : 'double'))}
+            testID="double-click"
+          />
           <Chip label={showKeys ? 'Hide keys' : 'Show keys'} onPress={() => setShowKeys((v) => !v)} testID="toggle-keys" />
-        </Row>
+          <Chip
+            label={quality.label}
+            onPress={() => setShowQuality(true)}
+            testID="quality"
+            accessibilityLabel={`Stream quality: ${quality.label}`}
+          />
+          <Chip label="Help" onPress={() => setShowHelp(true)} testID="screen-help" />
+        </ScrollView>
 
-        {showKeys && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-            <Key label="Esc" onPress={() => sendKey('escape')} />
-            <Key label="Tab" onPress={() => sendKey('tab')} />
-            <Key label="Enter" onPress={() => sendKey('enter')} />
-            <Key label="Bksp" onPress={() => sendKey('backspace')} />
-            <Key label="Ctrl+C" onPress={() => sendKey('c', ['ctrl'])} />
-            <Key label="Ctrl+V" onPress={() => sendKey('v', ['ctrl'])} />
-            <Key label="Win" onPress={() => sendKey('win')} />
-            <Key label="Left" onPress={() => sendKey('left')} />
-            <Key label="Up" onPress={() => sendKey('up')} />
-            <Key label="Down" onPress={() => sendKey('down')} />
-            <Key label="Right" onPress={() => sendKey('right')} />
+        {showKeys ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 6, paddingRight: theme.space.sm }}
+          >
+            {KEYS.map((spec) => (
+              <KeyCap key={spec.id} spec={spec} onPress={sendKey} mac={isMac} />
+            ))}
           </ScrollView>
-        )}
+        ) : null}
 
-        <Row style={{ gap: space.sm }}>
-          <TextInput
+        <Row gap="sm">
+          <Input
             testID="type-input"
+            style={{ flex: 1 }}
             value={text}
             onChangeText={setText}
             placeholder="Type text to send to the PC…"
-            placeholderTextColor={colors.textFaint}
-            autoCapitalize="none"
-            autoCorrect={false}
+            accessibilityLabel="Text to type on the host"
+            returnKeyType="send"
             onSubmitEditing={sendText}
-            style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.borderStrong, color: colors.text, paddingHorizontal: space.md, paddingVertical: 11, fontSize: 15 }}
           />
-          <Pressable testID="send-text" onPress={sendText} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingHorizontal: space.md, justifyContent: 'center' }}>
-            <Text style={{ color: colors.black, fontWeight: '800' }}>Send</Text>
-          </Pressable>
+          <Button testID="send-text" label="Send" onPress={sendText} size="sm" />
         </Row>
-      </View>
+      </Column>
+
+      <Sheet visible={showQuality} onClose={() => setShowQuality(false)} title="Stream quality" testID="quality-sheet">
+        <Column gap="sm">
+          <SegmentedControl
+            testID="quality-options"
+            accessibilityLabel="Stream quality"
+            value={qualityId}
+            onChange={setQualityId}
+            options={QUALITY.map((preset) => ({ value: preset.id, label: preset.label }))}
+          />
+          <Caption>{quality.hint}</Caption>
+          <Caption>
+            {`Sending ${quality.w}px wide at quality ${quality.q}, up to ${quality.fps} fps. Applied to the running stream — no reconnect.`}
+          </Caption>
+          <Caption>
+            {`Now: ${stream.stats.fps} fps · ${stream.stats.kbps} KB/s · ping ${facts.pingMs === null ? '—' : `${facts.pingMs} ms`}`}
+          </Caption>
+        </Column>
+      </Sheet>
+
+      <Sheet visible={showHelp} onClose={() => setShowHelp(false)} title="Controls & permissions" testID="help-sheet">
+        <ScrollView style={{ maxHeight: 400 }} contentContainerStyle={{ gap: theme.space.sm }}>
+          <Txt variant="bodyStrong">Touch mode</Txt>
+          <Caption>
+            Tap to click, long press to right-click. At 1× a drag becomes a mouse drag on the PC; once you zoom in, a
+            drag pans the picture instead.
+          </Caption>
+          <Txt variant="bodyStrong">Trackpad mode</Txt>
+          <Caption>
+            Drag anywhere to nudge the cursor — it stays visible instead of hiding under your finger, which is the only
+            way to hit small targets. Tap to click where the cursor sits.
+          </Caption>
+          <Txt variant="bodyStrong">Both modes</Txt>
+          <Caption>
+            Pinch to zoom, two-finger drag to scroll. The Right-click and Double-click chips arm the next tap only.
+          </Caption>
+          <Txt variant="bodyStrong">macOS permissions</Txt>
+          <Caption>{LAUNCHER_NOTE}</Caption>
+          {MAC_STEPS.map((step, index) => (
+            <Caption key={step}>{`${index + 1}. ${step}`}</Caption>
+          ))}
+          <Button label="Recheck the host" testID="recheck-permissions" variant="secondary" size="sm" onPress={recheck} />
+        </ScrollView>
+      </Sheet>
     </View>
-  );
-}
-
-function Chip({ label, onPress, active, testID }: { label: string; onPress: () => void; active?: boolean; testID?: string }) {
-  return (
-    <Pressable testID={testID} onPress={onPress} style={{ backgroundColor: active ? colors.accent : colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: 8, borderWidth: 1, borderColor: active ? colors.accent : colors.borderStrong }}>
-      <Text style={{ color: active ? colors.black : colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function Key({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable testID={`key-${label}`} onPress={onPress} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: colors.borderStrong, minWidth: 44, alignItems: 'center' }}>
-      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
-    </Pressable>
   );
 }

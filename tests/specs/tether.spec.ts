@@ -141,8 +141,12 @@ test.describe('Tether', () => {
     await expect(page.getByText('Memory', { exact: true })).toBeVisible();
     await expect(page.getByText(/Disk/)).toBeVisible();
 
-    // Disconnect returns to the connect screen.
+    // Disconnect confirms first — same sheet as Forget on the devices screen,
+    // and for the same reason: un-pairing means walking to the machine for a
+    // new code — then returns to the connect screen.
     await page.getByTestId('disconnect').click();
+    await expect(page.getByText(/This phone will be un-paired/)).toBeVisible();
+    await page.getByRole('button', { name: 'Forget', exact: true }).click();
     await expect(page.getByTestId('host-input')).toBeVisible();
   });
 });

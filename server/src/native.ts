@@ -1,20 +1,89 @@
-// Owns the compiled TetherHost.exe subprocess and exposes a promise-based API
+// Owns the compiled native helper subprocess and exposes a promise-based API
 // for capture and input. One request per line in, one reply per line out,
 // matched by an incrementing id. Serialized through a single process so frames
 // and input never interleave on the wire.
+//
+// The helper is platform-specific but the wire protocol is not: Windows runs
+// native/TetherHost.exe (C#), macOS runs native/TetherHostMac (Swift), and both
+// speak the identical JSON command set. Everything below this comment is
+// platform-agnostic.
 
-import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, ChildProcessWithoutNullStreams, SpawnOptions } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createInterface, Interface } from 'node:readline';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { backoffDelay, isHealthyRun } from './backoff.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const EXE = join(__dirname, '..', 'native', 'TetherHost.exe');
+const NATIVE_DIR = join(__dirname, '..', 'native');
+
+/**
+ * How long a single native call may take before it is abandoned.
+ *
+ * Must exceed the helper's own worst case, or Node gives up on work the helper
+ * is still legitimately doing. On macOS a cold capture after a display wake can
+ * legitimately take up to 13s (5s waiting for shareable content, 5s starting
+ * the stream, 3s for the first frame). Because the helper processes commands
+ * strictly in order, abandoning one does not free the queue behind it — so a
+ * timeout that is too short makes every subsequent call time out as well,
+ * precisely during wake-from-sleep when recovery matters most.
+ */
+const CALL_TIMEOUT_MS = 15_000;
+
+interface HelperTarget {
+  /** Absolute path to the compiled helper for this platform. */
+  readonly path: string;
+  /** Command that produces it, for error messages. */
+  readonly buildCommand: string;
+  readonly spawnOptions: SpawnOptions;
+}
+
+/**
+ * Resolves the helper for the current platform, or null when the platform has
+ * no native helper at all. Kept as a pure lookup so `available()` and `start()`
+ * can never disagree about which binary they mean.
+ */
+function resolveTarget(platform: NodeJS.Platform): HelperTarget | null {
+  switch (platform) {
+    case 'win32':
+      return {
+        path: join(NATIVE_DIR, 'TetherHost.exe'),
+        buildCommand: 'npm run build:native',
+        // Keeps the helper from flashing a console window on Windows.
+        spawnOptions: { windowsHide: true },
+      };
+    case 'darwin':
+      return {
+        path: join(NATIVE_DIR, 'TetherHostMac'),
+        buildCommand: 'bash native/build-mac.sh',
+        spawnOptions: {},
+      };
+    default:
+      return null;
+  }
+}
+
+const TARGET = resolveTarget(process.platform);
+
+function unsupportedPlatformError(): Error {
+  return new Error(
+    `Tether's screen capture and input injection are not implemented for platform '${process.platform}'. ` +
+      'Supported platforms are Windows (win32) and macOS (darwin). ' +
+      'Everything else — terminal, files, system stats — still works.'
+  );
+}
+
+function notBuiltError(target: HelperTarget): Error {
+  return new Error(`native helper not found at ${target.path}. Run: ${target.buildCommand}`);
+}
 
 export interface ScreenInfo {
   primary: { X: number; Y: number; W: number; H: number };
   virtual: { X: number; Y: number; W: number; H: number };
+  /** macOS only: whether the two TCC grants the helper needs are in place. */
+  permissions?: { screenRecording: boolean; accessibility: boolean };
 }
 
 export interface Frame {
@@ -36,29 +105,83 @@ class NativeHost {
   private ready = false;
   private starting: Promise<void> | null = null;
 
+  /** Consecutive failed starts, reset by a run that lasted long enough. */
+  private failures = 0;
+  private startedAt = 0;
+  private restartTimer: NodeJS.Timeout | null = null;
+  /** True once stop() is called, so a deliberate shutdown is not restarted. */
+  private stopped = false;
+
   available(): boolean {
-    return existsSync(EXE);
+    return TARGET !== null && existsSync(TARGET.path);
+  }
+
+  /**
+   * Whether capture and input are usable *right now*.
+   *
+   * Deliberately live rather than a value sampled at boot: the helper can die
+   * at any point, and reporting a boot-time constant told the phone that
+   * capture worked while every call was failing.
+   */
+  isReady(): boolean {
+    return this.ready;
+  }
+
+  /**
+   * Bring the helper back after an unexpected exit.
+   *
+   * Without this the first crash was permanent — screen and input stayed dead
+   * until someone physically restarted the agent, which for a machine you are
+   * trying to reach from your phone means the feature is simply gone.
+   */
+  private scheduleRestart(): void {
+    if (this.stopped || this.restartTimer) return;
+    const delay = backoffDelay(this.failures);
+    console.warn(`[native] helper is down; restarting in ${delay}ms (attempt ${this.failures})`);
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      this.start().catch((e: unknown) => {
+        console.error('[native] restart failed:', e instanceof Error ? e.message : String(e));
+        // start() rejecting still leaves the exit handler to schedule the next
+        // attempt only if a process was spawned; when it never spawned, retry
+        // from here so a temporarily missing binary still recovers.
+        if (!this.proc) this.scheduleRestart();
+      });
+    }, delay);
+    this.restartTimer.unref();
   }
 
   async start(): Promise<void> {
     if (this.ready) return;
     if (this.starting) return this.starting;
     this.starting = new Promise<void>((resolve, reject) => {
-      if (!existsSync(EXE)) {
-        reject(new Error(`TetherHost.exe not found at ${EXE}. Run: npm run build:native`));
+      if (!TARGET) {
+        reject(unsupportedPlatformError());
         return;
       }
-      const proc = spawn(EXE, [], { windowsHide: true });
+      if (!existsSync(TARGET.path)) {
+        reject(notBuiltError(TARGET));
+        return;
+      }
+      const proc = spawn(TARGET.path, [], TARGET.spawnOptions) as ChildProcessWithoutNullStreams;
       this.proc = proc;
+      this.startedAt = Date.now();
       const rl = createInterface({ input: proc.stdout });
       this.rl = rl;
 
-      const onReady = () => { this.ready = true; resolve(); };
+      const onReady = () => { this.ready = true; this.failures = 0; resolve(); };
 
       rl.on('line', (line) => {
         let msg: any;
         try { msg = JSON.parse(line); } catch { return; }
-        if (msg.ready && !this.ready) { onReady(); return; }
+        if (msg.ready && !this.ready) {
+          // The macOS helper reports missing Screen Recording / Accessibility
+          // grants here. Surfacing them at startup is the difference between a
+          // black screen the user can fix and one they cannot explain.
+          for (const warning of msg.warnings || []) console.warn('[native]', warning);
+          onReady();
+          return;
+        }
         const id = msg.id;
         const p = this.pending.get(id);
         if (!p) return;
@@ -67,13 +190,34 @@ class NativeHost {
         else p.reject(new Error(msg.error || 'native error'));
       });
 
-      proc.on('exit', (code) => {
+      // The helper writes nothing to stderr in normal operation; anything there
+      // is a crash trace worth showing rather than discarding.
+      proc.stderr.on('data', (chunk: Buffer) => {
+        const text = chunk.toString().trim();
+        if (text) console.error('[native]', text);
+      });
+
+      proc.on('exit', (code, signal) => {
+        const uptime = Date.now() - this.startedAt;
         this.ready = false;
         this.proc = null;
-        const err = new Error(`native host exited (code ${code})`);
+        this.starting = null;
+        // The readline interface holds a listener on the dead stdout; without
+        // closing it every restart cycle leaks one.
+        rl.close();
+        this.rl = null;
+
+        const how = signal ? `signal ${signal}` : `code ${code}`;
+        const err = new Error(`native host exited (${how})`);
         for (const p of this.pending.values()) p.reject(err);
         this.pending.clear();
-        this.starting = null;
+
+        if (this.stopped) return;
+        // A run that lasted long enough is evidence the helper works, so an
+        // unrelated later crash retries fast instead of inheriting a long delay.
+        this.failures = isHealthyRun(uptime) ? 1 : this.failures + 1;
+        console.warn(`[native] helper exited (${how}) after ${uptime}ms`);
+        this.scheduleRestart();
       });
       proc.on('error', reject);
     });
@@ -84,15 +228,23 @@ class NativeHost {
     return new Promise<T>((resolve, reject) => {
       if (!this.proc || !this.ready) { reject(new Error('native host not running')); return; }
       const id = this.nextId++;
-      this.pending.set(id, { resolve, reject });
+
+      // A stuck native call must not wedge the request forever. The handle is
+      // cleared on settle — at 12fps an uncleared timer per frame meant ~180
+      // live timers at all times, each pinning its closure, and an unref'd-less
+      // timer could hold a clean exit open for the full timeout.
+      const timer = setTimeout(() => {
+        if (this.pending.delete(id)) reject(new Error('native host timeout'));
+      }, CALL_TIMEOUT_MS);
+      timer.unref();
+
+      const settle: Pending = {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      };
+      this.pending.set(id, settle);
+
       this.proc.stdin.write(JSON.stringify({ id, ...cmd }) + '\n');
-      // A stuck native call must not wedge the request forever.
-      setTimeout(() => {
-        if (this.pending.has(id)) {
-          this.pending.delete(id);
-          reject(new Error('native host timeout'));
-        }
-      }, 8000);
     });
   }
 
@@ -113,7 +265,16 @@ class NativeHost {
   text(text: string) { return this.send({ cmd: 'text', text }); }
 
   stop() {
-    if (this.proc) { this.proc.kill(); this.proc = null; this.ready = false; }
+    this.stopped = true;
+    if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
+    // Anything in flight will never be answered now, so fail it rather than
+    // leaving callers to wait out the full call timeout.
+    const err = new Error('native host stopped');
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
+    if (this.rl) { this.rl.close(); this.rl = null; }
+    if (this.proc) { this.proc.kill(); this.proc = null; }
+    this.ready = false;
   }
 }
 
