@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { api, SystemStats } from '../../src/api';
 import { useTheme } from '../../src/theme';
-import { Badge, Banner, Button, Caption, Card, Column, Dot, IconButton, Label, Row, SegmentedControl, Txt } from '../../src/ui';
+import { Badge, Banner, Button, Caption, Card, Column, Dot, IconButton, Label, Row, SegmentedControl, Sheet, Txt } from '../../src/ui';
 import { StatCard } from '../../src/system/stat-card';
 import { BatteryCard, DevicesCard, HostCard, PairedDevice, parseDevices } from '../../src/system/cards';
 import { EMPTY_SERIES, pushSeries, Series } from '../../src/system/history';
@@ -42,7 +42,7 @@ const message = (e: unknown): string =>
   e instanceof Error ? e.message : 'Could not read system stats from the host.';
 
 export default function SystemTab() {
-  const { connection, disconnect } = useConnection();
+  const { connection, active, forget } = useConnection();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
 
@@ -54,6 +54,7 @@ export default function SystemTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [rate, setRate] = useState<Rate>('normal');
   const [clock, setClock] = useState(() => Date.now());
+  const [confirmForget, setConfirmForget] = useState(false);
 
   const live = useRef(true);
   useEffect(() => {
@@ -129,10 +130,17 @@ export default function SystemTab() {
     if (live.current) setRefreshing(false);
   }, [load, loadDevices]);
 
-  const onDisconnect = useCallback(async () => {
-    await disconnect();
+  // Forgets only the computer this screen is showing — `disconnect()` in the
+  // connection context wipes every saved computer, which is a "start over"
+  // action this button must never be. Confirmed first, like Forget on the
+  // devices screen, because undoing it means walking back to the machine for
+  // a new code.
+  const onConfirmForget = useCallback(async () => {
+    if (!active) return;
+    setConfirmForget(false);
+    await forget(active.id);
     router.replace('/');
-  }, [disconnect]);
+  }, [active, forget]);
 
   const stale = Boolean(error);
   const title = stats?.hostname || connection?.hostName || 'Host';
@@ -248,11 +256,38 @@ export default function SystemTab() {
         <Txt variant="monoSmall" tone="dim" numberOfLines={1} style={{ marginBottom: theme.space.md }}>
           {connection?.host ?? '—'}
         </Txt>
-        <Button testID="disconnect" label="Disconnect this device" variant="danger" onPress={onDisconnect} fullWidth />
+        <Button
+          testID="disconnect"
+          label="Disconnect this device"
+          variant="danger"
+          onPress={() => setConfirmForget(true)}
+          fullWidth
+        />
         <Caption style={{ marginTop: theme.space.sm }}>
           Forgets the saved token on this phone. The computer keeps running; pair again any time with a new code.
         </Caption>
       </Card>
+
+      <Sheet
+        visible={confirmForget}
+        onClose={() => setConfirmForget(false)}
+        title={active ? `Forget ${active.label}?` : 'Forget this computer?'}
+      >
+        <Column gap="md">
+          <Txt>
+            This phone will be un-paired from it. Your other computers are not affected,
+            and you can add it again with a new pairing code.
+          </Txt>
+          <Row gap="sm">
+            <View style={{ flex: 1 }}>
+              <Button label="Cancel" variant="secondary" fullWidth onPress={() => setConfirmForget(false)} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button label="Forget" variant="danger" fullWidth onPress={() => void onConfirmForget()} />
+            </View>
+          </Row>
+        </Column>
+      </Sheet>
     </ScrollView>
   );
 }
