@@ -1,15 +1,10 @@
 import { test, expect, Page } from '@playwright/test';
+import { CODE, HOST } from '../test-env';
 
 // Coverage for the saved-computers list — the screen the multi-computer model
 // exists for. Pairing writes a computer here rather than overwriting a single
 // global connection, and the list is what a user without a live connection is
 // sent to, because it is the only screen that can explain why.
-
-// Port is overridable so the suite can run beside an agent you already have
-// going, instead of demanding sole ownership of 8787.
-const PORT = process.env.TETHER_TEST_PORT || '8787';
-const HOST = `127.0.0.1:${PORT}`;
-const CODE = '123456';
 const STORE_KEY = 'tether.devices.v1';
 
 async function pair(page: Page) {

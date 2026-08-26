@@ -1,15 +1,16 @@
 import { defineConfig } from '@playwright/test';
+import { APP_ORIGIN, APP_PORT, CODE, HOST_PORT } from './test-env';
 
-// Drives the web build of the Tether app (served on 8081) against a live host
-// agent (on 8787). Uses the system-installed Google Chrome via the 'chrome'
-// channel, so there is no separate browser download. An iPhone-like mobile
-// context (touch, 390x844, DPR 3) keeps the layout phone-accurate.
+// Drives the web build of the Tether app against a live host agent. Both are
+// started by Playwright (see webServer below) so `npm test` needs no manual
+// setup — previously it did, which is how a set of stale failure artifacts came
+// to sit in the repo describing a bug that had already been fixed, with nobody
+// able to cheaply disprove them.
 //
-// Both servers are started by Playwright. Previously they were not, so
-// `npx playwright test` failed for anyone who did not already know to hand-start
-// two processes with a specific environment variable — which is how a set of
-// stale failure artifacts came to sit in the repo describing a bug that had
-// already been fixed, with nobody able to cheaply disprove them.
+// Uses the system-installed Google Chrome via the 'chrome' channel, so there is
+// no separate browser download. An iPhone-like mobile context (touch, 390x844,
+// DPR 3) keeps the layout phone-accurate.
+
 export default defineConfig({
   testDir: './specs',
   timeout: 40000,
@@ -21,44 +22,50 @@ export default defineConfig({
 
   webServer: [
     {
-      // The host agent under test. TETHER_TEST_CODE fixes the pairing code so
-      // the suite can pair repeatedly; the agent refuses that variable when
-      // NODE_ENV=production and warns loudly at boot, so it cannot quietly end
-      // up weakening a real deployment.
+      // The host agent under test, on its own port (see test-env) so a run
+      // never collides with — or pairs against — a hand-started agent.
+      //
+      // TETHER_TEST_CODE fixes the pairing code so the suite can pair
+      // repeatedly; the agent refuses that variable when NODE_ENV=production
+      // and warns loudly at boot, so it cannot quietly weaken a real deployment.
       //
       // TETHER_STATE_FILE keeps test pairings out of the developer's real state
       // file — without it every run appends a live token to whatever state file
       // belongs to the directory the agent started in.
+      //
+      // Never reused: a stray agent would be running without TETHER_TEST_CODE,
+      // and every pair step would fail against it.
       command: 'npm start',
       cwd: '../server',
-      url: 'http://127.0.0.1:8787/health',
-      reuseExistingServer: !process.env.CI,
+      url: `http://127.0.0.1:${HOST_PORT}/health`,
+      reuseExistingServer: false,
       timeout: 60_000,
       stdout: 'pipe',
       stderr: 'pipe',
       env: {
-        TETHER_PORT: '8787',
-        TETHER_TEST_CODE: '123456',
+        TETHER_PORT: String(HOST_PORT),
+        TETHER_TEST_CODE: CODE,
         TETHER_STATE_FILE: 'test-state.json',
-        TETHER_ALLOWED_ORIGINS: 'http://127.0.0.1:8081,http://localhost:8081',
+        TETHER_ALLOWED_ORIGINS: `${APP_ORIGIN},http://localhost:${APP_PORT}`,
       },
     },
     {
       // The app's web build, via the same dev server developers use, so the
-      // suite needs no separate export step before `playwright test`.
-      command: 'npm run web -- --port 8081',
+      // suite needs no separate export step before `playwright test`. Safe to
+      // reuse — any instance serving the app is equivalent, and a cold Metro
+      // start compiles the whole app.
+      command: `npm run web -- --port ${APP_PORT}`,
       cwd: '../app',
-      url: 'http://127.0.0.1:8081',
-      reuseExistingServer: !process.env.CI,
-      // Generous: a cold Metro start compiles the whole app.
-      timeout: 180_000,
+      url: APP_ORIGIN,
+      reuseExistingServer: true,
+      timeout: 300_000,
       stdout: 'pipe',
       stderr: 'pipe',
     },
   ],
 
   use: {
-    baseURL: 'http://127.0.0.1:8081',
+    baseURL: APP_ORIGIN,
     channel: 'chrome',
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 3,
