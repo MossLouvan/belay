@@ -319,6 +319,21 @@ export default function Connect() {
         });
         return;
       }
+      // Both outcome screens are gated on `host` (`stage === 'code' && host`,
+      // `stage === 'success' && host`), so it must be set before the attempt.
+      // Without it a failed pair — routine, since codes are single-use and
+      // rotate — set the stage but rendered neither branch, stranding the user
+      // on a blank screen with no error and no way back.
+      setHost({
+        url: reachable,
+        name: link.label,
+        // The link does not carry these; assume capable and unpaired, the same
+        // benefit of the doubt `doCheck` gives an older host. Both only shape
+        // advisory notes on the code screen, and the post-pair /health re-read
+        // saves the computer with its real capabilities regardless.
+        native: true,
+        paired: false,
+      });
       await completePairing(reachable, link.code);
     } finally {
       setBusy(false);
