@@ -1,7 +1,7 @@
-// Bottom tab bar for the four control surfaces.
+// Bottom tab bar for the five control surfaces.
 //
 // Icons stay hand-drawn from Views: @expo/vector-icons is not a dependency of
-// this app, and adding an icon font purely for four glyphs would cost a network
+// this app, and adding an icon font purely for five glyphs would cost a network
 // fetch on web for no visual gain. Each glyph gets a filled/active treatment so
 // selection reads at a glance.
 
@@ -13,7 +13,7 @@ import { useConnection } from '../../src/connection';
 import { useTheme } from '../../src/theme';
 import { useToggleAnimation } from '../../src/ui';
 
-type TabName = 'screen' | 'terminal' | 'files' | 'system';
+type TabName = 'screen' | 'agent' | 'terminal' | 'files' | 'system';
 
 const GLYPH_BOX: ViewStyle = { alignItems: 'center', justifyContent: 'center', width: 24, height: 24 };
 
@@ -33,6 +33,34 @@ function ScreenGlyph({ color, active }: GlyphProps) {
         }}
       />
       <View style={{ width: 9, height: 2, backgroundColor: color, marginTop: 2.5, borderRadius: 1 }} />
+    </View>
+  );
+}
+
+/** A spark: a rotated square with a point at its centre — "something is working for you". */
+function AgentGlyph({ color, active, onActive }: GlyphProps) {
+  return (
+    <View style={GLYPH_BOX}>
+      <View
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 3,
+          borderWidth: 2,
+          borderColor: color,
+          backgroundColor: active ? color : 'transparent',
+          transform: [{ rotate: '45deg' }],
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          width: 4,
+          height: 4,
+          borderRadius: 2,
+          backgroundColor: active ? onActive : color,
+        }}
+      />
     </View>
   );
 }
@@ -101,6 +129,7 @@ interface GlyphProps {
 
 const GLYPHS: Record<TabName, (props: GlyphProps) => React.JSX.Element> = {
   screen: ScreenGlyph,
+  agent: AgentGlyph,
   terminal: TerminalGlyph,
   files: FilesGlyph,
   system: SystemGlyph,
@@ -175,6 +204,7 @@ function tabBarContentHeight(fontScale: number): number {
 
 const TABS: readonly { readonly name: TabName; readonly title: string }[] = [
   { name: 'screen', title: 'Screen' },
+  { name: 'agent', title: 'Agent' },
   { name: 'terminal', title: 'Terminal' },
   { name: 'files', title: 'Files' },
   { name: 'system', title: 'System' },

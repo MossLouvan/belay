@@ -9,7 +9,7 @@ import React, { useCallback, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useTheme } from './theme';
 import { haptic } from './ui';
-import { LETTER_KEYS, PRIMARY_KEYS, SYMBOL_KEYS, encodeKey } from './terminal-keymap';
+import { LAUNCH_KEYS, LETTER_KEYS, PRIMARY_KEYS, SYMBOL_KEYS, encodeKey } from './terminal-keymap';
 import type { KeyDef } from './terminal-keymap';
 
 // --- key caps ----------------------------------------------------------------
@@ -129,6 +129,20 @@ export function KeyBar({ onSend, onClear, onHistory, ptyMode }: KeyBarProps) {
             onClear();
           }}
         />
+        {/* Whole command lines: a modifier makes no sense here, so it is
+            consumed without being applied. */}
+        {LAUNCH_KEYS.map((key) => (
+          <KeyCap
+            key={key.id}
+            id={key.id}
+            label={key.label}
+            wide={key.wide}
+            onPress={() => {
+              consume();
+              if (key.send) onSend(key.send);
+            }}
+          />
+        ))}
       </ScrollView>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={rowStyle}>
         {secondary.map((ch) => (

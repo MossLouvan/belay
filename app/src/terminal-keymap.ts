@@ -23,6 +23,16 @@ export const PRIMARY_KEYS: readonly KeyDef[] = [
   { id: 'Ctrl+D', label: '^D', send: '\x04' },
 ];
 
+/**
+ * Quick-launch keys for the raw interactive Claude Code CLI — the Agent tab is
+ * the guided way in, this is the escape hatch. Each sends a whole command line
+ * plus Enter, so it is kept apart from the single-key row.
+ */
+export const LAUNCH_KEYS: readonly KeyDef[] = [
+  { id: 'claude', label: 'claude', send: 'claude\r', wide: true },
+  { id: 'claude -c', label: 'claude -c', send: 'claude -c\r', wide: true },
+];
+
 export const SYMBOL_KEYS: readonly string[] = [
   '|', '~', '/', '\\', '-', '_', '$', '*', '&', '^', '%', '#', '!', '?', ':', ';',
   '"', "'", '`', '(', ')', '[', ']', '{', '}', '<', '>', '=', '+', '@', '.', ',',

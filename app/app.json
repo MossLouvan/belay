@@ -18,7 +18,8 @@
           "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoads": true
         },
-        "NSCameraUsageDescription": "Tether uses the camera only to scan the pairing code shown on your computer."
+        "NSCameraUsageDescription": "Tether uses the camera only to scan the pairing code shown on your computer.",
+        "NSMicrophoneUsageDescription": "Tether records while you hold the mic so your words can be transcribed on your own computer and sent to Claude or typed there."
       }
     },
     "android": {
@@ -60,7 +61,14 @@
           "recordAudioAndroid": false
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Tether records while you hold the mic so your words can be transcribed on your own computer and sent to Claude or typed there.",
+          "recordAudioAndroid": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false
