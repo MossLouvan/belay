@@ -236,6 +236,15 @@ export default function Connect() {
       });
       setCode('');
       setPairError(null);
+
+      // Over the owner's own tailnet the host has already verified this phone
+      // and will pair without a code: go straight there. If that somehow fails
+      // the normal code screen is the fallback, so nothing is lost by trying.
+      if (result.pairing === 'tailnet') {
+        setBusy(true);
+        try { await completePairing(resolved.url, ''); } finally { if (live.current) setBusy(false); }
+        return;
+      }
       setStage('code');
       rememberHost(resolved.url).then(
         (list) => {

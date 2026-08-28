@@ -20,6 +20,7 @@ import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from '
 import { createPairGuard } from './pair-guard.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
+import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
 import { resolveStreamParams, StreamParams } from './stream-params.js';
 import { native } from './native.js';
 import { createTerminal } from './terminal.js';
@@ -171,10 +172,15 @@ function identity() {
   };
 }
 
-app.get('/health', (_req, res) => {
+app.get('/health', async (req, res) => {
+  // Tell the phone whether *this* connection could pair without a code, so it
+  // can skip the code screen instead of asking for digits it will never need.
+  // Cheap when the source is not a tailnet address (no CLI call at all).
+  const tailnet = await tailnetTrusted(req.socket.remoteAddress);
   res.json({
     ok: true,
     name: getHostName(),
+    pairing: tailnet.trusted ? 'tailnet' : 'code',
     // Live, not sampled at boot. Reporting a boot-time constant told the phone
     // that capture worked while every call was failing against a dead helper.
     native: native.isReady(),
@@ -187,7 +193,7 @@ app.get('/health', (_req, res) => {
 // The code is only ever shown on the PC (see banner.ts); the phone POSTs a code
 // the user read off that screen. Wrong guesses are rate limited per client and
 // budgeted per code — see pair-guard.ts for why both limits are needed.
-app.post('/pair', (req, res) => {
+app.post('/pair', async (req, res) => {
   const clientId = req.ip ?? 'unknown';
 
   const decision = pairGuard.check(clientId);
@@ -201,6 +207,25 @@ app.post('/pair', (req, res) => {
   }
 
   const { code, deviceName } = req.body || {};
+
+  // Code-less path: a peer on our own tailnet, verified by the Tailscale
+  // daemon, is already proven to be one of the owner's devices. See tailnet.ts
+  // for why this is not a weakening of the code — it is the code made redundant
+  // by a stronger check.
+  if (!code) {
+    const tailnet = await tailnetTrusted(req.socket.remoteAddress);
+    if (tailnet.trusted) {
+      pairGuard.recordSuccess(clientId);
+      const device = addDevice(String(deviceName || 'iPhone'));
+      console.log(`[pairing] paired ${device.name} via tailnet identity (${tailnet.peer?.node || clientId})`);
+      res.json({ token: device.token, name: getHostName(), via: 'tailnet' });
+      return;
+    }
+    if (couldBeTailnet(req.socket.remoteAddress) && tailnetPairingEnabled()) {
+      console.warn(`[pairing] ${clientId} asked to pair without a code but is not a peer on this tailnet`);
+    }
+  }
+
   if (!consumeCode(String(code || ''))) {
     const outcome = pairGuard.recordFailure(clientId);
     if (outcome.burnCode) {

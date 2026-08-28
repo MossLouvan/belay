@@ -101,7 +101,12 @@ Pairing a phone gives it **complete control of the computer** — mouse,
 keyboard, a shell, and a read-only view of your home folder. Treat the device
 token like a password to the machine.
 
-- Pairing codes are single-use and expire after 5 minutes. Wrong guesses lock
+- Over your own Tailscale network the code is skipped entirely: the host asks
+  the Tailscale daemon (`tailscale whois`) who is connecting, and pairs any
+  device signed in to the *same* Tailscale account with no code. Nobody outside
+  your tailnet can reach the port, so re-pairing from anywhere is safe. Set
+  `TETHER_TAILNET_PAIR=0` to insist on the code anyway.
+- On LAN, pairing codes are single-use and expire after 5 minutes. Wrong guesses lock
   the client out after 5 attempts, and 20 wrong guesses from anywhere burn the
   code, so a 6-digit code cannot be brute-forced.
 - Tokens are random 256-bit values, compared in constant time, revocable from

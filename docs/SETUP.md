@@ -186,18 +186,21 @@ again.
 
 ## 4. Reaching your host from anywhere
 
-On the same Wi-Fi, use the `192.168.x.x` address directly.
+Install [Tailscale](https://tailscale.com/download) on the computer and on the
+phone and sign both in to the same account. The host then has a stable
+`100.x.y.z` address (and a MagicDNS name) that works from any network, and only
+devices on your tailnet can reach it at all.
 
-To use it on cellular or any other network, install
-[Tailscale](https://tailscale.com/) on **both** the host and the phone, sign
-into the same account, and use the host's `100.x.y.z` address in the app.
-Tailscale builds an encrypted peer-to-peer link, so:
+Once both are on the tailnet, **you never need the pairing code again**: the
+host verifies the phone's Tailscale identity and pairs it on the spot. So if the
+app is reinstalled, the phone is revoked, or you are on the other side of the
+world, entering the host's Tailscale address in the app is enough.
 
-- no port forwarding
-- works behind CGNAT (most home ISPs)
-- traffic is encrypted end to end and never exposed to the public internet
+For the host to be there when you are away, also:
 
-**Do not** port-forward 8787 to the internet as a shortcut. Use Tailscale.
+- run it on login (`npm run autostart` in `server/`, see below);
+- set the power plan to never sleep, and enable automatic logon if the machine
+  may reboot unattended.
 
 ## 5. Keeping the host up
 
@@ -310,6 +313,8 @@ regardless.
 | `TETHER_PORT` | `8787` | Port to listen on |
 | `TETHER_ALLOWED_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Browser origins allowed by CORS (the local web build) |
 | `TETHER_HOSTS` | *(empty)* | Extra hostnames accepted in the `Host` header, comma-separated. IP literals, `localhost` and `*.local` are always accepted; anything else is refused to defeat DNS rebinding. Add your Tailscale MagicDNS name here if you connect by name |
+| `TETHER_TAILNET_PAIR` | `1` | Pair without a code for devices on the host's own Tailscale account (`0` to always require the code) |
+| `TETHER_TAILSCALE_CLI` | auto | Path to the `tailscale` CLI if it is somewhere unusual |
 | `TETHER_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |
 | `TETHER_WHISPER_LANG` | `en` | Language passed to whisper for voice prompts |
 | `TETHER_TEST_CODE` | *(unset)* | Fixed pairing code for the Playwright suite; ignored when `NODE_ENV=production` |

@@ -121,6 +121,12 @@ export interface HostCheck {
   platform?: string;
   addresses?: AdvertisedAddress[];
   reachableFromAnywhere?: boolean;
+  /**
+   * 'tailnet' when the host has verified this phone is on its own Tailscale
+   * account and will pair with no code; 'code' (or absent, on older hosts)
+   * when the 6-digit code is required.
+   */
+  pairing?: 'tailnet' | 'code';
 }
 
 /**
@@ -143,6 +149,7 @@ export async function checkHost(host: string, signal?: AbortSignal): Promise<Hos
       platform: typeof j.platform === 'string' ? j.platform : undefined,
       addresses: Array.isArray(j.addresses) ? j.addresses : undefined,
       reachableFromAnywhere: j.reachableFromAnywhere === true,
+      pairing: j.pairing === 'tailnet' ? 'tailnet' : 'code',
     };
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'could not reach host' };
