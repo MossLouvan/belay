@@ -107,7 +107,7 @@ if ($null -ne (Get-TetherTask)) {
 # takes the agent down with it.
 $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $launchCmd = "& '$($node.Source)' '$tsxCli' '$(Join-Path $ServerDir 'src\index.ts')'"
-$action    = New-ScheduledTaskAction -Execute $powershellExe `
+$taskAction = New-ScheduledTaskAction -Execute $powershellExe `
                                      -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$launchCmd`"" `
                                      -WorkingDirectory $ServerDir
 $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
@@ -128,7 +128,7 @@ $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
                                           -ExecutionTimeLimit ([TimeSpan]::Zero)
 
 Register-ScheduledTask -TaskName $TaskName `
-                       -Action $action `
+                       -Action $taskAction `
                        -Trigger $trigger `
                        -Principal $principal `
                        -Settings $settings `
