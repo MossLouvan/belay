@@ -302,3 +302,18 @@ regardless.
 | Disk shows 0 in the Status tab | both | The host could not read disk usage; it logs one `[disk] …` line with the reason. |
 | Code expired | both | Just read the new code from the host window; it refreshes automatically. |
 | Files tab won't open a folder | both | The file API is confined to Home, Desktop, Documents, Downloads (and `/Volumes` on macOS) and refuses anything that *resolves* outside them — including symlinks that point out. |
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TETHER_PORT` | `8787` | Port to listen on |
+| `TETHER_ALLOWED_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Browser origins allowed by CORS (the local web build) |
+| `TETHER_HOSTS` | *(empty)* | Extra hostnames accepted in the `Host` header, comma-separated. IP literals, `localhost` and `*.local` are always accepted; anything else is refused to defeat DNS rebinding. Add your Tailscale MagicDNS name here if you connect by name |
+| `TETHER_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |
+| `TETHER_WHISPER_LANG` | `en` | Language passed to whisper for voice prompts |
+| `TETHER_TEST_CODE` | *(unset)* | Fixed pairing code for the Playwright suite; ignored when `NODE_ENV=production` |
+
+## Agent tab and voice
+
+The Agent tab needs the `claude` CLI on the PC's PATH (`npm i -g @anthropic-ai/claude-code`). Voice prompts need whisper.cpp: run `npm run setup:whisper` in `server/` once. See [`AGENT.md`](AGENT.md).

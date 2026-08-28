@@ -30,6 +30,9 @@ through anyone else's servers.
 | Interactive terminal | ✅ real pty when available, piped shell otherwise |
 | File browser + text file viewer | ✅ |
 | Live system stats | ✅ |
+| Agent tab — drive Claude Code on the PC | ✅ pick a project, prompt from the phone, approve every action |
+| Voice prompts + global dictation | ✅ hold-to-talk, transcribed on the PC with whisper.cpp |
+| Resume any past Claude session | ✅ "On this PC" list in the Agent tab, or `npm run sessions` |
 | Runs on iPhone via Expo Go | ✅ |
 | Runs in a browser (same UI) | ✅ used for automated tests |
 | Windows host | ✅ |
@@ -75,6 +78,8 @@ CGNAT, and the link is encrypted end to end.
 Do **not** port-forward the host agent to the public internet.
 
 ## Docs
+
+- [`docs/AGENT.md`](docs/AGENT.md) — the Agent tab: how Claude Code runs on the PC and how every action is approved from the phone
 
 - [`docs/SETUP.md`](docs/SETUP.md) — full install for macOS and Windows, permissions, Tailscale, 24/7 config
 - [`docs/IOS.md`](docs/IOS.md) — installing on your iPhone, TestFlight and IPA builds

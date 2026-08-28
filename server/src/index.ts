@@ -27,6 +27,13 @@ import { listDir, readTextFile, ROOTS } from './files.js';
 import { getStats } from './system.js';
 import { VK, MOD_VK, charToVk } from './keys.js';
 import { printBanner, buildNativeHint } from './banner.js';
+import {
+  loadAgentState, listSessions, createSession, getSnapshot, deleteSession,
+  sendPrompt, stopSession, subscribe, requestApproval, answerApproval,
+  listProjects, agentAvailable, attachSession, attachedClaudeIds,
+} from './agent.js';
+import { discoverSessions } from './discover.js';
+import { transcribe, transcribeStatus } from './transcribe.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
 
@@ -84,6 +91,7 @@ const CAPTURE_ERROR_BACKOFF_MS = 500;
 const CODE_REFRESH_INTERVAL_MS = 30_000;
 
 loadState();
+loadAgentState();
 if (!getHostName()) setHostName(hostname());
 
 // Only open a pairing window when there is nothing paired yet. Previously this
@@ -380,6 +388,105 @@ app.post('/devices/revoke', auth, (req, res) => {
   res.json({ ok });
 });
 
+// ---- agent (Claude Code) routes ------------------------------------------
+//
+// The phone drives Claude Code sessions running on this machine. Every
+// permission ask Claude makes is routed through the approval sidecar
+// (approval-mcp.cjs) back to the phone — see docs/AGENT.md.
+
+app.get('/agent/status', auth, (_req, res) => {
+  res.json({ available: agentAvailable(), transcribe: transcribeStatus().ready });
+});
+
+app.get('/agent/projects', auth, (_req, res) => res.json({ projects: listProjects() }));
+
+app.get('/agent/sessions', auth, (_req, res) => res.json({ sessions: listSessions() }));
+
+app.post('/agent/sessions', auth, (req, res) => {
+  try { res.json(createSession(String(req.body?.cwd || ''), req.body?.title ? String(req.body.title) : undefined)); }
+  catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+// Every Claude Code session found on this machine (terminal-started included)
+// that Tether hasn't already wrapped. Previews only — never full transcripts.
+app.get('/agent/discovered', auth, (_req, res) => {
+  try { res.json({ sessions: discoverSessions(attachedClaudeIds()) }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/agent/attach', auth, (req, res) => {
+  try {
+    res.json(attachSession(
+      String(req.body?.cwd || ''),
+      String(req.body?.claudeSessionId || ''),
+      req.body?.title ? String(req.body.title) : undefined,
+    ));
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+app.get('/agent/sessions/:id', auth, (req, res) => {
+  const snap = getSnapshot(req.params.id);
+  if (!snap) { res.status(404).json({ error: 'no such session' }); return; }
+  res.json(snap);
+});
+
+app.delete('/agent/sessions/:id', auth, (req, res) => {
+  res.json({ ok: deleteSession(req.params.id) });
+});
+
+app.post('/agent/sessions/:id/prompt', auth, (req, res) => {
+  try { sendPrompt(req.params.id, String(req.body?.text || '')); res.json({ ok: true }); }
+  catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/agent/sessions/:id/stop', auth, (req, res) => {
+  try { stopSession(req.params.id); res.json({ ok: true }); }
+  catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/agent/sessions/:id/approve', auth, (req, res) => {
+  const { approvalId, allow, always } = req.body || {};
+  const ok = answerApproval(req.params.id, String(approvalId || ''), !!allow, undefined, !!always);
+  res.json({ ok });
+});
+
+// Loopback-only: the MCP approval sidecar POSTs here and the request is held
+// open until the user answers on the phone (or the ask times out → deny).
+// Authenticated by the per-process key, not the device token.
+app.post('/agent/approval-request', (req, res) => {
+  const ip = req.socket.remoteAddress || '';
+  if (ip !== '127.0.0.1' && ip !== '::1' && ip !== '::ffff:127.0.0.1') {
+    res.status(403).json({ allow: false, message: 'loopback only' });
+    return;
+  }
+  const { session, key, toolName, input } = req.body || {};
+  requestApproval(String(session || ''), String(key || ''), String(toolName || 'unknown'), input)
+    .then((verdict) => res.json(verdict))
+    .catch(() => res.json({ allow: false, message: 'approval failed' }));
+});
+
+// ---- voice ----------------------------------------------------------------
+
+const rawAudio = express.raw({ type: () => true, limit: '12mb' });
+
+app.get('/transcribe/status', auth, (_req, res) => res.json(transcribeStatus()));
+
+app.post('/transcribe', auth, rawAudio, async (req, res) => {
+  try { res.json({ text: await transcribe(req.body as Buffer) }); }
+  catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+// Global dictation: transcribe, then type the text into whatever is focused
+// on this machine. Bounded like /input/text — a transcript is never long
+// enough to hit the limit, but the guarantee is the same either way.
+app.post('/dictate', auth, rawAudio, async (req, res) => {
+  try {
+    const text = (await transcribe(req.body as Buffer)).slice(0, MAX_INPUT_TEXT_UNITS);
+    if (text) await native.text(text);
+    res.json({ text, typed: !!text });
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
 // ---- server + websockets -------------------------------------------------
 
 const server = createServer(app);
@@ -418,6 +525,8 @@ server.on('upgrade', (req, socket, head) => {
         if (ws.readyState === ws.OPEN) ws.close();
       });
     });
+  } else if (url.pathname === '/ws/agent') {
+    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAgent(ws, url); });
   } else {
     socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
     socket.destroy();
@@ -536,6 +645,35 @@ function messageOf(e: unknown): string {
 
 // ---- boot ----------------------------------------------------------------
 
+// Agent session channel: pushes events/status/permission asks as they happen;
+// accepts prompts and approval answers. REST covers the same ground, but the
+// socket is what makes the phone feel live.
+function handleAgent(ws: WebSocket, url: URL) {
+  const sessionId = url.searchParams.get('session') || '';
+  const snap = getSnapshot(sessionId);
+  if (!snap) { ws.send(JSON.stringify({ type: 'error', error: 'no such session' })); ws.close(); return; }
+
+  const unsubscribe = subscribe(sessionId, (msg) => {
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+  });
+  ws.send(JSON.stringify({ type: 'hello', session: snap }));
+
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === 'prompt') {
+        try { sendPrompt(sessionId, String(msg.text || '')); }
+        catch (e: any) { ws.send(JSON.stringify({ type: 'error', error: e.message })); }
+      } else if (msg.type === 'approve') {
+        answerApproval(sessionId, String(msg.approvalId || ''), !!msg.allow, undefined, !!msg.always);
+      } else if (msg.type === 'stop') {
+        try { stopSession(sessionId); } catch { /* already idle */ }
+      }
+    } catch { /* ignore malformed */ }
+  });
+  ws.on('close', () => unsubscribe?.());
+}
+
 /**
  * Explain a failure to bind instead of printing a stack trace.
  *
@@ -602,6 +740,9 @@ server.listen(PORT, () => {
     label: getLabel(),
     platform: getPlatform(),
   });
+  console.log(`  Agent     : ${agentAvailable() ? 'claude CLI found' : 'claude CLI not on PATH — Agent tab disabled'}`);
+  console.log(`  Voice     : ${transcribeStatus().ready ? 'whisper ready' : 'not set up — run: npm run setup:whisper'}`);
+  console.log('');
 });
 
 // While no device is paired, keep a valid pairing code alive and reprint it

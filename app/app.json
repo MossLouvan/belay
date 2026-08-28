@@ -59,7 +59,8 @@
           "cameraPermission": "Tether uses the camera only to scan the pairing code shown on your computer.",
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": false
