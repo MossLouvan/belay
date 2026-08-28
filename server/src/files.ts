@@ -99,6 +99,45 @@ const REAL_ROOTS: readonly string[] = ROOTS.map((r) => {
  * symlinks but does *not* canonicalise case, which would silently reintroduce a
  * case-based prefix-check bypass. `test/files.test.ts` covers this.
  */
+/**
+ * Places that sit inside a root but must never be served, because reading them
+ * is worth more to an attacker than the rest of the home folder put together:
+ *
+ *   - the Tether install directory itself — `tether-state.json` there holds the
+ *     raw bearer token of every paired device, so one paired phone could read
+ *     it and impersonate all the others (and survive its own revocation);
+ *   - credential folders and files (`~/.ssh`, `~/.aws`, `~/.claude`, shell
+ *     history, `.netrc`, ...).
+ *
+ * Compared case-insensitively: both APFS and NTFS are case-insensitive by
+ * default and this list is a deny-list, so erring towards "denied" is the
+ * safe direction.
+ */
+const DENIED_DIRS: readonly string[] = [
+  process.cwd(),
+  ...[
+    '.ssh', '.aws', '.gnupg', '.claude', '.claude.json', '.azure', '.kube', '.docker', '.config',
+    '.gitconfig', '.npmrc', '.netrc', '.bash_history', '.zsh_history', '.python_history',
+    'AppData/Local/Google/Chrome/User Data', 'AppData/Roaming/Mozilla',
+    'Library/Keychains', 'Library/Application Support/Google/Chrome',
+  ].map((d) => join(HOME, d)),
+].map((p) => {
+  try { return realpathSync.native(p); } catch { return resolve(p); }
+});
+
+const DENIED_FILE = /^tether-(state|agent)\.json$/i;
+
+export function isDenied(realTarget: string, denied: readonly string[] = DENIED_DIRS): boolean {
+  const target = resolve(realTarget);
+  const lower = target.toLowerCase();
+  if (denied.some((d) => {
+    const dl = resolve(d).toLowerCase();
+    return lower === dl || lower.startsWith(dl + sep);
+  })) return true;
+  const segments = target.split(sep);
+  return DENIED_FILE.test(segments[segments.length - 1] ?? '');
+}
+
 export function isInsideRoots(realTarget: string, roots: readonly string[] = REAL_ROOTS): boolean {
   const target = resolve(realTarget);
   return roots.some((root) => {
@@ -123,6 +162,7 @@ async function resolveInsideRoots(target: string): Promise<string> {
     throw new Error('path could not be resolved');
   }
   if (!isInsideRoots(real)) throw new Error('path is outside the allowed roots');
+  if (isDenied(real)) throw new Error('path is outside the allowed roots');
   return real;
 }
 
@@ -145,6 +185,7 @@ export interface Entry {
  */
 async function describeEntry(dir: string, name: string): Promise<Entry | null> {
   const full = join(dir, name);
+  if (isDenied(full)) return null;
   try {
     const link = await lstat(full);
     if (!link.isSymbolicLink()) {
@@ -158,7 +199,7 @@ async function describeEntry(dir: string, name: string): Promise<Entry | null> {
       };
     }
     const real = await realpath(full);
-    if (!isInsideRoots(real)) return null;
+    if (!isInsideRoots(real) || isDenied(real)) return null;
     const s = await stat(full);
     return { name, path: full, dir: s.isDirectory(), size: s.size, mtime: s.mtimeMs, link: true };
   } catch {

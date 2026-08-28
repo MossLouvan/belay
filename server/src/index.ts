@@ -19,6 +19,7 @@ import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
 import { createPairGuard } from './pair-guard.js';
 import { createTicketStore } from './tickets.js';
+import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { resolveStreamParams, StreamParams } from './stream-params.js';
 import { native } from './native.js';
 import { createTerminal } from './terminal.js';
@@ -112,6 +113,10 @@ if (nativeBuilt) {
 }
 
 const app = express();
+app.use((req, res, next) => {
+  if (!isTrustedHost(req.headers.host)) { res.status(421).json({ error: 'unrecognized host' }); return; }
+  next();
+});
 app.use(cors({ origin: [...allowedOrigins()] }));
 app.use(express.json({ limit: '2mb' }));
 
@@ -120,8 +125,10 @@ app.use(express.json({ limit: '2mb' }));
 interface AuthedRequest extends Request { device?: Device; }
 
 function auth(req: AuthedRequest, res: Response, next: NextFunction) {
+  // Header only. A token in a query string lands in access logs, proxy logs
+  // and browser history; the app has always sent the header.
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string) || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   const device = findDevice(token);
   if (!device) { res.status(401).json({ error: 'unauthorized' }); return; }
   touchDevice(device);
@@ -366,17 +373,26 @@ app.post('/devices/revoke', auth, (req, res) => {
     res.status(400).json({ error: `prefix must be at least ${MIN_REVOKE_PREFIX} characters` });
     return;
   }
-  res.json({ ok: revokeDevice(prefix) });
+  const ok = revokeDevice(prefix);
+  // A revoked device must lose its live screen and terminal too, not just its
+  // ability to open new ones.
+  if (ok) for (const [ws, tok] of liveSockets) if (tok.startsWith(prefix)) ws.close(4001, 'device revoked');
+  res.json({ ok });
 });
 
 // ---- server + websockets -------------------------------------------------
 
 const server = createServer(app);
 const wss = new WebSocketServer({ noServer: true });
+// Open sockets by the token that opened them, so revocation can tear them down.
+const liveSockets = new Map<WebSocket, string>();
 
 // One handler per WS path. Auth happens once here at the upgrade.
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url || '', 'http://localhost');
+  if (!isTrustedHost(req.headers.host) || !isTrustedOrigin(req.headers.origin)) {
+    socket.write('HTTP/1.1 421 Misdirected Request\r\n\r\n'); socket.destroy(); return;
+  }
 
   // A ticket is preferred; the raw token is still accepted so an app built
   // before /ws-ticket existed keeps working. New clients should never send it —
@@ -388,13 +404,15 @@ server.on('upgrade', (req, socket, head) => {
   const device = findDevice(token);
   if (!device) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
   touchDevice(device);
+  const track = (ws: WebSocket) => { liveSockets.set(ws, device.token); ws.on('close', () => liveSockets.delete(ws)); };
 
   if (url.pathname === '/ws/screen') {
-    wss.handleUpgrade(req, socket, head, (ws) => handleScreen(ws, url));
+    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleScreen(ws, url); });
   } else if (url.pathname === '/ws/terminal') {
     // handleTerminal is async; an unhandled rejection here would exit the
     // process under Node's default policy, so the promise is explicitly caught.
     wss.handleUpgrade(req, socket, head, (ws) => {
+      track(ws);
       void handleTerminal(ws, url).catch((e: unknown) => {
         console.error('[terminal] session failed:', messageOf(e));
         if (ws.readyState === ws.OPEN) ws.close();

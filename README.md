@@ -92,13 +92,30 @@ docs/     setup, iOS distribution, architecture
 
 ## Security
 
-- Pairing codes are single-use and expire after 5 minutes.
-- Tokens are random 256-bit values, compared in constant time, revocable from the host.
-- The agent binds to all interfaces but is intended to sit behind LAN or Tailscale.
-- Every screen, input, terminal and file route requires a valid token.
-- The file API is read-only, confined to an allow-list of roots, and rejects
-  traversal — paths are resolved through symlinks before the check, so a link
-  inside an allowed folder cannot be used to escape it.
+Pairing a phone gives it **complete control of the computer** — mouse,
+keyboard, a shell, and a read-only view of your home folder. Treat the device
+token like a password to the machine.
+
+- Pairing codes are single-use and expire after 5 minutes. Wrong guesses lock
+  the client out after 5 attempts, and 20 wrong guesses from anywhere burn the
+  code, so a 6-digit code cannot be brute-forced.
+- Tokens are random 256-bit values, compared in constant time, revocable from
+  any paired device — and revoking closes that device's live screen and
+  terminal sockets immediately.
+- Every screen, input, terminal and file route requires a valid bearer token in
+  the `Authorization` header. WebSockets use a one-shot ticket so the token
+  never appears in a URL.
+- Browser origins are an explicit allow-list (`TETHER_ALLOWED_ORIGINS`), and
+  every request's `Host` header must be an IP literal, `localhost`, a `.local`
+  name, or a name in `TETHER_HOSTS` — this defeats DNS rebinding, where a
+  malicious web page re-points its own domain at your PC to sidestep CORS.
+- The file API is read-only, confined to an allow-list of roots, resolves
+  symlinks before checking, and additionally refuses the Tether install
+  directory (whose state file holds the device tokens) and credential folders
+  such as `~/.ssh`, `~/.aws` and `~/.claude`.
+- Transport is plain HTTP: use it over Tailscale or a network you trust. On an
+  open network anyone on the segment could read the token off the wire.
+- `tether-state.json` (device tokens) is written owner-only and gitignored.
 
 ## License
 
