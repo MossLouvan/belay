@@ -266,8 +266,8 @@ class NativeHost {
   move(x: number, y: number, screen?: number) { return this.send({ cmd: 'move', x, y, screen }); }
   down(button: string, x?: number, y?: number, screen?: number) { return this.send({ cmd: 'down', button, x, y, screen }); }
   up(button: string, x?: number, y?: number, screen?: number) { return this.send({ cmd: 'up', button, x, y, screen }); }
-  click(button: string, x?: number, y?: number, double = false, screen?: number) {
-    return this.send({ cmd: 'click', button, x, y, double, screen });
+  click(button: string, x?: number, y?: number, double = false, screen?: number, mods?: number[]) {
+    return this.send({ cmd: 'click', button, x, y, double, screen, mods });
   }
   scroll(dy: number, dx: number) { return this.send({ cmd: 'scroll', dy, dx }); }
   key(vk: number, mods: number[] = []) { return this.send({ cmd: 'key', vk, mods }); }

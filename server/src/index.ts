@@ -333,8 +333,13 @@ app.get('/screen/info', auth, async (_req, res) => {
 // rectangle, which is what keeps taps landing on the pixels the frame showed.
 app.post('/input/click', auth, async (req, res) => {
   try {
-    const { x, y, button = 'left', double = false } = req.body || {};
-    await native.click(button, x, y, double, screenIndexOf(req.body?.screen));
+    const { x, y, button = 'left', double = false, mods = [] } = req.body || {};
+    // Same name->VK mapping as /input/key, so a latched Ctrl/Shift on the phone
+    // becomes a real Ctrl+click / Shift+click on the host.
+    const modVks = (Array.isArray(mods) ? mods : [])
+      .map((m) => MOD_VK[String(m).toLowerCase()])
+      .filter((v): v is number => !!v);
+    await native.click(button, x, y, double, screenIndexOf(req.body?.screen), modVks);
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });

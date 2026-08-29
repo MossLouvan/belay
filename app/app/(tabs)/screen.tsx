@@ -210,6 +210,7 @@ export default function ScreenTab() {
     inputBlocked: permissions.inputBlocked,
     screen: screenIndex,
     onPointer: spendLatch,
+    activeMods: () => modNamesForHost(activeMods(modsRef.current), isMac),
   });
 
   const onBoxLayout = useCallback((event: LayoutChangeEvent) => {

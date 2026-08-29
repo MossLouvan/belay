@@ -323,8 +323,8 @@ export const api = {
   // `screen` is the monitor the coordinates are normalized against (an index
   // from ScreenInfo.screens). Left undefined it is dropped by JSON.stringify,
   // so old hosts see the exact requests they always did (primary monitor).
-  click: (x: number, y: number, button = 'left', double = false, screen?: number) =>
-    post('/input/click', { x, y, button, double, screen }),
+  click: (x: number, y: number, button = 'left', double = false, screen?: number, mods?: string[]) =>
+    post('/input/click', { x, y, button, double, screen, mods }),
   move: (x: number, y: number, screen?: number) => post('/input/move', { x, y, screen }),
   scroll: (dy: number, dx = 0) => post('/input/scroll', { dy, dx }),
   drag: (x1: number, y1: number, x2: number, y2: number, screen?: number) =>

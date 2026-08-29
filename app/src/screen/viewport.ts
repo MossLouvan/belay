@@ -66,6 +66,13 @@ export interface ViewportOptions {
    * and scrolls do NOT fire it: they are viewing gestures, not input.
    */
   readonly onPointer?: () => void;
+  /**
+   * Active sticky-modifier names (host wire form, e.g. 'ctrl','shift','cmd') at
+   * the moment of a click, so a latched modifier on the phone becomes a real
+   * Ctrl+click / Shift+click. Read just before the click is sent; `onPointer`
+   * then clears the one-shot latches. Undefined when no modifiers are in force.
+   */
+  readonly activeMods?: () => string[];
 }
 
 export interface Viewport {
@@ -81,7 +88,7 @@ export interface Viewport {
 }
 
 export function useViewport(options: ViewportOptions): Viewport {
-  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer } =
+  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, activeMods } =
     options;
 
   const translateX = useRef(new Animated.Value(0)).current;
@@ -107,6 +114,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const onButtonUsedRef = useRef(onButtonUsed);
   const screenRef = useRef(screen);
   const onPointerRef = useRef(onPointer);
+  const activeModsRef = useRef(activeMods);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -117,7 +125,8 @@ export function useViewport(options: ViewportOptions): Viewport {
     onButtonUsedRef.current = onButtonUsed;
     screenRef.current = screen;
     onPointerRef.current = onPointer;
-  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer]);
+    activeModsRef.current = activeMods;
+  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, activeMods]);
 
   const send = useCallback((run: () => Promise<unknown>, what: string): void => {
     if (blockedRef.current) return;
@@ -267,6 +276,8 @@ export function useViewport(options: ViewportOptions): Viewport {
     (point: { x: number; y: number }) => {
       const pending = buttonRef.current;
       haptic(pending === 'none' ? 'light' : 'medium');
+      // Snapshot the latched modifiers now; onPointer clears them right after.
+      const mods = activeModsRef.current?.();
       send(
         () =>
           api.click(
@@ -274,7 +285,8 @@ export function useViewport(options: ViewportOptions): Viewport {
             point.y,
             pending === 'right' ? 'right' : 'left',
             pending === 'double',
-            screenRef.current
+            screenRef.current,
+            mods
           ),
         'Click'
       );
@@ -416,7 +428,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         g.longPress = undefined;
         haptic('medium');
         const target = modeRef.current === 'trackpad' ? cursor.current : toHost(g.startX, g.startY);
-        send(() => api.click(target.x, target.y, 'right', false, screenRef.current), 'Right-click');
+        send(() => api.click(target.x, target.y, 'right', false, screenRef.current, activeModsRef.current?.()), 'Right-click');
         onPointerRef.current?.();
       }, GESTURE.longPressMs);
     },

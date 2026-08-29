@@ -310,12 +310,20 @@ static class TetherHost
         MaybeMove(c);
         string btn = Get(c, "button") != null ? Str(Get(c, "button")) : "left";
         int times = Bool(Get(c, "double")) ? 2 : 1;
+        // Modifiers (Ctrl/Shift/...) are held down for the whole click so the
+        // host sees e.g. Ctrl+click, then released in reverse order.
+        var mods = new List<ushort>();
+        object m = Get(c, "mods");
+        if (m is object[])
+            foreach (var x in (object[])m) mods.Add((ushort)Int(x));
+        foreach (var vk in mods) Native.Key(vk, true);
         for (int n = 0; n < times; n++)
         {
             Native.Button(btn, true);
             Native.Button(btn, false);
             if (n < times - 1) System.Threading.Thread.Sleep(40);
         }
+        for (int n = mods.Count - 1; n >= 0; n--) Native.Key(mods[n], false);
         Ok(w, id);
     }
 
