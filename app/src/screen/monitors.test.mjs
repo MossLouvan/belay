@@ -29,6 +29,7 @@ import {
   screensOf,
   defaultScreenIndex,
   resolveScreenIndex,
+  nextScreenIndex,
   monitorLabel,
 } from './monitors.ts';
 
@@ -114,6 +115,28 @@ test('a list without any primary still yields a default (the first entry)', () =
   });
   assert.equal(defaultScreenIndex(screens), 2);
   assert.equal(resolveScreenIndex(undefined, screens), 2);
+});
+
+// ---- tap-to-cycle ----------------------------------------------------------
+
+test('nextScreenIndex cycles through the list in order and wraps', () => {
+  const screens = screensOf(twoMonitors);
+  assert.equal(nextScreenIndex(0, screens), 1);
+  assert.equal(nextScreenIndex(1, screens), 0, 'wraps back to the first listed');
+});
+
+test('nextScreenIndex resolves a stale or absent selection before stepping', () => {
+  const screens = screensOf(twoMonitors);
+  // No selection resolves to the primary (index 1), so the next is 0.
+  assert.equal(nextScreenIndex(undefined, screens), 0);
+  // A vanished monitor also resolves to the primary first.
+  assert.equal(nextScreenIndex(7, screens), 0);
+});
+
+test('nextScreenIndex on one monitor stays there; on none stays undefined', () => {
+  const one = screensOf({ screens: [{ index: 0, W: 800, H: 600, primary: true }] });
+  assert.equal(nextScreenIndex(0, one), 0);
+  assert.equal(nextScreenIndex(undefined, screensOf({})), undefined);
 });
 
 // ---- labels ---------------------------------------------------------------

@@ -61,6 +61,11 @@ test.describe('Tether', () => {
   });
 
   test('screen tab: streaming and every control', async ({ page }) => {
+    // Redesigned Screen tab: a single control dock, keys and the text field
+    // behind toggles, a paged key bar with sticky modifiers. Only page-1 keys
+    // and ungated controls are exercised here; the monitor switcher is gated on
+    // a multi-monitor host and the paged keys need a live gesture, so both are
+    // left for a manual pass against a real host.
     await pair(page);
 
     // A live frame should arrive (fps text flips off "connecting").
@@ -69,26 +74,32 @@ test.describe('Tether', () => {
     // The remote surface accepts taps (sends a click to the host).
     await page.getByTestId('screen-surface').click({ position: { x: 100, y: 60 } });
 
-    // Right-click toggle.
+    // Arm right-click (a dock button that latches), then a tap sends it.
     await page.getByTestId('right-click').click();
-    await expect(page.getByTestId('right-click')).toContainText('ON');
     await page.getByTestId('screen-surface').click({ position: { x: 120, y: 70 } });
 
-    // Key bar: each quick key posts to the host.
-    for (const label of ['Esc', 'Tab', 'Enter', 'Bksp', 'Ctrl+C', 'Ctrl+V', 'Win', 'Left', 'Up', 'Down', 'Right']) {
-      await page.getByTestId(`key-${label}`).click();
-    }
+    // The key bar is hidden until the keyboard button reveals it.
+    await expect(page.getByTestId('key-Esc')).toHaveCount(0);
+    await page.getByTestId('toggle-keys').click();
+    await expect(page.getByTestId('key-Esc')).toBeVisible();
 
-    // Text send.
+    // Page-1 keys each post to the host.
+    for (const id of ['Esc', 'Tab', 'Enter', 'Bksp']) {
+      await page.getByTestId(`key-${id}`).click();
+    }
+    // A sticky modifier latches, then rides the next key.
+    await page.getByTestId('key-Ctrl').click();
+    await page.getByTestId('key-Esc').click();
+
+    // Hiding the key bar removes it again.
+    await page.getByTestId('toggle-keys').click();
+    await expect(page.getByTestId('key-Esc')).toHaveCount(0);
+
+    // Text send lives behind the "Aa" toggle.
+    await page.getByTestId('toggle-type').click();
     await page.getByTestId('type-input').fill('hello from tether');
     await page.getByTestId('send-text').click();
     await expect(page.getByTestId('type-input')).toHaveValue('');
-
-    // Hide/show the key bar.
-    await page.getByTestId('toggle-keys').click();
-    await expect(page.getByTestId('key-Esc')).toBeHidden();
-    await page.getByTestId('toggle-keys').click();
-    await expect(page.getByTestId('key-Esc')).toBeVisible();
   });
 
   test('terminal tab: runs a command and quick keys', async ({ page }) => {

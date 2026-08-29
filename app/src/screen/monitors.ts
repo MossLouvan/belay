@@ -81,6 +81,21 @@ export function resolveScreenIndex(
   return defaultScreenIndex(screens);
 }
 
+/**
+ * The monitor after the current one, in list order, wrapping — the dock's
+ * monitor button cycles with a tap. Resolves the selection first, so a stale
+ * index cycles from the effective monitor rather than from monitor 1.
+ */
+export function nextScreenIndex(
+  selected: number | undefined,
+  screens: readonly MonitorChoice[],
+): number | undefined {
+  if (screens.length === 0) return undefined;
+  const resolved = resolveScreenIndex(selected, screens);
+  const at = screens.findIndex((s) => s.index === resolved);
+  return screens[(at + 1) % screens.length].index;
+}
+
 /** Short human label for the switcher: 1-based, primary marked. */
 export function monitorLabel(screen: MonitorChoice): string {
   return `${screen.index + 1}${screen.primary ? ' (main)' : ''}`;

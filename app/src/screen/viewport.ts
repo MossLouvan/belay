@@ -59,6 +59,13 @@ export interface ViewportOptions {
    * capture and input disagreeing on the monitor was the multi-monitor bug.
    */
   readonly screen?: number;
+  /**
+   * Fired after any host-bound pointer action (click, right-click, drag).
+   * The screen tab uses it to spend one-shot latched modifiers — the phone's
+   * stand-in for letting go of Ctrl when you reach for the mouse. Pans, zooms
+   * and scrolls do NOT fire it: they are viewing gestures, not input.
+   */
+  readonly onPointer?: () => void;
 }
 
 export interface Viewport {
@@ -74,7 +81,8 @@ export interface Viewport {
 }
 
 export function useViewport(options: ViewportOptions): Viewport {
-  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen } = options;
+  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer } =
+    options;
 
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
@@ -98,6 +106,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const onErrorRef = useRef(onError);
   const onButtonUsedRef = useRef(onButtonUsed);
   const screenRef = useRef(screen);
+  const onPointerRef = useRef(onPointer);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -107,7 +116,8 @@ export function useViewport(options: ViewportOptions): Viewport {
     onErrorRef.current = onError;
     onButtonUsedRef.current = onButtonUsed;
     screenRef.current = screen;
-  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen]);
+    onPointerRef.current = onPointer;
+  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer]);
 
   const send = useCallback((run: () => Promise<unknown>, what: string): void => {
     if (blockedRef.current) return;
@@ -269,6 +279,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         'Click'
       );
       if (pending !== 'none') onButtonUsedRef.current();
+      onPointerRef.current?.();
     },
     [send]
   );
@@ -406,6 +417,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         haptic('medium');
         const target = modeRef.current === 'trackpad' ? cursor.current : toHost(g.startX, g.startY);
         send(() => api.click(target.x, target.y, 'right', false, screenRef.current), 'Right-click');
+        onPointerRef.current?.();
       }, GESTURE.longPressMs);
     },
     [send, stopMomentum, toHost]
@@ -428,6 +440,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         const from = toHost(g.startX, g.startY);
         const to = toHost(numberOf(event.nativeEvent.locationX), numberOf(event.nativeEvent.locationY));
         send(() => api.drag(from.x, from.y, to.x, to.y, screenRef.current), 'Drag');
+        onPointerRef.current?.();
       }
     },
     [cancelLongPress, clickAt, send, startMomentum, toHost]

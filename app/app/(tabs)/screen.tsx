@@ -5,30 +5,46 @@
 // click) and trackpad (drag anywhere to nudge a visible cursor), because hitting
 // a 12px checkbox on a 1710x1107 desktop from a phone is otherwise guesswork.
 //
+// The chrome is deliberately thin: one control dock under the stage, a paged
+// key bar that slides in over it, and a corner box that takes the whole thing
+// into immersive fullscreen (tab bar and status bar hidden, stage edge-to-edge
+// on black, controls floating on the HUD scrim and auto-hiding).
+//
 // The socket, the gesture model and the presentational pieces live in
 // `src/screen/*` — sibling files inside `app/(tabs)/` are picked up by
 // expo-router's route context and would register as extra tabs.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, LayoutChangeEvent, ScrollView, View } from 'react-native';
+import {
+  Animated,
+  Image,
+  KeyboardAvoidingView,
+  LayoutChangeEvent,
+  Platform,
+  ScrollView,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useIsFocused } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useIsFocused, useNavigation } from 'expo-router';
 import { useConnection } from '../../src/connection';
 import { api } from '../../src/api';
 import { useTheme } from '../../src/theme';
 import {
-  Badge,
   Button,
   Caption,
   Column,
   Dot,
+  IconButton,
   Input,
+  ListItem,
   Row,
   SegmentedControl,
   Sheet,
   Txt,
   haptic,
   useReducedMotion,
+  useToggleAnimation,
 } from '../../src/ui';
 import {
   DEFAULT_QUALITY,
@@ -36,7 +52,6 @@ import {
   fitBox,
   findQuality,
   GESTURE,
-  KEYS,
   KeySpec,
   LAUNCHER_NOTE,
   MAC_STEPS,
@@ -56,18 +71,29 @@ import {
   useScreenStream,
 } from '../../src/screen/stream';
 import { PendingButton, PointerMode, useViewport } from '../../src/screen/viewport';
-import { resolveScreenIndex, screensOf } from '../../src/screen/monitors';
+import { monitorLabel, nextScreenIndex, resolveScreenIndex, screensOf } from '../../src/screen/monitors';
+import {
+  IDLE_MODS,
+  ModsState,
+  StickyMod,
+  activeMods,
+  modNamesForHost,
+  releaseLatched,
+  tapMod,
+} from '../../src/screen/mods';
+import { useAutoHide } from '../../src/screen/useAutoHide';
 import {
   CaptureBlocked,
-  Chip,
+  ControlDock,
   Crosshair,
-  KeyCap,
-  MonitorSwitcher,
+  DotsGlyph,
+  KeyBar,
   NoticeArea,
+  StageCorner,
   StageMessage,
   statusColorFor,
   StreamHud,
-  ZoomControls,
+  ZoomPill,
 } from '../../src/screen/parts';
 
 export default function ScreenTab() {
@@ -75,19 +101,30 @@ export default function ScreenTab() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
+  const navigation = useNavigation();
 
   const [qualityId, setQualityId] = useState<QualityId>(DEFAULT_QUALITY);
   const [mode, setMode] = useState<PointerMode>('touch');
   const [button, setButton] = useState<PendingButton>('none');
-  const [showKeys, setShowKeys] = useState(true);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [keysOn, setKeysOn] = useState(false);
+  const [typeOpen, setTypeOpen] = useState(false);
+  const [mods, setMods] = useState<ModsState>(IDLE_MODS);
   const [showHud, setShowHud] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [showQuality, setShowQuality] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showMonitorPicker, setShowMonitorPicker] = useState(false);
   const [text, setText] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [box, setBox] = useState<Size>(EMPTY_SIZE);
 
   const quality = useMemo(() => findQuality(qualityId), [qualityId]);
+
+  // The latch state, mirrored into a ref so `sendKey` reads the value at press
+  // time without rebuilding its callback on every latch change.
+  const modsRef = useRef(mods);
+  modsRef.current = mods;
 
   // The tab navigator keeps every visited route mounted, so `connection` alone
   // would leave the frame socket, the 15s info poll and the per-second stats
@@ -114,7 +151,6 @@ export default function ScreenTab() {
 
   const permissions = useMemo(() => readPermissions(facts.info, stream.error), [facts.info, stream.error]);
   const isMac = isMacHost(facts.info);
-  const displays = facts.info?.displays ?? 0;
 
   // The stage is sized to the remote aspect ratio so the picture fills it
   // exactly: no letterboxing means touch coordinates map straight through.
@@ -122,6 +158,27 @@ export default function ScreenTab() {
   const stage = useMemo(() => fitBox(box, aspect), [box, aspect]);
   const stageRef = useRef<Size>(EMPTY_SIZE);
   stageRef.current = stage;
+
+  // Immersive fullscreen hides the tab bar for the whole navigator, so both
+  // exits — the corner press AND unmount (navigating away however it happens)
+  // — must put it back or every other tab loses its navigation.
+  useEffect(() => {
+    navigation.setOptions({ tabBarStyle: fullscreen ? { display: 'none' } : undefined });
+  }, [navigation, fullscreen]);
+  useEffect(
+    () => () => {
+      navigation.setOptions({ tabBarStyle: undefined });
+    },
+    [navigation]
+  );
+
+  // In fullscreen the floating dock hides after 4s untouched; while the text
+  // field is open it stays put (the keyboard is up — hiding under the user's
+  // thumbs would be hostile). Stage touches never poke this: they are remote
+  // input, and the only reveal is the dimmed corner handle.
+  const dockHide = useAutoHide(fullscreen && !typeOpen);
+  const dockShown = !fullscreen || dockHide.visible;
+  const dockOpacity = useToggleAnimation(dockShown, theme.motion.fast);
 
   // Transient toast for one-shot input failures. Timer cleared on unmount.
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -138,6 +195,11 @@ export default function ScreenTab() {
   );
 
   const clearButton = useCallback(() => setButton('none'), []);
+  // A pointer action on the stage spends one-shot latched modifiers, the same
+  // way letting go of Ctrl does when you reach for the mouse. (The host's
+  // /input/click does not take modifiers, so the latch cannot ride along on a
+  // click — it applies to the next KEY; the tap just abandons it.)
+  const spendLatch = useCallback(() => setMods(releaseLatched), []);
   const viewport = useViewport({
     sizeRef: stageRef,
     mode,
@@ -147,6 +209,7 @@ export default function ScreenTab() {
     reducedMotion,
     inputBlocked: permissions.inputBlocked,
     screen: screenIndex,
+    onPointer: spendLatch,
   });
 
   const onBoxLayout = useCallback((event: LayoutChangeEvent) => {
@@ -157,12 +220,20 @@ export default function ScreenTab() {
   const sendKey = useCallback(
     (spec: KeySpec) => {
       haptic('light');
+      const base = modsFor(spec, isMac);
+      const latched = modNamesForHost(activeMods(modsRef.current), isMac).filter((m) => !base.includes(m));
+      setMods(releaseLatched);
       api
-        .key(spec.key, modsFor(spec, isMac))
+        .key(spec.key, [...latched, ...base])
         .catch((e: unknown) => reportError(`Key ${spec.id} failed — ${messageOf(e)}`));
     },
     [isMac, reportError]
   );
+
+  const tapModifier = useCallback((mod: StickyMod) => {
+    haptic('selection');
+    setMods((state) => tapMod(state, mod, Date.now()));
+  }, []);
 
   const sendText = useCallback(() => {
     const value = text.trim();
@@ -177,46 +248,131 @@ export default function ScreenTab() {
     stream.retry();
   }, [facts, stream]);
 
+  const cycleMonitor = useCallback(() => {
+    const next = nextScreenIndex(screenIndex, screens);
+    if (next !== undefined) setSelectedScreen(next);
+  }, [screenIndex, screens]);
+
+  // The corner box: enter fullscreen from the normal layout; in fullscreen it
+  // exits — unless the dock has auto-hidden, in which case the dimmed handle's
+  // job is to bring the controls back first.
+  const onCornerPress = useCallback(() => {
+    if (!fullscreen) {
+      setFullscreen(true);
+      return;
+    }
+    if (!dockHide.visible) {
+      dockHide.poke();
+      return;
+    }
+    setFullscreen(false);
+  }, [fullscreen, dockHide]);
+
   const live = stream.phase === 'live';
   const connecting = stream.phase === 'connecting' || stream.phase === 'reconnecting';
 
-  return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}>
-      <Row justify="space-between" style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.xs }}>
-        <Row gap="xs" style={{ flexShrink: 1 }}>
-          <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting} label={PHASE_LABEL[stream.phase]} />
-          <Txt variant="subheading" numberOfLines={1}>
-            {connection?.hostName || 'Screen'}
-          </Txt>
-          {displays > 1 ? <Badge label={`${displays} displays`} status="neutral" /> : null}
-        </Row>
-        <Row gap="xs">
-          <Txt testID="fps" variant="caption" tone="faint">
-            {live ? `${stream.stats.fps} fps` : PHASE_LABEL[stream.phase]}
-          </Txt>
-          <Chip
-            label="HUD"
-            active={showHud}
-            onPress={() => setShowHud((v) => !v)}
-            testID="toggle-hud"
-            accessibilityLabel="Toggle the connection quality overlay"
-          />
-        </Row>
-      </Row>
+  const noticeArea = (
+    <NoticeArea
+      permissions={permissions}
+      phase={stream.phase}
+      attempt={stream.attempt}
+      streamError={stream.error}
+      actionError={actionError}
+      onHelp={() => setShowHelp(true)}
+      onRetry={recheck}
+    />
+  );
 
-      <NoticeArea
-        permissions={permissions}
-        phase={stream.phase}
-        attempt={stream.attempt}
-        streamError={stream.error}
-        actionError={actionError}
-        onHelp={() => setShowHelp(true)}
-        onRetry={recheck}
+  const typeRow = (
+    <Row gap="sm">
+      <Input
+        testID="type-input"
+        style={{ flex: 1 }}
+        value={text}
+        onChangeText={setText}
+        placeholder="Type text to send to the PC…"
+        accessibilityLabel="Text to type on the host"
+        returnKeyType="send"
+        onSubmitEditing={sendText}
+        autoFocus
       />
+      <Button testID="send-text" label="Send" onPress={sendText} size="sm" />
+    </Row>
+  );
+
+  const controls = (
+    <Column gap="xs">
+      {keysOn ? (
+        <KeyBar mac={isMac} mods={mods} onKey={sendKey} onMod={tapModifier} floating={fullscreen} testID="key-bar" />
+      ) : null}
+      {typeOpen ? typeRow : null}
+      <ControlDock
+        mode={mode}
+        onModeChange={setMode}
+        armed={button}
+        onToggleRight={() => setButton((b) => (b === 'right' ? 'none' : 'right'))}
+        onToggleDouble={() => setButton((b) => (b === 'double' ? 'none' : 'double'))}
+        keysOn={keysOn}
+        onToggleKeys={() => setKeysOn((v) => !v)}
+        typeOpen={typeOpen}
+        onToggleType={() => setTypeOpen((v) => !v)}
+        screens={screens}
+        selectedScreen={screenIndex}
+        onCycleMonitor={cycleMonitor}
+        onOpenMonitorPicker={() => setShowMonitorPicker(true)}
+        floating={fullscreen}
+        onInteract={fullscreen ? dockHide.poke : undefined}
+      />
+    </Column>
+  );
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{
+        flex: 1,
+        backgroundColor: fullscreen ? theme.colors.black : theme.colors.bg,
+        paddingTop: fullscreen ? 0 : insets.top,
+      }}
+    >
+      {/* Mounted only in fullscreen: RN's status bar restores the previous
+          entry when this unmounts, so the root layout's style survives. */}
+      {fullscreen ? <StatusBar hidden /> : null}
+
+      {!fullscreen ? (
+        <Row justify="space-between" style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.xs }}>
+          <Row gap="xs" style={{ flexShrink: 1 }}>
+            <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting} label={PHASE_LABEL[stream.phase]} />
+            <Txt variant="subheading" numberOfLines={1}>
+              {connection?.hostName || 'Screen'}
+            </Txt>
+          </Row>
+          <Row gap="xs">
+            <Txt testID="fps" variant="caption" tone="faint">
+              {live ? `${stream.stats.fps} fps` : PHASE_LABEL[stream.phase]}
+            </Txt>
+            <IconButton
+              testID="screen-menu"
+              accessibilityLabel="Screen options"
+              variant="plain"
+              onPress={() => setShowMenu(true)}
+            >
+              <DotsGlyph color={theme.colors.textDim} />
+            </IconButton>
+          </Row>
+        </Row>
+      ) : null}
+
+      {!fullscreen ? noticeArea : null}
 
       <View
         onLayout={onBoxLayout}
-        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: theme.space.sm }}
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: fullscreen ? 0 : theme.space.sm,
+        }}
       >
         <View
           testID="screen-surface"
@@ -227,9 +383,9 @@ export default function ScreenTab() {
             height: stage.h > 0 ? stage.h : undefined,
             aspectRatio: stage.h > 0 ? undefined : aspect,
             backgroundColor: theme.colors.black,
-            borderRadius: theme.radius.md,
+            borderRadius: fullscreen ? 0 : theme.radius.md,
             overflow: 'hidden',
-            borderWidth: theme.layout.hairline,
+            borderWidth: fullscreen ? 0 : theme.layout.hairline,
             borderColor: theme.colors.border,
           }}
         >
@@ -271,97 +427,134 @@ export default function ScreenTab() {
 
           {/* Zooming a picture that will never arrive is just clutter. */}
           {permissions.captureBlocked ? null : (
-            <ZoomControls
+            <ZoomPill
               zoom={viewport.zoom}
               onZoomIn={() => viewport.zoomBy(GESTURE.zoomStep)}
               onZoomOut={() => viewport.zoomBy(1 / GESTURE.zoomStep)}
               onReset={viewport.reset}
             />
           )}
+
+          {/* Normal mode: the expand box rides the stage's own top-right corner. */}
+          {!fullscreen && !permissions.captureBlocked ? (
+            <StageCorner
+              mode="expand"
+              onPress={onCornerPress}
+              accessibilityLabel="Enter full screen"
+              testID="stage-corner"
+              style={{ top: theme.space.xs, right: theme.space.xs }}
+            />
+          ) : null}
         </View>
 
         {/* Outside the stage, which clips: the explanation needs the full area. */}
         {permissions.captureBlocked ? (
           <CaptureBlocked known={permissions.known} onHelp={() => setShowHelp(true)} onRetry={recheck} />
         ) : null}
-      </View>
 
-      <Column
-        gap="sm"
-        style={{
-          paddingHorizontal: theme.space.sm,
-          paddingTop: theme.space.xs,
-          paddingBottom: insets.bottom + theme.space.sm,
-        }}
-      >
-        {/* Renders only when the host reports more than one monitor.
-            TODO(ui): restyled by the UI redesign pass. */}
-        <MonitorSwitcher screens={screens} selected={screenIndex} onSelect={setSelectedScreen} />
-
-        <SegmentedControl
-          testID="pointer-mode"
-          accessibilityLabel="Pointer mode"
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: 'touch', label: 'Touch' },
-            { value: 'trackpad', label: 'Trackpad' },
-          ]}
-        />
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: theme.space.xs, paddingRight: theme.space.sm }}
-        >
-          <Chip
-            label={button === 'right' ? 'Right-click: ON' : 'Right-click'}
-            active={button === 'right'}
-            onPress={() => setButton((b) => (b === 'right' ? 'none' : 'right'))}
-            testID="right-click"
+        {/* Fullscreen: the corner pins to the safe area, not the (letterboxed)
+            stage, so it is always exactly where the thumb expects it. Dimmed
+            while the dock is hidden — then its press reveals rather than exits. */}
+        {fullscreen ? (
+          <StageCorner
+            mode="collapse"
+            dimmed={!dockHide.visible}
+            onPress={onCornerPress}
+            accessibilityLabel={dockHide.visible ? 'Exit full screen' : 'Show the controls'}
+            testID="stage-corner"
+            style={{ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs }}
           />
-          <Chip
-            label={button === 'double' ? 'Double-click: ON' : 'Double-click'}
-            active={button === 'double'}
-            onPress={() => setButton((b) => (b === 'double' ? 'none' : 'double'))}
-            testID="double-click"
-          />
-          <Chip label={showKeys ? 'Hide keys' : 'Show keys'} onPress={() => setShowKeys((v) => !v)} testID="toggle-keys" />
-          <Chip
-            label={quality.label}
-            onPress={() => setShowQuality(true)}
-            testID="quality"
-            accessibilityLabel={`Stream quality: ${quality.label}`}
-          />
-          <Chip label="Help" onPress={() => setShowHelp(true)} testID="screen-help" />
-        </ScrollView>
-
-        {showKeys ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 6, paddingRight: theme.space.sm }}
-          >
-            {KEYS.map((spec) => (
-              <KeyCap key={spec.id} spec={spec} onPress={sendKey} mac={isMac} />
-            ))}
-          </ScrollView>
         ) : null}
 
-        <Row gap="sm">
-          <Input
-            testID="type-input"
-            style={{ flex: 1 }}
-            value={text}
-            onChangeText={setText}
-            placeholder="Type text to send to the PC…"
-            accessibilityLabel="Text to type on the host"
-            returnKeyType="send"
-            onSubmitEditing={sendText}
+        {/* Errors still matter in fullscreen; they float over the top edge. */}
+        {fullscreen ? (
+          <View
+            pointerEvents="box-none"
+            style={{ position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0 }}
+          >
+            {noticeArea}
+          </View>
+        ) : null}
+      </View>
+
+      {!fullscreen ? (
+        <View
+          style={{
+            paddingHorizontal: theme.space.sm,
+            paddingTop: theme.space.xs,
+            paddingBottom: insets.bottom + theme.space.sm,
+          }}
+        >
+          {controls}
+        </View>
+      ) : (
+        <Animated.View
+          pointerEvents={dockShown ? 'box-none' : 'none'}
+          style={{
+            position: 'absolute',
+            left: insets.left + theme.space.sm,
+            right: insets.right + theme.space.sm,
+            bottom: insets.bottom + theme.space.sm,
+            opacity: dockOpacity,
+          }}
+        >
+          {controls}
+        </Animated.View>
+      )}
+
+      <Sheet visible={showMenu} onClose={() => setShowMenu(false)} title="Screen options" testID="screen-menu-sheet">
+        <Column gap="xxs">
+          <ListItem
+            testID="quality"
+            title="Stream quality"
+            subtitle={quality.label}
+            onPress={() => {
+              setShowMenu(false);
+              setShowQuality(true);
+            }}
           />
-          <Button testID="send-text" label="Send" onPress={sendText} size="sm" />
-        </Row>
-      </Column>
+          <ListItem
+            testID="toggle-hud"
+            title="Connection HUD"
+            subtitle={showHud ? 'Shown over the stream' : 'Hidden'}
+            selected={showHud}
+            accessibilityHint="Toggles the fps, bitrate and ping overlay"
+            onPress={() => setShowHud((v) => !v)}
+          />
+          <ListItem
+            testID="screen-help"
+            title="Controls & permissions"
+            subtitle="Gestures, right-click, macOS grants"
+            onPress={() => {
+              setShowMenu(false);
+              setShowHelp(true);
+            }}
+          />
+        </Column>
+      </Sheet>
+
+      <Sheet
+        visible={showMonitorPicker}
+        onClose={() => setShowMonitorPicker(false)}
+        title="Monitor"
+        testID="monitor-sheet"
+      >
+        <Column gap="xxs">
+          {screens.map((screen) => (
+            <ListItem
+              key={screen.index}
+              testID={`monitor-${screen.index}`}
+              title={`Monitor ${monitorLabel(screen)}`}
+              subtitle={screen.w > 0 ? `${screen.w}×${screen.h}` : undefined}
+              selected={screen.index === screenIndex}
+              onPress={() => {
+                setSelectedScreen(screen.index);
+                setShowMonitorPicker(false);
+              }}
+            />
+          ))}
+        </Column>
+      </Sheet>
 
       <Sheet visible={showQuality} onClose={() => setShowQuality(false)} title="Stream quality" testID="quality-sheet">
         <Column gap="sm">
@@ -396,7 +589,13 @@ export default function ScreenTab() {
           </Caption>
           <Txt variant="bodyStrong">Both modes</Txt>
           <Caption>
-            Pinch to zoom, two-finger drag to scroll. The Right-click and Double-click chips arm the next tap only.
+            Pinch to zoom, two-finger drag to scroll. The right-click and double-click buttons in the dock arm the next
+            tap only.
+          </Caption>
+          <Txt variant="bodyStrong">Modifier keys</Txt>
+          <Caption>
+            On the key bar, tap Ctrl, Alt, Shift or Win once to apply it to the next key; tap twice quickly to lock it
+            until you tap it again. Tapping the remote screen clears un-locked modifiers.
           </Caption>
           <Txt variant="bodyStrong">macOS permissions</Txt>
           <Caption>{LAUNCHER_NOTE}</Caption>
@@ -406,6 +605,6 @@ export default function ScreenTab() {
           <Button label="Recheck the host" testID="recheck-permissions" variant="secondary" size="sm" onPress={recheck} />
         </ScrollView>
       </Sheet>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
