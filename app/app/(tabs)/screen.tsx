@@ -56,11 +56,13 @@ import {
   useScreenStream,
 } from '../../src/screen/stream';
 import { PendingButton, PointerMode, useViewport } from '../../src/screen/viewport';
+import { resolveScreenIndex, screensOf } from '../../src/screen/monitors';
 import {
   CaptureBlocked,
   Chip,
   Crosshair,
   KeyCap,
+  MonitorSwitcher,
   NoticeArea,
   StageMessage,
   statusColorFor,
@@ -93,8 +95,22 @@ export default function ScreenTab() {
   // as well releases all three the moment the tab goes off screen.
   const focused = useIsFocused();
   const active = Boolean(connection) && focused;
-  const stream = useScreenStream(active, quality);
   const facts = useHostFacts(active);
+
+  // Which monitor the stream shows AND every input call targets — one value,
+  // by construction, because the host maps normalized coordinates onto the
+  // captured monitor's rectangle. `selectedScreen` remembers the user's tap;
+  // `screenIndex` re-validates it against the live monitor list every poll
+  // (undefined until the host reports a list, so old hosts get no index at
+  // all and keep their primary-monitor behavior).
+  const screens = useMemo(() => screensOf(facts.info), [facts.info]);
+  const [selectedScreen, setSelectedScreen] = useState<number | undefined>(undefined);
+  const screenIndex = useMemo(
+    () => resolveScreenIndex(selectedScreen, screens),
+    [selectedScreen, screens]
+  );
+
+  const stream = useScreenStream(active, quality, screenIndex);
 
   const permissions = useMemo(() => readPermissions(facts.info, stream.error), [facts.info, stream.error]);
   const isMac = isMacHost(facts.info);
@@ -130,6 +146,7 @@ export default function ScreenTab() {
     onError: reportError,
     reducedMotion,
     inputBlocked: permissions.inputBlocked,
+    screen: screenIndex,
   });
 
   const onBoxLayout = useCallback((event: LayoutChangeEvent) => {
@@ -277,6 +294,10 @@ export default function ScreenTab() {
           paddingBottom: insets.bottom + theme.space.sm,
         }}
       >
+        {/* Renders only when the host reports more than one monitor.
+            TODO(ui): restyled by the UI redesign pass. */}
+        <MonitorSwitcher screens={screens} selected={screenIndex} onSelect={setSelectedScreen} />
+
         <SegmentedControl
           testID="pointer-mode"
           accessibilityLabel="Pointer mode"

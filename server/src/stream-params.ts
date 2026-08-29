@@ -59,11 +59,35 @@ function toFiniteNumber(raw: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** The three stream parameters, all guaranteed finite and in range. */
+/**
+ * Highest monitor index accepted from a client. Purely a sanity bound on
+ * untrusted input — the native helper additionally validates the index against
+ * the monitors that actually exist and falls back to the primary.
+ */
+export const MAX_SCREEN_INDEX = 31;
+
+/**
+ * Coerce an untrusted monitor index, or undefined for "the host's primary".
+ *
+ * Undefined rather than a fallback number, because the absence is meaningful:
+ * it is what old phones send, and the helper maps it to the primary monitor —
+ * whose index within the screens list the server has no business guessing.
+ */
+export function screenIndexOf(raw: unknown): number | undefined {
+  const value = toFiniteNumber(raw);
+  if (value === null) return undefined;
+  const index = Math.round(value);
+  if (index < 0 || index > MAX_SCREEN_INDEX) return undefined;
+  return index;
+}
+
+/** The stream parameters, all guaranteed finite and in range. */
 export interface StreamParams {
   readonly width: number;
   readonly quality: number;
   readonly fps: number;
+  /** Monitor index to capture; absent means the host's primary. */
+  readonly screen?: number;
 }
 
 /**
@@ -72,17 +96,22 @@ export interface StreamParams {
  * this usable for a partial `config` update as well as the initial connect.
  */
 export function resolveStreamParams(
-  input: { readonly w?: unknown; readonly q?: unknown; readonly fps?: unknown },
+  input: { readonly w?: unknown; readonly q?: unknown; readonly fps?: unknown; readonly screen?: unknown },
   current: StreamParams = {
     width: STREAM_LIMITS.width.fallback,
     quality: STREAM_LIMITS.quality.fallback,
     fps: STREAM_LIMITS.fps.fallback,
   },
 ): StreamParams {
+  // Unlike the three tuned values, a rubbish screen index resolves to
+  // undefined (the primary monitor), not a clamp: pointing the capture at
+  // whatever monitor happens to sit at the clamped index would be arbitrary.
+  const screen = present(input.screen) ? screenIndexOf(input.screen) : current.screen;
   return {
     width: present(input.w) ? clampToRange(input.w, STREAM_LIMITS.width) : current.width,
     quality: present(input.q) ? clampToRange(input.q, STREAM_LIMITS.quality) : current.quality,
     fps: present(input.fps) ? clampToRange(input.fps, STREAM_LIMITS.fps) : current.fps,
+    ...(screen === undefined ? {} : { screen }),
   };
 }
 

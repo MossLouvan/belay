@@ -7,7 +7,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { clampToRange, resolveStreamParams, STREAM_LIMITS } from '../src/stream-params.js';
+import {
+  clampToRange,
+  MAX_SCREEN_INDEX,
+  resolveStreamParams,
+  screenIndexOf,
+  STREAM_LIMITS,
+} from '../src/stream-params.js';
 
 test('clampToRange keeps an in-range value', () => {
   assert.equal(clampToRange(800, STREAM_LIMITS.width), 800);
@@ -78,6 +84,37 @@ test('resolveStreamParams clamps a hostile control message', () => {
 test('resolveStreamParams treats a negative width as the minimum, not a passthrough', () => {
   const params = resolveStreamParams({ w: -5 });
   assert.equal(params.width, STREAM_LIMITS.width.min);
+});
+
+test('screenIndexOf accepts a valid monitor index, as number or query string', () => {
+  assert.equal(screenIndexOf(0), 0);
+  assert.equal(screenIndexOf(1), 1);
+  assert.equal(screenIndexOf('1'), 1);
+  assert.equal(screenIndexOf(MAX_SCREEN_INDEX), MAX_SCREEN_INDEX);
+});
+
+test('screenIndexOf resolves anything else to undefined (the primary), never a clamp', () => {
+  // Clamping a rubbish index would aim capture and clicks at whatever monitor
+  // happens to sit at the clamped position — worse than falling back.
+  for (const bad of [-1, MAX_SCREEN_INDEX + 1, 'abc', NaN, Infinity, {}, [], null, undefined, '']) {
+    assert.equal(screenIndexOf(bad), undefined, `expected undefined for ${String(bad)}`);
+  }
+});
+
+test('resolveStreamParams threads a screen index through both untrusted paths', () => {
+  // Connect-time query string.
+  const fromQuery = resolveStreamParams({ screen: '1' });
+  assert.equal(fromQuery.screen, 1);
+  // Mid-stream config keeps an absent field, replaces a present one.
+  const kept = resolveStreamParams({ fps: 5 }, fromQuery);
+  assert.equal(kept.screen, 1, 'a config without screen keeps the streamed monitor');
+  const switched = resolveStreamParams({ screen: 0 }, kept);
+  assert.equal(switched.screen, 0);
+});
+
+test('resolveStreamParams omits screen entirely when none was ever given', () => {
+  const params = resolveStreamParams({ w: 800 });
+  assert.equal('screen' in params, false, 'absent means the host primary, not index 0');
 });
 
 test('every resolved parameter is always finite and within its range', () => {

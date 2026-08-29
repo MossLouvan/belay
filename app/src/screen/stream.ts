@@ -124,7 +124,14 @@ const SOCKET_OPEN = 1;
  *   re-rendering — off screen. False tears the socket and the stats ticker down
  *   completely; the next `true` opens a fresh socket with the backoff reset.
  */
-export function useScreenStream(active: boolean, quality: QualityPreset): StreamState {
+/**
+ * @param screen Monitor index to stream (from `ScreenInfo.screens`), or
+ *   undefined for the host's primary. Sent alongside w/q/fps both in the
+ *   connect URL and as a live `config` retune, so switching monitors costs no
+ *   reconnect. Must be the SAME index the input calls use — capture and input
+ *   agreeing on one monitor is the whole multi-monitor contract.
+ */
+export function useScreenStream(active: boolean, quality: QualityPreset, screen?: number): StreamState {
   const [phase, setPhase] = useState<Phase>('idle');
   const [frameUri, setFrameUri] = useState<string | null>(null);
   const [stats, setStats] = useState<StreamStats>(EMPTY_STATS);
@@ -134,20 +141,24 @@ export function useScreenStream(active: boolean, quality: QualityPreset): Stream
 
   const socketRef = useRef<WebSocket | null>(null);
   const qualityRef = useRef<QualityPreset>(quality);
+  const screenRef = useRef<number | undefined>(screen);
   const counters = useRef<FrameCounters>(newCounters());
 
-  // Live retune: the host accepts a `config` message, so changing quality costs
-  // neither a reconnect nor a dropped picture.
+  // Live retune: the host accepts a `config` message, so changing quality or
+  // the streamed monitor costs neither a reconnect nor a dropped picture.
   useEffect(() => {
     qualityRef.current = quality;
+    screenRef.current = screen;
     const socket = socketRef.current;
     if (!socket || socket.readyState !== SOCKET_OPEN) return;
     try {
-      socket.send(JSON.stringify({ type: 'config', w: quality.w, q: quality.q, fps: quality.fps }));
+      // `screen` is omitted (not null) when undefined: JSON.stringify drops
+      // undefined keys, and the host treats an absent field as "keep current".
+      socket.send(JSON.stringify({ type: 'config', w: quality.w, q: quality.q, fps: quality.fps, screen }));
     } catch (e: unknown) {
       setError(`Could not apply the ${quality.label} preset — ${messageOf(e)}`);
     }
-  }, [quality]);
+  }, [quality, screen]);
 
   useEffect(() => {
     if (!active) {
@@ -213,9 +224,19 @@ export function useScreenStream(active: boolean, quality: QualityPreset): Stream
       if (disposed) return;
       setPhase(tries === 0 ? 'connecting' : 'reconnecting');
       const preset = qualityRef.current;
+      const screenIndex = screenRef.current;
       let socket: WebSocket;
       try {
-        socket = new WebSocket(await wsUrl('/ws/screen', { w: preset.w, q: preset.q, fps: preset.fps }));
+        socket = new WebSocket(
+          await wsUrl('/ws/screen', {
+            w: preset.w,
+            q: preset.q,
+            fps: preset.fps,
+            // Only named when a monitor was actually chosen; older hosts
+            // ignore unknown query params, so this is safe either way.
+            ...(screenIndex === undefined ? {} : { screen: screenIndex }),
+          }),
+        );
       } catch (e: unknown) {
         setError(`Could not open the screen stream — ${messageOf(e)}`);
         scheduleRetry();

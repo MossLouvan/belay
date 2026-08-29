@@ -61,14 +61,33 @@ static class Native
 
     public static void Dpi() { SetProcessDPIAware(); }
 
-    // Absolute coordinates run 0..65535 across the whole virtual desktop, so one
-    // call lands correctly regardless of which monitor or DPI is involved.
-    public static void MoveAbsolute(double nx, double ny)
+    // Absolute coordinates run 0..65535 across the whole virtual desktop. The
+    // phone sends nx/ny normalized against the frame it is LOOKING at, which is
+    // one monitor's capture — so the 0..1 must be mapped onto that monitor's
+    // rectangle within the virtual desktop, not onto the desktop as a whole.
+    // Mapping straight to 0..65535 was the multi-monitor bug: with the primary
+    // at X=1920 in a 0..3840 desktop, nx=0 (left edge of the picture) landed at
+    // virtual x=0 — the other monitor — shifting every click a full screen.
+    //
+    // Worked example (two 1920x1080 monitors, primary on the right):
+    //   V = { X:0, W:3840 }, S = primary = { X:1920, W:1920 }, nx = 0.5
+    //   vx = 1920 + 0.5*1920 = 2880
+    //   dx = round((2880 - 0) / 3839 * 65535) = 49164  -> centre of the right
+    //   monitor, exactly where the frame showed the tap.
+    public static void MoveAbsolute(double nx, double ny, Rectangle s)
     {
+        Rectangle v = SystemInformation.VirtualScreen;
+        if (v.Width <= 1 || v.Height <= 1) return;
+        double vx = s.X + nx * s.Width;
+        double vy = s.Y + ny * s.Height;
+        int dx = (int)Math.Round((vx - v.X) / (double)(v.Width - 1) * 65535.0);
+        int dy = (int)Math.Round((vy - v.Y) / (double)(v.Height - 1) * 65535.0);
+        if (dx < 0) dx = 0; else if (dx > 65535) dx = 65535;
+        if (dy < 0) dy = 0; else if (dy > 65535) dy = 65535;
         var i = new INPUT[1];
         i[0].type = INPUT_MOUSE;
-        i[0].U.mi.dx = (int)Math.Round(nx * 65535.0);
-        i[0].U.mi.dy = (int)Math.Round(ny * 65535.0);
+        i[0].U.mi.dx = dx;
+        i[0].U.mi.dy = dy;
         i[0].U.mi.dwFlags = MOVE | ABSOLUTE | VIRTUALDESK;
         Send(i);
     }
@@ -167,7 +186,7 @@ static class TetherHost
                 {
                     case "info": DoInfo(stdout, idObj); break;
                     case "capture": DoCapture(stdout, idObj, c); break;
-                    case "move": Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y"))); Ok(stdout, idObj); break;
+                    case "move": Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), ScreenBounds(Get(c, "screen"))); Ok(stdout, idObj); break;
                     case "down": MaybeMove(c); Native.Button(Str(Get(c, "button")), true); Ok(stdout, idObj); break;
                     case "up": MaybeMove(c); Native.Button(Str(Get(c, "button")), false); Ok(stdout, idObj); break;
                     case "click": DoClick(stdout, idObj, c); break;
@@ -184,17 +203,42 @@ static class TetherHost
 
     static void MaybeMove(Dictionary<string, object> c)
     {
-        if (Get(c, "x") != null) Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")));
+        if (Get(c, "x") != null) Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), ScreenBounds(Get(c, "screen")));
+    }
+
+    /// The monitor a normalized coordinate (or a capture) refers to. A valid
+    /// index picks that entry of Screen.AllScreens; absent or out-of-range
+    /// falls back to the primary, which keeps single-monitor hosts and older
+    /// phones (which never send an index) behaving exactly as before.
+    static Rectangle ScreenBounds(object screenIndex)
+    {
+        if (screenIndex != null)
+        {
+            int i = Int(screenIndex);
+            if (i >= 0 && i < Screen.AllScreens.Length) return Screen.AllScreens[i].Bounds;
+        }
+        return Screen.PrimaryScreen.Bounds;
     }
 
     static void DoInfo(TextWriter w, object id)
     {
         var b = Screen.PrimaryScreen.Bounds;
         var v = SystemInformation.VirtualScreen;
+        var all = Screen.AllScreens;
+        var screens = new List<object>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            var sb = all[i].Bounds;
+            screens.Add(new Dictionary<string, object> {
+                { "index", i }, { "X", sb.X }, { "Y", sb.Y }, { "W", sb.Width }, { "H", sb.Height },
+                { "primary", all[i].Primary },
+            });
+        }
         Reply(w, new Dictionary<string, object> {
             { "id", id }, { "ok", true },
             { "primary", Rect(b.X, b.Y, b.Width, b.Height) },
             { "virtual", Rect(v.X, v.Y, v.Width, v.Height) },
+            { "screens", screens },
         });
     }
 
@@ -219,7 +263,9 @@ static class TetherHost
         int quality = Get(c, "q") != null ? Int(Get(c, "q")) : 55;
         bool virt = Bool(Get(c, "virtual"));
 
-        Rectangle b = virt ? SystemInformation.VirtualScreen : Screen.PrimaryScreen.Bounds;
+        // The same monitor selection as input mapping (ScreenBounds), so the
+        // frame the phone sees and the rectangle its taps land on always agree.
+        Rectangle b = virt ? SystemInformation.VirtualScreen : ScreenBounds(Get(c, "screen"));
         EnsureSource(b.Width, b.Height);
         srcGfx.CopyFromScreen(b.X, b.Y, 0, 0, new Size(b.Width, b.Height), CopyPixelOperation.SourceCopy);
         Native.DrawCursor(srcGfx, b.X, b.Y);

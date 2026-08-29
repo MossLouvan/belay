@@ -21,7 +21,7 @@ import { createPairGuard } from './pair-guard.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
-import { resolveStreamParams, StreamParams } from './stream-params.js';
+import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-params.js';
 import { native } from './native.js';
 import { createTerminal } from './terminal.js';
 import { listDir, readTextFile, ROOTS } from './files.js';
@@ -327,18 +327,20 @@ app.get('/screen/info', auth, async (_req, res) => {
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-// Input. Coordinates arrive normalized 0..1 against the primary screen so the
-// phone never needs to know the host resolution.
+// Input. Coordinates arrive normalized 0..1 against the monitor the phone is
+// viewing — `screen` names that monitor (an index from /screen/info); absent
+// means the primary. The native helper maps 0..1 onto that same monitor's
+// rectangle, which is what keeps taps landing on the pixels the frame showed.
 app.post('/input/click', auth, async (req, res) => {
   try {
     const { x, y, button = 'left', double = false } = req.body || {};
-    await native.click(button, x, y, double);
+    await native.click(button, x, y, double, screenIndexOf(req.body?.screen));
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/input/move', auth, async (req, res) => {
-  try { await native.move(req.body.x, req.body.y); res.json({ ok: true }); }
+  try { await native.move(req.body.x, req.body.y, screenIndexOf(req.body?.screen)); res.json({ ok: true }); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -353,9 +355,10 @@ app.post('/input/scroll', auth, async (req, res) => {
 app.post('/input/drag', auth, async (req, res) => {
   try {
     const { x1, y1, x2, y2, button = 'left' } = req.body || {};
-    await native.down(button, x1, y1);
-    await native.move(x2, y2);
-    await native.up(button, x2, y2);
+    const screen = screenIndexOf(req.body?.screen);
+    await native.down(button, x1, y1, screen);
+    await native.move(x2, y2, screen);
+    await native.up(button, x2, y2, screen);
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -570,6 +573,7 @@ function handleScreen(ws: WebSocket, url: URL) {
     w: url.searchParams.get('w'),
     q: url.searchParams.get('q'),
     fps: url.searchParams.get('fps'),
+    screen: url.searchParams.get('screen'),
   });
 
   ws.on('message', (raw) => {
@@ -585,7 +589,7 @@ function handleScreen(ws: WebSocket, url: URL) {
     while (alive && ws.readyState === ws.OPEN) {
       const started = Date.now();
       try {
-        const frame = await native.capture(params.width, params.quality, false);
+        const frame = await native.capture(params.width, params.quality, false, params.screen);
         if (!alive) break;
         // Backpressure: ws.send() returns immediately and buffers, so without
         // this check a link slower than the capture rate grows the send buffer

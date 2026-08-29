@@ -82,6 +82,12 @@ function notBuiltError(target: HelperTarget): Error {
 export interface ScreenInfo {
   primary: { X: number; Y: number; W: number; H: number };
   virtual: { X: number; Y: number; W: number; H: number };
+  /**
+   * Every monitor, in the helper's stable index order. `index` is what the
+   * phone passes back as `screen` so capture and input target the same
+   * monitor. Absent from helpers older than the multi-monitor fix.
+   */
+  screens?: { index: number; X: number; Y: number; W: number; H: number; primary: boolean }[];
   /** macOS only: whether the two TCC grants the helper needs are in place. */
   permissions?: { screenRecording: boolean; accessibility: boolean };
 }
@@ -250,15 +256,18 @@ class NativeHost {
 
   info(): Promise<ScreenInfo> { return this.send<ScreenInfo>({ cmd: 'info' }); }
 
-  capture(w: number, q: number, virtual: boolean): Promise<Frame> {
-    return this.send<Frame>({ cmd: 'capture', w, q, virtual });
+  // `screen` is the monitor index from ScreenInfo.screens. Optional everywhere:
+  // undefined keys are dropped by JSON.stringify, so old helpers see the exact
+  // same wire messages as before and fall back to the primary monitor.
+  capture(w: number, q: number, virtual: boolean, screen?: number): Promise<Frame> {
+    return this.send<Frame>({ cmd: 'capture', w, q, virtual, screen });
   }
 
-  move(x: number, y: number) { return this.send({ cmd: 'move', x, y }); }
-  down(button: string, x?: number, y?: number) { return this.send({ cmd: 'down', button, x, y }); }
-  up(button: string, x?: number, y?: number) { return this.send({ cmd: 'up', button, x, y }); }
-  click(button: string, x?: number, y?: number, double = false) {
-    return this.send({ cmd: 'click', button, x, y, double });
+  move(x: number, y: number, screen?: number) { return this.send({ cmd: 'move', x, y, screen }); }
+  down(button: string, x?: number, y?: number, screen?: number) { return this.send({ cmd: 'down', button, x, y, screen }); }
+  up(button: string, x?: number, y?: number, screen?: number) { return this.send({ cmd: 'up', button, x, y, screen }); }
+  click(button: string, x?: number, y?: number, double = false, screen?: number) {
+    return this.send({ cmd: 'click', button, x, y, double, screen });
   }
   scroll(dy: number, dx: number) { return this.send({ cmd: 'scroll', dy, dx }); }
   key(vk: number, mods: number[] = []) { return this.send({ cmd: 'key', vk, mods }); }

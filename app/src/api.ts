@@ -239,9 +239,18 @@ export interface Rect { X: number; Y: number; W: number; H: number; }
 /** Which capture/input permissions the host has. macOS only — undefined elsewhere. */
 export interface HostPermissions { screenRecording: boolean; accessibility: boolean; }
 
+/** One monitor as the host reports it: its rect within the virtual desktop. */
+export interface HostScreen extends Rect {
+  /** Stable index the host expects back as `screen` on capture and input. */
+  index: number;
+  primary: boolean;
+}
+
 export interface ScreenInfo {
   primary: Rect;
   virtual: Rect;
+  /** Every monitor. Absent on hosts older than the multi-monitor fix. */
+  screens?: HostScreen[];
   scale?: number;
   displays?: number;
   platform?: string;
@@ -311,10 +320,15 @@ export const api = {
   listDir: (path: string) => get<{ path: string; entries: FileEntry[] }>(`/files/list?path=${encodeURIComponent(path)}`),
   readFile: (path: string) => get<{ path: string; name: string; content: string; truncated: boolean; size: number }>(`/files/read?path=${encodeURIComponent(path)}`),
   screenInfo: () => get<ScreenInfo>('/screen/info'),
-  click: (x: number, y: number, button = 'left', double = false) => post('/input/click', { x, y, button, double }),
-  move: (x: number, y: number) => post('/input/move', { x, y }),
+  // `screen` is the monitor the coordinates are normalized against (an index
+  // from ScreenInfo.screens). Left undefined it is dropped by JSON.stringify,
+  // so old hosts see the exact requests they always did (primary monitor).
+  click: (x: number, y: number, button = 'left', double = false, screen?: number) =>
+    post('/input/click', { x, y, button, double, screen }),
+  move: (x: number, y: number, screen?: number) => post('/input/move', { x, y, screen }),
   scroll: (dy: number, dx = 0) => post('/input/scroll', { dy, dx }),
-  drag: (x1: number, y1: number, x2: number, y2: number) => post('/input/drag', { x1, y1, x2, y2 }),
+  drag: (x1: number, y1: number, x2: number, y2: number, screen?: number) =>
+    post('/input/drag', { x1, y1, x2, y2, screen }),
   typeText: (text: string) => post('/input/text', { text }),
   key: (key: string, mods: string[] = []) => post('/input/key', { key, mods }),
   devices: () => get<{ devices: PairedDevice[] }>('/devices'),

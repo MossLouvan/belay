@@ -6,6 +6,7 @@ import { Animated, Pressable, View, ViewStyle } from 'react-native';
 import { Theme, useTheme } from '../theme';
 import { Badge, Banner, Button, Caption, Column, Row, Txt, haptic } from '../ui';
 import { KeySpec, labelFor, LAUNCHER_NOTE, QualityPreset } from './model';
+import { MonitorChoice, monitorLabel } from './monitors';
 import { Phase, PermissionState, StreamStats } from './stream';
 
 export const FILL = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const;
@@ -342,6 +343,39 @@ export function CaptureBlocked({ known, onHelp, onRetry }: CaptureBlockedProps) 
         </Row>
       </Column>
     </View>
+  );
+}
+
+export interface MonitorSwitcherProps {
+  screens: readonly MonitorChoice[];
+  /** The resolved index currently streamed (see resolveScreenIndex). */
+  selected: number | undefined;
+  onSelect: (index: number) => void;
+}
+
+/**
+ * Picks which monitor the stage streams — and therefore which monitor every
+ * tap lands on; the two are the same index by construction.
+ *
+ * Renders nothing unless the host reports more than one monitor, so
+ * single-monitor users never see it.
+ */
+// TODO(ui): restyled by the UI redesign pass — deliberately minimal until then.
+export function MonitorSwitcher({ screens, selected, onSelect }: MonitorSwitcherProps) {
+  if (screens.length < 2) return null;
+  return (
+    <Row gap="xs" testID="monitor-switcher">
+      {screens.map((screen) => (
+        <Chip
+          key={screen.index}
+          label={monitorLabel(screen)}
+          active={screen.index === selected}
+          onPress={() => onSelect(screen.index)}
+          testID={`monitor-${screen.index}`}
+          accessibilityLabel={`View monitor ${screen.index + 1}${screen.primary ? ', the main monitor' : ''}`}
+        />
+      ))}
+    </Row>
   );
 }
 

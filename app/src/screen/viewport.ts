@@ -52,6 +52,13 @@ export interface ViewportOptions {
   readonly reducedMotion: boolean;
   /** Suppresses input calls that macOS would silently drop anyway. */
   readonly inputBlocked: boolean;
+  /**
+   * Monitor index the stream is showing (from `ScreenInfo.screens`), or
+   * undefined for the host's primary. Sent with every click/move/drag so the
+   * host maps our normalized 0..1 onto the monitor the user is LOOKING at —
+   * capture and input disagreeing on the monitor was the multi-monitor bug.
+   */
+  readonly screen?: number;
 }
 
 export interface Viewport {
@@ -67,7 +74,7 @@ export interface Viewport {
 }
 
 export function useViewport(options: ViewportOptions): Viewport {
-  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked } = options;
+  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen } = options;
 
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
@@ -90,6 +97,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const reducedRef = useRef(reducedMotion);
   const onErrorRef = useRef(onError);
   const onButtonUsedRef = useRef(onButtonUsed);
+  const screenRef = useRef(screen);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -98,7 +106,8 @@ export function useViewport(options: ViewportOptions): Viewport {
     reducedRef.current = reducedMotion;
     onErrorRef.current = onError;
     onButtonUsedRef.current = onButtonUsed;
-  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed]);
+    screenRef.current = screen;
+  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen]);
 
   const send = useCallback((run: () => Promise<unknown>, what: string): void => {
     if (blockedRef.current) return;
@@ -210,7 +219,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const flushCursorMove = useCallback(() => {
     lastMoveAt.current = Date.now();
     const { x, y } = cursor.current;
-    send(() => api.move(x, y), 'Cursor move');
+    send(() => api.move(x, y, screenRef.current), 'Cursor move');
   }, [send]);
 
   /** Rate-limits `/input/move` to one call per `moveThrottleMs`, with a trailing send. */
@@ -249,7 +258,14 @@ export function useViewport(options: ViewportOptions): Viewport {
       const pending = buttonRef.current;
       haptic(pending === 'none' ? 'light' : 'medium');
       send(
-        () => api.click(point.x, point.y, pending === 'right' ? 'right' : 'left', pending === 'double'),
+        () =>
+          api.click(
+            point.x,
+            point.y,
+            pending === 'right' ? 'right' : 'left',
+            pending === 'double',
+            screenRef.current
+          ),
         'Click'
       );
       if (pending !== 'none') onButtonUsedRef.current();
@@ -389,7 +405,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         g.longPress = undefined;
         haptic('medium');
         const target = modeRef.current === 'trackpad' ? cursor.current : toHost(g.startX, g.startY);
-        send(() => api.click(target.x, target.y, 'right', false), 'Right-click');
+        send(() => api.click(target.x, target.y, 'right', false, screenRef.current), 'Right-click');
       }, GESTURE.longPressMs);
     },
     [send, stopMomentum, toHost]
@@ -411,7 +427,7 @@ export function useViewport(options: ViewportOptions): Viewport {
       if (g.kind === 'hostDrag') {
         const from = toHost(g.startX, g.startY);
         const to = toHost(numberOf(event.nativeEvent.locationX), numberOf(event.nativeEvent.locationY));
-        send(() => api.drag(from.x, from.y, to.x, to.y), 'Drag');
+        send(() => api.drag(from.x, from.y, to.x, to.y, screenRef.current), 'Drag');
       }
     },
     [cancelLongPress, clickAt, send, startMomentum, toHost]
