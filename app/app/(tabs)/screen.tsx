@@ -48,6 +48,7 @@ import {
   findQuality,
   GESTURE,
   keyFor,
+  KEYS,
   LAUNCHER_NOTE,
   MAC_STEPS,
   messageOf,
@@ -66,6 +67,8 @@ import {
 } from '../../src/screen/stream';
 import { useViewport } from '../../src/screen/viewport';
 import type { PendingButton, PointerMode } from '../../src/screen/viewport';
+import { SWIPE_ACTION_ID } from '../../src/screen/swipe';
+import type { SwipeDirection } from '../../src/screen/swipe';
 import { monitorLabel, nextScreenIndex, resolveScreenIndex, screensOf } from '../../src/screen/monitors';
 import {
   IDLE_MODS,
@@ -192,6 +195,19 @@ export default function ScreenTab() {
   // /input/click does not take modifiers, so the latch cannot ride along on a
   // click — it applies to the next KEY; the tap just abandons it.)
   const spendLatch = useCallback(() => setMods(releaseLatched), []);
+  // A committed three-finger swipe becomes the host OS's own desktop-switch
+  // chord. Latched modifiers are deliberately NOT mixed in: like pans and
+  // zooms, the swipe is navigation, not a keystroke the user is composing.
+  const onSwipe = useCallback(
+    (direction: SwipeDirection) => {
+      const spec = KEYS.find((key) => key.id === SWIPE_ACTION_ID[direction]);
+      if (!spec) return;
+      api
+        .key(keyFor(spec, isMac), modsFor(spec, isMac))
+        .catch((e: unknown) => reportError(`Desktop switch failed — ${messageOf(e)}`));
+    },
+    [isMac, reportError]
+  );
   const viewport = useViewport({
     sizeRef: stageRef,
     mode,
@@ -203,6 +219,7 @@ export default function ScreenTab() {
     screen: screenIndex,
     onPointer: spendLatch,
     activeMods: () => modNamesForHost(activeMods(modsRef.current), isMac),
+    onSwipe,
   });
 
   const onBoxLayout = useCallback((event: LayoutChangeEvent) => {
@@ -387,7 +404,7 @@ export default function ScreenTab() {
       >
         <View
           testID="screen-surface"
-          accessibilityLabel="Remote screen. Tap to click, long press to right-click, pinch to zoom, two fingers to scroll."
+          accessibilityLabel="Remote screen. Tap to click, long press to right-click, pinch to zoom, two fingers to scroll, three fingers to switch desktops."
           {...viewport.handlers}
           style={{
             width: stage.w > 0 ? stage.w : '100%',
@@ -585,15 +602,22 @@ export default function ScreenTab() {
             Tap to click, long press to right-click. At 1× a drag becomes a mouse drag on the PC; once you zoom in, a
             drag pans the picture instead.
           </Caption>
+          <Txt variant="bodyStrong">Scroll mode</Txt>
+          <Caption>
+            One finger scrolls the page under it, the way every other app on the phone does — the content follows your
+            finger, and a flick keeps it coasting. Tap still clicks and long press still right-clicks, so you can open
+            the link you just scrolled to without leaving the mode.
+          </Caption>
           <Txt variant="bodyStrong">Trackpad mode</Txt>
           <Caption>
             Drag anywhere to nudge the cursor — it stays visible instead of hiding under your finger, which is the only
             way to hit small targets. Tap to click where the cursor sits.
           </Caption>
-          <Txt variant="bodyStrong">Both modes</Txt>
+          <Txt variant="bodyStrong">All modes</Txt>
           <Caption>
             Pinch to zoom, two-finger drag to scroll. The right-click and double-click controls in the dock arm the next
-            tap only.
+            tap only. Swipe three fingers left or right to switch to the next or previous desktop, or three fingers up
+            for Mission Control / Task View — the Desk keys on the key bar's last page do the same by touch.
           </Caption>
           <Txt variant="bodyStrong">Key bar pages</Txt>
           <Caption>

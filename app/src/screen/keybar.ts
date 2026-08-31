@@ -4,7 +4,9 @@
 // ScrollView, not a free scroll), so keys live at fixed, learnable positions:
 // page 1 is basics + sticky modifiers, page 2 is navigation with an inverted-T
 // arrow cluster drawn as chevron glyphs, page 3 is editing shortcuts, page 4
-// is app and system shortcuts (tabs, search, screenshots, quit, lock).
+// is app and system shortcuts (tabs, search, screenshots, quit, lock), and
+// page 5 is desktop/space navigation — the visible twin of the stage's
+// three-finger swipe.
 //
 // Pure functions only — exercised by keybar.test.mjs under Node's type
 // stripping, so nothing here may import React, JSX, or (by value) any other
@@ -73,6 +75,14 @@ export function buildKeyPages(keys: readonly KeySpec[]): readonly KeyBarPage[] {
     {
       top: [key('Ctrl+T'), key('Ctrl+W'), key('Ctrl+S'), key('Search')],
       bottom: [key('Snip'), key('Shot'), key('Quit'), key('Lock')],
+    },
+    // Desktop/space navigation. Sparse on purpose: three wide caps are easier
+    // to hit mid-task than seven narrow ones, and the page exists so the
+    // three-finger swipe never becomes the ONLY road to another desktop
+    // (docs/DESIGN.md §11).
+    {
+      top: [key('DeskPrev'), key('DeskNext')],
+      bottom: [key('Overview')],
     },
   ];
 }

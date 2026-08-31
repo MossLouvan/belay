@@ -1,9 +1,11 @@
 // The interaction model for the remote stage.
 //
 // One finger: tap clicks, long press right-clicks, and a drag either pans the
-// picture (when zoomed in), drags the host mouse (touch mode at 1x) or nudges
-// the cursor (trackpad mode). Two fingers: pinch zooms the view, drag sends the
-// scroll wheel. Panning carries momentum unless reduced motion is on.
+// picture (when zoomed in), drags the host mouse (touch mode at 1x), nudges
+// the cursor (trackpad mode) or sends the scroll wheel (scroll mode). Two
+// fingers: pinch zooms the view, drag sends the scroll wheel. Three fingers
+// swipe between the host's desktops. Pans and scroll-mode flicks carry
+// momentum unless reduced motion is on.
 //
 // Built on RN's PanResponder and Animated rather than gesture-handler +
 // reanimated: reanimated is not a dependency of this app and the SDK is pinned,
@@ -22,6 +24,7 @@ import { api } from '../api';
 import { haptic } from '../ui';
 import { clamp, clamp01, GESTURE, messageOf, numberOf, Size } from './model';
 import {
+  centroidOf,
   geometryOf,
   GestureRecord,
   identifierOf,
@@ -29,9 +32,14 @@ import {
   Origin,
   touchPoint,
   trackedPair,
+  trackedTriple,
 } from './touches';
+import { batchScroll, classifyOneFinger, decayStep, flickSpent, flickStep, scrollDue } from './scroll-mode';
+import type { PointerMode, ScrollBatch } from './scroll-mode';
+import { detectSwipe } from './swipe';
+import type { SwipeDirection } from './swipe';
 
-export type PointerMode = 'touch' | 'trackpad';
+export type { PointerMode };
 
 /** A one-shot button override armed by the Right-click / Double-click chips. */
 export type PendingButton = 'none' | 'right' | 'double';
@@ -73,6 +81,12 @@ export interface ViewportOptions {
    * then clears the one-shot latches. Undefined when no modifiers are in force.
    */
   readonly activeMods?: () => string[];
+  /**
+   * Fired once when a three-finger swipe commits to a direction. The screen
+   * tab turns it into the desktop-switch chord for the host platform; the
+   * viewport neither knows nor cares which keys those are.
+   */
+  readonly onSwipe?: (direction: SwipeDirection) => void;
 }
 
 export interface Viewport {
@@ -88,7 +102,7 @@ export interface Viewport {
 }
 
 export function useViewport(options: ViewportOptions): Viewport {
-  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, activeMods } =
+  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, activeMods, onSwipe } =
     options;
 
   const translateX = useRef(new Animated.Value(0)).current;
@@ -101,6 +115,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const cursor = useRef({ x: 0.5, y: 0.5 });
   const gesture = useRef<GestureRecord>(newGesture());
   const momentum = useRef<number | null>(null);
+  const scrollMomentum = useRef<number | null>(null);
   const moveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastMoveAt = useRef(0);
   const lastScrollAt = useRef(0);
@@ -115,6 +130,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const screenRef = useRef(screen);
   const onPointerRef = useRef(onPointer);
   const activeModsRef = useRef(activeMods);
+  const onSwipeRef = useRef(onSwipe);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -126,7 +142,8 @@ export function useViewport(options: ViewportOptions): Viewport {
     screenRef.current = screen;
     onPointerRef.current = onPointer;
     activeModsRef.current = activeMods;
-  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, activeMods]);
+    onSwipeRef.current = onSwipe;
+  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, activeMods, onSwipe]);
 
   const send = useCallback((run: () => Promise<unknown>, what: string): void => {
     if (blockedRef.current) return;
@@ -153,10 +170,16 @@ export function useViewport(options: ViewportOptions): Viewport {
     [applyView, sizeRef]
   );
 
+  /** Halts BOTH kinds of coasting — a touch anywhere catches the page. */
   const stopMomentum = useCallback(() => {
-    if (momentum.current === null) return;
-    cancelAnimationFrame(momentum.current);
-    momentum.current = null;
+    if (momentum.current !== null) {
+      cancelAnimationFrame(momentum.current);
+      momentum.current = null;
+    }
+    if (scrollMomentum.current !== null) {
+      cancelAnimationFrame(scrollMomentum.current);
+      scrollMomentum.current = null;
+    }
   }, []);
 
   const startMomentum = useCallback(
@@ -296,18 +319,62 @@ export function useViewport(options: ViewportOptions): Viewport {
     [send]
   );
 
+  /**
+   * One throttled wheel send. Deltas are finger px, sign-unchanged — the
+   * content follows the finger (scroll-mode.ts says why the sign is shared
+   * with the two-finger gesture). Returns the batch so the caller can carry
+   * the sub-notch remainder, or null when nothing was worth sending.
+   */
   const emitScroll = useCallback(
-    (dyPx: number, dxPx: number): boolean => {
-      const notches = (px: number): number =>
-        clamp(Math.trunc(px / GESTURE.pxPerScrollNotch), -GESTURE.maxNotchesPerSend, GESTURE.maxNotchesPerSend);
-      const dy = notches(dyPx);
-      const dx = notches(dxPx);
-      if (dy === 0 && dx === 0) return false;
+    (dyPx: number, dxPx: number): ScrollBatch | null => {
+      const batch = batchScroll(dyPx, dxPx, GESTURE);
+      if (batch.dy === 0 && batch.dx === 0) return null;
       lastScrollAt.current = Date.now();
-      send(() => api.scroll(dy, dx), 'Scroll');
-      return true;
+      send(() => api.scroll(batch.dy, batch.dx), 'Scroll');
+      return batch;
     },
     [send]
+  );
+
+  /**
+   * Scroll-mode momentum: the pan momentum's friction curve, paid out as
+   * throttled wheel sends instead of translation. `seed` is whatever the
+   * drag still owed below a notch or behind the throttle at release — the
+   * trailing send, folded into the flick. Reduced motion flushes the seed
+   * and coasts nothing: a flick that scrolls once and stops is broken, but
+   * so is motion the user asked not to have.
+   */
+  const startScrollMomentum = useCallback(
+    (vx: number, vy: number, seedX: number, seedY: number) => {
+      if (reducedRef.current) {
+        emitScroll(seedY, seedX);
+        return;
+      }
+      let px = flickStep(vx, GESTURE);
+      let py = flickStep(vy, GESTURE);
+      let accX = seedX;
+      let accY = seedY;
+      const step = (): void => {
+        px = decayStep(px, GESTURE);
+        py = decayStep(py, GESTURE);
+        accX += px;
+        accY += py;
+        if (scrollDue(Date.now(), lastScrollAt.current, GESTURE)) {
+          const batch = emitScroll(accY, accX);
+          if (batch) {
+            accY = batch.restY;
+            accX = batch.restX;
+          }
+        }
+        if (flickSpent(px, py, accX, accY, GESTURE)) {
+          scrollMomentum.current = null;
+          return;
+        }
+        scrollMomentum.current = requestAnimationFrame(step);
+      };
+      scrollMomentum.current = requestAnimationFrame(step);
+    },
+    [emitScroll]
   );
 
   const cancelLongPress = useCallback(() => {
@@ -376,7 +443,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         zoomTo(g.baseScale * ratio, centerX, centerY);
         return;
       }
-      if (Date.now() - lastScrollAt.current < GESTURE.scrollThrottleMs) return;
+      if (!scrollDue(Date.now(), lastScrollAt.current, GESTURE)) return;
       if (emitScroll(centerY - g.scrollY, centerX - g.scrollX)) {
         g.scrollY = centerY;
         g.scrollX = centerX;
@@ -388,11 +455,11 @@ export function useViewport(options: ViewportOptions): Viewport {
   const handleOneFinger = useCallback(
     (state: PanResponderGestureState) => {
       const g = gesture.current;
-      if (g.kind === 'pending') {
-        if (Math.hypot(state.dx, state.dy) < GESTURE.tapSlopPx) return;
+      const kind = classifyOneFinger(g.kind, state.dx, state.dy, modeRef.current, view.current.scale, GESTURE);
+      if (kind === 'pending') return;
+      if (kind !== g.kind) {
         cancelLongPress();
-        // At 1x there is nothing to pan, so a drag is a drag on the host.
-        g.kind = modeRef.current === 'trackpad' ? 'cursor' : view.current.scale > 1 ? 'pan' : 'hostDrag';
+        g.kind = kind;
       }
       if (g.kind === 'pan') {
         setTranslate(g.baseTx + state.dx, g.baseTy + state.dy);
@@ -402,9 +469,58 @@ export function useViewport(options: ViewportOptions): Viewport {
         nudgeCursor(state.dx - g.lastDx, state.dy - g.lastDy);
         g.lastDx = state.dx;
         g.lastDy = state.dy;
+        return;
+      }
+      if (g.kind === 'wheel') {
+        // scrollX/scrollY track how much of the responder's cumulative dx/dy
+        // has been paid out, so a throttled or sub-notch move is owed to the
+        // next send instead of dropped.
+        if (!scrollDue(Date.now(), lastScrollAt.current, GESTURE)) return;
+        const batch = emitScroll(state.dy - g.scrollY, state.dx - g.scrollX);
+        if (batch) {
+          g.scrollY = state.dy - batch.restY;
+          g.scrollX = state.dx - batch.restX;
+        }
       }
     },
-    [cancelLongPress, nudgeCursor, setTranslate]
+    [cancelLongPress, emitScroll, nudgeCursor, setTranslate]
+  );
+
+  /**
+   * Follows three fingers by identity until their centroid commits to a
+   * direction, then fires exactly once and consumes the gesture: nothing the
+   * hand does afterwards — drifting on, dropping to two fingers, adding a
+   * fourth — can scroll, zoom or fire again until every finger lifts. A trio
+   * broken before committing simply re-anchors, like the pair logic above.
+   */
+  const handleThreeFingers = useCallback(
+    (touches: readonly NativeTouchEvent[], origin: Origin) => {
+      const g = gesture.current;
+      const trio = g.kind === 'pendingThree' ? trackedTriple(touches, g) : null;
+      if (!trio) {
+        cancelLongPress();
+        const [first, second, third] = touches;
+        const center = centroidOf([touchPoint(first, origin), touchPoint(second, origin), touchPoint(third, origin)]);
+        gesture.current = {
+          ...g,
+          kind: 'pendingThree',
+          touchA: identifierOf(first),
+          touchB: identifierOf(second),
+          touchC: identifierOf(third),
+          threeStartX: center.x,
+          threeStartY: center.y,
+          longPress: undefined,
+        };
+        return;
+      }
+      const center = centroidOf(trio.map((touch) => touchPoint(touch, origin)));
+      const direction = detectSwipe(center.x - g.threeStartX, center.y - g.threeStartY, GESTURE);
+      if (!direction) return;
+      g.kind = 'consumed';
+      haptic('medium');
+      onSwipeRef.current?.(direction);
+    },
+    [cancelLongPress]
   );
 
   const onGrant = useCallback(
@@ -448,6 +564,10 @@ export function useViewport(options: ViewportOptions): Viewport {
         startMomentum(state.vx, state.vy);
         return;
       }
+      if (g.kind === 'wheel') {
+        startScrollMomentum(state.vx, state.vy, state.dx - g.scrollX, state.dy - g.scrollY);
+        return;
+      }
       if (g.kind === 'hostDrag') {
         const from = toHost(g.startX, g.startY);
         const to = toHost(numberOf(event.nativeEvent.locationX), numberOf(event.nativeEvent.locationY));
@@ -455,7 +575,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         onPointerRef.current?.();
       }
     },
-    [cancelLongPress, clickAt, send, startMomentum, toHost]
+    [cancelLongPress, clickAt, send, startMomentum, startScrollMomentum, toHost]
   );
 
   const handlers = useMemo(
@@ -466,13 +586,21 @@ export function useViewport(options: ViewportOptions): Viewport {
         onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: onGrant,
         onPanResponderMove: (event: GestureResponderEvent, state: PanResponderGestureState) => {
+          const kind = gesture.current.kind;
+          // A long-press or a fired swipe ends the conversation: whatever the
+          // fingers do next must not become a scroll, zoom or second fire.
+          if (kind === 'consumed') return;
           const touches = event.nativeEvent.touches;
-          if (touches && touches.length >= 2) {
+          const count = touches ? touches.length : 0;
+          if (count >= 3 && kind !== 'zoom' && kind !== 'scroll') {
+            handleThreeFingers(touches, originOf(event));
+            return;
+          }
+          if (count >= 2) {
             handleTwoFingers(touches, originOf(event));
             return;
           }
-          const kind = gesture.current.kind;
-          if (kind === 'zoom' || kind === 'scroll' || kind === 'consumed') return;
+          if (kind === 'zoom' || kind === 'scroll' || kind === 'pendingThree') return;
           handleOneFinger(state);
         },
         onPanResponderRelease: onRelease,
@@ -481,7 +609,7 @@ export function useViewport(options: ViewportOptions): Viewport {
           gesture.current = newGesture();
         },
       }).panHandlers,
-    [cancelLongPress, handleOneFinger, handleTwoFingers, onGrant, onRelease]
+    [cancelLongPress, handleOneFinger, handleThreeFingers, handleTwoFingers, onGrant, onRelease]
   );
 
   // Keep the crosshair pinned when the stage resizes or the zoom changes.

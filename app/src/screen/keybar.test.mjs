@@ -103,10 +103,28 @@ const wire = (id, mac) => {
   return { key: keyFor(spec, mac), mods: modsFor(spec, mac).sort() };
 };
 
-test('the bar has a fourth page of app and system shortcuts', () => {
-  assert.equal(KEY_PAGES.length, 4);
+test('the bar has five pages; the fourth is app and system shortcuts', () => {
+  assert.equal(KEY_PAGES.length, 5);
   const ids = cellsOf(KEY_PAGES[3]).map((cell) => (cell.kind === 'key' ? cell.spec.id : `mod:${cell.mod}`));
   assert.deepEqual(ids, ['Ctrl+T', 'Ctrl+W', 'Ctrl+S', 'Search', 'Snip', 'Shot', 'Quit', 'Lock']);
+});
+
+test('the fifth page is desktop navigation — the three-finger swipe made visible', () => {
+  const ids = cellsOf(KEY_PAGES[4]).map((cell) => (cell.kind === 'key' ? cell.spec.id : `mod:${cell.mod}`));
+  assert.deepEqual(ids, ['DeskPrev', 'DeskNext', 'Overview']);
+});
+
+test('desktop caps send the native chord for each platform', () => {
+  // Virtual desktops: Win+Ctrl+arrows on Windows; LITERAL Control+arrows on
+  // macOS — plain ctrl would be remapped to Command by TETHER_MAC_CTRL and
+  // ⌘← means "line start", not "next space".
+  assert.deepEqual(wire('DeskPrev', false), { key: 'left', mods: ['ctrl', 'win'] });
+  assert.deepEqual(wire('DeskNext', false), { key: 'right', mods: ['ctrl', 'win'] });
+  assert.deepEqual(wire('DeskPrev', true), { key: 'left', mods: ['rawctrl'] });
+  assert.deepEqual(wire('DeskNext', true), { key: 'right', mods: ['rawctrl'] });
+  // Overview: Win+Tab is Task View; ⌃↑ is Mission Control.
+  assert.deepEqual(wire('Overview', false), { key: 'tab', mods: ['win'] });
+  assert.deepEqual(wire('Overview', true), { key: 'up', mods: ['rawctrl'] });
 });
 
 test('screenshot caps send the native chord for each platform', () => {

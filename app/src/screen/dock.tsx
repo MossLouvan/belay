@@ -158,9 +158,12 @@ export function ControlDock({
       }
     >
       <Row justify="space-between" gap="xs">
-        {/* No gap between TOUCH and PAD: their resting tracks abut into one
-            continuous strip, so the pair reads as a two-position switch — the
-            segmented control's language, not two stray words. */}
+        {/* No gap between TOUCH, PAD and SCROLL: their resting tracks abut
+            into one continuous strip, so the trio reads as a three-position
+            switch — the segmented control's language, not three stray words.
+            Scroll sits here rather than as a separate toggle because all
+            three answer the same question, "what does one finger do", and
+            exactly one answer can hold at a time. */}
         <View testID="pointer-mode" accessibilityRole="tablist" accessibilityLabel="Pointer mode" style={{ flexDirection: 'row' }}>
           <DockKey
             label="Touch"
@@ -179,6 +182,15 @@ export function ControlDock({
             active={mode === 'trackpad'}
             floating={floating}
             onPress={wrap(() => onModeChange('trackpad'))}
+          />
+          <DockKey
+            label="Scroll"
+            accessibilityLabel="Scroll mode"
+            accessibilityHint="Drag one finger to scroll the page; taps still click"
+            radio
+            active={mode === 'scroll'}
+            floating={floating}
+            onPress={wrap(() => onModeChange('scroll'))}
           />
         </View>
         <Row gap="none">

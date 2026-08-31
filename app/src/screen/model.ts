@@ -77,9 +77,24 @@ export const GESTURE = Object.freeze({
   pinchThreshold: 0.06,
   scrollThresholdPx: 10,
   pxPerScrollNotch: 34,
+  /**
+   * Scroll sensitivity: multiplies finger travel before it is notched into
+   * wheel units, for the two-finger gesture and scroll mode alike. At 1 a
+   * notch costs the full `pxPerScrollNotch` of travel; at 1.6 it costs ~21px,
+   * so a screen-height drag moves the page meaningfully further. "Still too
+   * slow" and "too twitchy" are both answered here, in one edit.
+   */
+  scrollGain: 1.6,
   maxNotchesPerSend: 8,
   moveThrottleMs: 40,
-  scrollThrottleMs: 60,
+  // Tuned down from 60 alongside scrollGain: a higher gain packs more notches
+  // into each send, and stretching the same delta over fewer, larger events
+  // is what made fast drags feel steppy.
+  scrollThrottleMs: 45,
+  /** Centroid travel that commits a three-finger swipe. */
+  swipeThresholdPx: 48,
+  /** How decisively one axis must beat the other before a swipe commits. */
+  swipeAxisRatio: 1.5,
   friction: 0.93,
   minMomentumPx: 0.4,
   trackpadGain: 0.85,
@@ -157,6 +172,16 @@ export const KEYS: readonly KeySpec[] = Object.freeze([
   // remapped to Command by the host's default TETHER_MAC_CTRL, so the spec
   // says 'rawctrl', which always means Control (server/src/keys.ts).
   { id: 'Lock', label: 'Lock', key: 'l', mods: ['win'], macKey: 'q', macMods: ['rawctrl', 'cmd'], action: 'Lock the computer' },
+
+  // Desktop/space navigation — the visible twin of the three-finger swipe on
+  // the stage (docs/DESIGN.md §11: nothing may live behind a gesture alone).
+  // Word labels throughout: the chords change shape entirely between hosts
+  // (Ctrl+← vs Win+Ctrl+←, ⌃↑ vs Win+Tab). Spaces need LITERAL Control on a
+  // Mac, exactly like Lock — plain 'ctrl' would be remapped to Command by the
+  // host's default TETHER_MAC_CTRL, and ⌘← is "line start", not "next space".
+  { id: 'DeskPrev', label: 'Desk ←', key: 'left', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Previous desktop' },
+  { id: 'DeskNext', label: 'Desk →', key: 'right', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Next desktop' },
+  { id: 'Overview', label: 'Views', key: 'tab', mods: ['win'], macKey: 'up', macMods: ['rawctrl'], action: 'See every window and desktop' },
 ]);
 
 /** Modifiers to send for a key, honouring the macOS variant when relevant. */
