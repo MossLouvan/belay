@@ -42,12 +42,11 @@ server/test-state.json
 app/ios/
 app/android/
 
-# agent runtime state (session metadata + transcripts) and whisper binaries
+# agent runtime state (session metadata + transcripts)
 tether-agent.json
 server/tether-agent.json
 agent-logs/
 server/agent-logs/
-server/whisper/
 
 # generated pairing / expo QR pages (contain LAN IP and live code)
 *_qr.html

@@ -70,13 +70,6 @@ ones started from a terminal. Tether surfaces them two ways:
 - **At the PC** — `cd server && npm run sessions` prints the same list in the
   terminal with ready-to-paste `cd <project> && claude --resume <id>` commands.
 
-## Dictation (Screen tab)
-
-Hold the mic next to the text box on the Screen tab: your words are
-transcribed on the PC and typed into whatever window has focus, like a remote
-dictation key. The last transcript flashes above the input so you can see what
-was typed.
-
 ## Threat-model notes
 
 - The agent endpoints sit behind the same bearer-token auth as everything
