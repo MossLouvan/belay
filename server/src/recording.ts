@@ -252,14 +252,14 @@ export class Recorder {
 }
 
 /** Delete saved recordings beyond the cap. Missing dir means nothing to prune. */
-export async function pruneRecordings(recordingsDir: string, maxSaved: number): Promise<void> {
+export async function pruneRecordings(recordingsDir: string, maxSaved: number, pattern?: RegExp): Promise<void> {
   let names: string[];
   try {
     names = await readdir(recordingsDir);
   } catch {
     return;
   }
-  const stale = staleRecordings(names, maxSaved);
+  const stale = staleRecordings(names, maxSaved, pattern);
   await Promise.all(stale.map((name) => rm(join(recordingsDir, name), { recursive: true, force: true })));
 }
 

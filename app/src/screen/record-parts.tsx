@@ -1,5 +1,5 @@
-// The recording strip and the send sheet — everything the user sees of the
-// host-side screen recorder besides the dock's REC key.
+// The recording strip, the send sheet and the sent notice — everything the
+// user sees of the host-side screen recorder besides the dock's REC key.
 //
 // The strip is deliberately impossible to miss: a computer whose screen is
 // being captured is a privacy state, so while recording it sits above the
@@ -19,6 +19,7 @@ import { Button, Caption, Column, Dot, Input, ListItem, Micro, Row, Sheet, Track
 import { HUD } from './parts';
 import { autoStopMessage, stripText } from './record';
 import type { RecordingStatus } from './record';
+import type { SendResult } from './useRecording';
 
 export interface RecordStripProps {
   status: RecordingStatus;
@@ -93,21 +94,86 @@ export function RecordStrip({ status, onStop, onReview, floating = false }: Reco
   );
 }
 
+/** What the sent notice needs to say and to reopen. */
+export interface SentInfo {
+  readonly sessionId: string;
+  readonly title: string;
+  readonly frames: number;
+}
+
+export interface SentNoticeProps {
+  info: SentInfo;
+  /** Jump straight into the session the frames went to. */
+  onOpen: () => void;
+  floating?: boolean;
+}
+
+/**
+ * The strip's closing line: after a send, one glance must answer "did Claude
+ * get it?" and one tap must land in the session that did. Without this, a
+ * successful send and a vanished recording look identical.
+ */
+export function SentNotice({ info, onOpen, floating = false }: SentNoticeProps) {
+  const theme = useTheme();
+  const good = floating ? getTheme('dark').colors.good : theme.colors.good;
+  const ink = floating ? HUD.ink : theme.colors.text;
+  const inks = floating
+    ? { restLabel: HUD.ink, activeLabel: ink, restTrack: HUD.hairline, activeTrack: HUD.ink }
+    : undefined;
+  return (
+    <View
+      testID="record-sent"
+      accessibilityRole="alert"
+      style={{
+        paddingHorizontal: floating ? theme.space.sm : theme.layout.margin,
+        paddingVertical: theme.space.xxs,
+        backgroundColor: floating ? HUD.scrim : undefined,
+        borderRadius: floating ? theme.radius.xs : 0,
+        borderWidth: floating ? theme.layout.hairline : 0,
+        borderColor: HUD.hairline,
+      }}
+    >
+      <Row justify="space-between" gap="sm">
+        <Row gap="xs" style={{ flexShrink: 1 }}>
+          <Dot color={good} label="Sent" />
+          <Txt testID="record-sent-text" variant="label" numberOfLines={1} style={{ color: ink }}>
+            {`Sent · ${info.frames} frame${info.frames === 1 ? '' : 's'} → ${info.title}`}
+          </Txt>
+        </Row>
+        <TrackLabel
+          testID="record-open-session"
+          label="Open"
+          accessibilityLabel={`Open the ${info.title} session Claude is reading the recording in`}
+          active
+          inks={inks}
+          onPress={onOpen}
+        />
+      </Row>
+    </View>
+  );
+}
+
 export interface RecordSheetProps {
   visible: boolean;
   onClose: () => void;
   status: RecordingStatus;
   busy: boolean;
-  onSend: (sessionId: string, note?: string) => Promise<unknown>;
+  onSend: (sessionId: string, note?: string) => Promise<SendResult>;
   onDiscard: () => void;
+  /** Fired after a successful send, with what went where. */
+  onSent: (info: SentInfo) => void;
 }
 
 /**
- * The handoff: pick a Claude session, optionally say what to look for, send.
- * The frames are written into that session's project ON THE COMPUTER and the
- * prompt referencing them is queued there — nothing rides through the phone.
+ * The handoff. The frames are written into the chosen session's project ON
+ * THE COMPUTER and the prompt referencing them is queued there — nothing
+ * rides through the phone. Kept to one decision when the machine can make the
+ * rest: with a single session there is nothing to pick, so the sheet shows
+ * where the frames go and offers SEND; the note is optional and says so,
+ * because a skipped note still yields a good prompt (the host asks Claude to
+ * describe what changes).
  */
-export function RecordSheet({ visible, onClose, status, busy, onSend, onDiscard }: RecordSheetProps) {
+export function RecordSheet({ visible, onClose, status, busy, onSend, onDiscard, onSent }: RecordSheetProps) {
   const theme = useTheme();
   const router = useRouter();
   const [sessions, setSessions] = useState<readonly AgentSessionMeta[] | null>(null);
@@ -136,16 +202,19 @@ export function RecordSheet({ visible, onClose, status, busy, onSend, onDiscard 
     };
   }, [visible]);
 
+  const frames = status.frames;
   const send = useCallback(() => {
     if (!selected) return;
+    const target = sessions?.find((s) => s.id === selected);
     setError(null);
     onSend(selected, note)
-      .then(() => {
+      .then((result) => {
         setNote('');
         onClose();
+        onSent({ sessionId: selected, title: target?.title ?? 'the session', frames: result.frames || frames });
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  }, [selected, note, onSend, onClose]);
+  }, [selected, sessions, note, frames, onSend, onClose, onSent]);
 
   const discard = useCallback(() => {
     onDiscard();
@@ -153,12 +222,13 @@ export function RecordSheet({ visible, onClose, status, busy, onSend, onDiscard 
   }, [onDiscard, onClose]);
 
   const none = sessions !== null && sessions.length === 0;
+  const only = sessions !== null && sessions.length === 1 ? sessions[0] : null;
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Send recording to Claude" testID="record-sheet">
       <Column gap="sm">
         <Caption>
-          {`${status.frames} frame${status.frames === 1 ? '' : 's'} over ${status.seconds}s, captured on the computer. Sending saves them into the session's project folder and asks Claude to read every frame in order.`}
+          {`${status.frames} frame${status.frames === 1 ? '' : 's'} over ${status.seconds}s, held on the computer. Send saves them into the session's project and asks Claude to read them in order and describe what changes.`}
         </Caption>
 
         {none ? (
@@ -174,6 +244,15 @@ export function RecordSheet({ visible, onClose, status, busy, onSend, onDiscard 
                 router.navigate('/agent');
               }}
             />
+          </Column>
+        ) : only ? (
+          // One session means zero choices: name where the frames go, inertly
+          // (§11.1 — not a choice, so it must not look like one), and get out
+          // of the way of SEND.
+          <Column gap="none" testID="record-only-session">
+            <Micro tone="dim">To</Micro>
+            <Txt variant="bodyStrong" numberOfLines={1}>{only.title}</Txt>
+            <Micro tone="dim" numberOfLines={1}>{only.cwd}</Micro>
           </Column>
         ) : (
           <Column gap="xxs">
@@ -195,7 +274,7 @@ export function RecordSheet({ visible, onClose, status, busy, onSend, onDiscard 
             testID="record-note"
             value={note}
             onChangeText={setNote}
-            placeholder="What should Claude look for? (optional)"
+            placeholder="Ask something specific instead (optional)"
             accessibilityLabel="Note for Claude about the recording"
           />
         ) : null}
@@ -204,25 +283,29 @@ export function RecordSheet({ visible, onClose, status, busy, onSend, onDiscard 
           <Txt variant="label" style={{ color: theme.colors.bad }}>{error}</Txt>
         ) : null}
 
-        <Row gap="sm">
-          {!none ? (
-            <Button
-              testID="record-send"
-              label={busy ? 'Sending…' : 'Send to Claude'}
-              disabled={busy || !selected}
-              onPress={send}
-              style={{ flex: 1 }}
-            />
-          ) : null}
+        {/* Send is the sheet's one primary action, full width; discard is a
+            red tracked label on its own line — impossible to hit reaching for
+            SEND, and unmistakably destructive (§11.5). */}
+        {!none ? (
           <Button
-            testID="record-discard"
-            label="Discard recording"
-            variant="secondary"
-            disabled={busy}
-            onPress={discard}
-            style={{ flex: 1 }}
+            testID="record-send"
+            label={busy ? 'Sending…' : 'Send to Claude'}
+            disabled={busy || !selected}
+            onPress={send}
           />
-        </Row>
+        ) : null}
+        <TrackLabel
+          testID="record-discard"
+          label="Discard recording"
+          accessibilityLabel="Discard the recording without sending it"
+          labelColor={theme.colors.bad}
+          trackColor={theme.colors.bad}
+          align="center"
+          disabled={busy}
+          onPress={discard}
+          hitSlop={theme.layout.hitSlop}
+          style={{ alignSelf: 'center', paddingVertical: theme.space.xs }}
+        />
       </Column>
     </Sheet>
   );

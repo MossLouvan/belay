@@ -72,11 +72,13 @@ export function thinFrames<T>(frames: readonly T[], max: number): readonly T[] {
 /**
  * `frame-01.jpg` … zero-padded to the width of the largest index, so a plain
  * alphabetical listing — which is how both Claude and a shell will meet these
- * files — is also chronological order.
+ * files — is also chronological order. The stem and extension are parameters
+ * because phone-uploaded photos (images.ts) share the exact same naming
+ * problem with a different word and a sniffed-per-file format.
  */
-export function frameName(index: number, total: number): string {
+export function frameName(index: number, total: number, stem = 'frame', ext = 'jpg'): string {
   const width = Math.max(2, String(total).length);
-  return `frame-${String(index + 1).padStart(width, '0')}.jpg`;
+  return `${stem}-${String(index + 1).padStart(width, '0')}.${ext}`;
 }
 
 /**
@@ -85,23 +87,31 @@ export function frameName(index: number, total: number): string {
  * browser knows when it was made. Local time, because the human comparing it
  * to "when the bug happened" thinks in local time.
  */
-export function recordingDirName(startedAt: number): string {
+export function timestampDirName(startedAt: number, prefix: string): string {
   const d = new Date(startedAt);
   const p = (n: number, w = 2) => String(n).padStart(w, '0');
-  return `rec-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `${prefix}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+export function recordingDirName(startedAt: number): string {
+  return timestampDirName(startedAt, 'rec');
 }
 
 export const RECORDING_DIR_PATTERN = /^rec-\d{8}-\d{6}$/;
 
 /**
  * Which saved recordings to delete so at most `maxSaved` remain — the disk
- * lifecycle in one pure function. Names matching the recording pattern sort
+ * lifecycle in one pure function. Names matching `pattern` sort
  * chronologically as strings; anything not matching the pattern is left
  * alone, because deleting files this module did not create is how a cleanup
  * routine becomes a data-loss bug.
  */
-export function staleRecordings(dirNames: readonly string[], maxSaved: number): readonly string[] {
-  const ours = dirNames.filter((name) => RECORDING_DIR_PATTERN.test(name));
+export function staleRecordings(
+  dirNames: readonly string[],
+  maxSaved: number,
+  pattern: RegExp = RECORDING_DIR_PATTERN,
+): readonly string[] {
+  const ours = dirNames.filter((name) => pattern.test(name));
   const newestFirst = [...ours].sort().reverse();
   return newestFirst.slice(Math.max(0, maxSaved));
 }

@@ -45,6 +45,7 @@ import { discoverSessions } from './discover.js';
 import { registerRecordingRoutes } from './recording-routes.js';
 import { handleHandoff } from './handoff.js';
 import { registerAgentApprovalRoutes } from './agent-routes.js';
+import { registerImageRoutes } from './image-routes.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
 
@@ -625,6 +626,7 @@ app.post('/agent/approval-request', (req, res) => {
 
 registerRecordingRoutes(app, auth);
 registerAgentApprovalRoutes(app, auth);
+registerImageRoutes(app, auth);
 
 // ---- server + websockets -------------------------------------------------
 

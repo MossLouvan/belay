@@ -431,7 +431,47 @@ export const api = {
   agentAttach: (claudeSessionId: string, cwd: string, title?: string) =>
     post<AgentSnapshot>('/agent/attach', { claudeSessionId, cwd, title }),
   agentDelete: (id: string) => del<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}`),
+
+  // Phone photos → a Claude session. Stage each image with `uploadImageBase64`
+  // (below — it needs the long deadline), then commit or drop the batch here.
+  imagesSend: (sessionId: string, note?: string) =>
+    post<{ ok: boolean; relDir?: string; files?: number }>('/images/send', {
+      sessionId,
+      ...(note?.trim() ? { note: note.trim() } : {}),
+    }),
+  imagesDiscard: () => post<{ images: number }>('/images/discard', {}),
 };
+
+/**
+ * Stage one phone photo on the host. The body is base64 text under its own
+ * content type — not JSON, whose parser the host caps at 2 MB, and not raw
+ * binary, which React Native's fetch cannot carry reliably. A photo is a far
+ * bigger transfer than any JSON route, so it gets the raw-fetch deadline
+ * rather than the 10-second REST one.
+ */
+export async function uploadImageBase64(base64: string, signal?: AbortSignal): Promise<void> {
+  if (!conn) throw new Error('not connected');
+  const path = '/images/add';
+  const controller = new AbortController();
+  const onExternalAbort = () => controller.abort();
+  signal?.addEventListener('abort', onExternalAbort);
+  const timer = setTimeout(() => controller.abort(), RAW_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(conn.host + path, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/base64' },
+      body: base64,
+      signal: controller.signal,
+    });
+    if (!res.ok) throw await failureFor(res, path);
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === 'AbortError') throw new TimeoutError(path);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onExternalAbort);
+  }
+}
 
 async function del<T>(path: string): Promise<T> {
   if (!conn) throw new Error('not connected');

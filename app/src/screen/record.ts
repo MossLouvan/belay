@@ -31,6 +31,13 @@ export const IDLE_RECORDING: RecordingStatus = Object.freeze({
 /** Poll cadence while a recording runs — the strip's clock ticks off this. */
 export const RECORD_POLL_MS = 1000;
 
+/**
+ * How long the sent receipt holds. Longer than the error toast on purpose:
+ * it carries a tap target (OPEN), and a receipt that vanishes before the eye
+ * lands on it is a send that still feels unconfirmed.
+ */
+export const SENT_NOTICE_MS = 8000;
+
 const PHASES: readonly RecordPhase[] = ['idle', 'recording', 'ready'];
 const REASONS: readonly AutoStopReason[] = ['duration', 'frames', 'bytes', 'errors'];
 
@@ -96,7 +103,7 @@ export function autoStopMessage(reason: AutoStopReason | undefined): string | nu
     case 'duration': return 'Stopped at the 5 minute limit.';
     case 'frames': return 'Stopped at the frame limit.';
     case 'bytes': return 'Stopped at the size limit.';
-    case 'errors': return 'Stopped — the computer could not capture the screen.';
+    case 'errors': return 'Stopped — the computer could not capture the screen. Check its Screen Recording permission.';
     default: return null;
   }
 }

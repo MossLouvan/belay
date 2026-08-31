@@ -18,6 +18,8 @@ import { EventRow } from './feed';
 import { buildFeed } from './feed-model';
 import { GrantList } from './grant-list';
 import { MicButton, openVoiceSettings, useVoice } from './mic';
+import { PhotoButton, usePhotoSend } from './photo-button';
+import type { PhotoSource } from './photo-button';
 import { appendTranscript, composerControls, isBusy, promptMode, statusLabel, statusTone } from './model';
 import { useAgentSession } from './session';
 
@@ -53,6 +55,20 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     voiceBase.current = inputNow.current;
     voice.start();
   }, [voice.start]);
+
+  // Photos ride the composer's own draft: whatever is typed becomes the note
+  // in the prompt that references them, so "send a screenshot with a
+  // question" is one gesture, not a mode. The feed showing the prompt land is
+  // the receipt.
+  const photos = usePhotoSend(id, setNote);
+  const sendPhotos = useCallback((source: PhotoSource) => {
+    void photos.send(source, inputNow.current.trim()).then((sent) => {
+      if (sent) {
+        setInput('');
+        composerRef.current?.blur();
+      }
+    });
+  }, [photos.send]);
 
   const send = useCallback(() => {
     const text = input.trim();
@@ -281,7 +297,7 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
           message={note}
           // A denied permission can only be fixed in the Settings app, so the
           // banner carries the door rather than leaving a dead-end error line.
-          action={voice.needsSettings ? { label: 'Open Settings', onPress: openVoiceSettings } : undefined}
+          action={voice.needsSettings || photos.needsSettings ? { label: 'Open Settings', onPress: openVoiceSettings } : undefined}
           style={{ marginHorizontal: margin, marginBottom: theme.space.xs }}
         />
       ) : null}
@@ -290,6 +306,7 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
       <View style={{ paddingHorizontal: margin, paddingVertical: theme.space.sm }}>
         <Row gap="sm" align="flex-end">
           <MicButton testID="agent-mic" state={voice.state} onStart={beginTalk} onStop={voice.stop} disabled={link !== 'open'} />
+          <PhotoButton testID="agent-photos" onPick={sendPhotos} busy={photos.busy} disabled={link !== 'open'} />
           <View style={{ flex: 1 }}>
             <TextInput
               ref={composerRef}

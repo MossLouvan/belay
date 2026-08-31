@@ -20,7 +20,7 @@ import { Animated, Image, Keyboard, KeyboardAvoidingView, Platform, ScrollView, 
 import type { LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useIsFocused, useNavigation } from 'expo-router';
+import { router, useIsFocused, useNavigation } from 'expo-router';
 import { useConnection } from '../../src/connection';
 import { api } from '../../src/api';
 import { useTheme } from '../../src/theme';
@@ -90,8 +90,11 @@ import {
 } from '../../src/screen/parts';
 import { ControlDock } from '../../src/screen/dock';
 import { PanelState } from '../../src/screen/panel-state';
-import { RecordSheet, RecordStrip } from '../../src/screen/record-parts';
+import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
+import type { SentInfo } from '../../src/screen/record-parts';
+import { SENT_NOTICE_MS } from '../../src/screen/record';
 import { useRecording } from '../../src/screen/useRecording';
+import { setOpenSession } from '../../src/agent/attention-store';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 
 export default function ScreenTab() {
@@ -285,6 +288,29 @@ export default function ScreenTab() {
     void recording.stop().then(() => setShowRecordSheet(true));
   }, [recording]);
 
+  // The frames left; the user must not have to wonder whether they arrived.
+  // The notice holds for a few seconds with the one-tap way into the session,
+  // then stands down — it is a receipt, not a permanent fixture.
+  const [sent, setSent] = useState<SentInfo | null>(null);
+  const sentTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const onSent = useCallback((info: SentInfo) => {
+    setSent(info);
+    if (sentTimer.current) clearTimeout(sentTimer.current);
+    sentTimer.current = setTimeout(() => setSent(null), SENT_NOTICE_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (sentTimer.current) clearTimeout(sentTimer.current);
+    },
+    []
+  );
+  const openSentSession = useCallback(() => {
+    if (!sent) return;
+    setSent(null);
+    setOpenSession(sent.sessionId);
+    router.navigate('/agent');
+  }, [sent]);
+
   // The corner control: enter fullscreen from the normal layout; in fullscreen
   // it exits — unless the dock has auto-hidden, in which case the dimmed
   // handle's job is to bring the controls back first.
@@ -420,6 +446,7 @@ export default function ScreenTab() {
       {!fullscreen ? (
         <RecordStrip status={recording.status} onStop={stopRecording} onReview={() => setShowRecordSheet(true)} />
       ) : null}
+      {!fullscreen && sent ? <SentNotice info={sent} onOpen={openSentSession} /> : null}
       {!fullscreen ? noticeArea : null}
       {!fullscreen ? <Rule /> : null}
 
@@ -539,6 +566,7 @@ export default function ScreenTab() {
                 onReview={() => setShowRecordSheet(true)}
                 floating
               />
+              {sent ? <SentNotice info={sent} onOpen={openSentSession} floating /> : null}
             </View>
             {noticeArea}
           </View>
@@ -574,6 +602,7 @@ export default function ScreenTab() {
         busy={recording.busy}
         onSend={recording.send}
         onDiscard={() => void recording.discard()}
+        onSent={onSent}
       />
 
       <Sheet visible={showMenu} onClose={() => setShowMenu(false)} title="Screen options" testID="screen-menu-sheet">
