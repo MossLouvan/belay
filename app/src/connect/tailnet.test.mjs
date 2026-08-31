@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  TAILNET_PROBE_ATTEMPTS,
   TAILSCALE_APP_URL,
   TAILSCALE_STORE_URL,
   planTailnetUpgrade,
@@ -92,7 +93,25 @@ test('an unreachable tailnet address means Tailscale is off on this phone', () =
   // The host answered on its LAN address moments ago, so it is not down.
   assert.deepEqual(readTailnetProbe(ts.url, { ok: false, error: 'timed out' }), {
     kind: 'tailscale-off',
+    detail: 'timed out',
   });
+});
+
+test('the failure text is carried through so the card can show it', () => {
+  const outcome = readTailnetProbe(ts.url, { ok: false, error: 'Network request failed' });
+  assert.equal(outcome.kind, 'tailscale-off');
+  assert.equal(outcome.detail, 'Network request failed');
+});
+
+test('a failure with no text still classifies, with no detail', () => {
+  assert.deepEqual(readTailnetProbe(ts.url, { ok: false }), {
+    kind: 'tailscale-off',
+    detail: undefined,
+  });
+});
+
+test('the tailnet is retried, because one cold-start timeout proves nothing', () => {
+  assert.ok(TAILNET_PROBE_ATTEMPTS >= 2, 'a single attempt would misread a cold tunnel');
 });
 
 test('reachable but still wanting a code falls back to the digits', () => {

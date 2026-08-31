@@ -74,11 +74,22 @@ export function planTailnetUpgrade(check: HostCheck, checkedUrl: string): Tailne
   return { kind: 'upgrade', url };
 }
 
+/**
+ * How many times to try the tailnet address before giving up on it.
+ *
+ * The first packet over a cold tailnet is the slow one: the peers have to find
+ * each other, usually via a relay, before the direct path is established. That
+ * can outlast a single request deadline on a link that then works fine — so a
+ * lone timeout is not evidence that Tailscale is off, and treating it as such
+ * sends people to fix something that is not broken.
+ */
+export const TAILNET_PROBE_ATTEMPTS = 3;
+
 export type TailnetOutcome =
   /** Pair over this address with no code. */
   | { readonly kind: 'paired-path'; readonly url: string }
   /** The host is up but unreachable over the tailnet: Tailscale is off here. */
-  | { readonly kind: 'tailscale-off' }
+  | { readonly kind: 'tailscale-off'; readonly detail?: string }
   /** Reachable, but the host still wants a code — fall back to the digits. */
   | { readonly kind: 'code-required' };
 
@@ -90,7 +101,7 @@ export type TailnetOutcome =
  * host. It is a phone that is not on the tailnet.
  */
 export function readTailnetProbe(url: string, probe: HostCheck): TailnetOutcome {
-  if (!probe.ok) return { kind: 'tailscale-off' };
+  if (!probe.ok) return { kind: 'tailscale-off', detail: probe.error };
   if (probe.pairing === 'tailnet') return { kind: 'paired-path', url };
   return { kind: 'code-required' };
 }

@@ -25,7 +25,7 @@ import { Diagnosis, diagnoseHostFailure, diagnosePairFailure } from '../src/conn
 import { forgetHost, loadRecentHosts, prettyHost, rememberHost, resolveHost } from '../src/connect/host-input';
 import { AwayFromHomeNote, SetupSteps } from '../src/connect/onboarding';
 import { HostStep } from '../src/connect/host-step';
-import { planTailnetUpgrade, readTailnetProbe } from '../src/connect/tailnet';
+import { TAILNET_PROBE_ATTEMPTS, planTailnetUpgrade, readTailnetProbe } from '../src/connect/tailnet';
 import { TailscaleCard } from '../src/connect/tailscale-card';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
 import { ThemeToggle } from '../src/settings/theme-toggle';
@@ -149,6 +149,8 @@ export default function Connect() {
    * host. Carries the host's name so the card can say which computer is waiting.
    */
   const [tailscaleOff, setTailscaleOff] = useState<string | null>(null);
+  /** The last tailnet failure, shown on the card so a stuck setup is diagnosable. */
+  const [tailscaleDetail, setTailscaleDetail] = useState<string | null>(null);
 
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** False once the screen is gone, so a late `/health` cannot set state. */
@@ -197,6 +199,7 @@ export default function Connect() {
     setTouched(true);
     setHostError(null);
     setTailscaleOff(null);
+    setTailscaleDetail(null);
   }, []);
 
   const onChangeCode = useCallback((next: string) => {
@@ -259,13 +262,22 @@ export default function Connect() {
         const url = plan.kind === 'upgrade' ? plan.url : resolved.url;
         if (plan.kind === 'upgrade') {
           setBusy(true);
-          const probe = await checkHostBounded(url);
-          if (!live.current || seq !== checkSeq.current) return;
+          // Retry rather than trust one deadline: the first packet over a cold
+          // tailnet waits for the peers to find each other through a relay, and
+          // that can outlast a single request on a link that then works fine.
+          // One timeout is not evidence that Tailscale is off.
+          let outcome = readTailnetProbe(url, { ok: false, error: 'not tried' });
+          for (let attempt = 0; attempt < TAILNET_PROBE_ATTEMPTS; attempt += 1) {
+            const probe = await checkHostBounded(url);
+            if (!live.current || seq !== checkSeq.current) return;
+            outcome = readTailnetProbe(url, probe);
+            if (outcome.kind !== 'tailscale-off') break;
+          }
           setBusy(false);
 
-          const outcome = readTailnetProbe(url, probe);
           if (outcome.kind === 'tailscale-off') {
             setTailscaleOff(result.name || 'Your computer');
+            setTailscaleDetail(outcome.detail ?? null);
             setStage('code');
             return;
           }
@@ -388,6 +400,7 @@ export default function Connect() {
     setPairError(null);
     setCode('');
     setTailscaleOff(null);
+    setTailscaleDetail(null);
   }, []);
 
   /**
@@ -399,6 +412,7 @@ export default function Connect() {
    */
   const onRetryTailscale = useCallback(() => {
     setTailscaleOff(null);
+    setTailscaleDetail(null);
     setStage('host');
     setCode('');
     setPairError(null);
@@ -468,7 +482,12 @@ export default function Connect() {
                 easier than reading a code off another screen, and it is what
                 makes the computer reachable away from home too. */}
             {tailscaleOff ? (
-              <TailscaleCard hostName={tailscaleOff} onRetry={onRetryTailscale} busy={busy} />
+              <TailscaleCard
+                hostName={tailscaleOff}
+                detail={tailscaleDetail}
+                onRetry={onRetryTailscale}
+                busy={busy}
+              />
             ) : null}
             <PairStep
               host={host}

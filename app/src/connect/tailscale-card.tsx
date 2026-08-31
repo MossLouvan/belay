@@ -12,6 +12,8 @@ import { Button, Card, Column, Txt, haptic } from '../ui';
 interface TailscaleCardProps {
   /** What the computer is called, for a message that names it. */
   readonly hostName: string;
+  /** The underlying failure, shown small so a stuck setup can be reported. */
+  readonly detail?: string | null;
   /** Re-run the check once Tailscale is on. */
   readonly onRetry: () => void;
   /** True while the retry is in flight. */
@@ -35,7 +37,7 @@ export async function openTailscale(): Promise<void> {
   }
 }
 
-export function TailscaleCard({ hostName, onRetry, busy }: TailscaleCardProps) {
+export function TailscaleCard({ hostName, detail, onRetry, busy }: TailscaleCardProps) {
   const [opened, setOpened] = useState(false);
 
   const open = useCallback(() => {
@@ -68,6 +70,12 @@ export function TailscaleCard({ hostName, onRetry, busy }: TailscaleCardProps) {
         <Txt variant="caption" tone="faint">
           Sign in with the same account your computer uses. Nothing routes through anyone else.
         </Txt>
+
+        {detail ? (
+          <Txt variant="caption" tone="faint">
+            Tailnet address said: {detail}
+          </Txt>
+        ) : null}
       </Column>
     </Card>
   );
