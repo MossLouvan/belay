@@ -196,9 +196,11 @@ export function KeyCap({ spec, onPress, mac, glyph, sticky = false, latched = fa
   const label = labelFor(spec, mac);
   const background = locked ? theme.colors.accent : latched ? theme.colors.accentSoft : theme.colors.surfaceAlt;
   const ink = locked ? theme.colors.onAccent : latched ? theme.colors.onAccentSoft : theme.colors.text;
+  // Shortcut caps announce what they do, not their glyphs — "Screenshot a
+  // region", never "Send ⌘⇧4" (docs/DESIGN.md §11.1: bare glyphs still speak).
   const accessibilityLabel = sticky
     ? `${label} modifier${locked ? ', locked on' : latched ? ', on for the next key' : ''}`
-    : `Send ${label}`;
+    : spec.action ?? `Send ${label}`;
   return (
     <Pressable
       testID={`key-${spec.id}`}

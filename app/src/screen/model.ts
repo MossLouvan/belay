@@ -96,6 +96,17 @@ export interface KeySpec {
   /** Label and modifiers used when the host reports macOS. */
   readonly macLabel?: string;
   readonly macMods?: readonly string[];
+  /**
+   * Key sent when the host reports macOS, for shortcuts whose chord lands on
+   * a different key entirely (region screenshot is ⌘⇧4 on a Mac but Win+⇧+S
+   * on Windows). Falls back to `key` — most shortcuts differ only in mods.
+   */
+  readonly macKey?: string;
+  /**
+   * What the chord does, spoken by screen readers in place of the visual
+   * label — VoiceOver reading "⌘⇧4" aloud helps nobody.
+   */
+  readonly action?: string;
 }
 
 export const KEYS: readonly KeySpec[] = Object.freeze([
@@ -103,22 +114,49 @@ export const KEYS: readonly KeySpec[] = Object.freeze([
   { id: 'Tab', label: 'Tab', key: 'tab' },
   { id: 'Enter', label: 'Enter', key: 'enter' },
   { id: 'Bksp', label: 'Bksp', key: 'backspace' },
-  { id: 'Ctrl+C', label: 'Ctrl+C', key: 'c', mods: ['ctrl'], macLabel: '⌘C', macMods: ['cmd'] },
-  { id: 'Ctrl+V', label: 'Ctrl+V', key: 'v', mods: ['ctrl'], macLabel: '⌘V', macMods: ['cmd'] },
+  { id: 'Ctrl+C', label: 'Ctrl+C', key: 'c', mods: ['ctrl'], macLabel: '⌘C', macMods: ['cmd'], action: 'Copy' },
+  { id: 'Ctrl+V', label: 'Ctrl+V', key: 'v', mods: ['ctrl'], macLabel: '⌘V', macMods: ['cmd'], action: 'Paste' },
   { id: 'Win', label: 'Win', key: 'win', macLabel: 'Cmd' },
   { id: 'Left', label: 'Left', key: 'left' },
   { id: 'Up', label: 'Up', key: 'up' },
   { id: 'Down', label: 'Down', key: 'down' },
   { id: 'Right', label: 'Right', key: 'right' },
-  { id: 'Ctrl+A', label: 'Ctrl+A', key: 'a', mods: ['ctrl'], macLabel: '⌘A', macMods: ['cmd'] },
-  { id: 'Ctrl+Z', label: 'Ctrl+Z', key: 'z', mods: ['ctrl'], macLabel: '⌘Z', macMods: ['cmd'] },
-  { id: 'Alt+Tab', label: 'Alt+Tab', key: 'tab', mods: ['alt'], macLabel: '⌘Tab', macMods: ['cmd'] },
+  { id: 'Ctrl+A', label: 'Ctrl+A', key: 'a', mods: ['ctrl'], macLabel: '⌘A', macMods: ['cmd'], action: 'Select all' },
+  { id: 'Ctrl+Z', label: 'Ctrl+Z', key: 'z', mods: ['ctrl'], macLabel: '⌘Z', macMods: ['cmd'], action: 'Undo' },
+  { id: 'Alt+Tab', label: 'Alt+Tab', key: 'tab', mods: ['alt'], macLabel: '⌘Tab', macMods: ['cmd'], action: 'Switch app' },
   { id: 'Del', label: 'Del', key: 'delete' },
   { id: 'Home', label: 'Home', key: 'home' },
   { id: 'End', label: 'End', key: 'end' },
   { id: 'PgUp', label: 'PgUp', key: 'pageup' },
   { id: 'PgDn', label: 'PgDn', key: 'pagedown' },
-  { id: 'F5', label: 'F5', key: 'f5' },
+  { id: 'F5', label: 'F5', key: 'f5', action: 'Refresh' },
+
+  // Shortcut caps. Labelling rule: a chord whose SHAPE is the same on both
+  // hosts keeps its chord label (Ctrl+T reads as ⌘T on a Mac — one habit,
+  // two spellings); a chord that changes shape entirely between platforms
+  // (⌘⇧4 vs Win+⇧+S) gets a word instead, because no chord label for it
+  // could ever be learned once and trusted twice.
+  { id: 'Ctrl+F', label: 'Ctrl+F', key: 'f', mods: ['ctrl'], macLabel: '⌘F', macMods: ['cmd'], action: 'Find' },
+  { id: 'Ctrl+T', label: 'Ctrl+T', key: 't', mods: ['ctrl'], macLabel: '⌘T', macMods: ['cmd'], action: 'New tab' },
+  { id: 'Ctrl+W', label: 'Ctrl+W', key: 'w', mods: ['ctrl'], macLabel: '⌘W', macMods: ['cmd'], action: 'Close tab or window' },
+  { id: 'Ctrl+S', label: 'Ctrl+S', key: 's', mods: ['ctrl'], macLabel: '⌘S', macMods: ['cmd'], action: 'Save' },
+  // Win alone opens Start's search box; ⌘Space opens Spotlight — the same
+  // "type an app's name" gesture on both, and the fastest way to launch
+  // anything from a phone.
+  { id: 'Search', label: 'Search', key: 'win', macKey: 'space', macMods: ['cmd'], action: 'Search the computer' },
+  // Region screenshot: Win+Shift+S opens Snip & Sketch, ⌘⇧4 gives the
+  // crosshair. Both then want a drag, which touch/trackpad mode provides.
+  { id: 'Snip', label: 'Snip', key: 's', mods: ['win', 'shift'], macKey: '4', macMods: ['cmd', 'shift'], action: 'Screenshot a region' },
+  // Whole-screen screenshot. Windows gets Win+PrintScreen rather than bare
+  // PrintScreen: it saves a file to Pictures\Screenshots and dims the screen,
+  // where bare PrintScreen only fills a clipboard the phone cannot see into.
+  // ⌘⇧3 writes to the Desktop — a file on both, visible feedback on both.
+  { id: 'Shot', label: 'Shot', key: 'printscreen', mods: ['win'], macKey: '3', macMods: ['cmd', 'shift'], action: 'Screenshot the whole screen' },
+  { id: 'Quit', label: 'Quit', key: 'f4', mods: ['alt'], macKey: 'q', macMods: ['cmd'], action: 'Quit the app in front' },
+  // Lock needs LITERAL Control on a Mac (⌃⌘Q); plain 'ctrl' would be
+  // remapped to Command by the host's default TETHER_MAC_CTRL, so the spec
+  // says 'rawctrl', which always means Control (server/src/keys.ts).
+  { id: 'Lock', label: 'Lock', key: 'l', mods: ['win'], macKey: 'q', macMods: ['rawctrl', 'cmd'], action: 'Lock the computer' },
 ]);
 
 /** Modifiers to send for a key, honouring the macOS variant when relevant. */
@@ -128,6 +166,10 @@ export const modsFor = (spec: KeySpec, mac: boolean): string[] => [
 
 export const labelFor = (spec: KeySpec, mac: boolean): string =>
   mac && spec.macLabel ? spec.macLabel : spec.label;
+
+/** The key name to send, honouring a chord that moves keys across platforms. */
+export const keyFor = (spec: KeySpec, mac: boolean): string =>
+  mac && spec.macKey ? spec.macKey : spec.key;
 
 // --- macOS permission copy --------------------------------------------------
 

@@ -87,3 +87,69 @@ test('pageIndexFor is defensive about degenerate layout values', () => {
   assert.equal(pageIndexFor(NaN, 320, 3), 0);
   assert.equal(pageIndexFor(500, 320, 0), 0, 'no pages at all');
 });
+
+// --- the shortcut pages and their platform branching -------------------------
+// The same cap must do the equivalent thing on either host. These pin the
+// exact wire values (key name + modifier names) each platform receives, so a
+// remap regression fails here instead of silently doing the wrong thing on
+// one platform.
+
+import { keyFor, labelFor, modsFor } from './model.ts';
+
+const byId = new Map(KEYS.map((spec) => [spec.id, spec]));
+const wire = (id, mac) => {
+  const spec = byId.get(id);
+  assert.ok(spec, `no KeySpec for ${id}`);
+  return { key: keyFor(spec, mac), mods: modsFor(spec, mac).sort() };
+};
+
+test('the bar has a fourth page of app and system shortcuts', () => {
+  assert.equal(KEY_PAGES.length, 4);
+  const ids = cellsOf(KEY_PAGES[3]).map((cell) => (cell.kind === 'key' ? cell.spec.id : `mod:${cell.mod}`));
+  assert.deepEqual(ids, ['Ctrl+T', 'Ctrl+W', 'Ctrl+S', 'Search', 'Snip', 'Shot', 'Quit', 'Lock']);
+});
+
+test('screenshot caps send the native chord for each platform', () => {
+  // Region: Win+Shift+S opens the snipping overlay; ⌘⇧4 gives the crosshair.
+  assert.deepEqual(wire('Snip', false), { key: 's', mods: ['shift', 'win'] });
+  assert.deepEqual(wire('Snip', true), { key: '4', mods: ['cmd', 'shift'] });
+  // Full screen: Win+PrintScreen saves a file (bare PrintScreen only fills a
+  // clipboard the phone cannot see); ⌘⇧3 saves to the Desktop.
+  assert.deepEqual(wire('Shot', false), { key: 'printscreen', mods: ['win'] });
+  assert.deepEqual(wire('Shot', true), { key: '3', mods: ['cmd', 'shift'] });
+});
+
+test('new tab is Ctrl+T on Windows and ⌘T on a Mac', () => {
+  assert.deepEqual(wire('Ctrl+T', false), { key: 't', mods: ['ctrl'] });
+  assert.deepEqual(wire('Ctrl+T', true), { key: 't', mods: ['cmd'] });
+  assert.equal(labelFor(byId.get('Ctrl+T'), true), '⌘T');
+});
+
+test('search, quit and lock land on each platform’s own chord', () => {
+  assert.deepEqual(wire('Search', false), { key: 'win', mods: [] });
+  assert.deepEqual(wire('Search', true), { key: 'space', mods: ['cmd'] });
+  assert.deepEqual(wire('Quit', false), { key: 'f4', mods: ['alt'] });
+  assert.deepEqual(wire('Quit', true), { key: 'q', mods: ['cmd'] });
+  assert.deepEqual(wire('Lock', false), { key: 'l', mods: ['win'] });
+  // rawctrl, not ctrl: the host's default ctrl→cmd remap would otherwise turn
+  // ⌃⌘Q into ⌘⌘Q and the Mac would never lock.
+  assert.deepEqual(wire('Lock', true), { key: 'q', mods: ['cmd', 'rawctrl'] });
+});
+
+test('every chorded cap carries an action for screen readers', () => {
+  for (const cell of allCells) {
+    if (cell.kind !== 'key') continue;
+    const { spec } = cell;
+    const chorded = (spec.mods?.length ?? 0) > 0 || (spec.macMods?.length ?? 0) > 0;
+    if (chorded) assert.ok(spec.action, `${spec.id} would be read aloud as its glyphs`);
+  }
+});
+
+test('word-labelled caps read the same on both platforms', () => {
+  // The whole point of a word label is one learnable cap; a macLabel on one
+  // would mean the cap renames itself when you switch computers.
+  for (const id of ['Search', 'Snip', 'Shot', 'Quit', 'Lock']) {
+    const spec = byId.get(id);
+    assert.equal(labelFor(spec, true), labelFor(spec, false), `${id} changes its name per platform`);
+  }
+});

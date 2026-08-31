@@ -47,6 +47,7 @@ import {
   fitBox,
   findQuality,
   GESTURE,
+  keyFor,
   LAUNCHER_NOTE,
   MAC_STEPS,
   messageOf,
@@ -216,7 +217,7 @@ export default function ScreenTab() {
       const latched = modNamesForHost(activeMods(modsRef.current), isMac).filter((m) => !base.includes(m));
       setMods(releaseLatched);
       api
-        .key(spec.key, [...latched, ...base])
+        .key(keyFor(spec, isMac), [...latched, ...base])
         .catch((e: unknown) => reportError(`Key ${spec.id} failed — ${messageOf(e)}`));
     },
     [isMac, reportError]
@@ -574,6 +575,12 @@ export default function ScreenTab() {
           <Caption>
             Pinch to zoom, two-finger drag to scroll. The right-click and double-click controls in the dock arm the next
             tap only.
+          </Caption>
+          <Txt variant="bodyStrong">Key bar pages</Txt>
+          <Caption>
+            The key bar slides sideways — the dots under it count the pages. Basics, then arrows, then editing
+            shortcuts, then app and system shortcuts: new tab, search, screenshots, quit and lock, each sending the
+            right chord for the computer you are driving.
           </Caption>
           <Txt variant="bodyStrong">Modifier keys</Txt>
           <Caption>

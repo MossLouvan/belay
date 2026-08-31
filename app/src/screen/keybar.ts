@@ -3,7 +3,8 @@
 // The bar shows two rows of 44pt caps and pages horizontally (a paged
 // ScrollView, not a free scroll), so keys live at fixed, learnable positions:
 // page 1 is basics + sticky modifiers, page 2 is navigation with an inverted-T
-// arrow cluster drawn as chevron glyphs, page 3 is shortcuts.
+// arrow cluster drawn as chevron glyphs, page 3 is editing shortcuts, page 4
+// is app and system shortcuts (tabs, search, screenshots, quit, lock).
 //
 // Pure functions only — exercised by keybar.test.mjs under Node's type
 // stripping, so nothing here may import React, JSX, or (by value) any other
@@ -61,7 +62,17 @@ export function buildKeyPages(keys: readonly KeySpec[]): readonly KeyBarPage[] {
     },
     {
       top: [key('Ctrl+C'), key('Ctrl+V'), key('Ctrl+A'), key('Ctrl+Z')],
-      bottom: [key('Alt+Tab'), key('Del'), key('F5')],
+      // Find joins the row's tail: the three existing caps keep the positions
+      // muscle memory already learned.
+      bottom: [key('Alt+Tab'), key('Del'), key('F5'), key('Ctrl+F')],
+    },
+    // App and system shortcuts. Top row works the front app (tabs, save,
+    // launch-anything search); bottom row acts on the machine itself, ordered
+    // from harmless (screenshots) to consequential (quit, lock) so the two
+    // caps that end something live furthest from an idle thumb's first swipe.
+    {
+      top: [key('Ctrl+T'), key('Ctrl+W'), key('Ctrl+S'), key('Search')],
+      bottom: [key('Snip'), key('Shot'), key('Quit'), key('Lock')],
     },
   ];
 }

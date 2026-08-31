@@ -29,6 +29,10 @@ export const WINDOWS_VK: Record<string, number> = {
   f1: 0x70, f2: 0x71, f3: 0x72, f4: 0x73, f5: 0x74, f6: 0x75,
   f7: 0x76, f8: 0x77, f9: 0x78, f10: 0x79, f11: 0x7a, f12: 0x7b,
   win: 0x5b,
+  // VK_SNAPSHOT. Windows-only by nature: the app's screenshot caps send this
+  // to Windows hosts and a ⌘⇧3/⌘⇧4 chord to Macs, so no Darwin entry exists —
+  // an Apple keyboard has no such key to give a code to.
+  printscreen: 0x2c,
 };
 
 export const WINDOWS_MOD_VK: Record<string, number> = {
