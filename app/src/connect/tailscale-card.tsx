@@ -52,10 +52,15 @@ export function TailscaleStep({ hostName, detail, onRetry, busy }: TailscaleStep
 
   return (
     <View style={{ gap: theme.space.sm }}>
-      <Txt variant="label" tone="warn">Tailscale is off on this phone</Txt>
+      {/* Observation first, inference second. This card once said "Tailscale
+          is off" for an iOS transport-security block and sent the owner to fix
+          an app that was fine — the probe only shows the address not
+          answering, so that is what the headline says. */}
+      <Txt variant="label" tone="warn">No answer over Tailscale</Txt>
       <Txt variant="caption" tone="dim">
-        {hostName} is running, but this phone is not on your tailnet. Switch Tailscale on and
-        Tether connects with no pairing code — at home or anywhere else.
+        {hostName} answered on its regular address, but its Tailscale address did not — even
+        after several tries. That usually means Tailscale is off or signed out on this phone.
+        With it on, Tether connects with no pairing code — at home or anywhere else.
       </Txt>
 
       <Button label="Open Tailscale" onPress={open} fullWidth />

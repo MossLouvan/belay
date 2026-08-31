@@ -36,6 +36,13 @@ export interface PairStepProps {
    * screen (docs/DESIGN.md §3.3), and in that state the code is the fallback.
    */
   primary?: boolean;
+  /**
+   * True when the dead-end notice above has said no code exists right now.
+   * The entry stays usable — the phone's knowledge goes stale the moment
+   * someone resets pairing on the computer — but its captions must not claim
+   * a code is on the host's screen, because as observed it is not.
+   */
+  codeUnlikely?: boolean;
 }
 
 /** Which capabilities this host actually offers, stated before pairing. */
@@ -53,7 +60,9 @@ function CapabilityNote({ native }: { native: boolean }) {
   );
 }
 
-export function PairStep({ host, code, onChangeCode, onPair, onBack, busy, error, primary = true }: PairStepProps) {
+export function PairStep({
+  host, code, onChangeCode, onPair, onBack, busy, error, primary = true, codeUnlikely = false,
+}: PairStepProps) {
   const theme = useTheme();
   const complete = code.length === CODE_LENGTH;
 
@@ -78,7 +87,9 @@ export function PairStep({ host, code, onChangeCode, onPair, onBack, busy, error
       <View style={{ marginTop: theme.space.lg }}>
         <Label>Pairing code</Label>
         <Caption style={{ marginBottom: theme.space.sm }}>
-          It is shown in the Tether window on {host.name}.
+          {codeUnlikely
+            ? `For when ${host.name} is actually showing one — right after a pairing reset, for instance.`
+            : `It is shown in the Tether window on ${host.name}.`}
         </Caption>
 
         <CodeInput
@@ -96,7 +107,9 @@ export function PairStep({ host, code, onChangeCode, onPair, onBack, busy, error
           Codes are single-use and expire after five minutes. The host keeps a fresh one on screen.
         </Caption>
 
-        {host.paired ? (
+        {host.paired && !codeUnlikely ? (
+          // Redundant under the dead-end notice, which has already said —
+          // more precisely — what being paired means for this screen.
           <Caption style={{ marginTop: theme.space.xxs }}>
             This computer already has another device paired — adding this one will not remove it.
           </Caption>

@@ -25,8 +25,12 @@ import { Diagnosis, diagnoseHostFailure, diagnosePairFailure } from '../src/conn
 import { forgetHost, loadRecentHosts, prettyHost, rememberHost, resolveHost } from '../src/connect/host-input';
 import { AwayFromHomeNote, SetupSteps } from '../src/connect/onboarding';
 import { HostStep } from '../src/connect/host-step';
-import { TAILNET_PROBE_ATTEMPTS, planTailnetUpgrade, readTailnetProbe } from '../src/connect/tailnet';
+import type { TailnetOutcome } from '../src/connect/tailnet';
+import { TAILNET_PROBE_ATTEMPTS, planTailnetUpgrade, readTailnetProbe, tailnetUrlFrom } from '../src/connect/tailnet';
 import { TailscaleStep } from '../src/connect/tailscale-card';
+import type { PairingDeadEnd } from '../src/connect/dead-end';
+import { detectDeadEnd } from '../src/connect/dead-end';
+import { NoCodeStep } from '../src/connect/no-code-step';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
 import { ThemeToggle } from '../src/settings/theme-toggle';
 
@@ -132,6 +136,15 @@ export default function Connect() {
   const [tailscaleOff, setTailscaleOff] = useState<string | null>(null);
   /** The last tailnet failure, shown on the card so a stuck setup is diagnosable. */
   const [tailscaleDetail, setTailscaleDetail] = useState<string | null>(null);
+  /**
+   * Set when the code screen would be a trap: the host is already paired and
+   * requires a code from this connection, but a paired host never issues one.
+   * Carries what the check saw so the notice can state observation, not guess,
+   * and a timestamp for the proof-of-life stamp (docs/DESIGN.md §11.4).
+   */
+  const [deadEnd, setDeadEnd] = useState<
+    (PairingDeadEnd & { readonly checkedAt: number; readonly platform?: string }) | null
+  >(null);
 
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** False once the screen is gone, so a late `/health` cannot set state. */
@@ -181,6 +194,7 @@ export default function Connect() {
     setHostError(null);
     setTailscaleOff(null);
     setTailscaleDetail(null);
+    setDeadEnd(null);
   }, []);
 
   const onChangeCode = useCallback((next: string) => {
@@ -195,6 +209,7 @@ export default function Connect() {
     if (checking.current) return;
 
     setHostError(null);
+    setDeadEnd(null);
     setTouched(true);
     const resolved = resolveHost(hostText);
     if (!resolved.ok) {
@@ -239,6 +254,18 @@ export default function Connect() {
       // would pair with no code. The tailnet address is in the reply, so try it
       // rather than making anyone read a 100.x address off another screen.
       const plan = planTailnetUpgrade(result, resolved.url);
+
+      // Run at every landing on stage 'code': the code screen is only honest
+      // work while the host will actually issue a code, and an already-paired
+      // host never does. Walking in blind is the exact hour-long trap the
+      // dead-end notice exists to prevent.
+      const flagDeadEnd = (probe: TailnetOutcome | null): boolean => {
+        const dead = detectDeadEnd(result, plan, probe, tailnetUrlFrom(result));
+        if (!dead) return false;
+        setDeadEnd({ ...dead, checkedAt: Date.now(), platform: result.platform });
+        return true;
+      };
+
       if (plan.kind === 'ready' || plan.kind === 'upgrade') {
         const url = plan.kind === 'upgrade' ? plan.url : resolved.url;
         if (plan.kind === 'upgrade') {
@@ -257,12 +284,18 @@ export default function Connect() {
           setBusy(false);
 
           if (outcome.kind === 'tailscale-off') {
-            setTailscaleOff(result.name || 'Your computer');
-            setTailscaleDetail(outcome.detail ?? null);
+            // When the host is also already paired, the dead-end notice owns
+            // the Tailscale advice — showing both would be two notices making
+            // the same point with two accent buttons.
+            if (!flagDeadEnd(outcome)) {
+              setTailscaleOff(result.name || 'Your computer');
+              setTailscaleDetail(outcome.detail ?? null);
+            }
             setStage('code');
             return;
           }
           if (outcome.kind === 'code-required') {
+            flagDeadEnd(outcome);
             setStage('code');
             return;
           }
@@ -272,6 +305,7 @@ export default function Connect() {
         try { await completePairing(url, ''); } finally { if (live.current) setBusy(false); }
         return;
       }
+      flagDeadEnd(null);
       setStage('code');
       rememberHost(resolved.url).then(
         (list) => {
@@ -382,6 +416,7 @@ export default function Connect() {
     setCode('');
     setTailscaleOff(null);
     setTailscaleDetail(null);
+    setDeadEnd(null);
   }, []);
 
   /**
@@ -394,6 +429,7 @@ export default function Connect() {
   const onRetryTailscale = useCallback(() => {
     setTailscaleOff(null);
     setTailscaleDetail(null);
+    setDeadEnd(null);
     setStage('host');
     setCode('');
     setPairError(null);
@@ -460,11 +496,28 @@ export default function Connect() {
 
         {stage === 'code' && host ? (
           <>
+            {/* When the host will never issue a code, the dead-end notice owns
+                the top of the screen and the accent: it states what was seen
+                and routes forward (Tailscale, or the reset on the computer).
+                The code entry survives below it, demoted, because the phone's
+                knowledge goes stale the moment someone resets pairing on the
+                computer — but nothing pretends a code exists right now. */}
+            {deadEnd ? (
+              <NoCodeStep
+                hostName={host.name}
+                platform={deadEnd.platform}
+                standing={deadEnd.standing}
+                detail={deadEnd.detail}
+                checkedAt={deadEnd.checkedAt}
+                onRecheck={onRetryTailscale}
+                busy={busy}
+              />
+            ) : null}
             {/* The one-tap fix goes above the digits: turning Tailscale on is
                 easier than reading a code off another screen, and it is what
                 makes the computer reachable away from home too. While it is
                 shown it holds the screen's accent; Pair demotes to fallback. */}
-            {tailscaleOff ? (
+            {!deadEnd && tailscaleOff ? (
               <TailscaleStep
                 hostName={tailscaleOff}
                 detail={tailscaleDetail}
@@ -480,7 +533,8 @@ export default function Connect() {
               onBack={onBack}
               busy={busy}
               error={pairError}
-              primary={!tailscaleOff}
+              primary={!tailscaleOff && !deadEnd}
+              codeUnlikely={Boolean(deadEnd)}
             />
           </>
         ) : null}

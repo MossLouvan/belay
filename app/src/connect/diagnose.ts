@@ -58,25 +58,25 @@ export function diagnoseHostFailure(url: string, raw?: string): Diagnosis {
     if (code === 404) {
       return {
         title: `Something answered at ${name}, but it isn't Tether`,
-        message: 'The address is reachable but there is no host agent on that port. Double-check the port — the agent listens on 8787 by default.',
+        message: 'It replied 404 where the host agent reports its health, so whatever is listening there is most likely a different program. Double-check the port — the agent listens on 8787 by default.',
       };
     }
     if (code === 401 || code === 403) {
       return {
-        title: `${name} refused the request`,
-        message: 'A proxy or firewall in front of your PC is blocking Tether. Connect directly to the PC, or use its Tailscale address.',
+        title: `${name} refused the request (${code})`,
+        message: 'The host agent never asks for credentials on this check, so the refusal most likely came from something in front of your PC — a proxy, VPN gateway or firewall. Connect to the PC directly, or use its Tailscale address.',
       };
     }
     return {
-      title: `The host agent returned an error (${code})`,
-      message: 'The agent is running but unhealthy. Restart it on your PC and try again.',
+      title: `${name} answered with an error (${code})`,
+      message: 'Something at that address is up but not serving Tether. If it is the host agent, restarting it on your PC usually clears this; if a proxy sits in between, try the PC directly or its Tailscale address.',
     };
   }
 
   if (isTimeout(detail)) {
     return {
       title: `${name} didn't respond in time`,
-      message: `The address accepted the connection but nothing came back. ${REACHABILITY_STEPS}${mixedContentHint(url)}`,
+      message: `Nothing came back within a few seconds — the request may never have arrived, or the reply is stuck. ${REACHABILITY_STEPS}${mixedContentHint(url)}`,
     };
   }
 
