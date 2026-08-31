@@ -8,6 +8,7 @@
 
 import { hostOrigin, socketOrigin } from '../src/url.js';
 import { translateKey, modifiersOf } from '../src/keymap.js';
+import { bareTapKey, legendText, modifierMap } from '../src/modmap.js';
 
 const params = new URLSearchParams(location.search);
 const host = hostOrigin(params.get('host')) ?? '';
@@ -20,10 +21,19 @@ const screenIndex = rawScreen === null || rawScreen === '' || rawScreen === 'und
   ? undefined
   : Number(rawScreen);
 
+// Which modifier means what is decided here, once, from the host platform the
+// main process passed in and the mode the user picked on the connect screen.
+// See src/modmap.js for why ⌘ is Ctrl when a Mac drives a Windows PC.
+const clientIsMac = /mac/i.test(navigator.platform || '');
+const keymap = modifierMap(clientIsMac, params.get('platform') || '', params.get('keymap') || 'remap');
+
 const canvas = document.getElementById('screen');
 const context = canvas.getContext('2d', { alpha: false });
 const overlay = document.getElementById('overlay');
 document.getElementById('title').textContent = name;
+// The active remap, stated where the user can see it: a keyboard whose keys
+// secretly mean other keys is only tolerable while it says so.
+document.getElementById('keys').textContent = legendText(keymap);
 
 /** Stream tuning. Higher than the phone's defaults: this is a desktop on a LAN. */
 const STREAM = { w: 1600, q: 62, fps: 24 };
@@ -79,6 +89,7 @@ let pressed = null;
 
 canvas.addEventListener('mousedown', (event) => {
   event.preventDefault();
+  armedTap = null;
   pressed = { at: normalized(event), button: BUTTONS[event.button] ?? 'left' };
 });
 
@@ -99,7 +110,7 @@ canvas.addEventListener('mouseup', (event) => {
     ...to,
     button,
     double: event.detail >= 2,
-    mods: modifiersOf(event),
+    mods: modifiersOf(event, keymap),
   });
 });
 
@@ -113,15 +124,37 @@ canvas.addEventListener('wheel', (event) => {
   void send('/input/scroll', { dy: -event.deltaY, dx: -event.deltaX });
 }, { passive: false });
 
+// A bare tap of the modifier mapped to the Windows key must *do* something —
+// the Windows key alone opens the Start menu, and reaching it is the point of
+// the ⌥→Win remap. Held-and-combined it travels as a `mods` entry like any
+// modifier; only a press with nothing between it and the release becomes the
+// named key. Any other keydown or a click disarms the tap, so ⌥E never also
+// opens Start.
+let armedTap = null;
+
 window.addEventListener('keydown', (event) => {
-  const translated = translateKey(event);
-  if (!translated) return;
+  const translated = translateKey(event, keymap);
+  if (!translated) {
+    armedTap = bareTapKey(event.key, keymap) && modifiersOf(event, keymap).length === 1
+      ? event.key
+      : null;
+    return;
+  }
+  armedTap = null;
   // Swallowed before the local window acts on it: Ctrl+W would otherwise close
   // this window instead of the tab on the remote desktop.
   event.preventDefault();
   wake();
   if (translated.kind === 'text') void send('/input/text', { text: translated.text });
   else void send('/input/key', { key: translated.key, mods: translated.mods });
+});
+
+window.addEventListener('keyup', (event) => {
+  if (event.key !== armedTap) return;
+  armedTap = null;
+  event.preventDefault();
+  wake();
+  void send('/input/key', { key: bareTapKey(event.key, keymap), mods: [] });
 });
 
 // A button held when the window loses focus would stay down on the host with

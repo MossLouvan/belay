@@ -15,6 +15,7 @@
 
 import { hostOrigin, socketOrigin } from '../src/url.js';
 import { translateKey, modifiersOf } from '../src/keymap.js';
+import { bareTapKey, legendText, modifierMap } from '../src/modmap.js';
 import { aspectFit, scaleOf, shouldResize } from '../src/windows.js';
 
 const params = new URLSearchParams(location.search);
@@ -22,6 +23,10 @@ const host = hostOrigin(params.get('host')) ?? '';
 const token = params.get('token') ?? '';
 const windowId = params.get('window') ?? '';
 let name = params.get('name') ?? 'Window';
+
+// See src/modmap.js: which modifier means what on this host, chosen once.
+const clientIsMac = /mac/i.test(navigator.platform || '');
+const keymap = modifierMap(clientIsMac, params.get('platform') || '', params.get('keymap') || 'remap');
 
 const canvas = document.getElementById('screen');
 const context = canvas.getContext('2d', { alpha: false });
@@ -106,6 +111,7 @@ let pressed = null;
 canvas.addEventListener('mousedown', (event) => {
   event.preventDefault();
   void raise();
+  armedTap = null;
   pressed = { at: normalized(event), button: BUTTONS[event.button] ?? 'left' };
 });
 
@@ -119,7 +125,7 @@ canvas.addEventListener('mouseup', (event) => {
     void send('/input/drag', { x1: at.x, y1: at.y, x2: to.x, y2: to.y });
     return;
   }
-  void send('/input/click', { ...to, button, double: event.detail >= 2, mods: modifiersOf(event) });
+  void send('/input/click', { ...to, button, double: event.detail >= 2, mods: modifiersOf(event, keymap) });
 });
 
 canvas.addEventListener('contextmenu', (event) => event.preventDefault());
@@ -129,15 +135,33 @@ canvas.addEventListener('wheel', (event) => {
   void send('/input/scroll', { dy: -event.deltaY, dx: -event.deltaX });
 }, { passive: false });
 
+// A bare tap of whichever modifier is mapped to the Windows key opens the
+// Start menu on the host — same contract as display.js, same disarm rules.
+let armedTap = null;
+
 window.addEventListener('keydown', (event) => {
-  const translated = translateKey(event);
-  if (!translated) return;
+  const translated = translateKey(event, keymap);
+  if (!translated) {
+    armedTap = bareTapKey(event.key, keymap) && modifiersOf(event, keymap).length === 1
+      ? event.key
+      : null;
+    return;
+  }
+  armedTap = null;
   event.preventDefault();
   // Keystrokes go to whatever holds focus on the host, so the remote window has
   // to be in front before the first one is sent.
   void raise();
   if (translated.kind === 'text') void send('/input/text', { text: translated.text });
   else void send('/input/key', { key: translated.key, mods: translated.mods });
+});
+
+window.addEventListener('keyup', (event) => {
+  if (event.key !== armedTap) return;
+  armedTap = null;
+  event.preventDefault();
+  void raise();
+  void send('/input/key', { key: bareTapKey(event.key, keymap), mods: [] });
 });
 
 window.addEventListener('blur', () => { pressed = null; });
@@ -258,4 +282,11 @@ function retry() {
 }
 
 if (!host || !token || !windowId) setStatus('missing host, token or window', true);
-else void connect();
+else {
+  // The remap announced once, then out of the way: a frameless window has no
+  // room for a permanent legend, but a silent remap would be a keyboard that
+  // lies. The connect window keeps the durable statement.
+  const legend = legendText(keymap);
+  if (legend) setTimeout(() => setStatus(legend), 1200);
+  void connect();
+}

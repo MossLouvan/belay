@@ -7,7 +7,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { hostOrigin, socketOrigin, DEFAULT_PORT } from '../src/url.js';
-import { readSession, writeSession, clearSession, sessionPath } from '../src/session.js';
+import { readSession, writeSession, clearSession, keymapModeOf, sessionPath } from '../src/session.js';
+
+const EMPTY = { host: '', token: '', label: '', platform: '', keymap: 'remap' };
 
 test('a bare address gets a scheme and the host default port', () => {
   assert.equal(hostOrigin('192.168.1.20'), `http://192.168.1.20:${DEFAULT_PORT}`);
@@ -34,11 +36,16 @@ test('socketOrigin swaps only the scheme', () => {
 
 test('a session round-trips and is written owner-only', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tether-desktop-'));
-  writeSession(dir, { host: 'http://192.168.1.20:8787', token: 'secret', label: 'Moss-PC' });
+  writeSession(dir, {
+    host: 'http://192.168.1.20:8787', token: 'secret', label: 'Moss-PC',
+    platform: 'win32', keymap: 'verbatim',
+  });
   assert.deepEqual(readSession(dir), {
     host: 'http://192.168.1.20:8787',
     token: 'secret',
     label: 'Moss-PC',
+    platform: 'win32',
+    keymap: 'verbatim',
   });
   // Advisory on Windows, enforced on POSIX — asserted only where it means
   // something, so the suite does not fail for a platform difference.
@@ -49,15 +56,32 @@ test('a session round-trips and is written owner-only', () => {
 
 test('a missing or corrupt session reads as not paired', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tether-desktop-'));
-  assert.deepEqual(readSession(dir), { host: '', token: '', label: '' });
+  assert.deepEqual(readSession(dir), EMPTY);
   writeFileSync(sessionPath(dir), '["not", "an", "object"]');
-  assert.deepEqual(readSession(dir), { host: '', token: '', label: '' });
+  assert.deepEqual(readSession(dir), EMPTY);
+});
+
+test('a session saved before the keymap existed reads with the remap default', () => {
+  // The upgrade path: an old session.json has no keymap field, and the user
+  // who never chose gets the sane default, not an undefined mode.
+  const dir = mkdtempSync(join(tmpdir(), 'tether-desktop-'));
+  writeFileSync(sessionPath(dir), JSON.stringify({ host: 'http://h:8787', token: 't', label: 'x' }));
+  const session = readSession(dir);
+  assert.equal(session.keymap, 'remap');
+  assert.equal(session.platform, '');
+});
+
+test('keymapModeOf resolves junk to the default, never passes it through', () => {
+  assert.equal(keymapModeOf('verbatim'), 'verbatim');
+  for (const junk of ['remap', 'REMAP', '', null, undefined, 42, {}]) {
+    assert.equal(keymapModeOf(junk), 'remap');
+  }
 });
 
 test('clearing a session leaves nothing usable behind', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tether-desktop-'));
   writeSession(dir, { host: 'http://h:8787', token: 'secret', label: 'x' });
   clearSession(dir);
-  assert.deepEqual(readSession(dir), { host: '', token: '', label: '' });
+  assert.deepEqual(readSession(dir), EMPTY);
   assert.ok(!readFileSync(sessionPath(dir), 'utf8').includes('secret'));
 });

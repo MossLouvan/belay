@@ -48,10 +48,46 @@ npm test        # pure-logic unit tests, no Electron needed
   scroll, text, and shortcuts. Ctrl/Cmd combinations are forwarded to the remote
   desktop rather than acted on locally — Ctrl+W closes the remote tab, not this
   window.
+- **Modifiers that mean what your thumb means.** When the two computers run
+  different platforms, modifiers are remapped by *role*, not forwarded by
+  name — see below.
 - **Seamless windows.** The host's individual windows, each in a borderless
   window of its own here — the VMware Unity trick. Each follows its remote
   window's size and title, raises it on the host when you interact, and closes
   when it does. See [`docs/SEAMLESS-WINDOWS.md`](../docs/SEAMLESS-WINDOWS.md).
+
+## Keyboard: driving one platform from the other
+
+Forwarding modifier names verbatim puts ⌘ on the Windows key, so ⌘C — the key
+a Mac thumb presses to copy — opens the Start menu, and every shortcut the
+user knows is displaced by one key. So by default the client remaps *roles*:
+
+| You press (Mac → Windows PC) | The PC receives |
+|---|---|
+| ⌘ (Command) | **Ctrl** — ⌘C copies, ⌘T opens a tab, ⌘W closes it |
+| ⌥ (Option) | **Win** — held for Win+E / Win+L, or *tapped alone* to open the Start menu |
+| ⌃ (Control) | **Alt** — ⌃Tab is Alt+Tab, ⌃F4 is Alt+F4, ⌃-letter hits menu accelerators |
+| ⇧ (Shift) | Shift |
+
+The trade: giving ⌥ to the Windows key moves Alt off the key labelled alt.
+Alt chords ride ⌃ instead — a fair price, because ⌃ is the Mac's least-used
+modifier and ⌥'s day job (composing é and €) only exists for *text*, which
+still works: ⌥-composed characters are typed as text whenever ⌥ is not part
+of a chord bound for the Windows key.
+
+Driving a **Mac from a Windows PC** mirrors it: Ctrl becomes ⌘ (so Ctrl+C
+copies rather than interrupting a terminal), Alt stays ⌥, and the Win key
+sends literal ⌃ — the road back to Control when it is really wanted, though
+the local OS swallows some Win chords before any app sees them. The client
+speaks only the host's unambiguous names (`cmd`, `rawctrl`), so this never
+fights the host's own phone-oriented `TETHER_MAC_CTRL` remap — one remap is
+in charge, chosen client-side, whatever the host env says.
+
+The mapping is stated in the connect window's **Keyboard** section and in
+each display window's overlay, and a **Remap modifiers** toggle turns it off
+per host — verbatim mode sends every key as itself. Same-platform pairs are
+never translated. The choice is saved with the pairing and applies to windows
+opened after the change.
 
 ## How it is put together
 
@@ -66,6 +102,7 @@ npm test        # pure-logic unit tests, no Electron needed
 | `src/displays.js` | display list sanitizing, preference, window fitting |
 | `src/windows.js` | window list, labels, resize/scale rules, cascade |
 | `src/keymap.js` | KeyboardEvent → the host's key/text endpoints |
+| `src/modmap.js` | which modifier means what, per client/host pairing |
 | `src/url.js` | what someone types → a host origin |
 | `test/` | `node --test` over every `src/` module |
 | `test/smoke.cjs` | manual end-to-end check against a live host (see the header) |

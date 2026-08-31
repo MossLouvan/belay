@@ -20,7 +20,7 @@ import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { clearSession, readSession, writeSession } from './src/session.js';
+import { clearSession, keymapModeOf, readSession, writeSession } from './src/session.js';
 import { fitWindow } from './src/displays.js';
 import { cascadeOffset, initialSize, windowLabel } from './src/windows.js';
 
@@ -70,6 +70,11 @@ function createDisplayWindow(session, display) {
     token: session.token,
     screen: String(display.index),
     name: display.name,
+    // The host's platform and the chosen modifier mode ride the URL so the
+    // renderer can build its modifier map without a round trip: the first
+    // keystroke must already mean the right thing.
+    platform: session.platform || '',
+    keymap: keymapModeOf(session.keymap),
   });
   win.loadFile(join(__dirname, 'renderer', 'display.html'), { search: params.toString() });
 
@@ -110,6 +115,8 @@ function createSeamlessWindow(session, remote, index = 0) {
     token: session.token,
     window: remote.id,
     name: windowLabel(remote),
+    platform: session.platform || '',
+    keymap: keymapModeOf(session.keymap),
   });
   win.loadFile(join(__dirname, 'renderer', 'seamless.html'), { search: params.toString() });
 
@@ -127,6 +134,8 @@ app.whenReady().then(() => {
       host: String(session?.host ?? ''),
       token: String(session?.token ?? ''),
       label: String(session?.label ?? ''),
+      platform: String(session?.platform ?? ''),
+      keymap: keymapModeOf(session?.keymap),
     });
     return true;
   });

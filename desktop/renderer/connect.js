@@ -7,9 +7,11 @@
 import { hostOrigin } from '../src/url.js';
 import { displaysOf, preferredDisplay } from '../src/displays.js';
 import { windowsOf, windowLabel } from '../src/windows.js';
+import { legendText, modifierMap } from '../src/modmap.js';
 
 const $ = (id) => document.getElementById(id);
-const state = { host: '', token: '', label: '' };
+const state = { host: '', token: '', label: '', platform: '', keymap: 'remap' };
+const clientIsMac = /mac/i.test(navigator.platform || '');
 
 function showError(message) {
   $('error').textContent = message || '';
@@ -60,6 +62,7 @@ async function pair() {
     state.token = String(result.token || '');
     state.label = String(result.name || origin);
     if (!state.token) throw new Error('the host did not return a token');
+    await refreshPlatform();
     await window.tether.saveSession(state);
     await showPaired();
   } catch (e) {
@@ -76,7 +79,44 @@ async function pair() {
  * behaviour of "whatever the host calls primary", requested by sending no
  * index at all. Without it an older host would look like it had no screens.
  */
+/**
+ * The host's platform, from the unauthenticated half of /health.
+ *
+ * The modifier remap cannot be chosen without knowing what is on the other
+ * end, so it is refreshed on every visit rather than trusted from the saved
+ * session — the same address can be a reinstalled machine running the other
+ * OS. Failure keeps whatever was saved; the map for an unknown platform is
+ * the untranslated one, which is the only honest guess.
+ */
+async function refreshPlatform() {
+  try {
+    const health = await call('/health');
+    state.platform = String(health.platform || '');
+  } catch { /* keep the remembered platform */ }
+}
+
+/**
+ * State the modifier mapping and offer the switch.
+ *
+ * Shown even when nothing is remapped ("keys are sent as pressed"), because
+ * the absence of a remap is also something the user may be looking for. The
+ * toggle only appears where remap and verbatim actually differ.
+ */
+function renderKeymap() {
+  const map = modifierMap(clientIsMac, state.platform, state.keymap);
+  const legend = legendText(map);
+  $('keymap-legend').textContent = legend || 'Keys are sent as pressed.';
+  $('keymap-toggle').hidden = !map.adjustable;
+  $('keymap-remap').checked = state.keymap !== 'verbatim';
+  $('keymap-note').textContent = map.adjustable
+    ? 'Changing this applies to display windows opened from now on.'
+    : '';
+}
+
 async function showPaired() {
+  await refreshPlatform();
+  await window.tether.saveSession(state);
+  renderKeymap();
   $('pair').hidden = true;
   $('paired').hidden = false;
   $('subtitle').textContent = 'Open a display in its own window.';
@@ -200,6 +240,11 @@ async function showWindows() {
 }
 
 $('refresh-windows').addEventListener('click', showWindows);
+$('keymap-remap').addEventListener('change', async (event) => {
+  state.keymap = event.target.checked ? 'remap' : 'verbatim';
+  await window.tether.saveSession(state);
+  renderKeymap();
+});
 $('connect').addEventListener('click', pair);
 for (const id of ['host', 'code']) {
   $(id).addEventListener('keydown', (event) => { if (event.key === 'Enter') pair(); });

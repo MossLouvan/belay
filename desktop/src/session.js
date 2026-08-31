@@ -12,7 +12,16 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /** Shape persisted to disk. Anything else in the file is ignored on read. */
-const EMPTY = { host: '', token: '', label: '' };
+const EMPTY = { host: '', token: '', label: '', platform: '', keymap: 'remap' };
+
+/**
+ * The keyboard modifier mode (see src/modmap.js). Two values only, and any
+ * junk in the file resolves to the default rather than to an unmapped
+ * keyboard nobody chose.
+ */
+export function keymapModeOf(value) {
+  return value === 'verbatim' ? 'verbatim' : 'remap';
+}
 
 export function sessionPath(userDataDir) {
   return join(userDataDir, 'session.json');
@@ -34,6 +43,10 @@ export function readSession(userDataDir) {
       host: typeof parsed.host === 'string' ? parsed.host : '',
       token: typeof parsed.token === 'string' ? parsed.token : '',
       label: typeof parsed.label === 'string' ? parsed.label : '',
+      // The host's platform, remembered so a display window knows which
+      // modifier map to build before the host has answered anything.
+      platform: typeof parsed.platform === 'string' ? parsed.platform : '',
+      keymap: keymapModeOf(parsed.keymap),
     };
   } catch {
     return { ...EMPTY };

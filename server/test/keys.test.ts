@@ -74,3 +74,41 @@ test('rawctrl always means literal Control, whatever ctrl is remapped to', () =>
   assert.equal(DARWIN_MOD_VK.rawctrl, 0x3b); // kVK_Control
   assert.notEqual(DARWIN_MOD_VK.rawctrl, DARWIN_MOD_VK.cmd);
 });
+
+// ---- the desktop client's modifier vocabulary ----------------------------
+//
+// desktop/src/modmap.js chooses per-direction spellings (mirrored here the
+// way the key-bar test above mirrors app/src/screen/model.ts). Every name a
+// map can emit must resolve, because /input/key silently *drops* an unknown
+// modifier from a chord — ⌘C would arrive as a bare C, typing "c" into the
+// document it was meant to copy from.
+
+test('every modifier the desktop client can send a Windows host resolves', () => {
+  // The union of its win32-bound maps: the ⌘→Ctrl/⌥→Win remap and verbatim.
+  for (const name of ['ctrl', 'alt', 'shift', 'win', 'meta']) {
+    assert.equal(typeof WINDOWS_MOD_VK[name], 'number', `windows modifier "${name}" missing`);
+  }
+});
+
+test('the desktop client can tap the Windows key by name', () => {
+  // A bare ⌥ tap arrives as key "win" with no mods; if the name ever left the
+  // table it would degrade to typing the word "win" into the focused app.
+  assert.equal(WINDOWS_VK.win, 0x5b);
+});
+
+test('every modifier the desktop client can send a Mac host resolves', () => {
+  // The desktop client deliberately never says "ctrl" to a Mac host — that
+  // name belongs to the phone app and is rewritten by TETHER_MAC_CTRL. Its
+  // whole Mac-bound vocabulary is the unambiguous half of the table.
+  for (const name of ['rawctrl', 'cmd', 'alt', 'shift']) {
+    assert.equal(typeof DARWIN_MOD_VK[name], 'number', `darwin modifier "${name}" missing`);
+  }
+});
+
+test('cmd and rawctrl are fixed points the phone remap cannot touch', () => {
+  // The desktop's remap is client-side and speaks only these names, which is
+  // what keeps it from ever fighting the host's own ctrl remap: whatever
+  // TETHER_MAC_CTRL says, cmd is Command and rawctrl is Control.
+  assert.equal(DARWIN_MOD_VK.cmd, 0x37); // kVK_Command
+  assert.equal(DARWIN_MOD_VK.rawctrl, 0x3b); // kVK_Control
+});
