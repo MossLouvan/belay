@@ -10,7 +10,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Banner, Button, Caption, Dot, Label, Micro, Row, Rule, Txt } from '../ui';
+import { router } from 'expo-router';
+import { Banner, Button, Caption, Dot, Label, Micro, Row, Rule, TrackLabel, Txt } from '../ui';
 import { countdown, expiryUrgent } from './attention';
 import { EventRow } from './feed';
 import { buildFeed } from './feed-model';
@@ -108,7 +109,26 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
           >
             <Label tone="accent" style={{ marginBottom: 0 }}>‹ Back</Label>
           </Pressable>
-          {busy ? <Button testID="agent-stop" label="Stop" size="sm" variant="danger" onPress={stop} /> : null}
+          <Row gap="sm">
+            {/* The other half of supervising from a phone: seeing what it did
+                to the files, not only what it said it was doing. */}
+            <TrackLabel
+              testID="agent-changes"
+              label="Changes"
+              accessibilityHint="Shows what Claude changed in this project"
+              onPress={() =>
+                router.push({
+                  pathname: '/changes',
+                  params: {
+                    session: id,
+                    title: snapshot?.title ?? '',
+                    cwd: snapshot?.cwd ?? '',
+                  },
+                })
+              }
+            />
+            {busy ? <Button testID="agent-stop" label="Stop" size="sm" variant="danger" onPress={stop} /> : null}
+          </Row>
         </Row>
         <Txt variant="subheading" heading numberOfLines={1} style={{ marginTop: theme.space.xxs }}>
           {snapshot?.title || '…'}

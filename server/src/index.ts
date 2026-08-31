@@ -39,6 +39,7 @@ import {
   listProjects, agentAvailable, attachSession, attachedClaudeIds, rememberProjectPath,
 } from './agent.js';
 import { createProject, defaultProjectParent } from './projects.js';
+import { collectChanges } from './changes.js';
 import { discoverSessions } from './discover.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
@@ -568,6 +569,17 @@ app.get('/agent/sessions/:id', auth, (req, res) => {
 
 app.delete('/agent/sessions/:id', auth, (req, res) => {
   res.json({ ok: deleteSession(req.params.id) });
+});
+
+// What Claude actually did to the files, read-only — see changes.ts for the
+// confinement and the no-write guarantee. 404 vs 400 mirrors the snapshot
+// route: an unknown session is "no such session", a folder problem is the
+// collector's own user-safe message.
+app.get('/agent/sessions/:id/changes', auth, async (req, res) => {
+  const snap = getSnapshot(req.params.id);
+  if (!snap) { res.status(404).json({ error: 'no such session' }); return; }
+  try { res.json(await collectChanges(snap.cwd)); }
+  catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 app.post('/agent/sessions/:id/prompt', auth, (req, res) => {
