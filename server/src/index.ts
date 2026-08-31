@@ -41,6 +41,7 @@ import {
 import { createProject, defaultProjectParent } from './projects.js';
 import { collectChanges } from './changes.js';
 import { discoverSessions } from './discover.js';
+import { registerRecordingRoutes } from './recording-routes.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
 
@@ -612,6 +613,10 @@ app.post('/agent/approval-request', (req, res) => {
     .then((verdict) => res.json(verdict))
     .catch(() => res.json({ allow: false, message: 'approval failed' }));
 });
+
+// ---- screen recording (frames for Claude) --------------------------------
+
+registerRecordingRoutes(app, auth);
 
 // ---- server + websockets -------------------------------------------------
 

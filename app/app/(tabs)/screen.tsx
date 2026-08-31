@@ -90,6 +90,8 @@ import {
 } from '../../src/screen/parts';
 import { ControlDock } from '../../src/screen/dock';
 import { PanelState } from '../../src/screen/panel-state';
+import { RecordSheet, RecordStrip } from '../../src/screen/record-parts';
+import { useRecording } from '../../src/screen/useRecording';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 
 export default function ScreenTab() {
@@ -264,6 +266,25 @@ export default function ScreenTab() {
     if (next !== undefined) setSelectedScreen(next);
   }, [screenIndex, screens]);
 
+  // Host-side screen recording, for handing frames to a Claude session. The
+  // capture runs — and the frames stay — on the computer; this is only the
+  // switch. It records the monitor currently being streamed, so what the user
+  // is looking at is what Claude gets.
+  const recording = useRecording(active, reportError);
+  const [showRecordSheet, setShowRecordSheet] = useState(false);
+  const recordPhase = recording.status.state;
+  const onRecordKey = useCallback(() => {
+    if (recordPhase === 'idle') void recording.start(screenIndex);
+    else if (recordPhase === 'recording') void recording.stop();
+    else setShowRecordSheet(true);
+  }, [recordPhase, recording, screenIndex]);
+  // Stopping opens the review sheet directly: the whole point of the stop was
+  // to hand the clip to Claude, so the handoff should not hide behind a
+  // second tap on a key that now reads SEND.
+  const stopRecording = useCallback(() => {
+    void recording.stop().then(() => setShowRecordSheet(true));
+  }, [recording]);
+
   // The corner control: enter fullscreen from the normal layout; in fullscreen
   // it exits — unless the dock has auto-hidden, in which case the dimmed
   // handle's job is to bring the controls back first.
@@ -345,6 +366,8 @@ export default function ScreenTab() {
         onZoomIn={() => viewport.zoomBy(GESTURE.zoomStep)}
         onZoomOut={() => viewport.zoomBy(1 / GESTURE.zoomStep)}
         onZoomReset={viewport.reset}
+        recordPhase={recordPhase}
+        onRecord={onRecordKey}
         floating={fullscreen}
         onInteract={fullscreen ? dockHide.poke : undefined}
       />
@@ -391,6 +414,12 @@ export default function ScreenTab() {
         </View>
       ) : null}
 
+      {/* The recording strip sits above the panel where the eye already goes
+          for stream status; while the host's screen is being captured it must
+          be impossible to miss, so it never shares a sheet or a toggle. */}
+      {!fullscreen ? (
+        <RecordStrip status={recording.status} onStop={stopRecording} onReview={() => setShowRecordSheet(true)} />
+      ) : null}
       {!fullscreen ? noticeArea : null}
       {!fullscreen ? <Rule /> : null}
 
@@ -501,6 +530,16 @@ export default function ScreenTab() {
             pointerEvents="box-none"
             style={{ position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0 }}
           >
+            {/* Recording must stay unmissable in fullscreen too — it floats on
+                the HUD scrim over the top edge, outliving the dock's auto-hide. */}
+            <View style={{ paddingHorizontal: theme.space.sm, gap: theme.space.xxs }}>
+              <RecordStrip
+                status={recording.status}
+                onStop={stopRecording}
+                onReview={() => setShowRecordSheet(true)}
+                floating
+              />
+            </View>
             {noticeArea}
           </View>
         ) : null}
@@ -525,6 +564,17 @@ export default function ScreenTab() {
           {controls}
         </Animated.View>
       )}
+
+      {/* Gated on `ready`, not just the flag: a stop that failed leaves
+          nothing to send, and a sheet promising to send nothing would lie. */}
+      <RecordSheet
+        visible={showRecordSheet && recordPhase === 'ready'}
+        onClose={() => setShowRecordSheet(false)}
+        status={recording.status}
+        busy={recording.busy}
+        onSend={recording.send}
+        onDiscard={() => void recording.discard()}
+      />
 
       <Sheet visible={showMenu} onClose={() => setShowMenu(false)} title="Screen options" testID="screen-menu-sheet">
         <Column gap="xxs">

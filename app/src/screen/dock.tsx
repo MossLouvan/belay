@@ -19,6 +19,8 @@ import { getTheme, useTheme } from '../theme';
 import { Row, TrackLabel } from '../ui';
 import { HUD } from './parts';
 import type { MonitorChoice } from './monitors';
+import { recordKeyLabel } from './record';
+import type { RecordPhase } from './record';
 import type { PendingButton, PointerMode } from './viewport';
 
 interface DockKeyProps {
@@ -100,6 +102,10 @@ export interface ControlDockProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
+  /** Where the host's screen recorder is in its idle → recording → ready loop. */
+  recordPhase: RecordPhase;
+  /** One key, three meanings: start, stop, or review — recordKeyLabel names each. */
+  onRecord: () => void;
   /** Floating over the stream (fullscreen): chrome uses the HUD scrim. */
   floating?: boolean;
   /** Fired on every dock interaction — the fullscreen auto-hide's poke. */
@@ -129,6 +135,8 @@ export function ControlDock({
   onZoomIn,
   onZoomOut,
   onZoomReset,
+  recordPhase,
+  onRecord,
   floating = false,
   onInteract,
 }: ControlDockProps) {
@@ -236,6 +244,28 @@ export function ControlDock({
             active={armed === 'double'}
             floating={floating}
             onPress={wrap(onToggleDouble)}
+          />
+          {/* The label names what pressing does NEXT (Rec → Stop → Send), and
+              the lit track holds through recording AND ready — a stopped-but-
+              unsent clip must not let the key go quiet. */}
+          <DockKey
+            testID="record-key"
+            label={recordKeyLabel(recordPhase)}
+            accessibilityLabel={
+              recordPhase === 'recording'
+                ? 'Stop recording the screen'
+                : recordPhase === 'ready'
+                  ? 'Send the recording to Claude'
+                  : "Record the computer's screen for Claude"
+            }
+            accessibilityHint={
+              recordPhase === 'idle'
+                ? 'Captures frames on the computer to hand to a Claude session'
+                : undefined
+            }
+            active={recordPhase !== 'idle'}
+            floating={floating}
+            onPress={wrap(onRecord)}
           />
         </Row>
         <Row gap="xs">
