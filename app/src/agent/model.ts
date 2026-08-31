@@ -22,7 +22,7 @@ export type AgentMessage =
   | { readonly type: 'error'; readonly error: string };
 
 const STATUSES: readonly AgentStatus[] = ['idle', 'running', 'waiting', 'error'];
-const KINDS: readonly AgentEvent['kind'][] = ['user', 'text', 'tool', 'result', 'info', 'error'];
+const KINDS: readonly AgentEvent['kind'][] = ['user', 'text', 'tool', 'tool-result', 'result', 'info', 'error'];
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -46,6 +46,8 @@ export function parseEvent(v: unknown): AgentEvent | null {
     ok: typeof v.ok === 'boolean' ? v.ok : undefined,
     costUsd: num(v.costUsd),
     durationMs: num(v.durationMs),
+    callId: str(v.callId),
+    chars: num(v.chars),
   };
 }
 

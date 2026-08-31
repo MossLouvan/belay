@@ -12,6 +12,15 @@ import { join, dirname } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { isInsideRoots, isDenied } from './files.js';
+import { parseClaudeLine, toolDetail } from './agent-events.js';
+import type { AgentEvent } from './agent-events.js';
+import { loadClaudeHistory } from './transcript.js';
+
+// The stream-json ↔ feed-event translation lives in agent-events.ts (shared
+// with the transcript history loader); re-exported so existing importers and
+// tests keep one door.
+export { parseClaudeLine, toolDetail, RESULT_CAP } from './agent-events.js';
+export type { AgentEvent } from './agent-events.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APPROVAL_MCP = join(HERE, '..', 'approval-mcp.cjs');
@@ -47,69 +56,6 @@ export function approvalTimeoutMs(raw: string | undefined = process.env.TETHER_A
 const APPROVAL_TIMEOUT_MS = approvalTimeoutMs();
 const IDLE_KILL_MS = 30 * 60 * 1000;         // idle processes die; --resume revives
 const EVENT_CAP = 400;                        // in-memory transcript cap per session
-
-// One-line summary of a tool call, for the phone's activity feed and the
-// approval prompt. Falls back to the first string field of the input.
-export function toolDetail(name: string, input: any): string {
-  if (!input || typeof input !== 'object') return '';
-  const pick =
-    name === 'Bash' ? input.command
-    : name === 'Read' || name === 'Write' || name === 'Edit' || name === 'NotebookEdit' ? input.file_path
-    : name === 'Glob' || name === 'Grep' ? input.pattern
-    : name === 'WebFetch' ? input.url
-    : name === 'WebSearch' ? input.query
-    : name === 'Task' ? input.description
-    : Object.values(input).find((v) => typeof v === 'string');
-  const s = typeof pick === 'string' ? pick : '';
-  return s.length > 300 ? s.slice(0, 300) + '…' : s;
-}
-
-// What the phone renders. Kept deliberately flat and small.
-export interface AgentEvent {
-  t: number;
-  kind: 'user' | 'text' | 'tool' | 'result' | 'info' | 'error';
-  text?: string;
-  tool?: string;
-  detail?: string;
-  ok?: boolean;
-  costUsd?: number;
-  durationMs?: number;
-}
-
-// Translate one stream-json line from the claude CLI into phone events.
-// Unknown/noise types (tool results, thinking, partials) map to [].
-export function parseClaudeLine(line: string): { events: AgentEvent[]; sessionId?: string; done?: boolean } {
-  let msg: any;
-  try { msg = JSON.parse(line); } catch { return { events: [] }; }
-  const now = Date.now();
-
-  if (msg.type === 'system' && msg.subtype === 'init') {
-    return { events: [], sessionId: msg.session_id };
-  }
-  if (msg.type === 'assistant') {
-    const events: AgentEvent[] = [];
-    for (const block of msg.message?.content || []) {
-      if (block.type === 'text' && block.text?.trim()) {
-        events.push({ t: now, kind: 'text', text: block.text });
-      } else if (block.type === 'tool_use') {
-        events.push({ t: now, kind: 'tool', tool: block.name, detail: toolDetail(block.name, block.input) });
-      }
-    }
-    return { events };
-  }
-  if (msg.type === 'result') {
-    return {
-      events: [{
-        t: now, kind: 'result', ok: !msg.is_error,
-        text: msg.is_error ? String(msg.result || msg.error || 'failed').slice(0, 500) : undefined,
-        costUsd: typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : undefined,
-        durationMs: typeof msg.duration_ms === 'number' ? msg.duration_ms : undefined,
-      }],
-      done: true,
-    };
-  }
-  return { events: [] };
-}
 
 export type AgentStatus = 'idle' | 'running' | 'waiting' | 'error';
 
@@ -401,7 +347,20 @@ export function attachSession(cwd: string, claudeSessionId: string, title?: stri
     if (s.claudeSessionId === claudeSessionId) return getSnapshot(s.id)!; // already attached
   }
   const s = newSession(cwd, title, claudeSessionId);
-  pushEvent(s, { t: Date.now(), kind: 'info', text: 'resumed session — context restored on the PC' });
+  // Restore the tail of the Claude-side transcript so the resumed session
+  // opens showing the conversation being resumed, not a blank feed. Pushed
+  // through pushEvent so the history also lands in Tether's own log and
+  // survives host restarts. Best-effort: a missing or unreadable transcript
+  // degrades to the old behaviour, and the info line says which happened
+  // instead of letting an empty feed pass for a fresh session.
+  const history = loadClaudeHistory(claudeSessionId);
+  for (const ev of history) pushEvent(s, ev);
+  pushEvent(s, {
+    t: Date.now(), kind: 'info',
+    text: history.length
+      ? 'resumed session — earlier conversation restored from this computer'
+      : 'resumed session — no readable transcript on this computer, but Claude still has the context',
+  });
   return getSnapshot(s.id)!;
 }
 

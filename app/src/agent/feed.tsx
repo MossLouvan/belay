@@ -1,16 +1,68 @@
 // One line of the session feed: the user's prompt marked by a "YOU" label and
 // an emphasis rule, Claude's narration as prose, tool calls as a mono
-// one-liner, results as a tally. No bubbles — the feed is a transcript column
-// on the page, and hierarchy comes from type and the one accent rule.
+// one-liner with the machine's answer folded underneath, results as a tally.
+// No bubbles — the feed is a transcript column on the page, and hierarchy
+// comes from type and the one accent rule.
 
-import React from 'react';
+import React, { useState } from 'react';
 import { View } from 'react-native';
 import type { AgentEvent } from '../api';
 import { useTheme } from '../theme';
-import { Micro, Txt } from '../ui';
+import { Micro, TrackLabel, Txt } from '../ui';
 import { resultSummary } from './model';
+import { resultToggleLabel, resultTruncated, truncationNote } from './feed-model';
 
-export function EventRow({ event }: { event: AgentEvent }) {
+// What a tool call came back with, collapsed to one tracked toggle by
+// default: a wall of raw output would drown the narration, but "what did
+// that actually print" must be one tap away, not a laptop away. The toggle
+// is a TrackLabel — the track rule (docs/DESIGN.md §11.1) is what makes it
+// unmistakably tappable — and a failure carries the bad ink on label and
+// track both, so "it ran" and "it ran and errored" never look alike.
+function ToolResult({ result }: { result: AgentEvent }) {
+  const theme = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const failed = result.ok === false;
+
+  // Nothing came back — say so inertly. An expand control over an empty
+  // panel would be a label that does nothing, which the track rule forbids.
+  if (!result.text) {
+    return (
+      <Micro tone={failed ? 'bad' : 'faint'}>{failed ? '✗ failed — no output' : 'no output'}</Micro>
+    );
+  }
+
+  return (
+    <View style={{ gap: theme.space.xxs }}>
+      <TrackLabel
+        label={resultToggleLabel(result, expanded)}
+        onPress={() => setExpanded((v) => !v)}
+        active={expanded}
+        labelColor={failed ? theme.colors.bad : undefined}
+        trackColor={failed ? theme.colors.bad : undefined}
+        accessibilityLabel={failed ? 'Failed tool output' : 'Tool output'}
+        accessibilityHint={expanded ? 'Collapses the output' : 'Expands the output'}
+        style={{ alignSelf: 'flex-start' }}
+      />
+      {expanded ? (
+        <View
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: theme.radius.xs,
+            borderLeftWidth: theme.layout.ruleEmphasis,
+            borderLeftColor: failed ? theme.colors.bad : theme.colors.border,
+            padding: theme.space.sm,
+            gap: theme.space.xxs,
+          }}
+        >
+          <Txt variant="monoSmall" tone="dim" selectable>{result.text}</Txt>
+          {resultTruncated(result) ? <Micro>{truncationNote(result)}</Micro> : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export function EventRow({ event, result }: { event: AgentEvent; result?: AgentEvent }) {
   const theme = useTheme();
 
   if (event.kind === 'user') {
@@ -37,11 +89,23 @@ export function EventRow({ event }: { event: AgentEvent }) {
   }
   if (event.kind === 'tool') {
     return (
-      <Txt variant="monoSmall" tone="dim" numberOfLines={2}>
-        <Txt variant="monoSmall" tone="accent">{`▸ ${event.tool ?? 'tool'}`}</Txt>
-        {event.detail ? `  ${event.detail}` : ''}
-      </Txt>
+      <View style={{ gap: theme.space.xxs }}>
+        <Txt variant="monoSmall" tone="dim" numberOfLines={2}>
+          <Txt variant="monoSmall" tone="accent">{`▸ ${event.tool ?? 'tool'}`}</Txt>
+          {event.detail ? `  ${event.detail}` : ''}
+        </Txt>
+        {result ? (
+          <View style={{ paddingLeft: theme.space.sm }}>
+            <ToolResult result={result} />
+          </View>
+        ) : null}
+      </View>
     );
+  }
+  if (event.kind === 'tool-result') {
+    // An orphan: its call fell off the event cap, or came from another
+    // version. Evidence still renders, just without a line to hang under.
+    return <ToolResult result={event} />;
   }
   if (event.kind === 'result') {
     return (

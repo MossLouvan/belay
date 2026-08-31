@@ -7,12 +7,13 @@
 // even while the session pulses — safety-relevant actions outrank the
 // one-accent rule (§11.5).
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useTheme } from '../theme';
 import { Banner, Button, Caption, Dot, Label, Micro, Row, Rule, Txt } from '../ui';
 import { countdown, expiryUrgent } from './attention';
 import { EventRow } from './feed';
+import { buildFeed } from './feed-model';
 import { MicButton, openVoiceSettings, useVoice } from './mic';
 import { appendTranscript, canPrompt, isBusy, statusLabel, statusTone } from './model';
 import { useAgentSession } from './session';
@@ -78,6 +79,11 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     setShowInput(false);
     approve(pending.id, allow, always);
   }, [approve, pending]);
+
+  // Tool results ride the wire as their own events but render folded under
+  // the calls that produced them; the pairing is pure and cheap, redone only
+  // when the event list changes.
+  const feed = useMemo(() => buildFeed(events), [events]);
 
   const busy = isBusy(status);
   const listening = voice.state === 'listening' || voice.state === 'starting';
@@ -163,7 +169,7 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
             {`Tell Claude what to do in ${snapshot.cwd || 'this project'}. It plans, edits and runs things on the PC — and every action stops here for your approval first.`}
           </Caption>
         ) : null}
-        {events.map((event, i) => <EventRow key={`${event.t}-${i}`} event={event} />)}
+        {feed.map((item, i) => <EventRow key={`${item.event.t}-${i}`} event={item.event} result={item.result} />)}
         {status === 'running' ? <ActivityIndicator color={theme.colors.accent} style={{ alignSelf: 'flex-start' }} /> : null}
       </ScrollView>
 

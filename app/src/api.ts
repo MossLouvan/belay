@@ -279,16 +279,20 @@ export interface PairedDevice { tokenPrefix: string; name: string; createdAt: nu
 
 export type AgentStatus = 'idle' | 'running' | 'waiting' | 'error';
 
-/** One line of the session feed. Mirrors `AgentEvent` in server/src/agent.ts. */
+/** One line of the session feed. Mirrors `AgentEvent` in server/src/agent-events.ts. */
 export interface AgentEvent {
   t: number;
-  kind: 'user' | 'text' | 'tool' | 'result' | 'info' | 'error';
+  kind: 'user' | 'text' | 'tool' | 'tool-result' | 'result' | 'info' | 'error';
   text?: string;
   tool?: string;
   detail?: string;
   ok?: boolean;
   costUsd?: number;
   durationMs?: number;
+  /** Pairs a tool call with its result: the CLI's tool_use id rides on both. */
+  callId?: string;
+  /** Full output length before the host truncated it, so the feed can say what it cut. */
+  chars?: number;
 }
 
 /** A permission ask Claude is blocked on until the phone answers. */
