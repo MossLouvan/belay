@@ -42,6 +42,14 @@ export interface GestureRecord {
   twoStartX: number;
   twoStartY: number;
   /**
+   * The pair's centroid at the last zoom frame, so the fingers' shared travel
+   * can be paid out as a pan on top of the pinch maths. Reset whenever the
+   * pair re-anchors — measuring the pan across a change of fingers would
+   * jump the view exactly the way `pinchDistance` would jump the zoom.
+   */
+  twoLastX: number;
+  twoLastY: number;
+  /**
    * Scroll anchor. For the two-finger gesture: the pair's center at the last
    * send. For a one-finger 'wheel' drag: the portion of the responder's
    * cumulative dx/dy already paid out as wheel notches, so the unsent
@@ -77,6 +85,8 @@ export const newGesture = (): GestureRecord => ({
   pinchDistance: 0,
   twoStartX: 0,
   twoStartY: 0,
+  twoLastX: 0,
+  twoLastY: 0,
   scrollX: 0,
   scrollY: 0,
   threeStartX: 0,

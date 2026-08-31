@@ -3,9 +3,10 @@
 // One finger: tap clicks, long press right-clicks, and a drag either pans the
 // picture (when zoomed in), drags the host mouse (touch mode at 1x), nudges
 // the cursor (trackpad mode) or sends the scroll wheel (scroll mode). Two
-// fingers: pinch zooms the view, drag sends the scroll wheel. Three fingers
-// swipe between the host's desktops. Pans and scroll-mode flicks carry
-// momentum unless reduced motion is on.
+// fingers: pinch zooms the view about the fingers and drags it with them; a
+// plain two-finger drag pans when zoomed in, sends the scroll wheel at 1x.
+// Three fingers swipe between the host's desktops. Pans, pinch-drags and
+// scroll-mode flicks carry momentum unless reduced motion is on.
 //
 // Built on RN's PanResponder and Animated rather than gesture-handler +
 // reanimated: reanimated is not a dependency of this app and the SDK is pinned,
@@ -22,7 +23,7 @@ import {
 } from 'react-native';
 import { api } from '../api';
 import { haptic } from '../ui';
-import { clamp, clamp01, GESTURE, messageOf, numberOf, Size } from './model';
+import { clamp01, GESTURE, messageOf, numberOf, Size } from './model';
 import {
   centroidOf,
   geometryOf,
@@ -34,6 +35,7 @@ import {
   trackedPair,
   trackedTriple,
 } from './touches';
+import { classifyTwoFinger, clampTranslate, zoomAbout } from './pinch';
 import { batchScroll, classifyOneFinger, decayStep, flickSpent, flickStep, scrollDue } from './scroll-mode';
 import type { PointerMode, ScrollBatch } from './scroll-mode';
 import { detectSwipe } from './swipe';
@@ -162,9 +164,7 @@ export function useViewport(options: ViewportOptions): Viewport {
     (tx: number, ty: number) => {
       const { w, h } = sizeRef.current;
       const scale = view.current.scale;
-      const maxX = Math.max(0, ((scale - 1) * w) / 2);
-      const maxY = Math.max(0, ((scale - 1) * h) / 2);
-      view.current = { scale, tx: clamp(tx, -maxX, maxX), ty: clamp(ty, -maxY, maxY) };
+      view.current = { scale, ...clampTranslate(tx, ty, scale, w, h) };
       applyView();
     },
     [applyView, sizeRef]
@@ -209,16 +209,12 @@ export function useViewport(options: ViewportOptions): Viewport {
   const zoomTo = useCallback(
     (nextScale: number, focalX: number, focalY: number) => {
       const { w, h } = sizeRef.current;
-      const from = view.current;
-      const target = clamp(nextScale, GESTURE.minScale, GESTURE.maxScale);
-      const ratio = target / from.scale;
-      const tx = (focalX - w / 2) * (1 - ratio) + from.tx * ratio;
-      const ty = (focalY - h / 2) * (1 - ratio) + from.ty * ratio;
-      view.current = { scale: target, tx, ty };
-      setTranslate(tx, ty);
-      setZoom(Math.round(target * 10) / 10);
+      const next = zoomAbout(view.current, nextScale, focalX, focalY, w, h, GESTURE);
+      view.current = next;
+      applyView();
+      setZoom(Math.round(next.scale * 10) / 10);
     },
-    [setTranslate, sizeRef]
+    [applyView, sizeRef]
   );
 
   const zoomBy = useCallback(
@@ -407,6 +403,8 @@ export function useViewport(options: ViewportOptions): Viewport {
         pinchDistance: distance || 1,
         twoStartX: centerX,
         twoStartY: centerY,
+        twoLastX: centerX,
+        twoLastY: centerY,
         baseScale: view.current.scale,
         scrollX: centerX,
         scrollY: centerY,
@@ -416,7 +414,11 @@ export function useViewport(options: ViewportOptions): Viewport {
     [cancelLongPress]
   );
 
-  /** Classifies a two-finger gesture once, then keeps serving that intent. */
+  /**
+   * Classifies a two-finger gesture once (pinch.ts owns the rules: pinch
+   * zooms anywhere, a plain drag pans when zoomed and scrolls at 1x), then
+   * keeps serving that intent.
+   */
   const handleTwoFingers = useCallback(
     (touches: readonly NativeTouchEvent[], origin: Origin) => {
       const g = gesture.current;
@@ -434,13 +436,20 @@ export function useViewport(options: ViewportOptions): Viewport {
       const ratio = distance / (g.pinchDistance || 1);
       if (g.kind === 'pendingTwo') {
         const moved = Math.hypot(centerX - g.twoStartX, centerY - g.twoStartY);
-        if (Math.abs(ratio - 1) > GESTURE.pinchThreshold) g.kind = 'zoom';
-        else if (moved > GESTURE.scrollThresholdPx) g.kind = 'scroll';
-        else return;
+        const kind = classifyTwoFinger(ratio, moved, view.current.scale, GESTURE);
+        if (kind === 'pendingTwo') return;
+        g.kind = kind;
       }
 
       if (g.kind === 'zoom') {
+        // Scale about the fingers, then follow their shared travel. The pinch
+        // maths alone is the identity whenever the distance holds, which was
+        // the "zoom in but cannot move the focus" bug; the centroid delta is
+        // the missing pan, and setTranslate keeps it inside the clamp.
         zoomTo(g.baseScale * ratio, centerX, centerY);
+        setTranslate(view.current.tx + centerX - g.twoLastX, view.current.ty + centerY - g.twoLastY);
+        g.twoLastX = centerX;
+        g.twoLastY = centerY;
         return;
       }
       if (!scrollDue(Date.now(), lastScrollAt.current, GESTURE)) return;
@@ -449,7 +458,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         g.scrollX = centerX;
       }
     },
-    [emitScroll, rebaselineTwoFingers, zoomTo]
+    [emitScroll, rebaselineTwoFingers, setTranslate, zoomTo]
   );
 
   const handleOneFinger = useCallback(
@@ -562,6 +571,13 @@ export function useViewport(options: ViewportOptions): Viewport {
       }
       if (g.kind === 'pan') {
         startMomentum(state.vx, state.vy);
+        return;
+      }
+      if (g.kind === 'zoom') {
+        // The responder's vx/vy are centroid velocity, so a pinch that ends
+        // in a flick coasts exactly like the one-finger pan beside it; at 1x
+        // the clamp pins everything to (0,0), so there is nothing to coast.
+        if (view.current.scale > 1) startMomentum(state.vx, state.vy);
         return;
       }
       if (g.kind === 'wheel') {
