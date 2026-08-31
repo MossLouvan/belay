@@ -33,6 +33,7 @@ import { statRawFile } from './files-raw.js';
 import { getStats } from './system.js';
 import { VK, MOD_VK, charToVk } from './keys.js';
 import { printBanner, buildNativeHint } from './banner.js';
+import { notifyBannerLine } from './notify.js';
 import {
   loadAgentState, listSessions, createSession, getSnapshot, deleteSession,
   sendPrompt, stopSession, subscribe, requestApproval, answerApproval,
@@ -975,6 +976,7 @@ server.listen(PORT, () => {
     platform: getPlatform(),
   });
   console.log(`  Agent     : ${agentAvailable() ? 'claude CLI found' : 'claude CLI not on PATH — Agent tab disabled'}`);
+  console.log(`  Notify    : ${notifyBannerLine()}`);
   console.log('');
 });
 

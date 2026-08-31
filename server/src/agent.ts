@@ -12,6 +12,9 @@ import { join, dirname } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { isInsideRoots, isDenied } from './files.js';
+import { notify } from './notify.js';
+import type { NotifyEvent } from './notify.js';
+import { getHostId, getLabel } from './state.js';
 import { parseClaudeLine, toolDetail } from './agent-events.js';
 import type { AgentEvent } from './agent-events.js';
 import { loadClaudeHistory } from './transcript.js';
@@ -195,6 +198,17 @@ function pushEvent(s: Session, ev: AgentEvent): void {
   broadcast(s, { type: 'event', event: ev });
 }
 
+// The one seam between sessions and the push webhook (notify.ts): stamp the
+// event with which computer and which session, then hand off. notify() is
+// synchronous, void, and swallows everything, so a session path calling ping
+// can be no slower and no less reliable than one that does not — the
+// getLabel/getHostId reads are guarded here for the same reason.
+function ping(s: Session, ev: Omit<NotifyEvent, 'host' | 'hostId' | 'session'>): void {
+  try {
+    notify({ ...ev, host: getLabel(), hostId: getHostId(), session: { id: s.id, title: s.title } } as NotifyEvent);
+  } catch { /* a notification must never hurt a session */ }
+}
+
 function armIdleKill(s: Session): void {
   if (s.idleTimer) clearTimeout(s.idleTimer);
   s.idleTimer = setTimeout(() => {
@@ -251,7 +265,11 @@ function ensureProcess(s: Session): void {
         saveMeta();
       }
       for (const ev of parsed.events) pushEvent(s, ev);
-      if (parsed.done) { setStatus(s, 'idle'); armIdleKill(s); }
+      if (parsed.done) {
+        setStatus(s, 'idle'); armIdleKill(s);
+        const r = parsed.events.find((e) => e.kind === 'result');
+        ping(s, { kind: 'done', ok: r?.ok, costUsd: r?.costUsd, durationMs: r?.durationMs });
+      }
     }
   });
   let stderrTail = '';
@@ -263,6 +281,9 @@ function ensureProcess(s: Session): void {
     if (s.status === 'running' || s.status === 'waiting') {
       pushEvent(s, { t: Date.now(), kind: 'error', text: `claude exited (${code})${stderrTail ? ': ' + stderrTail.slice(-300) : ''}` });
       setStatus(s, 'error');
+      // The stderr tail stays out of the ping: it can quote paths and
+      // commands, and the redaction default promises metadata only.
+      ping(s, { kind: 'error', text: `the Claude process exited (${code})` });
     }
   });
 }
@@ -459,6 +480,9 @@ export function requestApproval(
       type: 'permission',
       request: { id, tool: pending.tool, detail: pending.detail, input: pending.input, expiresAt: pending.expiresAt },
     });
+    // After the ask is fully raised and waiting, so a webhook — however
+    // broken — can only ever be in addition to the approval, never in its way.
+    ping(s, { kind: 'approval', tool: pending.tool, detail: pending.detail, expiresAt: pending.expiresAt });
   });
 }
 
@@ -488,6 +512,7 @@ function expireApproval(sessionId: string, approvalId: string): void {
   });
   broadcast(s, { type: 'permission-clear' });
   setStatus(s, 'running');
+  ping(s, { kind: 'expired', tool: pending.tool, detail: pending.detail, waitedMin: mins });
   pending.resolve(false, `No one answered the approval on the phone within ${mins} minutes. This is absence, not refusal — stop what you are doing cleanly and summarise what remains, so the user can resume and ask you to retry.`);
 }
 

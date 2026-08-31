@@ -317,7 +317,20 @@ regardless.
 | `TETHER_TAILSCALE_CLI` | auto | Path to the `tailscale` CLI if it is somewhere unusual |
 | `TETHER_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |
 | `TETHER_TEST_CODE` | *(unset)* | Fixed pairing code for the Playwright suite; ignored when `NODE_ENV=production` |
+| `TETHER_APPROVAL_TIMEOUT_MS` | `1800000` (30 min) | How long an agent approval waits for the phone before auto-deny; `0` waits forever |
+| `TETHER_NOTIFY_URL` | *(unset — off)* | Webhook the host POSTs to when Claude needs a decision — an [ntfy](https://ntfy.sh) topic URL, Slack/Discord webhook, or your own endpoint. See [`AGENT.md`](AGENT.md#push-notifications-when-the-phone-is-asleep) |
+| `TETHER_NOTIFY_FORMAT` | `ntfy` | `ntfy` or `json` |
+| `TETHER_NOTIFY_EVENTS` | `approval,error` | Which events ping: `approval`, `done`, `error` |
+| `TETHER_NOTIFY_DETAIL` | *(off)* | `on` to include the command/path in the notification (keep off on public ntfy.sh) |
+| `TETHER_NOTIFY_TOKEN` | *(unset)* | Bearer token for the webhook (ntfy access token etc.); never logged |
 
 ## Agent tab and voice
 
 The Agent tab needs the `claude` CLI on the PC's PATH (`npm i -g @anthropic-ai/claude-code`). Voice prompts need nothing on the computer — the phone recognises speech on-device. See [`AGENT.md`](AGENT.md).
+
+To get pinged when Claude needs a decision while the phone is locked, install
+the free [ntfy](https://ntfy.sh) app, subscribe to a long random topic, and set
+`TETHER_NOTIFY_URL=https://ntfy.sh/<your-topic>` before `npm start` — the boot
+banner's `Notify :` line confirms it. Full details, the privacy trade-offs, and
+the generic-webhook payload are in
+[`AGENT.md`](AGENT.md#push-notifications-when-the-phone-is-asleep).
