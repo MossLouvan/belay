@@ -295,11 +295,38 @@ export interface AgentEvent {
   chars?: number;
 }
 
+/** How dangerous the host judged an ask. Absent on hosts from before risk tiers. */
+export type ApprovalRisk = 'read' | 'edit' | 'run' | 'danger';
+
+/**
+ * One "always allow …" option the host offers on an ask. The label is the
+ * whole contract — the phone renders it verbatim and sends the id back, and
+ * the host mints the grant from the pending ask itself, never from anything
+ * the wire could widen.
+ */
+export interface ApprovalScopeChoice { id: string; label: string; }
+
+/** What the approval card renders instead of raw JSON, when the host can say. */
+export type ApprovalPreview =
+  | { kind: 'edit'; path: string; oldText: string; newText: string; capped: boolean; replaceAll: boolean }
+  | { kind: 'write'; path: string; content: string; capped: boolean; exists: boolean; existingLines?: number }
+  | { kind: 'command'; command: string };
+
+/** A standing scoped permission the session holds. Label is the scope, readably. */
+export interface ApprovalGrant { id: string; tool: string; label: string; createdAt: number; }
+
+/** A prompt parked until the current turn ends. */
+export interface QueuedPrompt { id: string; text: string; }
+
 /** A permission ask Claude is blocked on until the phone answers. */
 export interface PendingApproval {
   id: string; tool: string; detail: string; input: string;
   /** Epoch ms when the ask auto-denies on the host; absent when it waits forever. */
   expiresAt?: number;
+  /** Everything below is absent on hosts older than scoped approvals. */
+  risk?: ApprovalRisk;
+  choices?: ApprovalScopeChoice[];
+  preview?: ApprovalPreview;
 }
 
 /**
@@ -317,6 +344,9 @@ export interface AgentSessionMeta {
 export interface AgentSnapshot extends AgentSessionMeta {
   events: AgentEvent[];
   pending: PendingApproval | null;
+  /** Absent on hosts older than the prompt queue / scoped approvals. */
+  queued?: QueuedPrompt | null;
+  grants?: ApprovalGrant[];
 }
 
 export interface AgentProject { path: string; name: string; recent: boolean; }
@@ -387,6 +417,16 @@ export const api = {
   agentStop: (id: string) => post<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/stop`, {}),
   agentApprove: (id: string, approvalId: string, allow: boolean, always = false) =>
     post<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/approve`, { approvalId, allow, always }),
+  /** Approve with a scope choice the host offered; `choice` is one of the ask's choice ids. */
+  agentApproveScoped: (id: string, approvalId: string, allow: boolean, choice?: string) =>
+    post<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/approve-scoped`, { approvalId, allow, choice }),
+  agentGrants: (id: string) => get<{ grants: ApprovalGrant[] }>(`/agent/sessions/${encodeURIComponent(id)}/grants`),
+  agentRevokeGrant: (id: string, grantId: string) =>
+    post<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/grants/revoke`, { grantId }),
+  agentCancelQueued: (id: string) => post<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/queue/cancel`, {}),
+  /** Interrupt-with-message: halts the running turn (or denies the pending ask) so `text` steers now. */
+  agentInterrupt: (id: string, text: string) =>
+    post<{ ok: boolean; outcome?: string }>(`/agent/sessions/${encodeURIComponent(id)}/interrupt`, { text }),
   agentDiscovered: () => get<{ sessions: DiscoveredSession[] }>('/agent/discovered'),
   agentAttach: (claudeSessionId: string, cwd: string, title?: string) =>
     post<AgentSnapshot>('/agent/attach', { claudeSessionId, cwd, title }),

@@ -3,7 +3,10 @@
 // screens share. No React and no JSX, so `agent.test.mjs` can import it
 // straight into Node.
 
-import type { AgentEvent, AgentSnapshot, AgentStatus, DiscoveredSession, PendingApproval } from '../api';
+import type {
+  AgentEvent, AgentSnapshot, AgentStatus, ApprovalGrant, ApprovalPreview, ApprovalRisk,
+  ApprovalScopeChoice, DiscoveredSession, PendingApproval, QueuedPrompt,
+} from '../api';
 
 /** Feed lines kept on the phone. The host caps its own transcript at 400 too. */
 export const EVENT_CAP = 400;
@@ -19,6 +22,8 @@ export type AgentMessage =
   | { readonly type: 'status'; readonly status: AgentStatus }
   | { readonly type: 'permission'; readonly request: PendingApproval }
   | { readonly type: 'permission-clear' }
+  | { readonly type: 'queued'; readonly queued: QueuedPrompt | null }
+  | { readonly type: 'grants'; readonly grants: readonly ApprovalGrant[] }
   | { readonly type: 'error'; readonly error: string };
 
 const STATUSES: readonly AgentStatus[] = ['idle', 'running', 'waiting', 'error'];
@@ -51,11 +56,82 @@ export function parseEvent(v: unknown): AgentEvent | null {
   };
 }
 
+const RISKS: readonly ApprovalRisk[] = ['read', 'edit', 'run', 'danger'];
+
+function parseRisk(v: unknown): ApprovalRisk | undefined {
+  return typeof v === 'string' && (RISKS as readonly string[]).includes(v) ? (v as ApprovalRisk) : undefined;
+}
+
+function parseChoices(v: unknown): ApprovalScopeChoice[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: ApprovalScopeChoice[] = [];
+  for (const c of v) {
+    if (!isRecord(c)) continue;
+    const id = str(c.id);
+    const label = str(c.label);
+    if (id && label) out.push({ id, label });
+  }
+  return out;
+}
+
+/**
+ * A malformed preview degrades to no preview (the card falls back to the
+ * detail line and raw input) rather than to a half-rendered diff — a diff
+ * with a missing side would show a smaller change than the one being
+ * approved, which is worse than showing none.
+ */
+function parsePreview(v: unknown): ApprovalPreview | undefined {
+  if (!isRecord(v)) return undefined;
+  if (v.kind === 'command') {
+    const command = str(v.command);
+    return command !== undefined ? { kind: 'command', command } : undefined;
+  }
+  if (v.kind === 'edit') {
+    const path = str(v.path);
+    const oldText = str(v.oldText);
+    const newText = str(v.newText);
+    if (path === undefined || oldText === undefined || newText === undefined) return undefined;
+    return { kind: 'edit', path, oldText, newText, capped: v.capped === true, replaceAll: v.replaceAll === true };
+  }
+  if (v.kind === 'write') {
+    const path = str(v.path);
+    const content = str(v.content);
+    if (path === undefined || content === undefined) return undefined;
+    return { kind: 'write', path, content, capped: v.capped === true, exists: v.exists === true, existingLines: num(v.existingLines) };
+  }
+  return undefined;
+}
+
 export function parseApproval(v: unknown): PendingApproval | null {
   if (!isRecord(v)) return null;
   const id = str(v.id);
   if (!id) return null;
-  return { id, tool: str(v.tool) ?? 'unknown', detail: str(v.detail) ?? '', input: str(v.input) ?? '', expiresAt: num(v.expiresAt) };
+  return {
+    id, tool: str(v.tool) ?? 'unknown', detail: str(v.detail) ?? '', input: str(v.input) ?? '',
+    expiresAt: num(v.expiresAt),
+    risk: parseRisk(v.risk),
+    choices: parseChoices(v.choices),
+    preview: parsePreview(v.preview),
+  };
+}
+
+export function parseQueued(v: unknown): QueuedPrompt | null {
+  if (!isRecord(v)) return null;
+  const id = str(v.id);
+  const text = str(v.text);
+  return id && text !== undefined ? { id, text } : null;
+}
+
+export function parseGrants(v: unknown): ApprovalGrant[] {
+  if (!Array.isArray(v)) return [];
+  const out: ApprovalGrant[] = [];
+  for (const g of v) {
+    if (!isRecord(g)) continue;
+    const id = str(g.id);
+    const label = str(g.label);
+    if (id && label) out.push({ id, tool: str(g.tool) ?? '', label, createdAt: num(g.createdAt) ?? 0 });
+  }
+  return out;
 }
 
 export function parseSnapshot(v: unknown): AgentSnapshot | null {
@@ -72,6 +148,8 @@ export function parseSnapshot(v: unknown): AgentSnapshot | null {
     createdAt: num(v.createdAt) ?? 0,
     events,
     pending: parseApproval(v.pending),
+    queued: parseQueued(v.queued),
+    grants: parseGrants(v.grants),
   };
 }
 
@@ -104,6 +182,10 @@ export function parseAgentMessage(raw: unknown): AgentMessage | null {
     }
     case 'permission-clear':
       return { type: 'permission-clear' };
+    case 'queued':
+      return { type: 'queued', queued: parseQueued(value.queued) };
+    case 'grants':
+      return { type: 'grants', grants: parseGrants(value.grants) };
     case 'error':
       return { type: 'error', error: str(value.error) ?? 'unknown error' };
     default:
@@ -120,6 +202,10 @@ export interface SessionState {
   readonly events: readonly AgentEvent[];
   readonly status: AgentStatus;
   readonly pending: PendingApproval | null;
+  /** The one prompt parked for after this turn, or null. */
+  readonly queued: QueuedPrompt | null;
+  /** Standing scoped permissions — trust granted must stay trust visible. */
+  readonly grants: readonly ApprovalGrant[];
   readonly link: Link;
   /** Latest host-side complaint or local hint, shown above the composer. */
   readonly note: string;
@@ -130,6 +216,8 @@ export const INITIAL_SESSION: SessionState = Object.freeze({
   events: [],
   status: 'idle',
   pending: null,
+  queued: null,
+  grants: [],
   link: 'connecting',
   note: '',
 });
@@ -156,6 +244,8 @@ export function reduceSession(state: SessionState, action: SessionAction): Sessi
         events: msg.session.events.slice(-EVENT_CAP),
         status: msg.session.status,
         pending: msg.session.pending,
+        queued: msg.session.queued ?? null,
+        grants: msg.session.grants ?? [],
         link: 'open',
         note: '',
       };
@@ -171,14 +261,29 @@ export function reduceSession(state: SessionState, action: SessionAction): Sessi
       return { ...state, pending: msg.request, status: 'waiting' };
     case 'permission-clear':
       return state.pending === null ? state : { ...state, pending: null };
+    case 'queued':
+      return { ...state, queued: msg.queued };
+    case 'grants':
+      return { ...state, grants: msg.grants };
     case 'error':
       return { ...state, note: msg.error };
   }
 }
 
-/** Whether a prompt can be sent now: the host refuses one while busy. */
+/** Whether a prompt would run immediately (idle host) rather than queue. */
 export function canPrompt(state: SessionState): boolean {
   return state.link === 'open' && state.status !== 'running' && state.status !== 'waiting';
+}
+
+/**
+ * What pressing the composer's action does right now. The host queues while
+ * busy instead of refusing, so the button itself must say which will happen —
+ * "Send" and "Queue" are different promises, and mislabelling them is how a
+ * queued prompt gets mistaken for a sent one.
+ */
+export function promptMode(state: SessionState): 'send' | 'queue' | null {
+  if (state.link !== 'open') return null;
+  return isBusy(state.status) ? 'queue' : 'send';
 }
 
 export function isBusy(status: AgentStatus): boolean {
@@ -189,8 +294,12 @@ export function isBusy(status: AgentStatus): boolean {
 export interface ComposerControls {
   /** The visible keyboard exit (docs/DESIGN.md §11.2). */
   readonly showDismiss: boolean;
-  /** Whether Send would actually send. */
+  /** Whether the action button would actually act. */
   readonly canSend: boolean;
+  /** The action button's honest label — send now, or queue for after the turn. */
+  readonly sendLabel: 'Send' | 'Queue';
+  /** Interrupt is only offered while a turn is actually running or waiting. */
+  readonly showInterrupt: boolean;
 }
 
 /**
@@ -200,9 +309,12 @@ export interface ComposerControls {
  * to sendability would rebuild the day-one keyboard trap it exists to break.
  */
 export function composerControls(focused: boolean, input: string, state: SessionState): ComposerControls {
+  const mode = promptMode(state);
   return {
     showDismiss: focused,
-    canSend: input.trim().length > 0 && canPrompt(state),
+    canSend: input.trim().length > 0 && mode !== null,
+    sendLabel: mode === 'queue' ? 'Queue' : 'Send',
+    showInterrupt: mode === 'queue' && input.trim().length > 0,
   };
 }
 

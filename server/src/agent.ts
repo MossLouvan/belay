@@ -15,9 +15,16 @@ import { isInsideRoots, isDenied } from './files.js';
 import { notify } from './notify.js';
 import type { NotifyEvent } from './notify.js';
 import { getHostId, getLabel } from './state.js';
-import { parseClaudeLine, toolDetail } from './agent-events.js';
+import { parseClaudeLine } from './agent-events.js';
 import type { AgentEvent } from './agent-events.js';
 import { loadClaudeHistory } from './transcript.js';
+import {
+  flowAnswer, flowCancelQueued, flowDropQueued, flowExpire, flowInterrupt,
+  flowPrompt, flowRequestApproval, flowTurnDone, flowRevokeGrant,
+  grantSummary, pendingWire,
+} from './agent-flow.js';
+import type { FlowIO, PendingState, QueuedPrompt } from './agent-flow.js';
+import type { ApprovalGrant } from './approval-scopes.js';
 
 // The stream-json ↔ feed-event translation lives in agent-events.ts (shared
 // with the transcript history loader); re-exported so existing importers and
@@ -62,15 +69,6 @@ const EVENT_CAP = 400;                        // in-memory transcript cap per se
 
 export type AgentStatus = 'idle' | 'running' | 'waiting' | 'error';
 
-export interface PendingApproval {
-  id: string;
-  tool: string;
-  detail: string;
-  input: string; // pretty JSON, trimmed, for the expanded view on the phone
-  /** Epoch ms when the ask auto-denies; absent when configured to wait forever. */
-  expiresAt?: number;
-}
-
 interface SessionMeta {
   id: string;
   title: string;
@@ -86,8 +84,13 @@ interface Session extends SessionMeta {
   proc?: ChildProcess;
   procKey?: string;    // secret the MCP sidecar authenticates with
   buffer: string;      // partial stdout line
-  pending?: PendingApproval & { resolve: (allow: boolean, message?: string) => void; timer?: NodeJS.Timeout };
-  autoAllow: Set<string>; // tool names the user chose "always allow" for, this session only
+  pending?: PendingState;
+  queued?: QueuedPrompt;
+  // Scoped standing permissions, this session only — see approval-scopes.ts.
+  // Deliberately not persisted: trust granted to a live session dies with it,
+  // and the old whole-tool autoAllow Set it replaces was in-memory too, so
+  // there is no stored state for a wider grant to hide in.
+  grants: readonly ApprovalGrant[];
   idleTimer?: NodeJS.Timeout;
   subscribers: Set<(msg: object) => void>;
 }
@@ -108,7 +111,7 @@ export function loadAgentState(): void {
   for (const meta of persisted.sessions) {
     sessions.set(meta.id, {
       ...meta, status: 'idle', events: loadEventTail(meta.id), buffer: '',
-      autoAllow: new Set(), subscribers: new Set(),
+      grants: [], subscribers: new Set(),
     });
   }
 }
@@ -217,6 +220,37 @@ function armIdleKill(s: Session): void {
   s.idleTimer.unref?.();
 }
 
+// The seam the state machine in agent-flow.ts acts through: it decides what
+// happens, this binding decides how it lands on this session's process,
+// subscribers and webhook. Built per call — it closes over nothing but `s`.
+function flowIO(s: Session): FlowIO {
+  return {
+    push: (ev) => pushEvent(s, ev),
+    send: (msg) => broadcast(s, msg),
+    setStatus: (status) => setStatus(s, status),
+    deliver: (text) => {
+      ensureProcess(s);
+      s.lastUsed = Date.now();
+      saveMeta();
+      const msg = { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } };
+      s.proc!.stdin!.write(JSON.stringify(msg) + '\n');
+    },
+    interruptTurn: () => {
+      // stream-json's control channel; an older CLI that does not know it
+      // simply finishes the turn, and the queued message fires then instead.
+      if (!s.proc || s.proc.exitCode !== null) return;
+      try {
+        s.proc.stdin!.write(JSON.stringify({
+          type: 'control_request',
+          request_id: randomBytes(6).toString('hex'),
+          request: { subtype: 'interrupt' },
+        }) + '\n');
+      } catch { /* a failed halt just means the queue waits for the natural end */ }
+    },
+    ping: (ev) => ping(s, ev as Omit<NotifyEvent, 'host' | 'hostId' | 'session'>),
+  };
+}
+
 function ensureProcess(s: Session): void {
   if (s.proc && s.proc.exitCode === null && !s.proc.killed) return;
 
@@ -266,7 +300,10 @@ function ensureProcess(s: Session): void {
       }
       for (const ev of parsed.events) pushEvent(s, ev);
       if (parsed.done) {
-        setStatus(s, 'idle'); armIdleKill(s);
+        // flowTurnDone fires a queued prompt if one waits; only a genuinely
+        // idle session arms the kill timer. The done ping fires either way —
+        // the turn the user was waiting on did finish.
+        if (!flowTurnDone(s, flowIO(s))) armIdleKill(s);
         const r = parsed.events.find((e) => e.kind === 'result');
         ping(s, { kind: 'done', ok: r?.ok, costUsd: r?.costUsd, durationMs: r?.durationMs });
       }
@@ -278,6 +315,9 @@ function ensureProcess(s: Session): void {
     if (s.proc !== proc) return;
     s.proc = undefined;
     if (s.pending) answerApproval(s.id, s.pending.id, false, 'session process exited');
+    // A queued prompt must not fire into whatever process comes next — the
+    // context it was written against died with this one.
+    flowDropQueued(s, flowIO(s), 'the session process exited');
     if (s.status === 'running' || s.status === 'waiting') {
       pushEvent(s, { t: Date.now(), kind: 'error', text: `claude exited (${code})${stderrTail ? ': ' + stderrTail.slice(-300) : ''}` });
       setStatus(s, 'error');
@@ -342,7 +382,7 @@ function newSession(cwd: string, title?: string, claudeSessionId?: string): Sess
     id, cwd: resolved, claudeSessionId,
     title: title || resolved.split(/[\\/]/).filter(Boolean).pop() || 'session',
     createdAt: Date.now(), lastUsed: Date.now(),
-    status: 'idle', events: [], buffer: '', autoAllow: new Set(), subscribers: new Set(),
+    status: 'idle', events: [], buffer: '', grants: [], subscribers: new Set(),
   };
   sessions.set(id, s);
   rememberProject(resolved);
@@ -399,9 +439,9 @@ export function getSnapshot(id: string) {
     id: s.id, title: s.title, cwd: s.cwd, status: s.status,
     createdAt: s.createdAt, lastUsed: s.lastUsed,
     events: s.events,
-    pending: s.pending
-      ? { id: s.pending.id, tool: s.pending.tool, detail: s.pending.detail, input: s.pending.input, expiresAt: s.pending.expiresAt }
-      : null,
+    pending: s.pending ? pendingWire(s.pending) : null,
+    queued: s.queued ?? null,
+    grants: s.grants.map(grantSummary),
   };
 }
 
@@ -415,23 +455,37 @@ export function deleteSession(id: string): boolean {
   return true;
 }
 
-export function sendPrompt(id: string, text: string): void {
+/**
+ * A prompt lands immediately on an idle session; a busy one queues it (one
+ * slot, latest wins, broadcast so the phone can show and cancel it) instead
+ * of throwing "busy" — the refusal that used to leave Stop as the only lever.
+ */
+export function sendPrompt(id: string, text: string): 'sent' | 'queued' {
   const s = sessions.get(id);
   if (!s) throw new Error('no such session');
-  if (s.status === 'running' || s.status === 'waiting') throw new Error('session is busy — wait or stop it first');
-  ensureProcess(s);
-  s.lastUsed = Date.now();
-  saveMeta();
-  pushEvent(s, { t: Date.now(), kind: 'user', text });
-  setStatus(s, 'running');
-  const msg = { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } };
-  s.proc!.stdin!.write(JSON.stringify(msg) + '\n');
+  if (!text.trim()) throw new Error('a prompt needs some text');
+  return flowPrompt(s, flowIO(s), text);
+}
+
+/** Interrupt-with-message — see flowInterrupt for the three shapes it takes. */
+export function interruptSession(id: string, text: string): 'sent' | 'steered' | 'interrupted' {
+  const s = sessions.get(id);
+  if (!s) throw new Error('no such session');
+  if (!text.trim()) throw new Error('an interrupt needs the message to steer with');
+  return flowInterrupt(s, flowIO(s), text);
+}
+
+export function cancelQueuedPrompt(id: string): boolean {
+  const s = sessions.get(id);
+  if (!s) throw new Error('no such session');
+  return flowCancelQueued(s, flowIO(s));
 }
 
 export function stopSession(id: string): void {
   const s = sessions.get(id);
   if (!s) throw new Error('no such session');
   if (s.pending) answerApproval(id, s.pending.id, false, 'stopped from phone');
+  flowDropQueued(s, flowIO(s), 'stopped from phone');
   if (s.proc) { s.proc.kill(); s.proc = undefined; }
   if (s.status !== 'idle') {
     pushEvent(s, { t: Date.now(), kind: 'info', text: 'stopped' });
@@ -446,8 +500,11 @@ export function subscribe(id: string, send: (msg: object) => void): (() => void)
   return () => s.subscribers.delete(send);
 }
 
-// Called by the loopback route the MCP sidecar POSTs to. Resolves when the
-// user answers on the phone, or fails closed on timeout.
+// Called by the loopback route the MCP sidecar POSTs to. Resolves when a
+// standing grant covers the ask (leaving a visible feed line, never
+// silently), when the user answers on the phone, or fails closed on timeout.
+// The lifecycle itself — including why expiry is a distinct, loudly-worded
+// path — lives in agent-flow.ts.
 export function requestApproval(
   sessionId: string, procKey: string, toolName: string, input: any,
 ): Promise<{ allow: boolean; message?: string }> {
@@ -455,82 +512,43 @@ export function requestApproval(
   if (!s || !s.procKey || procKey !== s.procKey) {
     return Promise.resolve({ allow: false, message: 'unknown session' });
   }
-  if (s.autoAllow.has(toolName)) {
-    return Promise.resolve({ allow: true });
-  }
-  if (s.pending) {
-    // claude asks one at a time; a second concurrent ask means something is
-    // off — fail closed rather than queue.
-    return Promise.resolve({ allow: false, message: 'another approval is already pending' });
-  }
-  return new Promise((resolve) => {
-    const id = randomBytes(6).toString('hex');
-    const pretty = JSON.stringify(input ?? {}, null, 2);
-    const pending = {
-      id, tool: toolName,
-      detail: toolDetail(toolName, input),
-      input: pretty.length > 2000 ? pretty.slice(0, 2000) + '…' : pretty,
-      expiresAt: APPROVAL_TIMEOUT_MS ? Date.now() + APPROVAL_TIMEOUT_MS : undefined,
-      resolve: (allow: boolean, message?: string) => resolve({ allow, message }),
-      timer: APPROVAL_TIMEOUT_MS ? setTimeout(() => expireApproval(sessionId, id), APPROVAL_TIMEOUT_MS) : undefined,
-    };
-    s.pending = pending;
-    setStatus(s, 'waiting');
-    broadcast(s, {
-      type: 'permission',
-      request: { id, tool: pending.tool, detail: pending.detail, input: pending.input, expiresAt: pending.expiresAt },
-    });
-    // After the ask is fully raised and waiting, so a webhook — however
-    // broken — can only ever be in addition to the approval, never in its way.
-    ping(s, { kind: 'approval', tool: pending.tool, detail: pending.detail, expiresAt: pending.expiresAt });
-  });
+  return flowRequestApproval(
+    s, flowIO(s), toolName, input, APPROVAL_TIMEOUT_MS,
+    (approvalId) => {
+      const live = sessions.get(sessionId);
+      if (live) flowExpire(live, flowIO(live), approvalId, APPROVAL_TIMEOUT_MS);
+    },
+  );
 }
 
 /**
- * The ask ran out of clock with nobody there. Distinct from answerApproval on
- * purpose: a deny the user tapped and a deny nobody chose must not read the
- * same afterwards. The feed gets a loud `error` line that survives in the
- * transcript — a session that died unanswered says so instead of just
- * stopping — and Claude is told the silence was absence, not refusal, so it
- * wraps up cleanly. Nothing here is terminal: the Claude session persists on
- * disk, so prompting again re-attempts the work and re-asks fresh. A true
- * held-open re-ask is not possible through MCP — once the tool call resolves
- * (or the CLI's own tool timeout fires) that conversational turn is spent —
- * so "expired, visibly, and one prompt away from resuming" is the honest
- * version, and TETHER_APPROVAL_TIMEOUT_MS=0 exists for anyone who would
- * rather the ask simply wait forever.
+ * The old answer wire, kept signature-stable for index.ts and old apps. The
+ * bare `always` boolean used to whitelist the whole tool; it now narrows to
+ * the narrowest scope the card offered — see flowAnswer.
  */
-function expireApproval(sessionId: string, approvalId: string): void {
-  const s = sessions.get(sessionId);
-  if (!s || !s.pending || s.pending.id !== approvalId) return;
-  const pending = s.pending;
-  s.pending = undefined;
-  const mins = Math.max(1, Math.round(APPROVAL_TIMEOUT_MS / 60000));
-  pushEvent(s, {
-    t: Date.now(), kind: 'error',
-    text: `nobody answered — ${pending.tool}${pending.detail ? ' (' + pending.detail.slice(0, 80) + ')' : ''} was denied after ${mins} min with no one there. Send a prompt to have Claude pick the work back up.`,
-  });
-  broadcast(s, { type: 'permission-clear' });
-  setStatus(s, 'running');
-  ping(s, { kind: 'expired', tool: pending.tool, detail: pending.detail, waitedMin: mins });
-  pending.resolve(false, `No one answered the approval on the phone within ${mins} minutes. This is absence, not refusal — stop what you are doing cleanly and summarise what remains, so the user can resume and ask you to retry.`);
-}
-
 export function answerApproval(sessionId: string, approvalId: string, allow: boolean, message?: string, always?: boolean): boolean {
   const s = sessions.get(sessionId);
-  if (!s || !s.pending || s.pending.id !== approvalId) return false;
-  const pending = s.pending;
-  clearTimeout(pending.timer);
-  s.pending = undefined;
-  if (allow && always) s.autoAllow.add(pending.tool);
-  pushEvent(s, {
-    t: Date.now(), kind: 'info',
-    text: `${allow ? 'allowed' : 'denied'} ${pending.tool}${pending.detail ? ': ' + pending.detail.slice(0, 80) : ''}`,
-  });
-  broadcast(s, { type: 'permission-clear' });
-  setStatus(s, 'running');
-  pending.resolve(allow, message || (allow ? undefined : 'The user denied this action from their phone.'));
-  return true;
+  if (!s) return false;
+  return flowAnswer(s, flowIO(s), approvalId, allow, { message, legacyAlways: always });
+}
+
+/** The scoped answer: `choiceId` names one of the choices the card offered. */
+export function answerApprovalScoped(sessionId: string, approvalId: string, allow: boolean, choiceId?: string): boolean {
+  const s = sessions.get(sessionId);
+  if (!s) return false;
+  return flowAnswer(s, flowIO(s), approvalId, allow, { choiceId });
+}
+
+export function listGrants(id: string) {
+  const s = sessions.get(id);
+  if (!s) return null;
+  return s.grants.map(grantSummary);
+}
+
+export function revokeGrant(id: string, grantId: string): boolean {
+  const s = sessions.get(id);
+  if (!s) return false;
+  return flowRevokeGrant(s, flowIO(s), grantId);
 }
 
 // ---- project discovery -----------------------------------------------------

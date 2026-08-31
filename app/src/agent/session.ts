@@ -8,12 +8,21 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { api, wsUrl } from '../api';
-import { INITIAL_SESSION, isBusy, parseAgentMessage, reduceSession } from './model';
+import { INITIAL_SESSION, parseAgentMessage, reduceSession } from './model';
 import type { SessionState } from './model';
 
 export interface AgentSession extends SessionState {
   prompt: (text: string) => void;
-  approve: (approvalId: string, allow: boolean, always?: boolean) => void;
+  /**
+   * Answer the pending ask. `choiceId` names one of the scope choices the
+   * host offered — it travels over REST because the socket's message
+   * vocabulary predates scoped grants; a plain allow/deny keeps the socket.
+   */
+  approve: (approvalId: string, allow: boolean, choiceId?: string) => void;
+  /** Halt the running turn (or deny the pending ask) so this text steers now. */
+  interrupt: (text: string) => void;
+  cancelQueued: () => void;
+  revokeGrant: (grantId: string) => void;
   stop: () => void;
   reconnect: () => void;
   setNote: (note: string) => void;
@@ -25,8 +34,6 @@ export function useAgentSession(id: string): AgentSession {
   const [state, dispatch] = useReducer(reduceSession, INITIAL_SESSION);
   const [attempt, setAttempt] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
-  const statusRef = useRef(state.status);
-  statusRef.current = state.status;
 
   useEffect(() => {
     // The upgrade URL needs a ticket fetched over HTTP first, so opening is
@@ -92,19 +99,35 @@ export function useAgentSession(id: string): AgentSession {
   const prompt = useCallback((text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    if (isBusy(statusRef.current)) {
-      setNote('Claude is still working — stop it first or wait');
-      return;
-    }
+    // A busy host queues the prompt rather than refusing it, so nothing is
+    // gated on status here — the composer's label says which will happen.
     setNote('');
     if (sendJson({ type: 'prompt', text: trimmed })) return;
     api.agentPrompt(id, trimmed).catch((e: unknown) => setNote(messageOf(e, 'could not send the prompt')));
   }, [id, sendJson, setNote]);
 
-  const approve = useCallback((approvalId: string, allow: boolean, always = false) => {
-    if (sendJson({ type: 'approve', approvalId, allow, always })) return;
-    api.agentApprove(id, approvalId, allow, always).catch((e: unknown) => setNote(messageOf(e, 'could not send the answer')));
+  const approve = useCallback((approvalId: string, allow: boolean, choiceId?: string) => {
+    if (choiceId === undefined && sendJson({ type: 'approve', approvalId, allow, always: false })) return;
+    const call = choiceId === undefined
+      ? api.agentApprove(id, approvalId, allow, false)
+      : api.agentApproveScoped(id, approvalId, allow, choiceId);
+    call.catch((e: unknown) => setNote(messageOf(e, 'could not send the answer')));
   }, [id, sendJson, setNote]);
+
+  const interrupt = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setNote('');
+    api.agentInterrupt(id, trimmed).catch((e: unknown) => setNote(messageOf(e, 'could not interrupt the turn')));
+  }, [id, setNote]);
+
+  const cancelQueued = useCallback(() => {
+    api.agentCancelQueued(id).catch((e: unknown) => setNote(messageOf(e, 'could not cancel the queued prompt')));
+  }, [id, setNote]);
+
+  const revokeGrant = useCallback((grantId: string) => {
+    api.agentRevokeGrant(id, grantId).catch((e: unknown) => setNote(messageOf(e, 'could not revoke the permission')));
+  }, [id, setNote]);
 
   const stop = useCallback(() => {
     if (sendJson({ type: 'stop' })) return;
@@ -113,5 +136,5 @@ export function useAgentSession(id: string): AgentSession {
 
   const reconnect = useCallback(() => setAttempt((n) => n + 1), []);
 
-  return { ...state, prompt, approve, stop, reconnect, setNote };
+  return { ...state, prompt, approve, interrupt, cancelQueued, revokeGrant, stop, reconnect, setNote };
 }

@@ -32,8 +32,10 @@ import {
   Txt,
 } from '../../src/ui';
 import { StatSection } from '../../src/system/stat-section';
-import { BatterySection, DevicesSection, HostLedger, parseDevices, statusLine } from '../../src/system/sections';
-import type { PairedDevice } from '../../src/system/sections';
+import { BatterySection, HostLedger, statusLine } from '../../src/system/sections';
+import { DevicesSection } from '../../src/system/paired-devices';
+import { parseDevices } from '../../src/system/devices-model';
+import type { PairedDevice } from '../../src/system/devices-model';
 import { EMPTY_SERIES, pushSeries } from '../../src/system/history';
 import type { Series } from '../../src/system/history';
 import { fmtBytes } from '../../src/system/format';
@@ -165,6 +167,14 @@ export default function SystemTab() {
     router.replace('/');
   }, [active, forget]);
 
+  // The phone just revoked its own token on the host. The saved computer is
+  // now a credential that can never work again, so keeping it would leave a
+  // zombie that retries forever — forget it and leave, same as Forget below.
+  const onSelfRevoked = useCallback(async () => {
+    if (active) await forget(active.id);
+    router.replace('/');
+  }, [active, forget]);
+
   const stale = Boolean(error);
   const title = stats?.hostname || connection?.hostName || 'Host';
   const margin = theme.layout.margin;
@@ -270,7 +280,14 @@ export default function SystemTab() {
         <ThemeToggle testID="theme-toggle" />
       </Section>
 
-      <DevicesSection devices={devices} now={clock} bleed={margin} />
+      <DevicesSection
+        devices={devices}
+        now={clock}
+        bleed={margin}
+        ownToken={connection?.token}
+        onChanged={() => void loadDevices()}
+        onSelfRevoked={() => void onSelfRevoked()}
+      />
 
       <Section label="Connection" rule={false}>
         <LedgerRow label="Address:" value={connection?.host ?? '—'} valueTone="dim" bleed={margin} />

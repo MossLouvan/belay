@@ -43,6 +43,8 @@ import { createProject, defaultProjectParent } from './projects.js';
 import { collectChanges } from './changes.js';
 import { discoverSessions } from './discover.js';
 import { registerRecordingRoutes } from './recording-routes.js';
+import { handleHandoff } from './handoff.js';
+import { registerAgentApprovalRoutes } from './agent-routes.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
 
@@ -589,6 +591,10 @@ app.post('/agent/sessions/:id/prompt', auth, (req, res) => {
   catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
+// Open this session in a terminal on the computer itself — see handoff.ts
+// for the two-clients rule and the copy-paste fallback.
+app.post('/agent/sessions/:id/handoff', auth, handleHandoff);
+
 app.post('/agent/sessions/:id/stop', auth, (req, res) => {
   try { stopSession(req.params.id); res.json({ ok: true }); }
   catch (e: any) { res.status(400).json({ error: e.message }); }
@@ -618,6 +624,7 @@ app.post('/agent/approval-request', (req, res) => {
 // ---- screen recording (frames for Claude) --------------------------------
 
 registerRecordingRoutes(app, auth);
+registerAgentApprovalRoutes(app, auth);
 
 // ---- server + websockets -------------------------------------------------
 

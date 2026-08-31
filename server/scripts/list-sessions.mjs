@@ -38,6 +38,15 @@ function extractMeta(head) {
   return { cwd, preview };
 }
 
+// The cd target, quoted for the shell this line will be pasted into: a project folder with a
+// space in its name used to print a cd that split at the space. Mirrors the
+// quoting in src/handoff.ts, which builds the same line for the one-tap path.
+function cdTarget(p) {
+  return process.platform === 'win32'
+    ? `/d "${p.replace(/"/g, '')}"`
+    : `'${p.replace(/'/g, `'\\''`)}'`;
+}
+
 function ago(t) {
   const m = Math.round((Date.now() - t) / 60000);
   if (m < 60) return `${m}m ago`;
@@ -74,7 +83,7 @@ for (const c of candidates) {
   console.log('');
   console.log(`  ${name}  ·  ${ago(c.mtime)}`);
   if (meta.preview) console.log(`    "${meta.preview}"`);
-  console.log(`    cd ${meta.cwd} && claude --resume ${c.id}`);
+  console.log(`    cd ${cdTarget(meta.cwd)} && claude --resume ${c.id}`);
 }
 if (!shown) console.log('\n  none found');
 console.log('');

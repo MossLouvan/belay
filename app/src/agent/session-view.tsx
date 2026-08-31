@@ -13,11 +13,12 @@ import { useTheme } from '../theme';
 import { router } from 'expo-router';
 import { SwitchComputerLink } from '../devices/switch-link';
 import { Banner, Button, Caption, Dot, IconButton, Label, Micro, Row, Rule, TrackLabel, Txt } from '../ui';
-import { countdown, expiryUrgent } from './attention';
+import { ApprovalCard } from './approval-card';
 import { EventRow } from './feed';
 import { buildFeed } from './feed-model';
+import { GrantList } from './grant-list';
 import { MicButton, openVoiceSettings, useVoice } from './mic';
-import { appendTranscript, canPrompt, composerControls, isBusy, statusLabel, statusTone } from './model';
+import { appendTranscript, composerControls, isBusy, promptMode, statusLabel, statusTone } from './model';
 import { useAgentSession } from './session';
 
 /** Above this the composer stops growing and scrolls instead. */
@@ -28,9 +29,11 @@ const KEYBOARD_OFFSET = 90;
 export function SessionView({ id, onBack }: { id: string; onBack: () => void }) {
   const theme = useTheme();
   const session = useAgentSession(id);
-  const { snapshot, events, status, pending, link, note, prompt, approve, stop, reconnect, setNote } = session;
+  const {
+    snapshot, events, status, pending, queued, grants, link, note,
+    prompt, approve, interrupt, cancelQueued, revokeGrant, stop, reconnect, setNote,
+  } = session;
   const [input, setInput] = useState('');
-  const [showInput, setShowInput] = useState(false);
   const [composing, setComposing] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const composerRef = useRef<TextInput>(null);
@@ -54,15 +57,26 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   const send = useCallback(() => {
     const text = input.trim();
     if (!text) return;
-    if (!canPrompt(session)) {
-      setNote(link !== 'open' ? 'not connected to the session — reconnect first' : 'Claude is still working — stop it first or wait');
+    if (promptMode(session) === null) {
+      setNote('not connected to the session — reconnect first');
       return;
     }
+    // A busy host queues instead of refusing; the button already said which.
     prompt(text);
     setInput('');
     // After sending from a phone you want the reply, not the keyboard.
     composerRef.current?.blur();
-  }, [input, link, prompt, session, setNote]);
+  }, [input, prompt, session, setNote]);
+
+  // Interrupt is the deliberate sibling of Queue: it halts the running turn
+  // (or denies the pending ask) so this message steers immediately.
+  const sendInterrupt = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+    interrupt(text);
+    setInput('');
+    composerRef.current?.blur();
+  }, [input, interrupt]);
 
   // The approval clock: ticks each second only while an ask has a deadline,
   // so the user sees the window shrinking instead of learning about it when
@@ -76,10 +90,9 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     return () => clearInterval(t);
   }, [deadline]);
 
-  const answer = useCallback((allow: boolean, always = false) => {
+  const answer = useCallback((allow: boolean, choiceId?: string) => {
     if (!pending) return;
-    setShowInput(false);
-    approve(pending.id, allow, always);
+    approve(pending.id, allow, choiceId);
   }, [approve, pending]);
 
   // Tool results ride the wire as their own events but render folded under
@@ -121,6 +134,23 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
               onPress={() =>
                 router.push({
                   pathname: '/changes',
+                  params: {
+                    session: id,
+                    title: snapshot?.title ?? '',
+                    cwd: snapshot?.cwd ?? '',
+                  },
+                })
+              }
+            />
+            {/* Walking to the desk should not mean hunting for a resume
+                command: the host opens the terminal already running it. */}
+            <TrackLabel
+              testID="agent-handoff"
+              label="On computer"
+              accessibilityHint="Opens this session in a terminal on the computer"
+              onPress={() =>
+                router.push({
+                  pathname: '/handoff',
                   params: {
                     session: id,
                     title: snapshot?.title ?? '',
@@ -204,66 +234,43 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
         {status === 'running' ? <ActivityIndicator color={theme.colors.accent} style={{ alignSelf: 'flex-start' }} /> : null}
       </ScrollView>
 
+      {grants.length > 0 ? (
+        <View style={{ marginHorizontal: margin, marginBottom: theme.space.xs }}>
+          <GrantList grants={grants} onRevoke={revokeGrant} />
+        </View>
+      ) : null}
+
       {pending ? (
+        <View style={{ marginHorizontal: margin, marginBottom: theme.space.xs }}>
+          <ApprovalCard pending={pending} now={now} onAnswer={answer} />
+        </View>
+      ) : null}
+
+      {queued ? (
         <View
-          testID="agent-ask"
+          testID="agent-queued"
           style={{
             marginHorizontal: margin,
             marginBottom: theme.space.xs,
             padding: theme.space.sm,
-            gap: theme.space.xs,
-            backgroundColor: theme.colors.warnSoft,
+            gap: theme.space.xxs,
+            backgroundColor: theme.colors.surface,
             borderRadius: theme.radius.xs,
             borderLeftWidth: theme.layout.ruleEmphasis,
-            borderLeftColor: theme.colors.warn,
+            borderLeftColor: theme.colors.accentGraphic,
           }}
         >
           <Row justify="space-between" gap="sm">
-            <Txt variant="label" color={theme.colors.onWarnSoft}>Approval needed</Txt>
-            {deadline !== undefined ? (
-              <Micro testID="agent-ask-countdown" tone={expiryUrgent(deadline, now) ? 'bad' : 'dim'}>
-                {`auto-denies in ${countdown(deadline, now)}`}
-              </Micro>
-            ) : null}
-          </Row>
-          <Txt variant="mono" selectable numberOfLines={showInput ? undefined : 3}>
-            <Txt variant="mono" tone="accent">{pending.tool}</Txt>
-            {pending.detail ? `  ${pending.detail}` : ''}
-          </Txt>
-          {showInput ? (
-            <ScrollView
-              style={{ maxHeight: 140, backgroundColor: theme.colors.surface, borderRadius: theme.radius.xs }}
-              contentContainerStyle={{ padding: theme.space.sm }}
-              nestedScrollEnabled
-            >
-              <Txt variant="monoSmall" tone="dim" selectable>{pending.input}</Txt>
-            </ScrollView>
-          ) : (
-            // The one place a control must not masquerade as a caption: a
-            // bare label here reads as inert, and this card is where the
-            // stakes of missing a control are highest (§11.1's track rule).
+            <Micro tone="dim">Queued — sends when this turn ends</Micro>
             <TrackLabel
-              testID="agent-ask-expand"
-              label="Show full input ▾"
-              accessibilityLabel="Show the full tool input"
-              onPress={() => setShowInput(true)}
+              testID="agent-queue-cancel"
+              label="Cancel"
+              accessibilityLabel="Cancel the queued prompt"
+              onPress={cancelQueued}
               hitSlop={theme.layout.hitSlop}
-              style={{ alignSelf: 'flex-start' }}
-            />
-          )}
-          <Row gap="xs">
-            <Button testID="agent-deny" label="Deny" variant="danger" size="sm" onPress={() => answer(false)} style={{ flex: 1 }} />
-            <Button testID="agent-allow" label="Allow" size="sm" onPress={() => answer(true)} style={{ flex: 1 }} />
-            <Button
-              testID="agent-always"
-              label={`Always ${pending.tool}`}
-              variant="secondary"
-              size="sm"
-              accessibilityHint="Allows this tool for the rest of this session without asking"
-              onPress={() => answer(true, true)}
-              style={{ flex: 1.3 }}
             />
           </Row>
+          <Txt variant="caption" numberOfLines={2} selectable>{queued.text}</Txt>
         </View>
       ) : null}
 
@@ -330,14 +337,33 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
           </View>
           <Button
             testID="agent-send"
-            label="Send"
+            label={composer.sendLabel}
             size="sm"
             onPress={send}
             disabled={!composer.canSend}
             hapticTone="medium"
-            accessibilityLabel="Send the prompt"
+            accessibilityLabel={composer.sendLabel === 'Queue' ? 'Queue the prompt for after this turn' : 'Send the prompt'}
+            accessibilityHint={composer.sendLabel === 'Queue' ? 'Sends automatically when the current turn ends' : undefined}
           />
         </Row>
+        {/* The two levers while Claude works, named for what they do: Queue
+            waits its turn, Interrupt halts the turn so this message steers
+            now. Distinct actions on distinct controls — never a mode switch. */}
+        {composer.showInterrupt ? (
+          <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xs }}>
+            <Micro tone="dim" style={{ flexShrink: 1 }}>Queue waits for this turn · Interrupt halts it and sends now</Micro>
+            <Button
+              testID="agent-interrupt"
+              label="Interrupt"
+              variant="secondary"
+              size="sm"
+              onPress={sendInterrupt}
+              hapticTone="warning"
+              accessibilityLabel="Interrupt with this message"
+              accessibilityHint="Stops the current turn and sends this message instead"
+            />
+          </Row>
+        ) : null}
       </View>
     </KeyboardAvoidingView>
   );

@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 
 import {
   EVENT_CAP, INITIAL_SESSION, ago, appendTranscript, canPrompt, composerControls, groupDiscovered,
-  parseAgentMessage, parseEvent, parseSnapshot, projectName, reduceSession, resultSummary, statusLabel, statusTone,
+  parseAgentMessage, parseEvent, parseSnapshot, projectName, promptMode, reduceSession, resultSummary, statusLabel, statusTone,
 } from './model.ts';
 
 const snapshot = {
@@ -36,7 +36,14 @@ test('parses every message type the host sends', () => {
   assert.deepEqual(parseAgentMessage(msg({ type: 'permission-clear' })), { type: 'permission-clear' });
   assert.deepEqual(parseAgentMessage(msg({ type: 'error', error: 'busy' })), { type: 'error', error: 'busy' });
   const ask = parseAgentMessage(msg({ type: 'permission', request: { id: 'p1', tool: 'Bash', detail: 'rm -rf', input: '{}' } }));
-  assert.deepEqual(ask, { type: 'permission', request: { id: 'p1', tool: 'Bash', detail: 'rm -rf', input: '{}', expiresAt: undefined } });
+  assert.equal(ask.type, 'permission');
+  assert.equal(ask.request.id, 'p1');
+  assert.equal(ask.request.tool, 'Bash');
+  assert.equal(ask.request.expiresAt, undefined);
+  // An old host sends none of the scoped-approval fields; they parse to
+  // absent, and the card falls back to the raw-input rendering.
+  assert.equal(ask.request.risk, undefined);
+  assert.equal(ask.request.preview, undefined);
   // The deadline rides along when the host sends one; junk deadlines are dropped.
   const timed = parseAgentMessage(msg({ type: 'permission', request: { id: 'p2', tool: 'Bash', detail: '', input: '{}', expiresAt: 1234 } }));
   assert.equal(timed.request.expiresAt, 1234);
@@ -98,7 +105,7 @@ test('unchanged status and link actions return the same object', () => {
   assert.equal(t, INITIAL_SESSION);
 });
 
-test('prompting is refused while the host is busy or the link is down', () => {
+test('canPrompt still names "would run immediately" — the queue path is promptMode', () => {
   const open = reduceSession(INITIAL_SESSION, { type: 'link', link: 'open' });
   assert.equal(canPrompt(open), true);
   assert.equal(canPrompt(reduceSession(open, { type: 'message', message: { type: 'status', status: 'running' } })), false);
@@ -169,11 +176,47 @@ test('the composer keyboard exit depends on focus alone, never sendability', () 
   assert.equal(composerControls(false, 'ship it', open).showDismiss, false);
 });
 
-test('send needs real text, an open link and a host that will accept it', () => {
+test('the action button stays live while busy — but its label says Queue, not Send', () => {
   const open = reduceSession(INITIAL_SESSION, { type: 'link', link: 'open' });
   assert.equal(composerControls(true, 'ship it', open).canSend, true);
+  assert.equal(composerControls(true, 'ship it', open).sendLabel, 'Send');
   assert.equal(composerControls(true, '   ', open).canSend, false, 'whitespace is not a prompt');
   const running = reduceSession(open, { type: 'message', message: { type: 'status', status: 'running' } });
-  assert.equal(composerControls(true, 'ship it', running).canSend, false, 'host refuses while busy');
+  // The host queues while busy instead of refusing, so the button must stay
+  // pressable and must not lie about what pressing it does.
+  assert.equal(composerControls(true, 'ship it', running).canSend, true);
+  assert.equal(composerControls(true, 'ship it', running).sendLabel, 'Queue');
+  assert.equal(composerControls(true, 'ship it', running).showInterrupt, true, 'the deliberate halt is offered beside the queue');
+  assert.equal(composerControls(true, '', running).showInterrupt, false, 'no message, nothing to steer with');
+  assert.equal(composerControls(true, 'ship it', open).showInterrupt, false, 'nothing to interrupt when idle');
+  const closed = reduceSession(open, { type: 'link', link: 'closed' });
+  assert.equal(composerControls(true, 'ship it', closed).canSend, false, 'no link, no promise either way');
   assert.equal(composerControls(false, 'ship it', open).canSend, true, 'focus gates the ×, not Send');
+});
+
+test('promptMode names what the action will do', () => {
+  const open = reduceSession(INITIAL_SESSION, { type: 'link', link: 'open' });
+  assert.equal(promptMode(open), 'send');
+  assert.equal(promptMode(reduceSession(open, { type: 'message', message: { type: 'status', status: 'running' } })), 'queue');
+  assert.equal(promptMode(reduceSession(open, { type: 'message', message: { type: 'status', status: 'waiting' } })), 'queue');
+  assert.equal(promptMode(INITIAL_SESSION), null, 'still connecting');
+});
+
+test('queued and grants messages parse, reduce, and survive garbage', () => {
+  const q = parseAgentMessage(msg({ type: 'queued', queued: { id: 'q1', text: 'later' } }));
+  assert.deepEqual(q, { type: 'queued', queued: { id: 'q1', text: 'later' } });
+  assert.deepEqual(parseAgentMessage(msg({ type: 'queued', queued: null })), { type: 'queued', queued: null });
+  assert.deepEqual(parseAgentMessage(msg({ type: 'queued', queued: { id: 42 } })), { type: 'queued', queued: null });
+
+  const g = parseAgentMessage(msg({ type: 'grants', grants: [{ id: 'g1', tool: 'Bash', label: 'Always allow exactly “ls”', createdAt: 5 }, { junk: true }] }));
+  assert.equal(g.grants.length, 1, 'malformed grants are dropped, kept ones intact');
+
+  const open = reduceSession(INITIAL_SESSION, { type: 'link', link: 'open' });
+  const withQ = reduceSession(open, { type: 'message', message: q });
+  assert.equal(withQ.queued.text, 'later');
+  const cleared = reduceSession(withQ, { type: 'message', message: { type: 'queued', queued: null } });
+  assert.equal(cleared.queued, null);
+  const withG = reduceSession(open, { type: 'message', message: g });
+  assert.equal(withG.grants.length, 1);
+  assert.equal(reduceSession(withG, { type: 'message', message: { type: 'grants', grants: [] } }).grants.length, 0, 'revocation empties the chips');
 });

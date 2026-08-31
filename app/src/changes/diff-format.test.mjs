@@ -70,3 +70,55 @@ test('kind words and count badges render for people, not for git', () => {
   assert.equal(countBadge(null, null, true), 'BINARY');
   assert.equal(countBadge(null, null, false), '');
 });
+
+// ---- generated diffs (the approval card's Edit/Write rendering) ------------
+
+import { editDiff, writeDiff, GENERATED_DIFF_CAP } from './diff-format.ts';
+
+test('editDiff turns shared head/tail into context and the middle into remove/add', () => {
+  const oldText = ['keep one', 'old middle', 'keep two'].join('\n');
+  const newText = ['keep one', 'new middle', 'extra line', 'keep two'].join('\n');
+  const { text, capped } = editDiff(oldText, newText);
+  assert.equal(capped, false);
+  assert.deepEqual(text.split('\n'), [
+    ' keep one',
+    '-old middle',
+    '+new middle',
+    '+extra line',
+    ' keep two',
+  ]);
+  // And splitDiff classifies exactly as the card will colour it.
+  const [section] = splitDiff(text);
+  assert.deepEqual(section.lines.map((l) => l.kind), ['context', 'remove', 'add', 'add', 'context']);
+});
+
+test('a context line that itself starts with + or - still reads as context', () => {
+  const oldText = ['+not an add', 'change me'].join('\n');
+  const newText = ['+not an add', 'changed'].join('\n');
+  const [section] = splitDiff(editDiff(oldText, newText).text);
+  assert.equal(section.lines[0].kind, 'context');
+  assert.equal(section.lines[0].text, ' +not an add');
+});
+
+test('identical texts produce context only; a pure append produces adds only', () => {
+  const same = editDiff('a\nb', 'a\nb');
+  assert.ok(!same.text.split('\n').some((l) => l.startsWith('+') || l.startsWith('-')));
+  const appended = editDiff('a', 'a\nb');
+  assert.deepEqual(appended.text.split('\n'), [' a', '+b']);
+});
+
+test('editDiff caps long changes and says so', () => {
+  const oldText = Array.from({ length: 600 }, (_, i) => `old ${i}`).join('\n');
+  const { text, capped } = editDiff(oldText, 'tiny');
+  assert.equal(capped, true);
+  assert.equal(text.split('\n').length, GENERATED_DIFF_CAP);
+});
+
+test('writeDiff renders every line as an addition and caps honestly', () => {
+  const small = writeDiff('one\ntwo');
+  assert.deepEqual(small.text.split('\n'), ['+one', '+two']);
+  assert.equal(small.capped, false);
+  const big = writeDiff(Array.from({ length: 500 }, () => 'x').join('\n'));
+  assert.equal(big.capped, true);
+  assert.equal(big.text.split('\n').length, GENERATED_DIFF_CAP);
+});
