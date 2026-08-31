@@ -1,0 +1,15 @@
+{
+  "name": "tether-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tether desktop client - the paired computer's displays and windows, as windows on this one",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

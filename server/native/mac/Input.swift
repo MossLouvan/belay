@@ -59,6 +59,15 @@ enum MouseButton: String {
 }
 
 /// Which rectangle normalized 0..1 coordinates map onto.
+/// A normalized pointer coordinate together with what it is normalized against.
+///
+/// `window` is a window id from the `windows` command and outranks everything
+/// else: a client showing one window measured against that window and nothing
+/// else. `screen` is an index into the `info` reply's `screens` list. With
+/// neither, the host's InputSpace decides, which is what clients too old to say
+/// anything rely on.
+typealias PointerTarget = (x: Double, y: Double, screen: Int?, window: CGWindowID?)
+
 enum InputSpace: String {
     /// The primary display — matches what `capture` streams by default.
     case primary
@@ -101,9 +110,10 @@ final class InputController {
 
     // MARK: - Mouse
 
-    func move(normalizedX: Double, normalizedY: Double) throws {
+    func move(normalizedX: Double, normalizedY: Double, screen: Int?, window: CGWindowID?) throws {
         try Permissions.require(.accessibility)
-        let point = try globalPoint(normalizedX: normalizedX, normalizedY: normalizedY)
+        let point = try globalPoint(normalizedX: normalizedX, normalizedY: normalizedY,
+                                    screen: screen, window: window)
         // While a button is held the OS needs a drag event, not a plain move,
         // or applications never see the drag at all.
         if let held = heldButtons.first {
@@ -113,7 +123,7 @@ final class InputController {
         }
     }
 
-    func press(_ button: MouseButton, at position: (x: Double, y: Double)?) throws {
+    func press(_ button: MouseButton, at position: PointerTarget?) throws {
         try Permissions.require(.accessibility)
         let point = try resolve(position)
         // Recorded only after the event is actually posted. Inserting first
@@ -124,7 +134,7 @@ final class InputController {
         heldButtons.insert(button)
     }
 
-    func release(_ button: MouseButton, at position: (x: Double, y: Double)?) throws {
+    func release(_ button: MouseButton, at position: PointerTarget?) throws {
         try Permissions.require(.accessibility)
         let point = try resolve(position)
         heldButtons.remove(button)
@@ -149,7 +159,7 @@ final class InputController {
         }
     }
 
-    func click(_ button: MouseButton, at position: (x: Double, y: Double)?, double: Bool) throws {
+    func click(_ button: MouseButton, at position: PointerTarget?, double: Bool) throws {
         try Permissions.require(.accessibility)
         let point = try resolve(position)
         let count = double ? 2 : 1
@@ -273,23 +283,40 @@ final class InputController {
 
     // MARK: - Coordinates
 
-    private func resolve(_ position: (x: Double, y: Double)?) throws -> CGPoint {
+    private func resolve(_ position: PointerTarget?) throws -> CGPoint {
         guard let position else { return currentCursor() }
-        return try globalPoint(normalizedX: position.x, normalizedY: position.y)
+        return try globalPoint(normalizedX: position.x, normalizedY: position.y,
+                               screen: position.screen, window: position.window)
     }
 
     private func currentCursor() -> CGPoint {
         CGEvent(source: nil)?.location ?? .zero
     }
 
-    private func globalPoint(normalizedX: Double, normalizedY: Double) throws -> CGPoint {
+    private func globalPoint(normalizedX: Double, normalizedY: Double,
+                             screen: Int?, window: CGWindowID?) throws -> CGPoint {
         let displays = try Displays.active()
         let rect: CGRect
-        switch InputSpace.configured {
-        case .primary:
-            rect = (try Displays.primary()).bounds
-        case .virtualDesktop:
-            rect = Displays.virtualBounds(displays)
+        if let window, let windowBounds = WindowList.bounds(of: window),
+           windowBounds.width > 0, windowBounds.height > 0 {
+            // A window the client is showing on its own. Falls through to the
+            // monitor rule when the window has closed or has no area, so a
+            // stale id sends the click somewhere harmless rather than mapping
+            // it against a rectangle that now belongs to a different window.
+            rect = windowBounds
+        } else if let selected = screen.flatMap({ Displays.at($0, in: displays) }) {
+            // A client that names a monitor is telling us which rectangle it
+            // normalized against — the one whose frame it is showing. That
+            // outranks the host's InputSpace setting, which exists to answer
+            // the same question for clients too old to say.
+            rect = selected.bounds
+        } else {
+            switch InputSpace.configured {
+            case .primary:
+                rect = (try Displays.primary()).bounds
+            case .virtualDesktop:
+                rect = Displays.virtualBounds(displays)
+            }
         }
         let clampedX = min(max(normalizedX, 0), 1)
         let clampedY = min(max(normalizedY, 0), 1)

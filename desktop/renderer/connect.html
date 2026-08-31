@@ -1,0 +1,50 @@
+<meta charset="utf-8" />
+<!-- No remote origins are ever loaded as documents or scripts here; the only
+     network this page does is fetch/WebSocket to the paired host, which
+     connect-src allows. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src http: https: ws: wss:;" />
+<title>Tether</title>
+<link rel="stylesheet" href="style.css" />
+<body>
+  <main class="pad">
+    <h1>Tether</h1>
+    <p class="muted" id="subtitle">Connect to a computer running the Tether host.</p>
+
+    <section id="pair">
+      <label for="host">Computer address</label>
+      <input id="host" placeholder="192.168.1.20:8787 or mac.local:8787" autocomplete="off" spellcheck="false" />
+      <label for="code">Pairing code shown on that computer</label>
+      <input id="code" placeholder="123456" inputmode="numeric" autocomplete="off" maxlength="8" />
+      <div class="row" style="margin-top:16px">
+        <button class="primary" id="connect">Connect</button>
+        <span class="dim" id="status"></span>
+      </div>
+    </section>
+
+    <section id="paired" hidden>
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <div class="name" id="paired-name"></div>
+          <div class="dim" id="paired-host"></div>
+        </div>
+        <button id="forget">Forget</button>
+      </div>
+      <ul class="displays" id="displays"></ul>
+      <p class="dim" id="hint"></p>
+
+      <div class="row" style="justify-content:space-between; margin-top:22px">
+        <div>
+          <div class="name">Windows</div>
+          <div class="dim">Open one app's window on its own, without the desktop around it.</div>
+        </div>
+        <button id="refresh-windows">Refresh</button>
+      </div>
+      <ul class="displays" id="windows"></ul>
+      <p class="dim" id="windows-hint"></p>
+    </section>
+
+    <div class="error" id="error"></div>
+  </main>
+  <script type="module" src="connect.js"></script>
+</body>

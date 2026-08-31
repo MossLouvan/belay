@@ -1,0 +1,50 @@
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src http: https: ws: wss:;" />
+<title>Tether window</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* Frameless: the remote window's own title bar is in the stream, so this
+     window has none of its own. */
+  body { background: #000; overflow: hidden; }
+  #screen { display: block; width: 100vw; height: 100vh; cursor: default; }
+
+  /* A drag strip over the top edge, so grabbing the remote title bar moves the
+     local window — the first thing anyone tries. It sits above the canvas and
+     therefore swallows clicks there, which is why it is thin: 28px is a title
+     bar, and everything below it still reaches the remote window. Alt+drag is
+     offered for windows whose own controls live in that strip. */
+  #drag {
+    position: fixed; top: 0; left: 0; right: 92px; height: 28px;
+    -webkit-app-region: drag;
+  }
+  #chrome {
+    position: fixed; top: 0; right: 0; height: 28px;
+    display: flex; align-items: center; gap: 2px; padding: 0 4px;
+    -webkit-app-region: no-drag;
+    opacity: 0; transition: opacity 120ms ease;
+  }
+  body:hover #chrome { opacity: 1; }
+  #chrome button {
+    width: 26px; height: 22px; padding: 0; line-height: 1;
+    border-radius: 5px; border: 1px solid var(--line);
+    background: rgba(16, 16, 20, 0.9); color: var(--text); font-size: 12px;
+  }
+  #chrome button:hover { background: var(--panel); }
+  #status {
+    position: fixed; left: 0; bottom: 0; padding: 3px 8px; font-size: 11px;
+    color: var(--muted); background: rgba(16, 16, 20, 0.82);
+    border-top-right-radius: 6px; pointer-events: none;
+  }
+  #status:empty { display: none; }
+</style>
+<body>
+  <canvas id="screen"></canvas>
+  <div id="drag"></div>
+  <div id="chrome">
+    <button id="raise" title="Bring this window to the front on the host">↑</button>
+    <button id="close" title="Close this local window (the remote window stays open)">✕</button>
+  </div>
+  <div id="status"></div>
+  <script type="module" src="seamless.js"></script>
+</body>

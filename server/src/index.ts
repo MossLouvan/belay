@@ -23,6 +23,8 @@ import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
 import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-params.js';
 import { native } from './native.js';
+import { classifyScreens } from './displays.js';
+import { openableWindows, sanitizeWindows, windowIdOf } from './windows.js';
 import { createTerminal } from './terminal.js';
 import { listDir, readTextFile, ROOTS } from './files.js';
 import { getStats } from './system.js';
@@ -323,14 +325,49 @@ app.get('/files/read', auth, async (req, res) => {
 });
 
 app.get('/screen/info', auth, async (_req, res) => {
-  try { res.json(await native.info()); }
+  // Classified on the way out rather than in the helper: which monitors are
+  // virtual is a string heuristic that gets corrected as new display drivers
+  // appear, and this way correcting it needs no native rebuild. See displays.ts.
+  try { res.json(classifyScreens(await native.info())); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-// Input. Coordinates arrive normalized 0..1 against the monitor the phone is
-// viewing — `screen` names that monitor (an index from /screen/info); absent
-// means the primary. The native helper maps 0..1 onto that same monitor's
+// Seamless windows: the host's individual windows, each streamable into a
+// window of the client's own. Only the Windows helper implements these; on a
+// host whose helper does not, the call fails and the client shows the reason
+// rather than an empty list it cannot explain.
+app.get('/windows', auth, async (_req, res) => {
+  try {
+    const reply = await native.windows();
+    const windows = sanitizeWindows(reply?.windows);
+    res.json({ windows, openable: openableWindows(windows).map((w) => w.id) });
+  } catch (e: any) {
+    res.status(501).json({ error: `this host cannot list windows: ${e.message}` });
+  }
+});
+
+// Raising a window is its own call rather than a side effect of connecting:
+// the client raises on click, and a stream that raised on every frame would
+// fight the user for the foreground.
+app.post('/windows/focus', auth, async (req, res) => {
+  const window = windowIdOf(req.body?.window);
+  if (!window) { res.status(400).json({ error: 'a window handle is required' }); return; }
+  try {
+    const reply = await native.focusWindow(window);
+    // `focused: false` is a real outcome, not an error: Windows refuses
+    // foreground changes from a process that does not own the foreground.
+    res.json({ ok: true, focused: reply?.focused === true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Input. Coordinates arrive normalized 0..1 against whatever the client is
+// showing, and the client says what that was: `window` (a handle from
+// /windows) for a single remote window, or `screen` (an index from
+// /screen/info) for a whole monitor. The helper maps 0..1 onto that same
 // rectangle, which is what keeps taps landing on the pixels the frame showed.
+// Neither means the primary monitor, exactly as before both existed.
 app.post('/input/click', auth, async (req, res) => {
   try {
     const { x, y, button = 'left', double = false, mods = [] } = req.body || {};
@@ -339,13 +376,16 @@ app.post('/input/click', auth, async (req, res) => {
     const modVks = (Array.isArray(mods) ? mods : [])
       .map((m) => MOD_VK[String(m).toLowerCase()])
       .filter((v): v is number => !!v);
-    await native.click(button, x, y, double, screenIndexOf(req.body?.screen), modVks);
+    await native.click(button, x, y, double, screenIndexOf(req.body?.screen), modVks, windowIdOf(req.body?.window));
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/input/move', auth, async (req, res) => {
-  try { await native.move(req.body.x, req.body.y, screenIndexOf(req.body?.screen)); res.json({ ok: true }); }
+  try {
+    await native.move(req.body.x, req.body.y, screenIndexOf(req.body?.screen), windowIdOf(req.body?.window));
+    res.json({ ok: true });
+  }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -361,9 +401,10 @@ app.post('/input/drag', auth, async (req, res) => {
   try {
     const { x1, y1, x2, y2, button = 'left' } = req.body || {};
     const screen = screenIndexOf(req.body?.screen);
-    await native.down(button, x1, y1, screen);
-    await native.move(x2, y2, screen);
-    await native.up(button, x2, y2, screen);
+    const window = windowIdOf(req.body?.window);
+    await native.down(button, x1, y1, screen, window);
+    await native.move(x2, y2, screen, window);
+    await native.up(button, x2, y2, screen, window);
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -548,6 +589,8 @@ server.on('upgrade', (req, socket, head) => {
 
   if (url.pathname === '/ws/screen') {
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleScreen(ws, url); });
+  } else if (url.pathname === '/ws/window') {
+    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleWindow(ws, url); });
   } else if (url.pathname === '/ws/terminal') {
     // handleTerminal is async; an unhandled rejection here would exit the
     // process under Node's default policy, so the promise is explicitly caught.
@@ -569,6 +612,83 @@ server.on('upgrade', (req, socket, head) => {
 // Screen stream: capture-encode-send in a self-scheduling loop. The next frame
 // is only requested after the previous one is sent, so a slow link naturally
 // lowers the frame rate instead of piling up a backlog.
+/**
+ * Stream one window of the host into a client window of its own.
+ *
+ * Nearly the same loop as `handleScreen`, deliberately kept separate rather
+ * than merged behind a flag: the two differ in what a frame *is*. A monitor is
+ * always there and always the same size, so a screen frame is only pixels. A
+ * window moves, resizes, gets minimized, is renamed and eventually closes — so
+ * every frame here carries the window's current rectangle and title, and the
+ * stream ends when the window does. Folding that into the screen loop would put
+ * a window-shaped conditional in every line of it.
+ */
+function handleWindow(ws: WebSocket, url: URL) {
+  const window = windowIdOf(url.searchParams.get('window'));
+  if (!window) {
+    ws.send(JSON.stringify({ type: 'error', error: 'a window handle is required' }));
+    ws.close();
+    return;
+  }
+
+  let alive = true;
+  let params: StreamParams = resolveStreamParams({
+    w: url.searchParams.get('w'),
+    q: url.searchParams.get('q'),
+    fps: url.searchParams.get('fps'),
+  });
+
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      if (msg?.type === 'config') params = resolveStreamParams(msg, params);
+    } catch { /* ignore malformed control messages */ }
+  });
+  ws.on('close', () => { alive = false; });
+  ws.on('error', () => { alive = false; });
+
+  // A window that has closed makes every subsequent capture fail identically.
+  // Rather than retry a dead handle until the client gives up, the stream ends
+  // and says why — the client closes its local window, which is the honest
+  // reflection of what happened on the host.
+  let consecutiveErrors = 0;
+  const MAX_CONSECUTIVE_ERRORS = 3;
+
+  const loop = async () => {
+    while (alive && ws.readyState === ws.OPEN) {
+      const started = Date.now();
+      try {
+        const frame = await native.captureWindow(window, params.width, params.quality);
+        consecutiveErrors = 0;
+        if (!alive) break;
+        if (ws.bufferedAmount > MAX_BUFFERED_BYTES) {
+          await sleep(FRAME_DROP_BACKOFF_MS);
+          continue;
+        }
+        ws.send(JSON.stringify({ type: 'frame', ...frame }));
+      } catch (e: unknown) {
+        consecutiveErrors += 1;
+        if (alive && ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: consecutiveErrors >= MAX_CONSECUTIVE_ERRORS ? 'gone' : 'error',
+            error: messageOf(e),
+          }));
+        }
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          alive = false;
+          ws.close();
+          break;
+        }
+        await sleep(CAPTURE_ERROR_BACKOFF_MS);
+      }
+      const budget = 1000 / params.fps;
+      const elapsed = Date.now() - started;
+      if (elapsed < budget) await sleep(budget - elapsed);
+    }
+  };
+  void loop().catch((e: unknown) => console.error('[window] stream loop failed:', messageOf(e)));
+}
+
 function handleScreen(ws: WebSocket, url: URL) {
   let alive = true;
   // Query string and control message go through the same validation. Both are

@@ -15,6 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { backoffDelay, isHealthyRun } from './backoff.js';
+import type { RawScreen } from './displays.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const NATIVE_DIR = join(__dirname, '..', 'native');
@@ -84,12 +85,36 @@ export interface ScreenInfo {
   virtual: { X: number; Y: number; W: number; H: number };
   /**
    * Every monitor, in the helper's stable index order. `index` is what the
-   * phone passes back as `screen` so capture and input target the same
+   * client passes back as `screen` so capture and input target the same
    * monitor. Absent from helpers older than the multi-monitor fix.
+   *
+   * Carries the OS's identity strings for each display but no verdict about
+   * them: `/screen/info` runs these through `classifyScreens` before they
+   * reach a client.
    */
-  screens?: { index: number; X: number; Y: number; W: number; H: number; primary: boolean }[];
+  screens?: RawScreen[];
   /** macOS only: whether the two TCC grants the helper needs are in place. */
   permissions?: { screenRecording: boolean; accessibility: boolean };
+}
+
+/**
+ * A frame of one window, plus where that window now is.
+ *
+ * The rectangle rides along with every frame because it is the only signal a
+ * seamless client gets that the user dragged or resized the window on the host.
+ * `hidden` replaces the pixels when the window is minimized: there is nothing
+ * to print, and a black frame would be drawn faithfully as a black window.
+ */
+export interface WindowFrame {
+  data?: string;
+  w?: number;
+  h?: number;
+  sw?: number;
+  sh?: number;
+  bytes?: number;
+  hidden?: boolean;
+  title?: string;
+  rect: { X: number; Y: number; W: number; H: number };
 }
 
 export interface Frame {
@@ -263,11 +288,43 @@ class NativeHost {
     return this.send<Frame>({ cmd: 'capture', w, q, virtual, screen });
   }
 
-  move(x: number, y: number, screen?: number) { return this.send({ cmd: 'move', x, y, screen }); }
-  down(button: string, x?: number, y?: number, screen?: number) { return this.send({ cmd: 'down', button, x, y, screen }); }
-  up(button: string, x?: number, y?: number, screen?: number) { return this.send({ cmd: 'up', button, x, y, screen }); }
-  click(button: string, x?: number, y?: number, double = false, screen?: number, mods?: number[]) {
-    return this.send({ cmd: 'click', button, x, y, double, screen, mods });
+  /**
+   * The rectangle a pointer coordinate is normalized against.
+   *
+   * A `window` handle outranks a `screen` index in the helper, because a client
+   * showing one window normalized against that window and nothing else. Both
+   * are optional: with neither, the helper uses its primary monitor exactly as
+   * it always has.
+   */
+  move(x: number, y: number, screen?: number, window?: string) {
+    return this.send({ cmd: 'move', x, y, screen, window });
+  }
+  down(button: string, x?: number, y?: number, screen?: number, window?: string) {
+    return this.send({ cmd: 'down', button, x, y, screen, window });
+  }
+  up(button: string, x?: number, y?: number, screen?: number, window?: string) {
+    return this.send({ cmd: 'up', button, x, y, screen, window });
+  }
+  click(button: string, x?: number, y?: number, double = false, screen?: number, mods?: number[], window?: string) {
+    return this.send({ cmd: 'click', button, x, y, double, screen, mods, window });
+  }
+
+  // ---- Seamless windows -------------------------------------------------
+  //
+  // Enumerate, capture and raise individual windows on the host, so a client
+  // can show one remote window in a local window of its own rather than a whole
+  // desktop. Only the Windows helper implements these today; the macOS helper
+  // answers `unknown command`, which surfaces as a plain error the client turns
+  // into "this host cannot do seamless windows yet".
+
+  windows(): Promise<{ windows?: unknown }> { return this.send({ cmd: 'windows' }); }
+
+  captureWindow(window: string, w: number, q: number): Promise<WindowFrame> {
+    return this.send<WindowFrame>({ cmd: 'capturewindow', window, w, q });
+  }
+
+  focusWindow(window: string): Promise<{ focused?: boolean }> {
+    return this.send({ cmd: 'focuswindow', window });
   }
   scroll(dy: number, dx: number) { return this.send({ cmd: 'scroll', dy, dx }); }
   key(vk: number, mods: number[] = []) { return this.send({ cmd: 'key', vk, mods }); }

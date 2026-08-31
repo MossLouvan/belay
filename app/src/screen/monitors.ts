@@ -29,6 +29,10 @@ export interface MonitorChoice {
   readonly primary: boolean;
   readonly w: number;
   readonly h: number;
+  /** Host's verdict that this display is a driver-synthesized one. */
+  readonly virtual: boolean;
+  /** Host-supplied name, or '' when the host is too old to send one. */
+  readonly name: string;
 }
 
 /**
@@ -45,7 +49,10 @@ export function screensOf(info: Pick<ScreenInfo, 'screens'> | null): MonitorChoi
   const out: MonitorChoice[] = [];
   for (const entry of raw) {
     if (typeof entry !== 'object' || entry === null) continue;
-    const { index, primary, W, H } = entry as { index?: unknown; primary?: unknown; W?: unknown; H?: unknown };
+    const { index, primary, W, H, virtualDisplay, label } = entry as {
+      index?: unknown; primary?: unknown; W?: unknown; H?: unknown;
+      virtualDisplay?: unknown; label?: unknown;
+    };
     if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) continue;
     if (out.some((s) => s.index === index)) continue; // duplicates are hostile
     out.push({
@@ -53,6 +60,10 @@ export function screensOf(info: Pick<ScreenInfo, 'screens'> | null): MonitorChoi
       primary: primary === true,
       w: typeof W === 'number' && Number.isFinite(W) && W > 0 ? W : 0,
       h: typeof H === 'number' && Number.isFinite(H) && H > 0 ? H : 0,
+      // Both default to "no claim": an old host says nothing about either, and
+      // a monitor with no name must not be described as virtual by omission.
+      virtual: virtualDisplay === true,
+      name: typeof label === 'string' ? label.slice(0, 64) : '',
     });
   }
   return out;
@@ -99,4 +110,25 @@ export function nextScreenIndex(
 /** Short human label for the switcher: 1-based, primary marked. */
 export function monitorLabel(screen: MonitorChoice): string {
   return `${screen.index + 1}${screen.primary ? ' (main)' : ''}`;
+}
+
+/**
+ * The full name for a picker with room for one: "2 · Virtual Display".
+ *
+ * Falls back to the terse switcher label when the host sent no name, so this is
+ * safe to use everywhere rather than only against new hosts.
+ */
+export function monitorDescription(screen: MonitorChoice): string {
+  const suffix = screen.name || (screen.virtual ? 'Virtual display' : '');
+  return suffix ? `${monitorLabel(screen)} · ${suffix}` : monitorLabel(screen);
+}
+
+/**
+ * The virtual display to hand a desktop client, if the host has one.
+ *
+ * The first is enough: a host with two virtual displays is already an
+ * unusual setup, and picking between them is the user's call, not a default's.
+ */
+export function virtualScreen(screens: readonly MonitorChoice[]): MonitorChoice | undefined {
+  return screens.find((s) => s.virtual);
 }

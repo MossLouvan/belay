@@ -8,7 +8,9 @@ if (-not (Test-Path $csc)) {
 }
 if (-not (Test-Path $csc)) { throw "csc.exe not found. Install the .NET Framework or run with the dotnet SDK." }
 
-$src = Join-Path $here 'TetherHost.cs'
+# Every source in the helper, compiled in one csc invocation.
+$src = @('TetherHost.cs', 'TetherHostDisplays.cs', 'TetherHostWindows.cs') | ForEach-Object { Join-Path $here $_ }
+foreach ($f in $src) { if (-not (Test-Path $f)) { throw "missing source: $f" } }
 $out = Join-Path $here 'TetherHost.exe'
 
 $refs = @(
@@ -18,6 +20,6 @@ $refs = @(
     'System.Web.Extensions.dll'
 ) | ForEach-Object { "/r:$_" }
 
-& $csc /nologo /target:exe /platform:x64 /optimize+ /out:"$out" $refs "$src"
+& $csc /nologo /target:exe /platform:x64 /optimize+ /out:"$out" $refs $src
 if ($LASTEXITCODE -ne 0) { throw "csc failed with exit code $LASTEXITCODE" }
 Write-Host "Built $out"

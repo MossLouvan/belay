@@ -22,6 +22,13 @@ server/              Node host agent (TypeScript) — runs on macOS and Windows
   native/            the screen-capture + input helper, one per platform
   test/              node:test unit tests (parsers, path confinement, shell)
 
+desktop/             Electron client — the host's displays as windows on
+                     another computer
+  main.js            windows, IPC, aspect-ratio locking
+  preload.cjs        the renderer's only privileged surface
+  renderer/          connect (pair + display list) and display (stream + input)
+  src/               session storage, display choice, key mapping, URL parsing
+
 tests/               Playwright suite driving the web build
 ```
 
@@ -33,7 +40,14 @@ tests/               Playwright suite driving the web build
   display, scales it, JPEG-encodes it, and streams frames. The loop is
   self-pacing — it only grabs the next frame after the current one is sent, so a
   slow link lowers the frame rate instead of building a backlog.
+- **WebSocket `/ws/window`** for one window of the host, streamed into a window
+  of the client's own. Same frames as `/ws/screen` plus the window's current
+  rectangle and title, which is the only way a client learns the window moved,
+  resized or was renamed. See [SEAMLESS-WINDOWS.md](SEAMLESS-WINDOWS.md).
 - **WebSocket `/ws/terminal`** for the shell: bytes in both directions.
+
+Both clients — the phone app and the desktop client — speak this same API.
+Nothing on the host is desktop-specific.
 
 ## Platform layer
 
@@ -48,10 +62,34 @@ platform paths intact:
 | OS name (`osinfo.ts`) | `sw_vers` → "macOS 26.3.1" instead of the kernel version `25.3.0` | `"Windows " + os.release()` |
 | Battery (`osinfo.ts`) | `pmset -g batt`, cached for 5s | not reported (`null`) |
 | Native helper build | `npm run build:native:mac` | `npm run build:native:win` |
+| Window enumeration + capture | `CGWindowListCopyWindowInfo` (layer 0 only), `CGWindowListCreateImage` with `.optionIncludingWindow`, raise through AXUIElement | `EnumWindows` (Z order), DWM `EXTENDED_FRAME_BOUNDS`, `PrintWindow(PW_RENDERFULLCONTENT)`, raise through `SetForegroundWindow` |
+| Display identity (`displays.ts`) | `NSScreen.localizedName` + `CGDisplayIsBuiltin`; virtual displays recognised by name | `EnumDisplayDevices` at adapter and monitor level; a software display enumerates under `ROOT#` rather than `DISPLAY#` |
 
 `npm run build:native` dispatches on `process.platform`. Every probe resolves to
 `null` on failure rather than throwing, and logs the reason once, so a broken
 platform tool degrades one Status card instead of the whole payload.
+
+## Displays
+
+Each helper reports every monitor in a stable index order, and the client passes
+that index back as `screen` on both capture and input — which is what keeps the
+frame someone is looking at and the pixels their click lands on the same ones.
+
+Alongside geometry the helpers report *identity*: the adapter, the monitor name
+and the OS device path. They classify none of it. `src/displays.ts` turns those
+strings into `virtualDisplay` and a human `label` on the way out of
+`/screen/info`, because "is this a virtual display?" is a heuristic that needs
+correcting as new display drivers appear, and correcting it there costs a server
+restart rather than a native rebuild on two platforms. See
+[VIRTUAL-MONITOR.md](VIRTUAL-MONITOR.md).
+
+## Seamless windows
+
+`windows` / `capturewindow` / `focuswindow` are the per-window counterparts of
+`info` / `capture` / input. `src/windows.ts` validates the handles (digits only,
+never zero — zero means "every window" to CoreGraphics and "no window" to Win32)
+and shapes the helper's answers. The rest is documented in
+[SEAMLESS-WINDOWS.md](SEAMLESS-WINDOWS.md).
 
 ## The native helper
 
@@ -114,4 +152,10 @@ the host's resolution.
   VideoToolbox on macOS).
 - Two-finger scroll and pinch on the screen surface.
 - Optional clipboard sync.
-- Multi-monitor picker (the host already reports virtual-desktop geometry).
+- Seamless windows follow the host's window *position* as well as its size, for
+  users who want the two desktops laid out alike.
+- Window-event hooks (WinEvent / AX notifications) so the window list updates
+  itself instead of being refreshed by hand.
+- ScreenCaptureKit's `SCScreenshotManager` for macOS window capture, once a
+  macOS 14 deployment target is acceptable — `CGWindowListCreateImage` is
+  deprecated, though it still works.
