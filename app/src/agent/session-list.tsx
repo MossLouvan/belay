@@ -13,8 +13,9 @@ import { api } from '../api';
 import type { AgentProject, AgentSessionMeta, DiscoveredSession } from '../api';
 import { useTheme } from '../theme';
 import {
-  Badge, Banner, Button, Caption, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, Txt, haptic,
+  Badge, Banner, Button, Caption, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, TrackLabel, Txt, haptic,
 } from '../ui';
+import { formatAsOf } from '../files-format';
 import { ago, groupDiscovered, statusLabel, statusTone } from './model';
 import { askSummary, countdown } from './attention';
 import { refreshAttention, useAgentAttention } from './attention-store';
@@ -24,47 +25,6 @@ const messageOf = (e: unknown, fallback: string): string => (e instanceof Error 
 
 interface Availability {
   readonly available: boolean;
-  readonly transcribe: boolean;
-}
-
-/** A quiet chrome action: the wide-tracked mono label as its own button. */
-function LabelButton({
-  label,
-  onPress,
-  tone = 'accent',
-  disabled,
-  testID,
-  accessibilityLabel,
-}: {
-  label: string;
-  onPress: () => void;
-  tone?: 'accent' | 'dim';
-  disabled?: boolean;
-  testID?: string;
-  accessibilityLabel?: string;
-}) {
-  const theme = useTheme();
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityState={{ disabled: Boolean(disabled) }}
-      disabled={disabled}
-      onPress={() => {
-        haptic('light');
-        onPress();
-      }}
-      hitSlop={theme.layout.hitSlop}
-      style={({ pressed }) => ({
-        minHeight: theme.space.xl,
-        justifyContent: 'center',
-        opacity: disabled ? 0.45 : pressed ? theme.motion.pressOpacity : 1,
-      })}
-    >
-      <Label tone={disabled ? 'dim' : tone} style={{ marginBottom: 0 }}>{label}</Label>
-    </Pressable>
-  );
 }
 
 // --- session list ------------------------------------------------------------
@@ -177,7 +137,13 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
       <Txt variant="title" heading>Agent</Txt>
       <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
         <Dot status={error || pollError ? 'bad' : 'good'} size={7} />
-        <Label style={{ marginBottom: 0 }}>{error || pollError ? 'Host not answering' : 'Host connected'}</Label>
+        {/* The freshness stamp is the visible twin of pull-to-refresh (audit
+            3.3): it proves the rows below are live — the attention store polls
+            while this screen is up — and dates them honestly when they stop
+            being so. */}
+        <Label style={{ marginBottom: 0 }}>
+          {(error || pollError ? 'Host not answering' : 'Host connected') + (fetchedAt ? ` · ${formatAsOf(fetchedAt)}` : '')}
+        </Label>
       </Row>
       <Rule bleed={margin} style={{ marginTop: theme.space.md, marginBottom: theme.space.lg }} />
 
@@ -200,11 +166,12 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
         bleed={margin}
         rule={false}
         trailing={
-          <LabelButton
+          <TrackLabel
             testID="agent-new"
             label="+ New session"
             onPress={() => setPicking(true)}
             disabled={unavailable}
+            inks={{ restLabel: theme.colors.accent }}
           />
         }
       >
@@ -413,7 +380,7 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
     >
       <Row justify="space-between" align="flex-end" gap="sm">
         <Txt variant="title" heading>New session</Txt>
-        <LabelButton testID="agent-cancel" label="Cancel" tone="dim" onPress={onCancel} />
+        <TrackLabel testID="agent-cancel" label="Cancel" onPress={onCancel} />
       </Row>
       <Label style={{ marginTop: theme.space.xxs, marginBottom: 0 }}>Pick where Claude works</Label>
       <Rule bleed={margin} style={{ marginTop: theme.space.md, marginBottom: theme.space.lg }} />
@@ -465,7 +432,12 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
             bleed={margin}
             rule={false}
             trailing={
-              <LabelButton testID="agent-create-project" label="+ New project" onPress={() => setCreating(true)} />
+              <TrackLabel
+                testID="agent-create-project"
+                label="+ New project"
+                onPress={() => setCreating(true)}
+                inks={{ restLabel: theme.colors.accent }}
+              />
             }
           >
             <Rule bleed={margin} />

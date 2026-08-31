@@ -15,7 +15,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
     "autostart": "node -e \"const cp=require('node:child_process');const p=process.platform;const a=process.argv.slice(1);if(p==='darwin'){cp.execFileSync('/bin/bash',['scripts/autostart-macos.sh',...a],{stdio:'inherit'})}else if(p==='win32'){cp.execFileSync('powershell',['-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/autostart-windows.ps1','-Action',a[0]||'install'],{stdio:'inherit'})}else{console.error('[autostart] no recipe for '+p);process.exit(1)}\" --",
-    "setup:whisper": "node scripts/setup-whisper.mjs",
     "sessions": "node scripts/list-sessions.mjs"
   },
   "dependencies": {

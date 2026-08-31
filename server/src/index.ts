@@ -39,7 +39,6 @@ import {
 } from './agent.js';
 import { createProject, defaultProjectParent } from './projects.js';
 import { discoverSessions } from './discover.js';
-import { transcribe, transcribeStatus } from './transcribe.js';
 
 const PORT = Number(process.env.TETHER_PORT || 8787);
 
@@ -516,7 +515,7 @@ app.post('/devices/revoke', auth, (req, res) => {
 // (approval-mcp.cjs) back to the phone — see docs/AGENT.md.
 
 app.get('/agent/status', auth, (_req, res) => {
-  res.json({ available: agentAvailable(), transcribe: transcribeStatus().ready });
+  res.json({ available: agentAvailable() });
 });
 
 // `defaultParent` rides along so the phone can pre-fill the "where" of its
@@ -599,28 +598,6 @@ app.post('/agent/approval-request', (req, res) => {
   requestApproval(String(session || ''), String(key || ''), String(toolName || 'unknown'), input)
     .then((verdict) => res.json(verdict))
     .catch(() => res.json({ allow: false, message: 'approval failed' }));
-});
-
-// ---- voice ----------------------------------------------------------------
-
-const rawAudio = express.raw({ type: () => true, limit: '12mb' });
-
-app.get('/transcribe/status', auth, (_req, res) => res.json(transcribeStatus()));
-
-app.post('/transcribe', auth, rawAudio, async (req, res) => {
-  try { res.json({ text: await transcribe(req.body as Buffer) }); }
-  catch (e: any) { res.status(400).json({ error: e.message }); }
-});
-
-// Global dictation: transcribe, then type the text into whatever is focused
-// on this machine. Bounded like /input/text — a transcript is never long
-// enough to hit the limit, but the guarantee is the same either way.
-app.post('/dictate', auth, rawAudio, async (req, res) => {
-  try {
-    const text = (await transcribe(req.body as Buffer)).slice(0, MAX_INPUT_TEXT_UNITS);
-    if (text) await native.text(text);
-    res.json({ text, typed: !!text });
-  } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 // ---- server + websockets -------------------------------------------------
@@ -957,7 +934,6 @@ server.listen(PORT, () => {
     platform: getPlatform(),
   });
   console.log(`  Agent     : ${agentAvailable() ? 'claude CLI found' : 'claude CLI not on PATH — Agent tab disabled'}`);
-  console.log(`  Voice     : ${transcribeStatus().ready ? 'whisper ready' : 'not set up — run: npm run setup:whisper'}`);
   console.log('');
 });
 

@@ -18,7 +18,8 @@
           "NSAllowsArbitraryLoads": true
         },
         "NSCameraUsageDescription": "Tether uses the camera only to scan the pairing code shown on your computer.",
-        "NSMicrophoneUsageDescription": "Tether records while you hold the mic so your words can be transcribed on your own computer and sent to Claude or typed there."
+        "NSMicrophoneUsageDescription": "Tether listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
+        "NSSpeechRecognitionUsageDescription": "Tether turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device."
       }
     },
     "android": {
@@ -62,10 +63,10 @@
       ],
       "expo-secure-store",
       [
-        "expo-audio",
+        "expo-speech-recognition",
         {
-          "microphonePermission": "Tether records while you hold the mic so your words can be transcribed on your own computer and sent to Claude or typed there.",
-          "recordAudioAndroid": false
+          "microphonePermission": "Tether listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
+          "speechRecognitionPermission": "Tether turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device."
         }
       ]
     ],

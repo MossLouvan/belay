@@ -34,12 +34,13 @@ Tailscale — with every action gated on an Allow/Deny tap.
 ## Setup
 
 1. Install Claude Code on the PC and make sure `claude` is on PATH.
-2. (Voice) `cd server && npm run setup:whisper` — downloads a prebuilt
-   whisper.cpp binary and the `ggml-base.en` model (~142 MB) into
-   `server/whisper/`. Override with `TETHER_WHISPER_CLI` /
-   `TETHER_WHISPER_MODEL` if you already have whisper.cpp somewhere.
-3. Restart the host. The boot banner shows `Agent: claude CLI found` and
-   `Voice: whisper ready` when both are good.
+2. Restart the host. The boot banner shows `Agent: claude CLI found` when it
+   is ready.
+
+Voice needs nothing on the computer. Hold-to-talk recognises speech on the
+phone through Apple's Speech framework, so there is no model to download and
+the audio never leaves the device — it only asks for the microphone and speech
+recognition permissions the first time you press it.
 
 ## Using it
 

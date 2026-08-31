@@ -13,7 +13,7 @@ import { useTheme } from '../theme';
 import { Banner, Button, Caption, Dot, Label, Micro, Row, Rule, Txt } from '../ui';
 import { countdown, expiryUrgent } from './attention';
 import { EventRow } from './feed';
-import { MicButton, useVoice } from './mic';
+import { MicButton, openVoiceSettings, useVoice } from './mic';
 import { appendTranscript, canPrompt, isBusy, statusLabel, statusTone } from './model';
 import { useAgentSession } from './session';
 
@@ -29,9 +29,23 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   const [input, setInput] = useState('');
   const [showInput, setShowInput] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const composerRef = useRef<TextInput>(null);
 
-  const onTranscript = useCallback((text: string) => setInput((prev) => appendTranscript(prev, text)), []);
-  const voice = useVoice('/transcribe', onTranscript, setNote);
+  // Voice streams the utterance's whole text on every interim result, so the
+  // composer shows words as they are spoken. The base is what was typed before
+  // the hold began: each callback replaces only the dictated tail, never the
+  // user's own text.
+  const voiceBase = useRef('');
+  const inputNow = useRef(input);
+  inputNow.current = input;
+  const onTranscript = useCallback((text: string) => {
+    setInput(appendTranscript(voiceBase.current, text));
+  }, []);
+  const voice = useVoice(onTranscript, setNote);
+  const beginTalk = useCallback(() => {
+    voiceBase.current = inputNow.current;
+    voice.start();
+  }, [voice.start]);
 
   const send = useCallback(() => {
     const text = input.trim();
@@ -42,6 +56,9 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     }
     prompt(text);
     setInput('');
+    // After sending from a phone you want the reply, not the keyboard — and a
+    // multiline composer has no Done key, so Send is its one visible exit.
+    composerRef.current?.blur();
   }, [input, link, prompt, session, setNote]);
 
   // The approval clock: ticks each second only while an ask has a deadline,
@@ -63,7 +80,7 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   }, [approve, pending]);
 
   const busy = isBusy(status);
-  const recording = voice.state === 'recording';
+  const listening = voice.state === 'listening' || voice.state === 'starting';
   const margin = theme.layout.margin;
   const tone = statusTone(status);
 
@@ -212,19 +229,28 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
       ) : null}
 
       {note && link === 'open' ? (
-        <Banner testID="agent-note" status="warn" message={note} style={{ marginHorizontal: margin, marginBottom: theme.space.xs }} />
+        <Banner
+          testID="agent-note"
+          status="warn"
+          message={note}
+          // A denied permission can only be fixed in the Settings app, so the
+          // banner carries the door rather than leaving a dead-end error line.
+          action={voice.needsSettings ? { label: 'Open Settings', onPress: openVoiceSettings } : undefined}
+          style={{ marginHorizontal: margin, marginBottom: theme.space.xs }}
+        />
       ) : null}
 
       <Rule />
       <View style={{ paddingHorizontal: margin, paddingVertical: theme.space.sm }}>
         <Row gap="sm" align="flex-end">
-          <MicButton testID="agent-mic" state={voice.state} onPressIn={voice.start} onPressOut={voice.stop} disabled={link !== 'open'} />
+          <MicButton testID="agent-mic" state={voice.state} onStart={beginTalk} onStop={voice.stop} disabled={link !== 'open'} />
           <TextInput
+            ref={composerRef}
             testID="agent-input"
             value={input}
             onChangeText={setInput}
-            placeholder={recording ? 'Listening…' : link === 'open' ? 'Tell Claude what to do…' : 'Not connected'}
-            placeholderTextColor={recording ? theme.colors.accent : theme.colors.textFaint}
+            placeholder={listening ? 'Listening…' : link === 'open' ? 'Tell Claude what to do…' : 'Not connected'}
+            placeholderTextColor={listening ? theme.colors.accent : theme.colors.textFaint}
             multiline
             accessibilityLabel="Prompt for Claude"
             maxFontSizeMultiplier={1.4}
@@ -234,8 +260,8 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
               minHeight: theme.layout.minTouch,
               backgroundColor: theme.colors.surface,
               borderRadius: theme.radius.xs,
-              borderWidth: recording ? theme.layout.ruleEmphasis : theme.layout.hairline,
-              borderColor: recording ? theme.colors.focus : theme.colors.border,
+              borderWidth: listening ? theme.layout.ruleEmphasis : theme.layout.hairline,
+              borderColor: listening ? theme.colors.focus : theme.colors.border,
               color: theme.colors.text,
               paddingHorizontal: theme.space.sm,
               paddingVertical: theme.space.sm,

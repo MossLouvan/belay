@@ -316,9 +316,8 @@ regardless.
 | `TETHER_TAILNET_PAIR` | `1` | Pair without a code for devices on the host's own Tailscale account (`0` to always require the code) |
 | `TETHER_TAILSCALE_CLI` | auto | Path to the `tailscale` CLI if it is somewhere unusual |
 | `TETHER_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |
-| `TETHER_WHISPER_LANG` | `en` | Language passed to whisper for voice prompts |
 | `TETHER_TEST_CODE` | *(unset)* | Fixed pairing code for the Playwright suite; ignored when `NODE_ENV=production` |
 
 ## Agent tab and voice
 
-The Agent tab needs the `claude` CLI on the PC's PATH (`npm i -g @anthropic-ai/claude-code`). Voice prompts need whisper.cpp: run `npm run setup:whisper` in `server/` once. See [`AGENT.md`](AGENT.md).
+The Agent tab needs the `claude` CLI on the PC's PATH (`npm i -g @anthropic-ai/claude-code`). Voice prompts need nothing on the computer — the phone recognises speech on-device. See [`AGENT.md`](AGENT.md).

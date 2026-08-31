@@ -31,7 +31,7 @@ through anyone else's servers.
 | File browser + text file viewer | ✅ |
 | Live system stats | ✅ |
 | Agent tab — drive Claude Code on the PC | ✅ pick a project, prompt from the phone, approve every action |
-| Voice prompts + global dictation | ✅ hold-to-talk, transcribed on the PC with whisper.cpp |
+| Voice prompts + global dictation | ✅ hold-to-talk, transcribed on the phone, on-device |
 | Resume any past Claude session | ✅ "On this PC" list in the Agent tab, or `npm run sessions` |
 | Runs on iPhone via Expo Go | ✅ |
 | Desktop client — open the PC's displays as windows on another computer | ✅ Electron, `desktop/` |

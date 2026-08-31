@@ -325,15 +325,6 @@ export interface DiscoveredSession {
   preview: string;
 }
 
-export type TranscribeEndpoint = '/transcribe' | '/dictate';
-
-/**
- * Speech-to-text runs on the host, so a clip can legitimately take longer
- * than a REST call is allowed to. Whisper on a 20-second clip is a few seconds
- * on a laptop CPU; a minute is generous without being "forever".
- */
-export const TRANSCRIBE_TIMEOUT_MS = 60_000;
-
 export const api = {
   system: () => get<SystemStats>('/system'),
   fileRoots: () => get<{ roots: { name: string; path: string }[] }>('/files/roots'),
@@ -380,7 +371,7 @@ export const api = {
 
   // Agent: Claude Code sessions on the host. Every route is bearer-authed like
   // the rest; the live feed goes over `/ws/agent` (see `wsUrl`).
-  agentStatus: () => get<{ available: boolean; transcribe: boolean }>('/agent/status'),
+  agentStatus: () => get<{ available: boolean }>('/agent/status'),
   agentProjects: () => get<{ projects: AgentProject[] }>('/agent/projects'),
   /** Create a folder for a new project on the PC. `parent` may be `~`-relative. */
   agentCreateProject: (name: string, parent: string) =>
@@ -396,7 +387,6 @@ export const api = {
   agentAttach: (claudeSessionId: string, cwd: string, title?: string) =>
     post<AgentSnapshot>('/agent/attach', { claudeSessionId, cwd, title }),
   agentDelete: (id: string) => del<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}`),
-  transcribeReady: () => get<{ ready: boolean; hint?: string }>('/transcribe/status'),
 };
 
 async function del<T>(path: string): Promise<T> {
@@ -404,41 +394,6 @@ async function del<T>(path: string): Promise<T> {
   const res = await fetchWithTimeout(conn.host + path, { method: 'DELETE', headers: authHeaders() }, path);
   if (!res.ok) throw await failureFor(res, path);
   return (await res.json().catch(() => ({}))) as T;
-}
-
-/**
- * Upload a recorded clip for speech-to-text on the host.
- *
- * The body is the raw WAV bytes — the host hands them straight to whisper.cpp,
- * so there is no multipart wrapper. `/transcribe` returns the text for the
- * caller to use; `/dictate` additionally types it into whatever is focused on
- * the PC. The file is read through `fetch(file://…)`, which React Native
- * supports natively, so no file-system module is needed for a one-shot upload.
- */
-export async function transcribeAudio(
-  fileUri: string,
-  endpoint: TranscribeEndpoint,
-): Promise<{ text: string; typed?: boolean }> {
-  if (!conn) throw new Error('not connected');
-  const clip = await (await fetch(fileUri)).blob();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT_MS);
-  try {
-    const res = await fetch(conn.host + endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'audio/wav', ...authHeaders() },
-      body: clip,
-      signal: controller.signal,
-    });
-    if (!res.ok) throw await failureFor(res, endpoint);
-    const j = (await res.json().catch(() => ({}))) as { text?: string; typed?: boolean };
-    return { text: typeof j.text === 'string' ? j.text : '', typed: j.typed };
-  } catch (e: unknown) {
-    if (e instanceof Error && e.name === 'AbortError') throw new TimeoutError(endpoint);
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /**
