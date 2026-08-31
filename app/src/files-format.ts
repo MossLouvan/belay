@@ -1,6 +1,7 @@
-// Pure helpers behind the Files screen: sizes, timestamps, path crumbs, sorting
-// and the binary-content heuristic. Kept out of `app/` because expo-router turns
-// every file under that directory into a route.
+// Pure helpers behind the Files screen: sizes, timestamps, path crumbs,
+// Finder-style "kind" labels, sorting and the binary-content heuristic. Kept
+// out of `app/` because expo-router turns every file under that directory into
+// a route. Navigation history and Go-to-Folder parsing live in `src/files/`.
 
 import type { FileEntry } from './api';
 
@@ -12,8 +13,6 @@ export interface Crumb {
   readonly label: string;
   readonly path: string;
 }
-
-export type SortKey = 'name' | 'size' | 'date';
 
 export type Category = 'folder' | 'code' | 'text' | 'image' | 'media' | 'archive' | 'binary' | 'doc' | 'other';
 
@@ -72,6 +71,72 @@ const EXTENSION_CATEGORIES: Readonly<Record<string, Category>> = Object.freeze(
 export const categoryOf = (entry: FileEntry): Category =>
   entry.dir ? 'folder' : EXTENSION_CATEGORIES[extensionOf(entry.name)] ?? 'other';
 
+// --- kind labels -------------------------------------------------------------
+
+// Audio and video share one colour category, but "MP3 audio" and "MOV movie"
+// read very differently, so the split is re-derived from the extension.
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg']);
+
+const CATEGORY_KINDS: Readonly<Record<Category, string>> = Object.freeze({
+  folder: 'Folder',
+  code: 'source',
+  text: 'text',
+  image: 'image',
+  media: 'movie',
+  archive: 'archive',
+  binary: 'binary',
+  doc: 'document',
+  other: 'file',
+});
+
+const capitalize = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
+
+/**
+ * Finder's "Kind" column: "PNG image", "TS source", "Folder" — a plain-English
+ * word for what a thing is, which on a small screen beats a bare extension.
+ */
+export function kindOf(entry: FileEntry): string {
+  const category = categoryOf(entry);
+  if (category === 'folder') return 'Folder';
+  const ext = extensionOf(entry.name);
+  const noun = category === 'media' && AUDIO_EXTENSIONS.has(ext) ? 'audio' : CATEGORY_KINDS[category];
+  if (!ext) return category === 'other' ? 'Document' : capitalize(noun);
+  return `${ext.toUpperCase()} ${noun}`;
+}
+
+// --- sorting -----------------------------------------------------------------
+
+export type SortKey = 'name' | 'kind' | 'size' | 'date';
+
+/**
+ * The direction a freshly tapped column starts in. Name and kind read top-down
+ * alphabetically; size and date lead with biggest/newest because that is what
+ * you are looking for when you sort by them (Finder does the same for date).
+ */
+export const defaultDescending = (key: SortKey): boolean => key === 'size' || key === 'date';
+
+const byName = (a: FileEntry, b: FileEntry): number =>
+  a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
+
+export function sortEntries(
+  entries: readonly FileEntry[],
+  key: SortKey,
+  descending: boolean
+): readonly FileEntry[] {
+  const direction = descending ? -1 : 1;
+  const compare = (a: FileEntry, b: FileEntry): number => {
+    // Folders lead regardless of key or direction — Finder offers that as
+    // "keep folders on top", and on a phone a folder buried between ten
+    // thousand files cannot be reached any other way.
+    if (a.dir !== b.dir) return a.dir ? -1 : 1;
+    if (key === 'size') return direction * (a.size - b.size) || byName(a, b);
+    if (key === 'date') return direction * (toMillis(a.mtime) - toMillis(b.mtime)) || byName(a, b);
+    if (key === 'kind') return direction * kindOf(a).localeCompare(kindOf(b)) || byName(a, b);
+    return direction * byName(a, b);
+  };
+  return [...entries].sort(compare);
+}
+
 /** Splits a host path into tappable segments, handling POSIX and Windows. */
 export function crumbsFor(path: string): readonly Crumb[] {
   if (!path) return [];
@@ -92,21 +157,6 @@ export const parentOf = (path: string): string | null => {
   const crumbs = crumbsFor(path);
   return crumbs.length >= 2 ? crumbs[crumbs.length - 2].path : null;
 };
-
-export function sortEntries(
-  entries: readonly FileEntry[],
-  key: SortKey,
-  descending: boolean
-): readonly FileEntry[] {
-  const direction = descending ? -1 : 1;
-  const compare = (a: FileEntry, b: FileEntry): number => {
-    if (a.dir !== b.dir) return a.dir ? -1 : 1; // folders always lead
-    if (key === 'size') return direction * (a.size - b.size);
-    if (key === 'date') return direction * (toMillis(a.mtime) - toMillis(b.mtime));
-    return direction * a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
-  };
-  return [...entries].sort(compare);
-}
 
 // --- binary detection --------------------------------------------------------
 
@@ -143,5 +193,8 @@ export function looksBinary(content: string): boolean {
 export const messageOf = (error: unknown): string =>
   error instanceof Error && error.message ? error.message : 'the host could not complete that request';
 
+// "outside the allowed" is the exact phrase the host uses when its allow-list
+// refuses a path (server/src/files.ts) — without it, that refusal rendered as
+// a generic network failure instead of the calmer "would not open" banner.
 export const isDenied = (message: string): boolean =>
-  /denied|EACCES|EPERM|not permitted|forbidden/i.test(message);
+  /denied|EACCES|EPERM|not permitted|forbidden|outside the allowed/i.test(message);

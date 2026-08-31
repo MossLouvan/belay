@@ -1,36 +1,34 @@
-// Files. Browse the host's allowed roots, tap into folders, and open text files
-// in a viewer. Read-only by design — a phone file manager that can't clobber
-// anything on the PC, and the host exposes no write route at all.
+// Files. Browse the host's allowed roots the way Finder would: back/forward/up
+// arrows, a breadcrumb path bar with copy, a Go-to-Folder sheet for pasted
+// paths, sortable Name/Kind/Size/Date columns with folders leading, and a
+// long-press selection that surfaces an entry's details. Read-only by design —
+// a phone file manager that can't clobber anything on the PC, and the host
+// exposes no write route at all.
 //
 // The root list is whatever the host reports (Windows gives four, macOS adds
-// /Volumes for external drives), so nothing here assumes a fixed set. The row,
-// the viewer and the pure formatting helpers live in `src/files-*` — expo-router
-// would turn a helper module under `app/` into a fifth tab.
+// /Volumes for external drives), so nothing here assumes a fixed set. The
+// toolbar, sheet, header, info card and pure logic live in `src/files/` and
+// `src/files-*` — expo-router would turn a helper module under `app/` into a
+// fifth tab.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { api, FileEntry } from '../../src/api';
-import {
-  Badge,
-  Banner,
-  Caption,
-  EmptyState,
-  IconButton,
-  Input,
-  Row,
-  SegmentedControl,
-  Skeleton,
-  Txt,
-  haptic,
-} from '../../src/ui';
+import { Badge, Banner, EmptyState, IconButton, Input, Row, Skeleton, Txt, haptic } from '../../src/ui';
 import { useTheme } from '../../src/theme';
 import { crumbsFor, isDenied, messageOf, parentOf, sortEntries } from '../../src/files-format';
 import type { SortKey } from '../../src/files-format';
 import { FileRow } from '../../src/files-row';
 import { FileViewer } from '../../src/files-viewer';
 import type { OpenFile } from '../../src/files-viewer';
+import { canGoBack, canGoForward, currentPath, emptyHistory, goBack, goForward, visitPath } from '../../src/files/history';
+import type { NavHistory } from '../../src/files/history';
+import { PathBar } from '../../src/files/path-bar';
+import { GoToSheet } from '../../src/files/go-to-sheet';
+import { SortHeader } from '../../src/files/sort-header';
+import { InfoCard } from '../../src/files/info-card';
 
 // --- constants ---------------------------------------------------------------
 
@@ -57,9 +55,11 @@ export default function FilesTab() {
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [descending, setDescending] = useState(false);
   const [viewer, setViewer] = useState<OpenFile | null>(null);
+  const [selected, setSelected] = useState<FileEntry | null>(null);
+  const [history, setHistory] = useState<NavHistory>(emptyHistory);
+  const [gotoOpen, setGotoOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
-  const crumbScroll = useRef<ScrollView>(null);
   const cancelled = useRef(false);
 
   useEffect(() => {
@@ -69,23 +69,39 @@ export default function FilesTab() {
     };
   }, []);
 
-  const openDir = useCallback(async (target: string) => {
+  /**
+   * Load a directory, or throw. The history records the *resolved* path the
+   * host answers with, not the one asked for — the host realpath's symlinks,
+   * and recording the request would make Back revisit a path that renders as
+   * somewhere else, breaking the dedupe that keeps the stack sane.
+   */
+  const loadDir = useCallback(async (target: string, record: boolean): Promise<void> => {
     setLoading(true);
-    setError('');
+    setSelected(null);
     try {
       const result = await api.listDir(target);
       if (cancelled.current) return;
       setPath(result.path);
       setEntries(result.entries);
+      setError('');
+      setQuery('');
       setNow(Date.now());
-    } catch (e: unknown) {
-      if (cancelled.current) return;
-      setError(messageOf(e));
-      setEntries([]);
+      if (record) setHistory((h) => visitPath(h, result.path));
     } finally {
       if (!cancelled.current) setLoading(false);
     }
   }, []);
+
+  /** The forgiving wrapper for taps: failures land in the banner, not a throw. */
+  const openDir = useCallback(
+    (target: string, record = true) =>
+      loadDir(target, record).catch((e: unknown) => {
+        if (cancelled.current) return;
+        setError(messageOf(e));
+        setEntries([]);
+      }),
+    [loadDir]
+  );
 
   useEffect(() => {
     if (!connection) return;
@@ -109,7 +125,6 @@ export default function FilesTab() {
   const openEntry = useCallback(
     async (entry: FileEntry) => {
       if (entry.dir) {
-        setQuery('');
         await openDir(entry.path);
         return;
       }
@@ -131,6 +146,35 @@ export default function FilesTab() {
     [openDir]
   );
 
+  // Back/forward commit the cursor move first and then load without recording;
+  // recording the arrival would push a duplicate and eat the forward trail.
+  const back = useCallback(() => {
+    const moved = goBack(history);
+    const target = currentPath(moved);
+    if (moved === history || !target) return;
+    setHistory(moved);
+    openDir(target, false);
+  }, [history, openDir]);
+
+  const forward = useCallback(() => {
+    const moved = goForward(history);
+    const target = currentPath(moved);
+    if (moved === history || !target) return;
+    setHistory(moved);
+    openDir(target, false);
+  }, [history, openDir]);
+
+  // Long-press selects; long-pressing the selected row again deselects, so the
+  // gesture is its own undo and no extra chrome is needed to clear it.
+  const toggleSelect = useCallback((entry: FileEntry) => {
+    setSelected((current) => (current?.path === entry.path ? null : entry));
+  }, []);
+
+  const onSort = useCallback((key: SortKey, desc: boolean) => {
+    setSortKey(key);
+    setDescending(desc);
+  }, []);
+
   const crumbs = useMemo(() => crumbsFor(path), [path]);
   const parent = useMemo(() => parentOf(path), [path]);
 
@@ -142,8 +186,16 @@ export default function FilesTab() {
 
   const folderCount = useMemo(() => visible.filter((e) => e.dir).length, [visible]);
   const renderItem = useCallback(
-    ({ item }: { item: FileEntry }) => <FileRow entry={item} now={now} onPress={openEntry} />,
-    [now, openEntry]
+    ({ item }: { item: FileEntry }) => (
+      <FileRow
+        entry={item}
+        now={now}
+        selected={selected?.path === item.path}
+        onPress={openEntry}
+        onLongPress={toggleSelect}
+      />
+    ),
+    [now, openEntry, selected, toggleSelect]
   );
 
   if (viewer) return <FileViewer file={viewer} onClose={() => setViewer(null)} />;
@@ -162,6 +214,17 @@ export default function FilesTab() {
             status={folderCount > 0 ? 'accent' : 'neutral'}
           />
           <IconButton
+            testID="files-goto"
+            accessibilityLabel="Go to a folder path"
+            accessibilityHint="Type or paste an absolute path"
+            onPress={() => setGotoOpen(true)}
+            size={38}
+          >
+            <Text allowFontScaling={false} style={{ color: theme.colors.text, fontSize: 15, fontWeight: '800' }}>
+              ⌁
+            </Text>
+          </IconButton>
+          <IconButton
             testID="files-refresh"
             accessibilityLabel="Reload this folder"
             onPress={() => path && openDir(path)}
@@ -174,8 +237,9 @@ export default function FilesTab() {
         </Row>
       </Row>
 
-      {/* flexGrow/flexShrink are pinned: a horizontal ScrollView in a flex
-          column otherwise collapses to nothing once the list below overflows. */}
+      {/* Finder's sidebar, phone-sized: the allowed roots as chips. flexGrow/
+          flexShrink are pinned — a horizontal ScrollView in a flex column
+          otherwise collapses to nothing once the list below overflows. */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -192,7 +256,6 @@ export default function FilesTab() {
               accessibilityState={{ selected: active }}
               onPress={() => {
                 haptic('light');
-                setQuery('');
                 openDir(root.path);
               }}
               style={({ pressed }) => ({
@@ -214,54 +277,17 @@ export default function FilesTab() {
         })}
       </ScrollView>
 
-      <Row gap="xs" style={{ paddingHorizontal: theme.space.sm, paddingBottom: theme.space.xs }}>
-        <IconButton
-          testID="files-up"
-          accessibilityLabel="Go to the parent folder"
-          disabled={!parent}
-          onPress={() => parent && openDir(parent)}
-          size={38}
-        >
-          <Text allowFontScaling={false} style={{ color: theme.colors.text, fontSize: 16, fontWeight: '800' }}>
-            ↑
-          </Text>
-        </IconButton>
-        <ScrollView
-          ref={crumbScroll}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          onContentSizeChange={() => crumbScroll.current?.scrollToEnd({ animated: false })}
-          contentContainerStyle={{ alignItems: 'center', gap: 2, paddingRight: theme.space.sm }}
-          style={{ flex: 1 }}
-        >
-          {crumbs.length === 0 ? <Caption>—</Caption> : null}
-          {crumbs.map((crumb, index) => (
-            <Row key={crumb.path} gap="none">
-              {index > 0 ? (
-                <Text allowFontScaling={false} style={{ color: theme.colors.textFaint, fontSize: 13 }}>
-                  ›
-                </Text>
-              ) : null}
-              <Pressable
-                testID={`crumb-${index}`}
-                accessibilityRole="button"
-                accessibilityLabel={`Go to ${crumb.label}`}
-                onPress={() => openDir(crumb.path)}
-                hitSlop={theme.layout.hitSlop}
-                style={({ pressed }) => ({ paddingHorizontal: 6, paddingVertical: 6, opacity: pressed ? 0.6 : 1 })}
-              >
-                <Txt
-                  variant="monoSmall"
-                  color={index === crumbs.length - 1 ? theme.colors.text : theme.colors.textDim}
-                  style={{ fontWeight: index === crumbs.length - 1 ? '700' : '400' }}
-                >
-                  {crumb.label}
-                </Txt>
-              </Pressable>
-            </Row>
-          ))}
-        </ScrollView>
-      </Row>
+      <PathBar
+        path={path}
+        crumbs={crumbs}
+        canBack={canGoBack(history)}
+        canForward={canGoForward(history)}
+        canUp={parent !== null}
+        onBack={back}
+        onForward={forward}
+        onUp={() => parent && openDir(parent)}
+        onNavigate={openDir}
+      />
 
       <Row gap="sm" style={{ paddingHorizontal: theme.space.sm, paddingBottom: theme.space.xs }}>
         <Input
@@ -274,27 +300,7 @@ export default function FilesTab() {
         />
       </Row>
 
-      <Row gap="sm" style={{ paddingHorizontal: theme.space.sm, paddingBottom: theme.space.xs }}>
-        <SegmentedControl
-          testID="files-sort"
-          accessibilityLabel="Sort by"
-          options={[{ value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }, { value: 'date', label: 'Date' }]}
-          value={sortKey}
-          onChange={setSortKey}
-          style={{ flex: 1 }}
-        />
-        <IconButton
-          testID="files-sort-dir"
-          accessibilityLabel={descending ? 'Sort ascending' : 'Sort descending'}
-          accessibilityHint="Reverses the current sort order"
-          onPress={() => setDescending((v) => !v)}
-          size={38}
-        >
-          <Text allowFontScaling={false} style={{ color: theme.colors.text, fontSize: 15, fontWeight: '800' }}>
-            {descending ? '↓' : '↑'}
-          </Text>
-        </IconButton>
-      </Row>
+      <SortHeader sortKey={sortKey} descending={descending} onChange={onSort} />
 
       {error ? (
         <Banner
@@ -333,6 +339,7 @@ export default function FilesTab() {
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={Platform.OS !== 'web'}
           initialNumToRender={16}
+          extraData={selected}
           ListEmptyComponent={
             error ? null : query ? (
               <EmptyState
@@ -347,6 +354,15 @@ export default function FilesTab() {
           }
         />
       )}
+
+      {selected ? <InfoCard entry={selected} now={now} onClose={() => setSelected(null)} /> : null}
+
+      <GoToSheet
+        visible={gotoOpen}
+        roots={roots}
+        onClose={() => setGotoOpen(false)}
+        onNavigate={(target) => loadDir(target, true)}
+      />
     </View>
   );
 }

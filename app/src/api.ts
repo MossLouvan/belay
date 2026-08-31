@@ -360,6 +360,9 @@ export const api = {
   // the rest; the live feed goes over `/ws/agent` (see `wsUrl`).
   agentStatus: () => get<{ available: boolean; transcribe: boolean }>('/agent/status'),
   agentProjects: () => get<{ projects: AgentProject[] }>('/agent/projects'),
+  /** Create a folder for a new project on the PC. `parent` may be `~`-relative. */
+  agentCreateProject: (name: string, parent: string) =>
+    post<{ project: AgentProject }>('/agent/projects', { name, parent }),
   agentSessions: () => get<{ sessions: AgentSessionMeta[] }>('/agent/sessions'),
   agentCreate: (cwd: string, title?: string) => post<AgentSnapshot>('/agent/sessions', { cwd, title }),
   agentSnapshot: (id: string) => get<AgentSnapshot>(`/agent/sessions/${encodeURIComponent(id)}`),

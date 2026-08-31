@@ -10,6 +10,7 @@ import {
   Badge, Banner, Button, Caption, Card, Column, Dot, EmptyState, IconButton, Input, Label, Row, Skeleton, Txt, haptic,
 } from '../ui';
 import { ago, groupDiscovered, projectName, statusLabel, statusTone } from './model';
+import { NewProjectSheet } from './new-project-sheet';
 
 const messageOf = (e: unknown, fallback: string): string => (e instanceof Error ? e.message : fallback);
 
@@ -257,6 +258,7 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
   const [projects, setProjects] = useState<readonly AgentProject[] | null>(null);
   const [manual, setManual] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const live = useRef(true);
 
@@ -286,6 +288,16 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
     }
   }, [busy, onCreated]);
 
+  // A freshly made folder becomes the selected project by starting a session
+  // in it straight away — that is what "selected" means on this screen. It is
+  // also put at the head of the list, so if starting the session fails (the
+  // host got as far as mkdir and then hiccuped) the folder is not lost.
+  const created = useCallback((p: AgentProject) => {
+    setCreating(false);
+    setProjects((prev) => [{ ...p, recent: true }, ...(prev ?? []).filter((x) => x.path !== p.path)]);
+    void create(p.path);
+  }, [create]);
+
   return (
     <ScrollView
       testID="agent-picker"
@@ -294,8 +306,18 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
     >
       <Row justify="space-between" gap="sm">
         <Txt variant="subheading" heading>Pick a project</Txt>
-        <Button testID="agent-cancel" label="Cancel" size="sm" variant="ghost" onPress={onCancel} />
+        <Row gap="xs">
+          <Button testID="agent-create-project" label="+ New project" size="sm" onPress={() => setCreating(true)} />
+          <Button testID="agent-cancel" label="Cancel" size="sm" variant="ghost" onPress={onCancel} />
+        </Row>
       </Row>
+
+      <NewProjectSheet
+        visible={creating}
+        projects={projects ?? []}
+        onClose={() => setCreating(false)}
+        onCreated={created}
+      />
 
       {error ? <Banner testID="agent-picker-error" status="bad" message={error} /> : null}
 
@@ -357,7 +379,7 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
           ))}
         </Column>
       ) : (
-        <Caption>No git repositories were found under the PC's home or Documents folder. Type a path above instead.</Caption>
+        <Caption>No git repositories were found under the PC's home or Documents folder. Type a path above, or tap "+ New project" to start fresh.</Caption>
       )}
     </ScrollView>
   );

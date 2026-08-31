@@ -1,11 +1,16 @@
 // One row of the Files list, and the little type glyph in front of it.
+//
+// A tap opens (folders navigate, files go to the viewer) because a phone list
+// with tap-to-select would need a second gesture just to open anything; the
+// long-press carries Finder's "select" instead, highlighting the row and
+// letting the screen show its info card.
 
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { FileEntry } from './api';
 import { Palette, useTheme } from './theme';
 import { Caption, Txt, haptic } from './ui';
-import { Category, categoryOf, extensionOf, formatSize, formatWhen } from './files-format';
+import { Category, categoryOf, extensionOf, formatSize, formatWhen, kindOf } from './files-format';
 
 const categoryColor = (category: Category, colors: Palette): string => {
   const map: Record<Category, string> = {
@@ -65,23 +70,33 @@ function FileGlyph({ entry, tint }: FileGlyphProps) {
 export interface FileRowProps {
   entry: FileEntry;
   now: number;
+  selected: boolean;
   onPress: (entry: FileEntry) => void;
+  onLongPress: (entry: FileEntry) => void;
 }
 
-export const FileRow = React.memo(function FileRow({ entry, now, onPress }: FileRowProps) {
+export const FileRow = React.memo(function FileRow({ entry, now, selected, onPress, onLongPress }: FileRowProps) {
   const theme = useTheme();
   const tint = categoryColor(categoryOf(entry), theme.colors);
   const when = formatWhen(entry.mtime, now);
-  const detail = entry.dir ? when : [formatSize(entry.size), when].filter(Boolean).join(' · ');
+  // Finder's Kind, Size and Date columns, collapsed into one caption line —
+  // the columns themselves do not fit next to a name on a phone.
+  const detail = [kindOf(entry), entry.dir ? '' : formatSize(entry.size), when].filter(Boolean).join(' · ');
 
   return (
     <Pressable
       testID={`entry-${entry.name}`}
       accessibilityRole="button"
+      accessibilityState={{ selected }}
       accessibilityLabel={`${entry.dir ? 'Folder' : 'File'} ${entry.name}${detail ? `, ${detail}` : ''}`}
+      accessibilityHint="Long press for details and copy path"
       onPress={() => {
         haptic('light');
         onPress(entry);
+      }}
+      onLongPress={() => {
+        haptic('medium');
+        onLongPress(entry);
       }}
       style={({ pressed }) => ({
         flexDirection: 'row',
@@ -91,7 +106,7 @@ export const FileRow = React.memo(function FileRow({ entry, now, onPress }: File
         paddingVertical: theme.space.xs,
         paddingHorizontal: theme.space.sm,
         borderRadius: theme.radius.md,
-        backgroundColor: pressed ? theme.colors.surfaceAlt : 'transparent',
+        backgroundColor: selected ? theme.colors.accentSoft : pressed ? theme.colors.surfaceAlt : 'transparent',
       })}
     >
       <FileGlyph entry={entry} tint={tint} />
