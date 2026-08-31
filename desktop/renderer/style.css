@@ -1,48 +1,188 @@
-/* Shared chrome for both renderer windows. Dark by default because a remote
-   screen sits inside it and a bright frame around a dark desktop is glare. */
-:root {
-  color-scheme: dark;
-  --bg: #101014;
-  --panel: #1a1a21;
-  --line: #2c2c36;
-  --text: #e8e8ef;
-  --muted: #9a9aab;
-  --accent: #6ea8fe;
-  --bad: #ff6b6b;
-}
+/* Connect-window chrome, in the Ledger system (docs/DESIGN.md) reinterpreted
+   for a pointer. The phone earns findability with 44pt targets and the 2pt
+   "track rule" under tappable text, because a finger cannot hover; a mouse
+   can, so here hover tints, cursor changes and focus rings carry that load
+   and the layout is a notch denser — 40px rows, 11px labels — without
+   giving up the grammar: one surface, hairline rules, no cards, mono for
+   what the computer says, sans for what Tether says, orange earned. */
+
 * { box-sizing: border-box; }
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+  font: 13px/1.5 var(--sans);
 }
-.pad { padding: 24px; }
-h1 { font-size: 20px; margin: 0 0 4px; }
-p.muted { color: var(--muted); margin: 0 0 20px; }
-label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 4px; }
-input {
-  width: 100%; padding: 9px 11px; border-radius: 8px;
-  border: 1px solid var(--line); background: var(--panel); color: var(--text);
-  font: inherit;
+
+.page {
+  max-width: 640px;
+  padding: 24px 28px 40px;
 }
-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* ---- header: brand, then a full-bleed hairline, like every phone screen -- */
+
+h1 {
+  margin: 0;
+  font-size: 27px;
+  line-height: 1.1;
+  font-weight: 900;
+  letter-spacing: -0.6px;
+  text-transform: uppercase;
+}
+
+.subtitle { color: var(--text-dim); margin: 4px 0 0; }
+
+.header-rule {
+  border: 0;
+  border-top: var(--hairline) solid var(--border);
+  margin: 16px -28px 0;   /* full bleed through the page padding */
+}
+
+/* ---- the micro-label: wide-tracked uppercase mono, the section voice ---- */
+
+.label {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 400;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+section > .section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 28px 0 8px;
+}
+
+.section-note { color: var(--text-dim); margin: 0 0 8px; }
+
+/* ---- machine voice: anything the computer said ---- */
+
+.mono, input {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.mono-dim {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---- inputs: the only filled control on the page ---- */
+
+label.field { display: block; margin: 14px 0 4px; }
+
+input[type="text"], input:not([type]) {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: var(--hairline) solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+input:focus-visible {
+  outline: var(--rule) solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ---- buttons: quiet mono labels; exactly one solid accent per screen ---- */
+
 button {
-  padding: 9px 14px; border-radius: 8px; border: 1px solid var(--line);
-  background: var(--panel); color: var(--text); font: inherit; cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: var(--hairline) solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
 }
-button.primary { background: var(--accent); border-color: var(--accent); color: #0b0b10; font-weight: 600; }
-button:disabled { opacity: 0.5; cursor: default; }
-.row { display: flex; gap: 8px; align-items: center; }
-.error { color: var(--bad); min-height: 20px; margin-top: 12px; }
-.displays { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 8px; }
+button:hover { background: var(--surface-alt); }
+button:active { background: var(--surface-alt); opacity: 0.7; }
+button:focus-visible { outline: var(--rule) solid var(--accent); outline-offset: 1px; }
+button:disabled {
+  color: var(--text-faint);
+  border-color: var(--border);
+  background: transparent;
+  cursor: default;
+  opacity: 1;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+button.primary:hover { opacity: 0.9; }
+button.primary:disabled {
+  background: var(--surface-alt);
+  border-color: var(--border);
+  color: var(--text-faint);
+  opacity: 1;
+}
+
+/* ---- lists: hairline-separated rows, no boxes; hover is the affordance -- */
+
+.displays {
+  list-style: none;
+  padding: 0;
+  margin: 0 -28px;          /* rules and hover tints run full bleed */
+  border-top: var(--hairline) solid var(--border);
+}
 .displays li {
-  display: flex; justify-content: space-between; align-items: center; gap: 12px;
-  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 6px 28px;
+  border-bottom: var(--hairline) solid var(--border);
 }
+.displays li:hover { background: var(--surface-alt); }
+
+.name { font-weight: 600; font-size: 13px; }
+
+/* the VIRTUAL mark: the computer's classification, so mono; dim, because the
+   accent already belongs to the preferred Open button on this screen */
 .badge {
-  font-size: 11px; padding: 2px 7px; border-radius: 999px;
-  border: 1px solid var(--accent); color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
-.name { font-weight: 600; }
-.dim { color: var(--muted); font-size: 12px; }
+
+.row { display: flex; gap: 8px; align-items: center; }
+/* CSP forbids inline style attributes (style-src 'self'), so spacing that
+   would otherwise ride a style="" lives in classes. */
+.actions { margin-top: 16px; }
+
+/* ---- status and errors: status colours, never the accent ---- */
+
+.error {
+  color: var(--bad);
+  min-height: 20px;
+  margin-top: 16px;
+}
+.error:not(:empty)::before {
+  content: "error";
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+/* ---- the keyboard section's remap switch ---- */
+
+.toggle { gap: 8px; cursor: pointer; }
+.toggle input { accent-color: var(--accent); cursor: pointer; }
+.toggle input:focus-visible { outline: var(--rule) solid var(--accent); outline-offset: 2px; }

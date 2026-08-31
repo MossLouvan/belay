@@ -95,6 +95,7 @@ opened after the change.
 |---|---|
 | `main.js` | Electron main process: windows, IPC, aspect-ratio locking |
 | `preload.cjs` | the renderer's only privileged surface — four IPC calls |
+| `renderer/tokens.css` | the Ledger palette and type voices, shared with the phone (docs/DESIGN.md); light/dark follow the OS |
 | `renderer/connect.*` | pairing and the display list |
 | `renderer/display.*` | a whole display: stream canvas and input forwarding |
 | `renderer/seamless.*` | one remote window: same, plus size/title following |
@@ -106,6 +107,13 @@ opened after the change.
 | `src/url.js` | what someone types → a host origin |
 | `test/` | `node --test` over every `src/` module |
 | `test/smoke.cjs` | manual end-to-end check against a live host (see the header) |
+
+The look is the phone app's Ledger system (docs/DESIGN.md) re-cut for a
+pointer: the same paper/ink palette and one-orange-accent rules, but hover
+tints, focus rings and desktop-dense rows instead of touch targets and the
+track rule, because a mouse can hover and a thumb cannot. Streams sit on the
+same true-dark machine panel in both themes. Every stylesheet is local; the
+CSPs allow no inline styles and nothing remote.
 
 Renderers run with `contextIsolation` on, `nodeIntegration` off and `sandbox`
 on. The bearer token is kept by the main process and never touches

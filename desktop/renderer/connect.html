@@ -5,58 +5,60 @@
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src http: https: ws: wss:;" />
 <title>Tether</title>
+<link rel="stylesheet" href="tokens.css" />
 <link rel="stylesheet" href="style.css" />
 <body>
-  <main class="pad">
+  <main class="page">
     <h1>Tether</h1>
-    <p class="muted" id="subtitle">Connect to a computer running the Tether host.</p>
+    <p class="subtitle" id="subtitle">Connect to a computer running the Tether host.</p>
+    <hr class="header-rule" />
 
     <section id="pair">
-      <label for="host">Computer address</label>
+      <label class="field label" for="host">Computer address</label>
       <input id="host" placeholder="192.168.1.20:8787 or mac.local:8787" autocomplete="off" spellcheck="false" />
-      <label for="code">Pairing code shown on that computer</label>
+      <label class="field label" for="code">Pairing code shown on that computer</label>
       <input id="code" placeholder="123456" inputmode="numeric" autocomplete="off" maxlength="8" />
-      <div class="row" style="margin-top:16px">
+      <div class="row actions">
         <button class="primary" id="connect">Connect</button>
-        <span class="dim" id="status"></span>
+        <span class="mono-dim" id="status" role="status"></span>
       </div>
     </section>
 
     <section id="paired" hidden>
-      <div class="row" style="justify-content:space-between">
+      <div class="section-head">
         <div>
-          <div class="name" id="paired-name"></div>
-          <div class="dim" id="paired-host"></div>
+          <div class="name mono" id="paired-name"></div>
+          <div class="mono-dim" id="paired-host"></div>
         </div>
         <button id="forget">Forget</button>
       </div>
-      <ul class="displays" id="displays"></ul>
-      <p class="dim" id="hint"></p>
 
-      <div class="row" style="justify-content:space-between; margin-top:22px">
-        <div>
-          <div class="name">Windows</div>
-          <div class="dim">Open one app's window on its own, without the desktop around it.</div>
-        </div>
+      <div class="section-head">
+        <span class="label">Displays</span>
+      </div>
+      <ul class="displays" id="displays"></ul>
+      <p class="section-note" id="hint"></p>
+
+      <div class="section-head">
+        <span class="label">Windows</span>
         <button id="refresh-windows">Refresh</button>
       </div>
+      <p class="section-note">Open one app's window on its own, without the desktop around it.</p>
       <ul class="displays" id="windows"></ul>
-      <p class="dim" id="windows-hint"></p>
+      <p class="section-note mono-dim" id="windows-hint"></p>
 
-      <div class="row" style="justify-content:space-between; margin-top:22px">
-        <div>
-          <div class="name">Keyboard</div>
-          <div class="dim" id="keymap-legend"></div>
-        </div>
-        <label class="row" id="keymap-toggle" hidden style="gap:8px; cursor:pointer">
+      <div class="section-head">
+        <span class="label">Keyboard</span>
+        <label class="row toggle" id="keymap-toggle" hidden>
           <input type="checkbox" id="keymap-remap" />
-          <span class="dim">Remap modifiers</span>
+          <span class="label">Remap modifiers</span>
         </label>
       </div>
-      <p class="dim" id="keymap-note"></p>
+      <p class="section-note mono" id="keymap-legend"></p>
+      <p class="section-note" id="keymap-note"></p>
     </section>
 
-    <div class="error" id="error"></div>
+    <div class="error" id="error" role="alert"></div>
   </main>
   <script type="module" src="connect.js"></script>
 </body>

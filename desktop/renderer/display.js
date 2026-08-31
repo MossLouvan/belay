@@ -38,10 +38,12 @@ document.getElementById('keys').textContent = legendText(keymap);
 /** Stream tuning. Higher than the phone's defaults: this is a desktop on a LAN. */
 const STREAM = { w: 1600, q: 62, fps: 24 };
 
-function setStatus(text, bad = false) {
+function setStatus(text, bad = false, live = false) {
   const stats = document.getElementById('stats');
   stats.textContent = text;
-  stats.className = bad ? 'bad' : '';
+  // `live` lights the accent dot; the accent marks activity and nothing else,
+  // so it leaves the moment the stream is anything but flowing.
+  stats.className = bad ? 'bad' : live ? 'live' : '';
 }
 
 // ---- Input ---------------------------------------------------------------
@@ -205,7 +207,7 @@ async function socketUrl() {
 let frames = 0;
 let bytes = 0;
 setInterval(() => {
-  if (frames > 0) setStatus(frames + ' fps · ' + Math.round(bytes / 1024) + ' KB/s');
+  if (frames > 0) setStatus(frames + ' fps · ' + Math.round(bytes / 1024) + ' KB/s', false, true);
   frames = 0;
   bytes = 0;
 }, 1000);
@@ -237,7 +239,7 @@ async function connect() {
     return;
   }
 
-  socket.addEventListener('open', () => { attempt = 0; setStatus('live'); });
+  socket.addEventListener('open', () => { attempt = 0; setStatus('live', false, true); });
   socket.addEventListener('message', (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { return; }

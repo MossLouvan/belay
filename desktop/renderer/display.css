@@ -1,0 +1,31 @@
+/* The window is the screen: no margins, no scrollbars, and the canvas fills
+   it exactly so a pointer position maps to the remote display by a single
+   scale factor (main.js locks the window to the remote aspect ratio).
+
+   This whole window is a Ledger machine panel — the true-dark surface the
+   phone gives its video, here grown to fill the frame — so its chrome uses
+   the on-machine colours in both OS themes and speaks mono throughout:
+   every word in the overlay is the computer talking. */
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--machine); overflow: hidden; }
+#screen { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+#overlay {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  display: flex; gap: 16px; align-items: center; justify-content: space-between;
+  padding: 5px 12px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--on-machine-dim);
+  background: var(--machine);
+  border-top: var(--hairline) solid var(--machine-line);
+  transition: opacity 160ms ease;
+}
+#overlay.idle { opacity: 0; pointer-events: none; }
+#overlay .bad { color: var(--machine-bad); }
+/* the live dot: accent means activity, and leaves when activity stops */
+#stats.live::before {
+  content: "";
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 6px; vertical-align: 1px;
+  background: var(--machine-accent);
+}

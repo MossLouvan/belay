@@ -1,0 +1,66 @@
+/* Ledger tokens for the desktop client — the same palette and type voices as
+   the phone app (docs/DESIGN-TOKENS.md), hand-carried because this renderer
+   is sandboxed plain CSS and cannot import theme.ts. If a hex changes there,
+   it changes here, and the contrast verifier in that file is re-run first:
+   every text pair below holds >= 4.5:1 against its worst-case backdrop, and
+   accent-graphic marks hold >= 3:1.
+
+   Theme follows the OS. The phone offers a toggle because a phone is one
+   person's pocket; a desktop already has a system-wide appearance setting and
+   an app that ignores it looks broken next to every native window. */
+
+:root {
+  color-scheme: light dark;
+
+  /* light — "paper" */
+  --bg: #EAE8E4;
+  --surface: #F2F1EE;        /* inputs only */
+  --surface-alt: #E1DED9;    /* recessed: hovered/pressed rows, key-like chips */
+  --border: #C8C4BD;         /* hairlines */
+  --border-strong: #8F8A82;
+  --text: #161513;
+  --text-dim: #4F4B45;
+  --text-faint: #615C55;
+  --accent: #B03700;         /* text-safe burnt orange */
+  --accent-graphic: #E84A00; /* non-text marks >= 3px only */
+  --good: #0B6040;
+  --warn: #754C04;
+  --bad: #A82028;
+  --on-accent: #FFFFFF;
+
+  /* the machine panel is dark in BOTH themes: a stream is glass, not UI */
+  --machine: #0C0B0A;
+  --on-machine: #ECEAE6;
+  --on-machine-dim: #A9A49C;
+  --machine-accent: #FF5C1A;
+  --machine-bad: #FF7A70;
+  --machine-line: #2E2C29;
+
+  /* type voices: mono is the computer speaking, sans is Tether speaking */
+  --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  --hairline: 1px;
+  --rule: 2px;      /* the emphasis/selection weight; nothing in between */
+  --radius: 2px;    /* square corners are the system */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* dark — "ink": the same design photographed in negative */
+    --bg: #121110;
+    --surface: #1A1917;
+    --surface-alt: #232120;
+    --border: #2E2C29;
+    --border-strong: #4A4741;
+    --text: #ECEAE6;
+    --text-dim: #A9A49C;
+    --text-faint: #928D84;
+    --accent: #FF5C1A;
+    --accent-graphic: #FF4D00;
+    --good: #3DDC97;
+    --warn: #F7B32B;
+    --bad: #FF7A70;
+    --on-accent: #121110;
+  }
+}

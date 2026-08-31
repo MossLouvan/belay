@@ -1,0 +1,44 @@
+/* Frameless: the remote window's own title bar is in the stream, so this
+   window has none of its own. What little chrome exists — two hover-revealed
+   buttons and a status strip — is machine-panel styled: mono, on-machine
+   colours, square corners, dark in both OS themes. */
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--machine); overflow: hidden; }
+#screen { display: block; width: 100vw; height: 100vh; cursor: default; }
+
+/* A drag strip over the top edge, so grabbing the remote title bar moves the
+   local window — the first thing anyone tries. It sits above the canvas and
+   therefore swallows clicks there, which is why it is thin: 28px is a title
+   bar, and everything below it still reaches the remote window. Alt+drag is
+   offered for windows whose own controls live in that strip. */
+#drag {
+  position: fixed; top: 0; left: 0; right: 92px; height: 28px;
+  -webkit-app-region: drag;
+}
+#chrome {
+  position: fixed; top: 0; right: 0; height: 28px;
+  display: flex; align-items: center; gap: 2px; padding: 0 4px;
+  -webkit-app-region: no-drag;
+  opacity: 0; transition: opacity 120ms ease;
+}
+body:hover #chrome { opacity: 1; }
+#chrome button {
+  width: 26px; height: 22px; padding: 0; line-height: 1;
+  border-radius: var(--radius);
+  border: var(--hairline) solid var(--machine-line);
+  background: var(--machine); color: var(--on-machine-dim);
+  font-family: var(--mono); font-size: 12px;
+  cursor: pointer;
+}
+#chrome button:hover { color: var(--on-machine); border-color: var(--on-machine-dim); }
+#chrome button:focus-visible { outline: 2px solid var(--machine-accent); outline-offset: 1px; }
+#status {
+  position: fixed; left: 0; bottom: 0; padding: 3px 8px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--on-machine-dim); background: var(--machine);
+  border-top: var(--hairline) solid var(--machine-line);
+  border-right: var(--hairline) solid var(--machine-line);
+  pointer-events: none;
+}
+#status:empty { display: none; }

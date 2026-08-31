@@ -16,7 +16,7 @@
 // WebSocket, which is unprivileged network access and keeps the streaming path
 // out of the main process, where a slow frame would block window management.
 
-import { app, BrowserWindow, ipcMain, screen, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -33,15 +33,37 @@ const preload = join(__dirname, 'preload.cjs');
 /** Every display window, so a "disconnect" can close them all at once. */
 const displayWindows = new Set();
 
+// The Ledger grounds (renderer/tokens.css), repeated here because the frame's
+// first paint happens before any CSS loads and a flash of the wrong theme is
+// exactly the mismatch the paint colour exists to prevent. `machine` is the
+// panel colour a stream sits on — dark in both themes, like the phone's.
+const GROUND = Object.freeze({ light: '#EAE8E4', dark: '#121110', machine: '#0C0B0A' });
+
+const pageGround = () => (nativeTheme.shouldUseDarkColors ? GROUND.dark : GROUND.light);
+
 function createConnectWindow() {
   const win = new BrowserWindow({
     width: 720,
     height: 640,
+    minWidth: 480,
+    minHeight: 420,
     title: 'Tether',
-    backgroundColor: '#101014',
+    backgroundColor: pageGround(),
     webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.loadFile(join(__dirname, 'renderer', 'connect.html'));
+
+  // A desktop text field is expected to answer a right-click. Attached to the
+  // connect window alone: in display and seamless windows the right button
+  // belongs to the remote desktop, and a local menu there would steal it.
+  win.webContents.on('context-menu', (_event, params) => {
+    if (!params.isEditable && !params.selectionText) return;
+    Menu.buildFromTemplate(
+      params.isEditable
+        ? [{ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { type: 'separator' }, { role: 'selectAll' }]
+        : [{ role: 'copy' }],
+    ).popup();
+  });
   return win;
 }
 
@@ -60,7 +82,7 @@ function createDisplayWindow(session, display) {
     width,
     height,
     title: `${session.label || session.host} · ${display.name}`,
-    backgroundColor: '#000000',
+    backgroundColor: GROUND.machine,
     webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   if (display.w > 0 && display.h > 0) win.setAspectRatio(display.w / display.h);
@@ -106,7 +128,7 @@ function createSeamlessWindow(session, remote, index = 0) {
     y: 60 + offset.y,
     title: windowLabel(remote),
     frame: false,
-    backgroundColor: '#000000',
+    backgroundColor: GROUND.machine,
     webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
 

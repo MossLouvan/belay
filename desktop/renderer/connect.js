@@ -145,10 +145,10 @@ async function showPaired() {
 
     const left = document.createElement('div');
     const name = document.createElement('div');
-    name.className = 'name';
+    name.className = 'name mono';
     name.textContent = display.name;
     const size = document.createElement('div');
-    size.className = 'dim';
+    size.className = 'mono-dim';
     size.textContent = display.w > 0 ? `${display.w} × ${display.h}` : 'size unknown';
     left.append(name, size);
 
@@ -209,7 +209,7 @@ async function showWindows() {
   if (openable.length > 1) {
     const all = document.createElement('button');
     all.textContent = `Open all ${openable.length}`;
-    all.style.marginTop = '10px';
+    all.className = 'actions';
     all.addEventListener('click', () => window.tether.openWindows(state, openable));
     hint.after(all);
   }
@@ -219,10 +219,10 @@ async function showWindows() {
 
     const left = document.createElement('div');
     const title = document.createElement('div');
-    title.className = 'name';
+    title.className = 'name mono';
     title.textContent = remote.app || 'Window';
     const detail = document.createElement('div');
-    detail.className = 'dim';
+    detail.className = 'mono-dim';
     detail.textContent = remote.minimized
       ? `${remote.title} · minimized`
       : `${remote.title} · ${remote.w} × ${remote.h}`;
@@ -249,6 +249,11 @@ $('connect').addEventListener('click', pair);
 for (const id of ['host', 'code']) {
   $(id).addEventListener('keydown', (event) => { if (event.key === 'Enter') pair(); });
 }
+// Escape dismisses the error line. Claimed locally without hesitation: unlike
+// the display windows, nothing typed here is ever forwarded to the host.
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') showError('');
+});
 $('forget').addEventListener('click', async () => {
   await window.tether.clearSession();
   location.reload();
