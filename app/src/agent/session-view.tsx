@@ -8,15 +8,16 @@
 // one-accent rule (§11.5).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useTheme } from '../theme';
 import { router } from 'expo-router';
-import { Banner, Button, Caption, Dot, Label, Micro, Row, Rule, TrackLabel, Txt } from '../ui';
+import { SwitchComputerLink } from '../devices/switch-link';
+import { Banner, Button, Caption, Dot, IconButton, Label, Micro, Row, Rule, TrackLabel, Txt } from '../ui';
 import { countdown, expiryUrgent } from './attention';
 import { EventRow } from './feed';
 import { buildFeed } from './feed-model';
 import { MicButton, openVoiceSettings, useVoice } from './mic';
-import { appendTranscript, canPrompt, isBusy, statusLabel, statusTone } from './model';
+import { appendTranscript, canPrompt, composerControls, isBusy, statusLabel, statusTone } from './model';
 import { useAgentSession } from './session';
 
 /** Above this the composer stops growing and scrolls instead. */
@@ -30,6 +31,7 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   const { snapshot, events, status, pending, link, note, prompt, approve, stop, reconnect, setNote } = session;
   const [input, setInput] = useState('');
   const [showInput, setShowInput] = useState(false);
+  const [composing, setComposing] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const composerRef = useRef<TextInput>(null);
 
@@ -58,8 +60,7 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     }
     prompt(text);
     setInput('');
-    // After sending from a phone you want the reply, not the keyboard — and a
-    // multiline composer has no Done key, so Send is its one visible exit.
+    // After sending from a phone you want the reply, not the keyboard.
     composerRef.current?.blur();
   }, [input, link, prompt, session, setNote]);
 
@@ -87,6 +88,7 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   const feed = useMemo(() => buildFeed(events), [events]);
 
   const busy = isBusy(status);
+  const composer = composerControls(composing, input, session);
   const listening = voice.state === 'listening' || voice.state === 'starting';
   const margin = theme.layout.margin;
   const tone = statusTone(status);
@@ -133,15 +135,20 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
         <Txt variant="subheading" heading numberOfLines={1} style={{ marginTop: theme.space.xxs }}>
           {snapshot?.title || '…'}
         </Txt>
-        <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
-          <Dot
-            status={link === 'open' ? (status === 'idle' ? 'neutral' : tone) : 'neutral'}
-            pulse={status === 'running'}
-            size={7}
-          />
-          <Label testID="agent-status" style={{ marginBottom: 0 }} tone={link === 'open' && status !== 'idle' ? tone : 'dim'}>
-            {link === 'open' ? statusLabel(status) : link}
-          </Label>
+        <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+          <Row gap="xs" style={{ flexShrink: 1 }}>
+            <Dot
+              status={link === 'open' ? (status === 'idle' ? 'neutral' : tone) : 'neutral'}
+              pulse={status === 'running'}
+              size={7}
+            />
+            <Label testID="agent-status" style={{ marginBottom: 0 }} tone={link === 'open' && status !== 'idle' ? tone : 'dim'}>
+              {link === 'open' ? statusLabel(status) : link}
+            </Label>
+          </Row>
+          {/* Which machine Claude is editing files on, same slot as every
+              other tab's header — this is the tab where the answer matters most. */}
+          <SwitchComputerLink />
         </Row>
       </View>
       <Rule />
@@ -175,6 +182,10 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
         testID="agent-feed"
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: margin, paddingVertical: theme.space.md, gap: theme.space.sm }}
+        // Dragging the feed slides the keyboard out with the finger (§11.2's
+        // route a); "handled" stays, because the default persistTaps swallows
+        // the first tap on every control while the keyboard is up.
+        keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
       >
@@ -228,15 +239,17 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
               <Txt variant="monoSmall" tone="dim" selectable>{pending.input}</Txt>
             </ScrollView>
           ) : (
-            <Pressable
+            // The one place a control must not masquerade as a caption: a
+            // bare label here reads as inert, and this card is where the
+            // stakes of missing a control are highest (§11.1's track rule).
+            <TrackLabel
               testID="agent-ask-expand"
-              accessibilityRole="button"
+              label="Show full input ▾"
               accessibilityLabel="Show the full tool input"
               onPress={() => setShowInput(true)}
               hitSlop={theme.layout.hitSlop}
-            >
-              <Label style={{ marginBottom: 0 }}>Show full input ▾</Label>
-            </Pressable>
+              style={{ alignSelf: 'flex-start' }}
+            />
           )}
           <Row gap="xs">
             <Button testID="agent-deny" label="Deny" variant="danger" size="sm" onPress={() => answer(false)} style={{ flex: 1 }} />
@@ -270,37 +283,57 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
       <View style={{ paddingHorizontal: margin, paddingVertical: theme.space.sm }}>
         <Row gap="sm" align="flex-end">
           <MicButton testID="agent-mic" state={voice.state} onStart={beginTalk} onStop={voice.stop} disabled={link !== 'open'} />
-          <TextInput
-            ref={composerRef}
-            testID="agent-input"
-            value={input}
-            onChangeText={setInput}
-            placeholder={listening ? 'Listening…' : link === 'open' ? 'Tell Claude what to do…' : 'Not connected'}
-            placeholderTextColor={listening ? theme.colors.accent : theme.colors.textFaint}
-            multiline
-            accessibilityLabel="Prompt for Claude"
-            maxFontSizeMultiplier={1.4}
-            style={{
-              flex: 1,
-              maxHeight: COMPOSER_MAX_HEIGHT,
-              minHeight: theme.layout.minTouch,
-              backgroundColor: theme.colors.surface,
-              borderRadius: theme.radius.xs,
-              borderWidth: listening ? theme.layout.ruleEmphasis : theme.layout.hairline,
-              borderColor: listening ? theme.colors.focus : theme.colors.border,
-              color: theme.colors.text,
-              paddingHorizontal: theme.space.sm,
-              paddingVertical: theme.space.sm,
-              fontSize: 15,
-              lineHeight: 20,
-            }}
-          />
+          <View style={{ flex: 1 }}>
+            <TextInput
+              ref={composerRef}
+              testID="agent-input"
+              value={input}
+              onChangeText={setInput}
+              onFocus={() => setComposing(true)}
+              onBlur={() => setComposing(false)}
+              placeholder={listening ? 'Listening…' : link === 'open' ? 'Tell Claude what to do…' : 'Not connected'}
+              placeholderTextColor={listening ? theme.colors.accent : theme.colors.textFaint}
+              multiline
+              accessibilityLabel="Prompt for Claude"
+              maxFontSizeMultiplier={1.4}
+              style={{
+                maxHeight: COMPOSER_MAX_HEIGHT,
+                minHeight: theme.layout.minTouch,
+                backgroundColor: theme.colors.surface,
+                borderRadius: theme.radius.xs,
+                borderWidth: listening ? theme.layout.ruleEmphasis : theme.layout.hairline,
+                borderColor: listening ? theme.colors.focus : theme.colors.border,
+                color: theme.colors.text,
+                paddingHorizontal: theme.space.sm,
+                paddingRight: composer.showDismiss ? theme.layout.minTouch : theme.space.sm,
+                paddingVertical: theme.space.sm,
+                fontSize: 15,
+                lineHeight: 20,
+              }}
+            />
+            {/* The visible keyboard exit (§11.2), the TYPE row's trailing ×
+                worn by this field. Return inserts a newline here and Send is
+                disabled while Claude runs or the field is empty — precisely
+                the moments the keyboard must still have a way out. Focus
+                alone decides it (composerControls), never sendability. */}
+            {composer.showDismiss ? (
+              <IconButton
+                testID="agent-kb-dismiss"
+                accessibilityLabel="Hide the keyboard"
+                variant="plain"
+                onPress={() => Keyboard.dismiss()}
+                style={{ position: 'absolute', top: 0, right: 0 }}
+              >
+                <Txt variant="label" tone="dim">×</Txt>
+              </IconButton>
+            ) : null}
+          </View>
           <Button
             testID="agent-send"
             label="Send"
             size="sm"
             onPress={send}
-            disabled={!input.trim() || !canPrompt(session)}
+            disabled={!composer.canSend}
             hapticTone="medium"
             accessibilityLabel="Send the prompt"
           />

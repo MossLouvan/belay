@@ -185,6 +185,27 @@ export function isBusy(status: AgentStatus): boolean {
   return status === 'running' || status === 'waiting';
 }
 
+/** What the composer row offers right now. */
+export interface ComposerControls {
+  /** The visible keyboard exit (docs/DESIGN.md §11.2). */
+  readonly showDismiss: boolean;
+  /** Whether Send would actually send. */
+  readonly canSend: boolean;
+}
+
+/**
+ * The dismiss is a function of focus alone — never of `canSend`. Send is
+ * disabled exactly when the field is empty or the host is busy, which is
+ * exactly when someone most needs to put the keyboard away, so tying the ×
+ * to sendability would rebuild the day-one keyboard trap it exists to break.
+ */
+export function composerControls(focused: boolean, input: string, state: SessionState): ComposerControls {
+  return {
+    showDismiss: focused,
+    canSend: input.trim().length > 0 && canPrompt(state),
+  };
+}
+
 // --- presentation helpers ----------------------------------------------------
 
 export type StatusTone = 'good' | 'warn' | 'accent' | 'bad';

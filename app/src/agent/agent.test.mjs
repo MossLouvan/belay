@@ -11,8 +11,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  EVENT_CAP, INITIAL_SESSION, ago, appendTranscript, canPrompt, groupDiscovered, parseAgentMessage,
-  parseEvent, parseSnapshot, projectName, reduceSession, resultSummary, statusLabel, statusTone,
+  EVENT_CAP, INITIAL_SESSION, ago, appendTranscript, canPrompt, composerControls, groupDiscovered,
+  parseAgentMessage, parseEvent, parseSnapshot, projectName, reduceSession, resultSummary, statusLabel, statusTone,
 } from './model.ts';
 
 const snapshot = {
@@ -156,4 +156,24 @@ test('appendTranscript joins with one space and ignores empty clips', () => {
   assert.equal(appendTranscript('', 'hello'), 'hello');
   assert.equal(appendTranscript('fix the ', ' build'), 'fix the build');
   assert.equal(appendTranscript('keep', '   '), 'keep');
+});
+
+test('the composer keyboard exit depends on focus alone, never sendability', () => {
+  const open = reduceSession(INITIAL_SESSION, { type: 'link', link: 'open' });
+  const running = reduceSession(open, { type: 'message', message: { type: 'status', status: 'running' } });
+  // The trap the × exists to break: empty field, Claude working — Send is
+  // dead on both counts, yet the exit must still be there.
+  assert.equal(composerControls(true, '', running).showDismiss, true);
+  assert.equal(composerControls(true, '  ', reduceSession(open, { type: 'link', link: 'closed' })).showDismiss, true);
+  // No keyboard, nothing to exit — the × would just read as "clear text".
+  assert.equal(composerControls(false, 'ship it', open).showDismiss, false);
+});
+
+test('send needs real text, an open link and a host that will accept it', () => {
+  const open = reduceSession(INITIAL_SESSION, { type: 'link', link: 'open' });
+  assert.equal(composerControls(true, 'ship it', open).canSend, true);
+  assert.equal(composerControls(true, '   ', open).canSend, false, 'whitespace is not a prompt');
+  const running = reduceSession(open, { type: 'message', message: { type: 'status', status: 'running' } });
+  assert.equal(composerControls(true, 'ship it', running).canSend, false, 'host refuses while busy');
+  assert.equal(composerControls(false, 'ship it', open).canSend, true, 'focus gates the ×, not Send');
 });

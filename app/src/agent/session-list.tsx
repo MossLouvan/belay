@@ -15,6 +15,7 @@ import { useTheme } from '../theme';
 import {
   Badge, Banner, Button, Caption, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, TrackLabel, Txt, haptic,
 } from '../ui';
+import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
 import { ago, groupDiscovered, statusLabel, statusTone } from './model';
 import { askSummary, countdown } from './attention';
@@ -135,15 +136,21 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pullToRefresh} tintColor={theme.colors.accent} />}
     >
       <Txt variant="title" heading>Agent</Txt>
-      <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
-        <Dot status={error || pollError ? 'bad' : 'good'} size={7} />
-        {/* The freshness stamp is the visible twin of pull-to-refresh (audit
-            3.3): it proves the rows below are live — the attention store polls
-            while this screen is up — and dates them honestly when they stop
-            being so. */}
-        <Label style={{ marginBottom: 0 }}>
-          {(error || pollError ? 'Host not answering' : 'Host connected') + (fetchedAt ? ` · ${formatAsOf(fetchedAt)}` : '')}
-        </Label>
+      <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+        <Row gap="xs" style={{ flexShrink: 1 }}>
+          <Dot status={error || pollError ? 'bad' : 'good'} size={7} />
+          {/* The freshness stamp is the visible twin of pull-to-refresh (audit
+              3.3): it proves the rows below are live — the attention store polls
+              while this screen is up — and dates them honestly when they stop
+              being so. */}
+          <Label style={{ marginBottom: 0 }} numberOfLines={1}>
+            {(error || pollError ? 'Host not answering' : 'Host connected') + (fetchedAt ? ` · ${formatAsOf(fetchedAt)}` : '')}
+          </Label>
+        </Row>
+        {/* Every other tab's status line ends with the way out to My
+            Computers; the tab that drives Claude must say which machine
+            it is driving, and let you change it. */}
+        <SwitchComputerLink />
       </Row>
       <Rule bleed={margin} style={{ marginTop: theme.space.md, marginBottom: theme.space.lg }} />
 
