@@ -1,7 +1,7 @@
 // Rendered markdown: the block list from markdown.ts mapped onto plain <Text>
 // and <View>. Deliberately restrained — type scale, hairline rules and the
-// existing palette, no card chrome — so the coming editorial restyle only has
-// to touch tokens, not structure. Links are shown styled but are not tappable:
+// Ledger palette, no card chrome; code blocks sit on the machine surface
+// because code is machine voice. Links are shown styled but are not tappable:
 // a README's links point at the host's filesystem or the wider web, and a
 // read-only file viewer should not be a springboard into either.
 
@@ -78,19 +78,19 @@ function Block({ block, theme }: { block: MdBlock } & Palette) {
     case 'paragraph':
       return <SpanText spans={block.spans} base={body} />;
     case 'code':
+      // Code is machine voice, so it sits on the machine surface — true-dark
+      // in both themes, square, no border box (docs/DESIGN.md §3.4).
       return (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator
           style={{
-            backgroundColor: theme.isDark ? theme.colors.black : theme.colors.surfaceAlt,
-            borderWidth: theme.layout.hairline,
-            borderColor: theme.colors.border,
-            borderRadius: theme.radius.sm,
+            backgroundColor: theme.colors.machine,
+            borderRadius: theme.radius.xs,
           }}
           contentContainerStyle={{ padding: theme.space.sm }}
         >
-          <Text selectable style={{ fontFamily: theme.font.mono, fontSize: CODE_SIZE, lineHeight: Math.round(CODE_SIZE * LINE_RATIO), color: theme.colors.text }}>
+          <Text selectable style={{ fontFamily: theme.font.mono, fontSize: CODE_SIZE, lineHeight: Math.round(CODE_SIZE * LINE_RATIO), color: theme.colors.onMachine }}>
             {block.text.length > 0 ? block.text : ' '}
           </Text>
         </ScrollView>

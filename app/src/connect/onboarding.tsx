@@ -1,11 +1,15 @@
 // The "what am I looking at" half of the connect screen. Someone opening Tether
 // for the first time has no idea what an address or a pairing code is, so this
 // explains the whole setup before asking them to type anything.
+//
+// Ledger anatomy: each step is a mono ordinal in the margin column and prose
+// beside it — no numbered circles, no boxed commands. The command someone has
+// to run is machine voice, so it is plain mono on the page.
 
 import React, { useCallback, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Caption, Card, Column, Mono, Row, Txt } from '../ui';
+import { Caption, Label, Mono, Row, Rule, Section, Txt } from '../ui';
 
 interface StepProps {
   index: number;
@@ -18,45 +22,14 @@ function Step({ index, title, detail, code }: StepProps) {
   const theme = useTheme();
   return (
     <Row align="flex-start" gap="sm">
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={{
-          width: 24,
-          height: 24,
-          borderRadius: 12,
-          backgroundColor: theme.colors.accentSoft,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginTop: 1,
-        }}
-      >
-        <Txt variant="caption" color={theme.colors.onAccentSoft} style={{ fontWeight: '800' }}>
-          {index}
-        </Txt>
-      </View>
-      <Column style={{ flex: 1 }} gap="xxs">
+      <Label style={{ marginBottom: 0, marginTop: 3, width: theme.space.lg }}>{`0${index}`}</Label>
+      <View style={{ flex: 1, gap: theme.space.xxs }}>
         <Txt variant="bodyStrong">{title}</Txt>
         <Txt variant="caption" tone="dim">
           {detail}
         </Txt>
-        {code ? (
-          <View
-            style={{
-              marginTop: theme.space.xxs,
-              alignSelf: 'flex-start',
-              backgroundColor: theme.colors.surfaceAlt,
-              borderRadius: theme.radius.sm,
-              borderWidth: theme.layout.hairline,
-              borderColor: theme.colors.border,
-              paddingHorizontal: theme.space.sm,
-              paddingVertical: theme.space.xxs + 2,
-            }}
-          >
-            <Mono>{code}</Mono>
-          </View>
-        ) : null}
-      </Column>
+        {code ? <Mono style={{ marginTop: theme.space.xxs }}>{code}</Mono> : null}
+      </View>
     </Row>
   );
 }
@@ -79,17 +52,15 @@ const STEPS: readonly Omit<StepProps, 'index'>[] = [
 
 /** Numbered setup checklist. */
 export function SetupSteps() {
+  const theme = useTheme();
   return (
-    <Card>
-      <Txt variant="subheading" heading style={{ marginBottom: 12 }}>
-        Before you connect
-      </Txt>
-      <Column gap="md">
+    <Section label="Before you connect" bleed={theme.layout.margin}>
+      <View style={{ gap: theme.space.md }}>
         {STEPS.map((step, i) => (
           <Step key={step.title} index={i + 1} {...step} />
         ))}
-      </Column>
-    </Card>
+      </View>
+    </Section>
   );
 }
 
@@ -100,24 +71,26 @@ export function AwayFromHomeNote() {
   const toggle = useCallback(() => setOpen((prev) => !prev), []);
 
   return (
-    <Card padding="sm">
+    <View>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         accessibilityHint={open ? 'Collapses the section' : 'Expands the section'}
         onPress={toggle}
         testID="tailscale-note"
-        style={{ minHeight: theme.layout.minTouch, justifyContent: 'center', paddingHorizontal: theme.space.xs }}
+        style={({ pressed }) => ({
+          minHeight: theme.layout.minTouch,
+          justifyContent: 'center',
+          opacity: pressed ? theme.motion.pressOpacity : 1,
+        })}
       >
         <Row justify="space-between">
-          <Txt variant="bodyStrong">Connecting from outside your home</Txt>
-          <Txt variant="bodyStrong" tone="faint">
-            {open ? '−' : '+'}
-          </Txt>
+          <Label style={{ marginBottom: 0 }}>Away from home</Label>
+          <Label style={{ marginBottom: 0 }}>{open ? '−' : '+'}</Label>
         </Row>
       </Pressable>
       {open ? (
-        <Column gap="xs" style={{ paddingHorizontal: theme.space.xs, paddingBottom: theme.space.xs, paddingTop: theme.space.xs }}>
+        <View style={{ gap: theme.space.xs, paddingBottom: theme.space.sm }}>
           <Txt variant="caption" tone="dim">
             On the same Wi-Fi, the address your computer prints works as-is. On cellular it will not — your
             home network is not reachable from the outside.
@@ -127,8 +100,9 @@ export function AwayFromHomeNote() {
             100. and works from anywhere, encrypted end to end, with no port forwarding.
           </Txt>
           <Caption>Never expose the host agent directly to the internet.</Caption>
-        </Column>
+        </View>
       ) : null}
-    </Card>
+      <Rule bleed={theme.layout.margin} />
+    </View>
   );
 }

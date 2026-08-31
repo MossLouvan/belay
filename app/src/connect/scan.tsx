@@ -9,9 +9,10 @@ import React, { useCallback, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 
-import { Column, Row, Heading, Caption, Txt, Button, Banner, Card } from '../ui';
+import { Banner, Button, Caption, Heading, MachinePanel, Row, Txt } from '../ui';
 import { useTheme } from '../theme';
-import { parsePairLink, ParsedPairLink } from './pair-link';
+import { parsePairLink } from './pair-link';
+import type { ParsedPairLink } from './pair-link';
 
 export interface ScanStepProps {
   onScanned: (link: ParsedPairLink) => void;
@@ -48,68 +49,57 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
 
   if (!permission) {
     // Still reading the current permission state.
-    return (
-      <Card>
-        <Caption>Checking camera access…</Caption>
-      </Card>
-    );
+    return <Caption>Checking camera access…</Caption>;
   }
 
   if (!permission.granted) {
     return (
-      <Card>
-        <Column gap="md">
-          <Heading>Scan to connect</Heading>
-          <Txt>
-            Tether needs the camera to read the pairing code shown on your computer.
-            It is only used while this screen is open.
-          </Txt>
-          <Row gap="sm">
-            <View style={{ flex: 1 }}>
-              <Button
-                label={permission.canAskAgain ? 'Allow camera' : 'Open Settings'}
-                fullWidth
-                onPress={() => void requestPermission()}
-              />
-            </View>
-            <Button label="Type it instead" variant="ghost" onPress={onCancel} />
-          </Row>
-          {!permission.canAskAgain ? (
-            <Caption>
-              Camera access was declined before, so it has to be re-enabled in iOS
-              Settings under Tether.
-            </Caption>
-          ) : null}
-        </Column>
-      </Card>
+      <View style={{ gap: theme.space.md }}>
+        <Heading>Scan to connect</Heading>
+        <Txt>
+          Tether needs the camera to read the pairing code shown on your computer.
+          It is only used while this screen is open.
+        </Txt>
+        <Row gap="sm">
+          <View style={{ flex: 1 }}>
+            <Button
+              label={permission.canAskAgain ? 'Allow camera' : 'Open Settings'}
+              fullWidth
+              onPress={() => void requestPermission()}
+            />
+          </View>
+          <Button label="Type it instead" variant="ghost" onPress={onCancel} />
+        </Row>
+        {!permission.canAskAgain ? (
+          <Caption>
+            Camera access was declined before, so it has to be re-enabled in iOS
+            Settings under Tether.
+          </Caption>
+        ) : null}
+      </View>
     );
   }
 
   return (
-    <Column gap="md">
-      <Column gap="xs">
+    <View style={{ gap: theme.space.md }}>
+      <View style={{ gap: theme.space.xs }}>
         <Heading>Scan to connect</Heading>
         <Caption>Point the camera at the code shown in your computer's terminal.</Caption>
-      </Column>
+      </View>
 
-      <View
-        testID="scan-viewfinder"
-        style={{
-          aspectRatio: 1,
-          borderRadius: theme.radius.lg,
-          overflow: 'hidden',
-          backgroundColor: theme.colors.surface,
-        }}
-      >
+      {/* The viewfinder is a window into the camera the way the terminal is a
+          window into the computer, so it sits on the same machine panel:
+          true-dark, square, hairline-separated, full-bleed. */}
+      <MachinePanel testID="scan-viewfinder" bleed={theme.layout.margin}>
         <CameraView
-          style={{ flex: 1 }}
+          style={{ aspectRatio: 1, width: '100%' }}
           facing="back"
           // Only QR is requested: narrowing the formats keeps the scanner from
           // latching onto barcodes on whatever else is on the desk.
           barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
           onBarcodeScanned={onBarcode}
         />
-      </View>
+      </MachinePanel>
 
       {sawUnknownCode ? (
         <Banner
@@ -120,6 +110,6 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
       ) : null}
 
       <Button label="Type it in instead" variant="ghost" fullWidth onPress={onCancel} />
-    </Column>
+    </View>
   );
 }

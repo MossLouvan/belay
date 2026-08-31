@@ -18,7 +18,7 @@ import { ParsedPairLink } from '../src/connect/pair-link';
 import { raceAddresses } from '../src/devices/race';
 import { useTheme } from '../src/theme';
 import {
-  Button, Caption, Card, Column, Label, Row, Txt, haptic,
+  Button, Caption, Label, Micro, Row, Rule, Txt, haptic,
 } from '../src/ui';
 import { Brand } from '../src/connect/brand';
 import { Diagnosis, diagnoseHostFailure, diagnosePairFailure } from '../src/connect/diagnose';
@@ -26,7 +26,7 @@ import { forgetHost, loadRecentHosts, prettyHost, rememberHost, resolveHost } fr
 import { AwayFromHomeNote, SetupSteps } from '../src/connect/onboarding';
 import { HostStep } from '../src/connect/host-step';
 import { TAILNET_PROBE_ATTEMPTS, planTailnetUpgrade, readTailnetProbe } from '../src/connect/tailnet';
-import { TailscaleCard } from '../src/connect/tailscale-card';
+import { TailscaleStep } from '../src/connect/tailscale-card';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
 import { ThemeToggle } from '../src/settings/theme-toggle';
 
@@ -34,7 +34,7 @@ type Stage = 'host' | 'scan' | 'code' | 'success';
 
 /** How long to wait for `/health` before calling the address unreachable. */
 const HOST_CHECK_TIMEOUT_MS = 8000;
-/** How long the success card is shown before the tabs take over. */
+/** How long the success notice is shown before the tabs take over. */
 const SUCCESS_DWELL_MS = 600;
 
 type HealthResult = Awaited<ReturnType<typeof checkHost>>;
@@ -64,32 +64,15 @@ async function checkHostBounded(url: string): Promise<HealthResult> {
   }
 }
 
-function SuccessCard({ name }: { name: string }) {
+function SuccessNotice({ name }: { name: string }) {
   const theme = useTheme();
   return (
-    <Card testID="pair-success">
-      <Column align="center" gap="sm" style={{ paddingVertical: theme.space.md }}>
-        <View
-          accessibilityElementsHidden
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            backgroundColor: theme.colors.goodSoft,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Txt variant="title" color={theme.colors.onGoodSoft}>
-            ✓
-          </Txt>
-        </View>
-        <Txt variant="subheading" align="center">
-          Paired with {name}
-        </Txt>
-        <Caption style={{ textAlign: 'center' }}>You will not need the code again on this device.</Caption>
-      </Column>
-    </Card>
+    <View testID="pair-success" style={{ gap: theme.space.sm }}>
+      <Txt variant="label" tone="good">{'\u2713 Paired'}</Txt>
+      <Txt variant="subheading">Paired with {name}</Txt>
+      <Caption>You will not need the code again on this device.</Caption>
+      <Rule bleed={theme.layout.margin} />
+    </View>
   );
 }
 
@@ -115,17 +98,15 @@ async function firstReachable(urls: readonly string[]): Promise<string | null> {
 
 /** Offers the scanner from the manual-entry screen. */
 function ScanPrompt({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
   return (
-    <Card>
-      <Column gap="sm">
-        <Txt variant="bodyStrong">Skip the typing</Txt>
-        <Caption>
-          The host agent prints a QR code when it starts. Scanning it fills in the
-          address and the code for you.
-        </Caption>
-        <Button label="Scan the code" variant="secondary" fullWidth onPress={onPress} testID="scan-btn" />
-      </Column>
-    </Card>
+    <View style={{ gap: theme.space.sm }}>
+      <Micro>
+        The host agent prints a QR code when it starts. Scanning it fills in everything.
+      </Micro>
+      <Button label="Scan code" variant="secondary" fullWidth onPress={onPress} testID="scan-btn" />
+      <Rule bleed={theme.layout.margin} />
+    </View>
   );
 }
 
@@ -436,10 +417,10 @@ export default function Connect() {
     >
       <ScrollView
         contentContainerStyle={{
-          paddingHorizontal: theme.space.md,
+          paddingHorizontal: theme.layout.margin,
           paddingTop: insets.top + theme.space.lg,
           paddingBottom: insets.bottom + theme.space.xl,
-          gap: theme.space.md,
+          gap: theme.space.lg,
           flexGrow: 1,
           justifyContent: 'center',
           width: '100%',
@@ -465,6 +446,7 @@ export default function Connect() {
               onPickRecent={onPickRecent}
               onForgetRecent={onForgetRecent}
             />
+            <Rule bleed={theme.layout.margin} />
             <ScanPrompt onPress={() => setStage('scan')} />
             <SetupSteps />
             <AwayFromHomeNote />
@@ -480,9 +462,10 @@ export default function Connect() {
           <>
             {/* The one-tap fix goes above the digits: turning Tailscale on is
                 easier than reading a code off another screen, and it is what
-                makes the computer reachable away from home too. */}
+                makes the computer reachable away from home too. While it is
+                shown it holds the screen's accent; Pair demotes to fallback. */}
             {tailscaleOff ? (
-              <TailscaleCard
+              <TailscaleStep
                 hostName={tailscaleOff}
                 detail={tailscaleDetail}
                 onRetry={onRetryTailscale}
@@ -497,11 +480,12 @@ export default function Connect() {
               onBack={onBack}
               busy={busy}
               error={pairError}
+              primary={!tailscaleOff}
             />
           </>
         ) : null}
 
-        {stage === 'success' && host ? <SuccessCard name={host.name} /> : null}
+        {stage === 'success' && host ? <SuccessNotice name={host.name} /> : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -511,14 +495,12 @@ export default function Connect() {
 function AppearanceRow() {
   const theme = useTheme();
   return (
-    <Card padding="sm">
-      <Row justify="space-between" gap="sm">
-        <Column style={{ flex: 1, paddingLeft: theme.space.xs }}>
-          <Label>Appearance</Label>
-          <Caption>Follows your device by default.</Caption>
-        </Column>
-        <ThemeToggle testID="theme-toggle" style={{ width: 190 }} />
-      </Row>
-    </Card>
+    <Row justify="space-between" gap="sm" style={{ minHeight: theme.layout.minTouch }}>
+      <View style={{ flex: 1 }}>
+        <Label style={{ marginBottom: theme.space.xxs }}>Appearance</Label>
+        <Caption>Follows your device by default.</Caption>
+      </View>
+      <ThemeToggle testID="theme-toggle" style={{ width: 190 }} />
+    </Row>
   );
 }

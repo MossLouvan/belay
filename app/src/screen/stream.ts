@@ -118,6 +118,14 @@ const newCounters = (): FrameCounters => ({
 const SOCKET_OPEN = 1;
 
 /**
+ * Delay before reconnect attempt N (1-based). Exported because the panel's
+ * "RETRYING IN 4S" countdown must agree with the socket's actual schedule —
+ * one formula, two readers.
+ */
+export const backoffDelayMs = (attempt: number): number =>
+  Math.min(STREAM.backoffMaxMs, STREAM.backoffBaseMs * 2 ** Math.max(0, attempt - 1));
+
+/**
  * @param active True only while the tab is both paired and on screen. The tab
  *   navigator keeps this route mounted after the user moves to Terminal or
  *   Files, so without a focus gate the socket would keep pulling frames — and
@@ -212,8 +220,7 @@ export function useScreenStream(active: boolean, quality: QualityPreset, screen?
       tries += 1;
       setAttempt(tries);
       setPhase('reconnecting');
-      const delay = Math.min(STREAM.backoffMaxMs, STREAM.backoffBaseMs * 2 ** (tries - 1));
-      retryTimer = setTimeout(() => void open().catch(() => scheduleRetry()), delay);
+      retryTimer = setTimeout(() => void open().catch(() => scheduleRetry()), backoffDelayMs(tries));
     };
 
     // Async because the upgrade URL now needs a ticket fetched over HTTP first.

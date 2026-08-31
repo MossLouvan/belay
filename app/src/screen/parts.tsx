@@ -5,42 +5,30 @@
 //
 // Glyphs are view-drawn (2pt bars, borderRadius 1) in the same style as the
 // tab-bar icons and the sheet's close glyph — no icon font, no network fetch.
+//
+// The Ledger migration moved the control dock to ./dock.tsx and replaced the
+// stage's message/banner/permission pieces with ./panel-state.tsx — the
+// machine panel itself is the empty and error state now (docs/DESIGN.md §9).
 
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Animated,
+import { Animated, Platform, Pressable, ScrollView, View } from 'react-native';
+import type {
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
-  Platform,
-  Pressable,
-  ScrollView,
   StyleProp,
-  View,
   ViewStyle,
 } from 'react-native';
-import { Theme, useTheme } from '../theme';
-import {
-  Badge,
-  Banner,
-  Button,
-  Caption,
-  Column,
-  Row,
-  SegmentedControl,
-  Txt,
-  haptic,
-  useReducedMotion,
-  useToggleAnimation,
-} from '../ui';
-import { KEYS, KeySpec, labelFor, LAUNCHER_NOTE, QualityPreset } from './model';
-import { ArrowGlyph, KeyBarCell, buildKeyPages, pageIndexFor } from './keybar';
-import { ModsState, StickyMod } from './mods';
-import { MonitorChoice } from './monitors';
-import { DIMMED_OPACITY, ZOOM_DIM_MS } from './autohide';
-import { useAutoHide } from './useAutoHide';
-import { Phase, PermissionState, StreamStats } from './stream';
-import type { PendingButton, PointerMode } from './viewport';
+import { useTheme } from '../theme';
+import type { Theme } from '../theme';
+import { Banner, Column, Micro, Row, Txt, haptic, useReducedMotion } from '../ui';
+import { KEYS, labelFor } from './model';
+import type { KeySpec, QualityPreset } from './model';
+import { buildKeyPages, pageIndexFor } from './keybar';
+import type { ArrowGlyph, KeyBarCell } from './keybar';
+import { DIMMED_OPACITY } from './autohide';
+import type { ModsState, StickyMod } from './mods';
+import type { PermissionState, Phase, StreamStats } from './stream';
 
 export const FILL = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const;
 
@@ -113,42 +101,7 @@ function FullscreenGlyph({ mode, color }: { mode: 'expand' | 'collapse'; color: 
   );
 }
 
-/** Monitor outline with a stand — the tab bar's screen glyph, dock-sized. */
-export function MonitorGlyph({ color }: { color: string }) {
-  return (
-    <View style={{ alignItems: 'center' }}>
-      <View style={{ width: 18, height: 12, borderRadius: 3, borderWidth: 2, borderColor: color }} />
-      <View style={{ width: 8, height: 2, borderRadius: 1, backgroundColor: color, marginTop: 2 }} />
-    </View>
-  );
-}
-
-/** Keyboard outline: a key row and a space bar. */
-function KeyboardGlyph({ color }: { color: string }) {
-  return (
-    <View
-      style={{
-        width: 20,
-        height: 15,
-        borderRadius: 3,
-        borderWidth: 2,
-        borderColor: color,
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        paddingBottom: 2,
-      }}
-    >
-      <View style={{ position: 'absolute', top: 3, flexDirection: 'row', gap: 2 }}>
-        <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
-        <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
-        <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: color }} />
-      </View>
-      <View style={{ width: 8, height: 2, borderRadius: 1, backgroundColor: color }} />
-    </View>
-  );
-}
-
-/** Overflow "more" control: three dots. */
+/** Overflow "more" control: three dots — one of the universal five (§11.1). */
 export function DotsGlyph({ color }: { color: string }) {
   const dot: ViewStyle = { width: 4, height: 4, borderRadius: 2, backgroundColor: color };
   return (
@@ -156,39 +109,6 @@ export function DotsGlyph({ color }: { color: string }) {
       <View style={dot} />
       <View style={dot} />
       <View style={dot} />
-    </View>
-  );
-}
-
-/** Mouse outline with the right button filled — the right-click arm. */
-function MouseRightGlyph({ color }: { color: string }) {
-  return (
-    <View style={{ width: 13, height: 18, borderRadius: 6, borderWidth: 2, borderColor: color }}>
-      <View
-        style={{
-          position: 'absolute',
-          top: 1,
-          right: 1,
-          width: 4,
-          height: 5,
-          borderTopRightRadius: 4,
-          borderBottomLeftRadius: 1,
-          backgroundColor: color,
-        }}
-      />
-    </View>
-  );
-}
-
-function MinusGlyph({ color }: { color: string }) {
-  return <View style={{ width: 12, height: 2, borderRadius: 1, backgroundColor: color }} />;
-}
-
-function PlusGlyph({ color }: { color: string }) {
-  return (
-    <View style={{ width: 12, height: 12, alignItems: 'center', justifyContent: 'center' }}>
-      <View style={[glyphBar(color), { width: 12, height: 2 }]} />
-      <View style={[glyphBar(color), { width: 2, height: 12 }]} />
     </View>
   );
 }
@@ -211,8 +131,9 @@ export interface StageCornerProps {
 }
 
 /**
- * The fullscreen box anchored in the stage's top-right corner: a proper 44pt
- * target on the HUD scrim, not a little circle.
+ * The fullscreen control. It stays on the panel because it acts on the panel
+ * itself, and it carries its mono label — FULL in, EXIT out — because a bare
+ * bracket glyph is not one of the universal five (docs/DESIGN.md §11.1).
  */
 export function StageCorner({ mode, onPress, dimmed = false, accessibilityLabel, style, testID }: StageCornerProps) {
   const theme = useTheme();
@@ -229,11 +150,13 @@ export function StageCorner({ mode, onPress, dimmed = false, accessibilityLabel,
       style={({ pressed }) => [
         {
           position: 'absolute',
-          width: theme.layout.minTouch,
-          height: theme.layout.minTouch,
+          minWidth: theme.layout.minTouch,
+          minHeight: theme.layout.minTouch,
+          paddingHorizontal: theme.space.xxs,
           alignItems: 'center',
           justifyContent: 'center',
-          borderRadius: theme.radius.md,
+          gap: theme.space.xxs,
+          borderRadius: theme.radius.xs,
           backgroundColor: HUD.scrim,
           borderWidth: theme.layout.hairline,
           borderColor: HUD.hairline,
@@ -243,6 +166,7 @@ export function StageCorner({ mode, onPress, dimmed = false, accessibilityLabel,
       ]}
     >
       <FullscreenGlyph mode={mode} color={HUD.ink} />
+      <Micro style={{ color: HUD.inkDim }}>{mode === 'expand' ? 'Full' : 'Exit'}</Micro>
     </Pressable>
   );
 }
@@ -262,6 +186,11 @@ export interface KeyCapProps {
   style?: StyleProp<ViewStyle>;
 }
 
+/**
+ * A recessed `surfaceAlt` key, 4pt corners — the one place that radius is
+ * allowed — with an un-bold mono label (bold mono is banned, §12). Only the
+ * latch states draw a border; a resting key is a fill, not a box.
+ */
 export function KeyCap({ spec, onPress, mac, glyph, sticky = false, latched = false, locked = false, style }: KeyCapProps) {
   const theme = useTheme();
   const label = labelFor(spec, mac);
@@ -287,9 +216,9 @@ export function KeyCap({ spec, onPress, mac, glyph, sticky = false, latched = fa
           minHeight: theme.layout.minTouch,
           alignItems: 'center',
           justifyContent: 'center',
-          borderWidth: theme.layout.hairline,
-          borderColor: locked || latched ? theme.colors.accent : theme.colors.borderStrong,
-          opacity: pressed ? 0.8 : 1,
+          borderWidth: locked || latched ? theme.layout.hairline : 0,
+          borderColor: theme.colors.accent,
+          opacity: pressed ? theme.motion.pressOpacity : 1,
         },
         style,
       ]}
@@ -297,7 +226,7 @@ export function KeyCap({ spec, onPress, mac, glyph, sticky = false, latched = fa
       {glyph ? (
         <ChevronGlyph direction={glyph} color={ink} />
       ) : (
-        <Txt variant="caption" numberOfLines={1} color={ink} style={{ fontWeight: '700' }}>
+        <Txt variant="mono" numberOfLines={1} color={ink}>
           {label}
         </Txt>
       )}
@@ -325,7 +254,8 @@ export interface KeyBarProps {
  * KeyBar v2: two rows of 44pt caps, paged horizontally so every key has a
  * fixed, learnable position. Arrows are drawn as chevrons; Ctrl/Alt/Shift/Win
  * are sticky (see mods.ts). Slides up when toggled on; snaps under reduced
- * motion.
+ * motion. Sits bare on the page — the keys themselves are the recessed fills,
+ * the bar has no box of its own outside the fullscreen scrim.
  */
 export function KeyBar({ mac, mods, onKey, onMod, floating = false, testID }: KeyBarProps) {
   const theme = useTheme();
@@ -383,11 +313,11 @@ export function KeyBar({ mac, mods, onKey, onMod, floating = false, testID }: Ke
       onLayout={onLayout}
       style={{
         opacity: progress,
-        transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }],
-        backgroundColor: floating ? HUD.scrim : theme.colors.surface,
-        borderRadius: theme.radius.lg,
-        borderWidth: theme.layout.hairline,
-        borderColor: floating ? HUD.hairline : theme.colors.border,
+        transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+        backgroundColor: floating ? HUD.scrim : 'transparent',
+        borderRadius: floating ? theme.radius.xs : 0,
+        borderWidth: floating ? theme.layout.hairline : 0,
+        borderColor: HUD.hairline,
         paddingVertical: theme.space.xs,
         paddingHorizontal: theme.space.xs,
       }}
@@ -427,236 +357,18 @@ export function KeyBar({ mac, mods, onKey, onMod, floating = false, testID }: Ke
               height: 6,
               borderRadius: 3,
               backgroundColor:
-                index === page ? (floating ? HUD.ink : theme.colors.accent) : floating ? HUD.hairline : theme.colors.borderStrong,
+                index === page
+                  ? floating
+                    ? HUD.ink
+                    : theme.colors.accentGraphic
+                  : floating
+                    ? HUD.hairline
+                    : theme.colors.borderStrong,
             }}
           />
         ))}
       </View>
     </Animated.View>
-  );
-}
-
-// --- the control dock ---------------------------------------------------------
-
-interface DockButtonProps {
-  accessibilityLabel: string;
-  onPress: () => void;
-  onLongPress?: () => void;
-  active?: boolean;
-  floating?: boolean;
-  testID?: string;
-  accessibilityHint?: string;
-  children: React.ReactNode;
-}
-
-/** One 44pt control in the dock. Quiet until active, so the bar reads as one piece. */
-function DockButton({
-  accessibilityLabel,
-  onPress,
-  onLongPress,
-  active = false,
-  floating = false,
-  testID,
-  accessibilityHint,
-  children,
-}: DockButtonProps) {
-  const theme = useTheme();
-  // A translucent accent over the dark scrim would sink the ink below AA, so
-  // floating active buttons use the opaque accent fill instead.
-  const background = active ? (floating ? theme.colors.accent : theme.colors.accentSoft) : 'transparent';
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityHint={accessibilityHint}
-      accessibilityState={{ selected: active }}
-      onPress={() => {
-        haptic('selection');
-        onPress();
-      }}
-      onLongPress={onLongPress}
-      style={({ pressed }) => ({
-        minWidth: theme.layout.minTouch,
-        minHeight: theme.layout.minTouch,
-        paddingHorizontal: 2,
-        borderRadius: theme.radius.md,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: background,
-        opacity: pressed ? 0.8 : 1,
-      })}
-    >
-      <View accessibilityElementsHidden>{children}</View>
-    </Pressable>
-  );
-}
-
-export interface ControlDockProps {
-  mode: PointerMode;
-  onModeChange: (mode: PointerMode) => void;
-  /** The armed one-shot button override (right-/double-click). */
-  armed: PendingButton;
-  onToggleRight: () => void;
-  onToggleDouble: () => void;
-  keysOn: boolean;
-  onToggleKeys: () => void;
-  typeOpen: boolean;
-  onToggleType: () => void;
-  screens: readonly MonitorChoice[];
-  /** The resolved monitor index currently streamed. */
-  selectedScreen: number | undefined;
-  onCycleMonitor: () => void;
-  onOpenMonitorPicker: () => void;
-  /** Floating over the stream (fullscreen): chrome uses the HUD scrim. */
-  floating?: boolean;
-  /** Fired on every dock interaction — the fullscreen auto-hide's poke. */
-  onInteract?: () => void;
-}
-
-/**
- * The single control row under (or, fullscreen, over) the stage. Replaces the
- * old four stacked rows: pointer mode + click arms on the left, keyboard /
- * monitor / type on the right. Everything else lives in the header's overflow.
- */
-export function ControlDock({
-  mode,
-  onModeChange,
-  armed,
-  onToggleRight,
-  onToggleDouble,
-  keysOn,
-  onToggleKeys,
-  typeOpen,
-  onToggleType,
-  screens,
-  selectedScreen,
-  onCycleMonitor,
-  onOpenMonitorPicker,
-  floating = false,
-  onInteract,
-}: ControlDockProps) {
-  const theme = useTheme();
-  const wrap = (action: () => void) => () => {
-    onInteract?.();
-    action();
-  };
-  const ink = (active: boolean): string =>
-    active ? (floating ? theme.colors.onAccent : theme.colors.onAccentSoft) : floating ? HUD.ink : theme.colors.text;
-
-  const monitorPosition = screens.findIndex((screen) => screen.index === selectedScreen);
-  const monitorShown = (monitorPosition >= 0 ? monitorPosition : 0) + 1;
-
-  return (
-    <Row
-      testID="control-dock"
-      justify="space-between"
-      gap="xs"
-      style={{
-        minHeight: 56,
-        paddingHorizontal: theme.space.xs,
-        paddingVertical: theme.space.xs - 2,
-        borderRadius: theme.radius.lg,
-        backgroundColor: floating ? HUD.scrim : theme.colors.surface,
-        borderWidth: theme.layout.hairline,
-        borderColor: floating ? HUD.hairline : theme.colors.border,
-        ...(floating ? {} : theme.elevation.sm),
-      }}
-    >
-      <Row gap="xxs" style={{ flexShrink: 1 }}>
-        <SegmentedControl
-          testID="pointer-mode"
-          accessibilityLabel="Pointer mode"
-          value={mode}
-          onChange={(next) => {
-            onInteract?.();
-            onModeChange(next);
-          }}
-          options={[
-            { value: 'touch', label: 'Touch' },
-            { value: 'trackpad', label: 'Pad' },
-          ]}
-          // RN's flexShrink defaults to 0: without these the dock would
-          // overflow a 320pt screen once the monitor button appears.
-          style={{ width: 124, flexShrink: 1, minWidth: 88 }}
-        />
-        <DockButton
-          testID="right-click"
-          accessibilityLabel="Right-click"
-          accessibilityHint="Arms the next tap as a right-click"
-          active={armed === 'right'}
-          floating={floating}
-          onPress={wrap(onToggleRight)}
-        >
-          <MouseRightGlyph color={ink(armed === 'right')} />
-        </DockButton>
-        <DockButton
-          testID="double-click"
-          accessibilityLabel="Double-click"
-          accessibilityHint="Arms the next tap as a double-click"
-          active={armed === 'double'}
-          floating={floating}
-          onPress={wrap(onToggleDouble)}
-        >
-          <Txt variant="caption" color={ink(armed === 'double')} style={{ fontWeight: '800' }}>
-            2×
-          </Txt>
-        </DockButton>
-      </Row>
-
-      <Row gap="xxs">
-        <DockButton
-          testID="toggle-keys"
-          accessibilityLabel={keysOn ? 'Hide the key bar' : 'Show the key bar'}
-          active={keysOn}
-          floating={floating}
-          onPress={wrap(onToggleKeys)}
-        >
-          <KeyboardGlyph color={ink(keysOn)} />
-        </DockButton>
-        {screens.length > 1 ? (
-          <DockButton
-            testID="monitor-switcher"
-            accessibilityLabel={`Monitor ${monitorShown} of ${screens.length}`}
-            accessibilityHint="Switches to the next monitor; long press to pick one"
-            floating={floating}
-            onPress={wrap(onCycleMonitor)}
-            onLongPress={wrap(onOpenMonitorPicker)}
-          >
-            <MonitorGlyph color={ink(false)} />
-            <View
-              style={{
-                position: 'absolute',
-                top: -3,
-                right: -5,
-                minWidth: 15,
-                height: 15,
-                borderRadius: theme.radius.pill,
-                backgroundColor: theme.colors.accent,
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingHorizontal: 3,
-              }}
-            >
-              <Txt variant="monoSmall" color={theme.colors.onAccent} style={{ fontSize: 9, lineHeight: 11, fontWeight: '700' }}>
-                {String(monitorShown)}
-              </Txt>
-            </View>
-          </DockButton>
-        ) : null}
-        <DockButton
-          testID="toggle-type"
-          accessibilityLabel={typeOpen ? 'Hide the text field' : 'Type text on the PC'}
-          active={typeOpen}
-          floating={floating}
-          onPress={wrap(onToggleType)}
-        >
-          <Txt variant="caption" color={ink(typeOpen)} style={{ fontWeight: '800' }}>
-            Aa
-          </Txt>
-        </DockButton>
-      </Row>
-    </Row>
   );
 }
 
@@ -693,7 +405,7 @@ export function StreamHud({ stats, pingMs, quality, zoom }: StreamHudProps) {
         left: theme.space.xs,
         minWidth: 132,
         backgroundColor: HUD.scrim,
-        borderRadius: theme.radius.sm,
+        borderRadius: theme.radius.xs,
         borderWidth: theme.layout.hairline,
         borderColor: HUD.hairline,
         paddingHorizontal: theme.space.sm,
@@ -738,148 +450,26 @@ export function Crosshair({ x, y, color }: { x: Animated.Value; y: Animated.Valu
   );
 }
 
-export interface ZoomPillProps {
-  zoom: number;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onReset: () => void;
-}
-
-/**
- * The zoom controls fused into one pill on the HUD scrim, bottom-right of the
- * stage. Dims to 35% after a couple of idle seconds — still tappable, no
- * longer competing with the desktop — and wakes on any press.
- */
-export function ZoomPill({ zoom, onZoomIn, onZoomOut, onReset }: ZoomPillProps) {
-  const theme = useTheme();
-  const idle = useAutoHide(true, ZOOM_DIM_MS);
-  const opacity = useToggleAnimation(idle.visible, theme.motion.fast).interpolate({
-    inputRange: [0, 1],
-    outputRange: [DIMMED_OPACITY, 1],
-  });
-
-  // Pinching changes the zoom without touching the pill; brighten so the
-  // readout is legible exactly while it is changing.
-  const { poke } = idle;
-  useEffect(() => {
-    poke();
-  }, [poke, zoom]);
-
-  const zone = (
-    testID: string,
-    accessibilityLabel: string,
-    onPress: () => void,
-    child: React.ReactNode
-  ): React.JSX.Element => (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      onPress={() => {
-        haptic('selection');
-        idle.poke();
-        onPress();
-      }}
-      style={({ pressed }) => ({
-        minWidth: theme.layout.minTouch,
-        height: theme.layout.minTouch,
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: pressed ? 0.7 : 1,
-      })}
-    >
-      {child}
-    </Pressable>
-  );
-
-  return (
-    <View
-      pointerEvents="box-none"
-      style={{ ...FILL, alignItems: 'flex-end', justifyContent: 'flex-end', padding: theme.space.xs }}
-    >
-      <Animated.View
-        style={{
-          flexDirection: 'row',
-          borderRadius: theme.radius.pill,
-          backgroundColor: HUD.scrim,
-          borderWidth: theme.layout.hairline,
-          borderColor: HUD.hairline,
-          opacity,
-        }}
-      >
-        {zone('zoom-out', 'Zoom out', onZoomOut, <MinusGlyph color={HUD.ink} />)}
-        {zone(
-          'zoom-level',
-          `Zoom ${zoom.toFixed(1)} times. Tap to fit the whole screen.`,
-          onReset,
-          <Txt variant="monoSmall" color={HUD.ink} style={{ fontWeight: '700' }}>
-            {`${zoom.toFixed(1)}×`}
-          </Txt>
-        )}
-        {zone('zoom-in', 'Zoom in', onZoomIn, <PlusGlyph color={HUD.ink} />)}
-      </Animated.View>
-    </View>
-  );
-}
-
-// --- stage states and notices ---------------------------------------------------
-
-export interface StageMessageProps {
-  phase: Phase;
-  attempt: number;
-  hostName: string;
-}
-
-/** What the stage says before the first frame arrives. */
-export function StageMessage({ phase, attempt, hostName }: StageMessageProps) {
-  const theme = useTheme();
-  const text =
-    phase === 'reconnecting'
-      ? `Reconnecting to ${hostName} (attempt ${attempt})…`
-      : phase === 'error'
-        ? 'No picture from the host.'
-        : phase === 'idle'
-          ? 'Not connected to a host.'
-          : 'Waiting for the first frame…';
-  return (
-    <View
-      testID="stage-message"
-      pointerEvents="none"
-      style={{ ...FILL, alignItems: 'center', justifyContent: 'center', padding: theme.space.md }}
-    >
-      <Txt variant="caption" tone="faint" align="center">
-        {text}
-      </Txt>
-    </View>
-  );
-}
+// --- notices -----------------------------------------------------------------
 
 export interface NoticeAreaProps {
   permissions: PermissionState;
-  phase: Phase;
-  attempt: number;
-  streamError: string | null;
   actionError: string | null;
   onHelp: () => void;
-  onRetry: () => void;
 }
 
-/** Banners above the stage: permissions first, then stream faults, then toasts. */
-export function NoticeArea({
-  permissions,
-  phase,
-  attempt,
-  streamError,
-  actionError,
-  onHelp,
-  onRetry,
-}: NoticeAreaProps) {
+/**
+ * Input-side notices only. Stream faults and capture blocks moved INTO the
+ * machine panel (panel-state.tsx) — this survives for the two problems the
+ * panel cannot show while a live picture fills it: blocked input injection,
+ * and one-shot input failures.
+ */
+export function NoticeArea({ permissions, actionError, onHelp }: NoticeAreaProps) {
   const theme = useTheme();
-  const showStreamError = streamError !== null && !permissions.captureBlocked;
-  if (!permissions.inputBlocked && !showStreamError && !actionError) return null;
+  if (!permissions.inputBlocked && !actionError) return null;
 
   return (
-    <Column gap="xs" style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.xs }}>
+    <Column gap="xs" style={{ paddingHorizontal: theme.layout.margin, paddingBottom: theme.space.xs }}>
       {permissions.inputBlocked ? (
         <Banner
           testID="accessibility-banner"
@@ -889,65 +479,8 @@ export function NoticeArea({
           action={{ label: 'How to fix', onPress: onHelp }}
         />
       ) : null}
-      {showStreamError ? (
-        <Banner
-          testID="stream-error"
-          status="bad"
-          title={phase === 'reconnecting' ? `Reconnecting (attempt ${attempt})` : 'Stream problem'}
-          message={streamError ?? 'The screen stream stopped.'}
-          action={{ label: 'Retry now', onPress: onRetry }}
-        />
-      ) : null}
       {actionError ? <Banner testID="input-error" status="warn" message={actionError} /> : null}
     </Column>
-  );
-}
-
-export interface CaptureBlockedProps {
-  known: boolean;
-  onHelp: () => void;
-  onRetry: () => void;
-}
-
-/**
- * Full-stage explanation for the black screen a missing macOS Screen Recording
- * grant produces. `box-none` so the stage underneath still takes taps outside
- * the card.
- */
-export function CaptureBlocked({ known, onHelp, onRetry }: CaptureBlockedProps) {
-  const theme = useTheme();
-  return (
-    <View
-      pointerEvents="box-none"
-      style={{ ...FILL, alignItems: 'center', justifyContent: 'center', padding: theme.space.sm }}
-    >
-      <Column
-        testID="permission-blocked"
-        gap="xs"
-        style={{
-          maxWidth: 380,
-          backgroundColor: theme.colors.surface,
-          borderRadius: theme.radius.lg,
-          borderWidth: theme.layout.hairline,
-          borderColor: theme.colors.border,
-          padding: theme.space.md,
-          ...theme.elevation.lg,
-        }}
-      >
-        <Badge label={known ? 'Screen Recording off' : 'Capture blocked'} status="bad" dot />
-        <Txt variant="subheading">macOS is blocking screen capture</Txt>
-        <Caption>
-          {known
-            ? 'The host reports that Screen Recording permission is not granted, so every frame would be black.'
-            : 'The host could not capture the display, and the error reads like a macOS privacy refusal.'}
-        </Caption>
-        <Caption>{LAUNCHER_NOTE}</Caption>
-        <Row gap="xs" wrap>
-          <Button label="Fix it" onPress={onHelp} size="sm" testID="permission-help" />
-          <Button label="Recheck" onPress={onRetry} size="sm" variant="secondary" testID="permission-recheck" />
-        </Row>
-      </Column>
-    </View>
   );
 }
 

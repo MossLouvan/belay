@@ -1,11 +1,13 @@
-// One line of the session feed: the user's prompt as a bubble, Claude's
-// narration as prose, tool calls as a mono one-liner, results as a tally.
+// One line of the session feed: the user's prompt marked by a "YOU" label and
+// an emphasis rule, Claude's narration as prose, tool calls as a mono
+// one-liner, results as a tally. No bubbles — the feed is a transcript column
+// on the page, and hierarchy comes from type and the one accent rule.
 
 import React from 'react';
 import { View } from 'react-native';
 import type { AgentEvent } from '../api';
 import { useTheme } from '../theme';
-import { Txt } from '../ui';
+import { Micro, Txt } from '../ui';
 import { resultSummary } from './model';
 
 export function EventRow({ event }: { event: AgentEvent }) {
@@ -15,16 +17,13 @@ export function EventRow({ event }: { event: AgentEvent }) {
     return (
       <View
         style={{
-          alignSelf: 'flex-end',
-          maxWidth: '88%',
-          backgroundColor: theme.colors.accentSoft,
-          borderColor: theme.colors.accent,
-          borderWidth: theme.layout.hairline,
-          borderRadius: theme.radius.md,
-          paddingHorizontal: theme.space.sm + 2,
-          paddingVertical: theme.space.sm,
+          borderLeftWidth: theme.layout.ruleEmphasis,
+          borderLeftColor: theme.colors.accentGraphic,
+          paddingLeft: theme.space.sm,
+          gap: theme.space.xxs,
         }}
       >
+        <Micro tone="dim">You</Micro>
         <Txt selectable>{event.text}</Txt>
       </View>
     );
@@ -56,7 +55,7 @@ export function EventRow({ event }: { event: AgentEvent }) {
     return <Txt variant="caption" tone="bad">{event.text}</Txt>;
   }
   return (
-    <Txt variant="caption" tone="faint" align="center">
+    <Txt variant="caption" tone="faint">
       {event.text}
     </Txt>
   );

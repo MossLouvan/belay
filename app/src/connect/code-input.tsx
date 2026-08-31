@@ -79,7 +79,7 @@ function Box({ digit, active, invalid }: BoxProps) {
       style={{
         flex: 1,
         height: BOX_HEIGHT,
-        borderRadius: theme.radius.md,
+        borderRadius: theme.radius.xs,
         borderWidth: active || invalid ? 2 : theme.layout.hairline,
         borderColor: border,
         backgroundColor: fill,

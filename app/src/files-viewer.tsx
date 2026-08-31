@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from './theme';
-import { Banner, Button, Caption, EmptyState, Row, SegmentedControl, Txt } from './ui';
+import { Banner, Button, EmptyState, Micro, Row, Rule, SegmentedControl, Txt } from './ui';
 import { formatSize, kindOf, looksBinary, messageOf } from './files-format';
 import type { ViewerKind } from './files-format';
 import { api } from './api';
@@ -58,7 +58,7 @@ function TruncatedBanner() {
       status="warn"
       title="Showing the start of this file"
       message={`The host stops reading at ${READ_LIMIT_LABEL}, so everything past that point is not here.`}
-      style={{ marginHorizontal: theme.space.sm, marginBottom: theme.space.xs }}
+      style={{ marginHorizontal: theme.layout.margin, marginBottom: theme.space.xs }}
     />
   );
 }
@@ -71,7 +71,7 @@ function TextControls({
 }) {
   const theme = useTheme();
   return (
-    <Row gap="sm" style={{ paddingHorizontal: theme.space.sm, paddingBottom: theme.space.xs }}>
+    <Row gap="sm" style={{ paddingHorizontal: theme.layout.margin, paddingBottom: theme.space.xs }}>
       <SegmentedControl
         testID="viewer-font"
         accessibilityLabel="Text size"
@@ -151,7 +151,7 @@ function MarkdownViewer({ file }: { file: OpenFile }) {
 
   return (
     <>
-      <Row gap="sm" style={{ paddingHorizontal: theme.space.sm, paddingBottom: theme.space.xs }}>
+      <Row gap="sm" style={{ paddingHorizontal: theme.layout.margin, paddingBottom: theme.space.xs }}>
         <SegmentedControl
           testID="viewer-md-mode"
           accessibilityLabel="Markdown display mode"
@@ -218,15 +218,16 @@ export function FileViewer({ file, onClose }: FileViewerProps) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}>
-      <Row justify="space-between" gap="sm" style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.xs }}>
-        <View style={{ flex: 1 }}>
+      <Row justify="space-between" gap="sm" style={{ paddingHorizontal: theme.layout.margin, paddingBottom: theme.space.sm }}>
+        <View style={{ flex: 1, gap: 2 }}>
           <Txt variant="subheading" numberOfLines={1} heading>
             {file.name}
           </Txt>
-          <Caption numberOfLines={1}>{caption}</Caption>
+          <Micro numberOfLines={1}>{caption}</Micro>
         </View>
         <Button testID="viewer-close" label="Close" onPress={onClose} size="sm" variant="secondary" />
       </Row>
+      <Rule style={{ marginBottom: theme.space.xs }} />
 
       {file.kind === 'image' ? <ImageView name={file.name} path={file.path} size={file.size} /> : null}
       {file.kind === 'pdf' ? <PdfView name={file.name} path={file.path} size={file.size} /> : null}

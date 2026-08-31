@@ -2,11 +2,17 @@
 // when the viewer grew image/PDF/markdown branches. Owns its own "Show more"
 // paging — a huge file must never render all at once and lock the UI — and is
 // reused as the markdown viewer's source mode.
+//
+// The body renders on the real machine panel (docs/DESIGN.md §3.4): a file's
+// contents are a window into the computer, so they sit on the true-dark
+// surface in both themes, full-bleed, hairline-separated — never a border box.
+// The paging footer stays on the page below the panel, where page-voice
+// buttons keep their contrast.
 
 import React, { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Button, Caption } from '../ui';
+import { Button, Caption, MachinePanel } from '../ui';
 
 /** Lines rendered per page, so a huge file cannot lock the UI. */
 const VIEWER_PAGE = 1200;
@@ -32,8 +38,7 @@ export function TextBody({ content, wrap, font }: TextBodyProps) {
 
   const fontSize = TEXT_FONT_SIZES[font];
   const lineHeight = Math.round(fontSize * 1.5);
-  const canvas = theme.isDark ? theme.colors.black : theme.colors.surface;
-  const codeStyle = { fontFamily: theme.font.mono, fontSize, lineHeight, color: theme.colors.text };
+  const codeStyle = { fontFamily: theme.font.mono, fontSize, lineHeight, color: theme.colors.onMachine };
   const gutterWidth = Math.max(28, String(shown.length).length * fontSize * 0.62 + 12);
 
   const body = (
@@ -41,7 +46,7 @@ export function TextBody({ content, wrap, font }: TextBodyProps) {
       {!wrap ? (
         <View style={{ width: gutterWidth }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           {shown.map((_, index) => (
-            <Text key={index} allowFontScaling={false} style={[codeStyle, { color: theme.colors.textFaint, textAlign: 'right', paddingRight: 8 }]}>
+            <Text key={index} allowFontScaling={false} style={[codeStyle, { color: theme.colors.onMachineDim, textAlign: 'right', paddingRight: 8 }]}>
               {index + 1}
             </Text>
           ))}
@@ -66,20 +71,10 @@ export function TextBody({ content, wrap, font }: TextBodyProps) {
   );
 
   return (
-    <ScrollView
-      testID="viewer-body"
-      style={{
-        flex: 1,
-        marginHorizontal: theme.space.sm,
-        backgroundColor: canvas,
-        borderRadius: theme.radius.md,
-        borderWidth: theme.layout.hairline,
-        borderColor: theme.colors.border,
-      }}
-    >
-      {body}
+    <ScrollView testID="viewer-body" style={{ flex: 1 }}>
+      <MachinePanel>{body}</MachinePanel>
       {lines.length > shown.length ? (
-        <View style={{ padding: theme.space.md, gap: theme.space.xs, alignItems: 'center' }}>
+        <View style={{ padding: theme.space.md, gap: theme.space.xs, alignItems: 'flex-start' }}>
           <Caption>{`${shown.length} of ${lines.length} lines shown`}</Caption>
           <Button
             testID="viewer-more"

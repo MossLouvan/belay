@@ -68,9 +68,9 @@ export function ImageView({ name, path, size }: ImageViewProps) {
     return (
       <WebView
         testID="viewer-svg"
-        source={{ html: svgShell(uri, theme.colors.bg) }}
+        source={{ html: svgShell(uri, theme.colors.machine) }}
         javaScriptEnabled={false}
-        style={{ flex: 1, backgroundColor: theme.colors.bg }}
+        style={{ flex: 1, backgroundColor: theme.colors.machine }}
       />
     );
   }
@@ -91,7 +91,9 @@ export function ImageView({ name, path, size }: ImageViewProps) {
       zoomScale={zoom}
       bouncesZoom
       contentContainerStyle={{ flexGrow: 1 }}
-      style={{ flex: 1, backgroundColor: theme.colors.bg }}
+      // The machine surface, both themes: a picture off the host's disk is a
+      // window into the computer, not a UI card (docs/DESIGN.md §3.4).
+      style={{ flex: 1, backgroundColor: theme.colors.machine }}
     >
       <Pressable onPress={onTap} style={{ flex: 1 }} accessibilityRole="imagebutton" accessibilityLabel={name}>
         <Image

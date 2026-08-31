@@ -1,11 +1,15 @@
 // Step two: trade the 6-digit code for a token.
+//
+// The reachable computer reads as a ledger — name, address, capability —
+// closed by a rule, and the code entry sits under its own micro-label. The
+// accent belongs to "Pair", the step's one primary action.
 
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Badge, Banner, Button, Caption, Card, Column, Dot, Row, Txt } from '../ui';
+import { Badge, Banner, Button, Caption, Dot, Label, Row, Rule, Txt } from '../ui';
 import { CodeInput } from './code-input';
-import { Diagnosis } from './diagnose';
+import type { Diagnosis } from './diagnose';
 import { prettyHost } from './host-input';
 
 export const CODE_LENGTH = 6;
@@ -26,6 +30,12 @@ export interface PairStepProps {
   onBack: () => void;
   busy: boolean;
   error: Diagnosis | null;
+  /**
+   * Whether "Pair" is the screen's one accent action. False while the
+   * Tailscale fix above it holds the accent — one solid accent button per
+   * screen (docs/DESIGN.md §3.3), and in that state the code is the fallback.
+   */
+  primary?: boolean;
 }
 
 /** Which capabilities this host actually offers, stated before pairing. */
@@ -43,54 +53,55 @@ function CapabilityNote({ native }: { native: boolean }) {
   );
 }
 
-export function PairStep({ host, code, onChangeCode, onPair, onBack, busy, error }: PairStepProps) {
+export function PairStep({ host, code, onChangeCode, onPair, onBack, busy, error, primary = true }: PairStepProps) {
   const theme = useTheme();
   const complete = code.length === CODE_LENGTH;
 
   return (
-    <Card testID="pair-step">
-      <Row justify="space-between" align="flex-start">
-        <Column style={{ flex: 1 }} gap="xxs">
+    <View testID="pair-step">
+      <Row justify="space-between" align="flex-start" gap="sm">
+        <View style={{ flex: 1, gap: theme.space.xxs }}>
           <Row gap="xs">
             <Dot status="good" pulse label="Host reachable" />
-            <Txt variant="subheading" numberOfLines={1}>
+            <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>
               {host.name}
             </Txt>
           </Row>
           <Txt variant="monoSmall" tone="faint" numberOfLines={1}>
             {prettyHost(host.url)}
           </Txt>
-        </Column>
+        </View>
         <Badge label={host.native ? 'Screen + input' : 'Terminal only'} status={host.native ? 'good' : 'warn'} />
       </Row>
+      <Rule bleed={theme.layout.margin} style={{ marginTop: theme.space.sm }} />
 
-      <View style={{ height: theme.space.lg }} />
-
-      <Txt variant="bodyStrong">Enter the pairing code</Txt>
-      <Caption style={{ marginTop: theme.space.xxs, marginBottom: theme.space.sm }}>
-        It is shown in the Tether window on {host.name}.
-      </Caption>
-
-      <CodeInput
-        testID="code-input"
-        value={code}
-        onChange={onChangeCode}
-        onSubmit={onPair}
-        length={CODE_LENGTH}
-        editable={!busy}
-        invalid={Boolean(error)}
-        autoFocus
-      />
-
-      <Caption style={{ marginTop: theme.space.sm }}>
-        Codes are single-use and expire after five minutes. The host keeps a fresh one on screen.
-      </Caption>
-
-      {host.paired ? (
-        <Caption style={{ marginTop: theme.space.xxs }}>
-          This computer already has another device paired — adding this one will not remove it.
+      <View style={{ marginTop: theme.space.lg }}>
+        <Label>Pairing code</Label>
+        <Caption style={{ marginBottom: theme.space.sm }}>
+          It is shown in the Tether window on {host.name}.
         </Caption>
-      ) : null}
+
+        <CodeInput
+          testID="code-input"
+          value={code}
+          onChange={onChangeCode}
+          onSubmit={onPair}
+          length={CODE_LENGTH}
+          editable={!busy}
+          invalid={Boolean(error)}
+          autoFocus
+        />
+
+        <Caption style={{ marginTop: theme.space.sm }}>
+          Codes are single-use and expire after five minutes. The host keeps a fresh one on screen.
+        </Caption>
+
+        {host.paired ? (
+          <Caption style={{ marginTop: theme.space.xxs }}>
+            This computer already has another device paired — adding this one will not remove it.
+          </Caption>
+        ) : null}
+      </View>
 
       <CapabilityNote native={host.native} />
 
@@ -100,6 +111,7 @@ export function PairStep({ host, code, onChangeCode, onPair, onBack, busy, error
 
       <Button
         label="Pair"
+        variant={primary ? 'primary' : 'secondary'}
         onPress={onPair}
         loading={busy}
         disabled={busy}
@@ -116,6 +128,6 @@ export function PairStep({ host, code, onChangeCode, onPair, onBack, busy, error
         fullWidth
         style={{ marginTop: theme.space.sm }}
       />
-    </Card>
+    </View>
   );
 }

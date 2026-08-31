@@ -1,15 +1,21 @@
 // The Agent tab's home: Tether's own sessions, the "On this PC" list of Claude
 // Code sessions found on disk to resume, and the project picker for a new one.
+//
+// Ledger anatomy (docs/DESIGN.md §7.3): the sessions are three-line rows with
+// a status-dot column so the list scans as a table, hairline-separated, with
+// the section's actions as label buttons on the marker line. Loading renders
+// the same rows as skeleton bars at the text positions, so nothing reflows
+// when data lands.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { api } from '../api';
 import type { AgentProject, AgentSessionMeta, DiscoveredSession } from '../api';
 import { useTheme } from '../theme';
 import {
-  Badge, Banner, Button, Caption, Card, Column, Dot, EmptyState, IconButton, Input, Label, Row, Skeleton, Txt, haptic,
+  Badge, Banner, Button, Caption, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, Txt, haptic,
 } from '../ui';
-import { ago, groupDiscovered, projectName, statusLabel, statusTone } from './model';
+import { ago, groupDiscovered, statusLabel, statusTone } from './model';
 import { NewProjectSheet } from './new-project-sheet';
 
 const messageOf = (e: unknown, fallback: string): string => (e instanceof Error ? e.message : fallback);
@@ -17,6 +23,46 @@ const messageOf = (e: unknown, fallback: string): string => (e instanceof Error 
 interface Availability {
   readonly available: boolean;
   readonly transcribe: boolean;
+}
+
+/** A quiet chrome action: the wide-tracked mono label as its own button. */
+function LabelButton({
+  label,
+  onPress,
+  tone = 'accent',
+  disabled,
+  testID,
+  accessibilityLabel,
+}: {
+  label: string;
+  onPress: () => void;
+  tone?: 'accent' | 'dim';
+  disabled?: boolean;
+  testID?: string;
+  accessibilityLabel?: string;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
+      onPress={() => {
+        haptic('light');
+        onPress();
+      }}
+      hitSlop={theme.layout.hitSlop}
+      style={({ pressed }) => ({
+        minHeight: theme.space.xl,
+        justifyContent: 'center',
+        opacity: disabled ? 0.45 : pressed ? theme.motion.pressOpacity : 1,
+      })}
+    >
+      <Label tone={disabled ? 'dim' : tone} style={{ marginBottom: 0 }}>{label}</Label>
+    </Pressable>
+  );
 }
 
 // --- session list ------------------------------------------------------------
@@ -106,26 +152,24 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
 
   const unavailable = availability?.available === false;
   const groups = groupDiscovered(discovered);
+  const margin = theme.layout.margin;
 
   return (
     <ScrollView
       testID="agent-list"
-      contentContainerStyle={{ padding: theme.space.md, paddingTop: 0, gap: theme.space.sm }}
+      contentContainerStyle={{ paddingHorizontal: margin, paddingTop: theme.space.md, paddingBottom: theme.space.lg }}
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pullToRefresh} tintColor={theme.colors.accent} />}
     >
-      <Row justify="space-between" gap="sm">
-        <Txt variant="subheading" heading>Agent</Txt>
-        <Row gap="xs">
-          <IconButton testID="agent-refresh" accessibilityLabel="Refresh sessions" onPress={() => void refresh()} size={38}>
-            <Text allowFontScaling={false} style={{ color: theme.colors.text, fontSize: 16, fontWeight: '800' }}>⟳</Text>
-          </IconButton>
-          <Button testID="agent-new" label="+ New session" size="sm" onPress={() => setPicking(true)} disabled={unavailable} />
-        </Row>
+      <Txt variant="title" heading>Agent</Txt>
+      <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
+        <Dot status={error ? 'bad' : 'good'} size={7} />
+        <Label style={{ marginBottom: 0 }}>{error ? 'Host not answering' : 'Host connected'}</Label>
       </Row>
+      <Rule bleed={margin} style={{ marginTop: theme.space.md, marginBottom: theme.space.lg }} />
 
       {error ? (
-        <Banner testID="agent-error" status="bad" title="Could not read the host" message={error} action={{ label: 'Try again', onPress: () => void refresh() }} />
+        <Banner testID="agent-error" status="bad" title="Could not read the host" message={error} action={{ label: 'Try again', onPress: () => void refresh() }} style={{ marginBottom: theme.space.md }} />
       ) : null}
 
       {unavailable ? (
@@ -134,74 +178,103 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
           status="warn"
           title="Claude Code is not on this PC"
           message="The claude CLI was not found on the computer's PATH. Install Claude Code there, then restart the Tether host."
+          style={{ marginBottom: theme.space.md }}
         />
       ) : null}
 
-      {sessions === null && !error ? (
-        <Column gap="sm">
-          {Array.from({ length: 3 }, (_, i) => (
-            <Card key={i}>
-              <Skeleton width={`${50 + i * 12}%`} height={15} />
-              <Skeleton width="70%" height={11} style={{ marginTop: 8 }} />
-            </Card>
-          ))}
-        </Column>
-      ) : null}
+      <Section
+        label="Sessions"
+        bleed={margin}
+        rule={false}
+        trailing={
+          <LabelButton
+            testID="agent-new"
+            label="+ New session"
+            onPress={() => setPicking(true)}
+            disabled={unavailable}
+          />
+        }
+      >
+        <Rule bleed={margin} />
 
-      {sessions?.length === 0 && !unavailable ? (
-        <EmptyState
-          testID="agent-empty"
-          title="No sessions yet"
-          message="Start one in a project folder and tell Claude what to build — you approve every action from here."
-          action={{ label: 'New session', onPress: () => setPicking(true) }}
-        />
-      ) : null}
+        {sessions === null && !error ? (
+          <View>
+            {Array.from({ length: 3 }, (_, i) => (
+              <View key={i} style={{ paddingVertical: theme.space.sm, gap: theme.space.xs }}>
+                <Skeleton width={`${34 + i * 8}%`} height={11} />
+                <Skeleton width={`${58 + i * 10}%`} height={15} />
+                <Skeleton width="30%" height={10} />
+              </View>
+            ))}
+          </View>
+        ) : null}
 
-      {sessions?.map((s) => (
-        <SessionCard key={s.id} session={s} now={now} onOpen={onOpen} onRemove={remove} />
-      ))}
+        {sessions?.length === 0 && !unavailable ? (
+          <EmptyState
+            testID="agent-empty"
+            title="No sessions yet"
+            message="Start one in a project folder and tell Claude what to build — you approve every action from here."
+            action={{ label: 'New session', onPress: () => setPicking(true) }}
+          />
+        ) : null}
+
+        {sessions?.map((s) => (
+          <SessionRow key={s.id} session={s} now={now} onOpen={onOpen} onRemove={remove} />
+        ))}
+      </Section>
 
       {groups.length > 0 ? (
-        <Column gap="xs" style={{ marginTop: theme.space.sm }}>
-          <Label>On this PC</Label>
-          <Caption>
+        <Section label="On this PC" bleed={margin} rule={false} style={{ marginTop: theme.space.xl }}>
+          <Caption style={{ marginBottom: theme.space.xs }}>
             Past Claude Code sessions found on the computer — tap to resume with full context. If one is still open in a terminal there, close it first.
           </Caption>
+          <Rule bleed={margin} />
           {groups.map((g) => (
-            <View key={g.cwd} style={{ gap: theme.space.xs, marginTop: theme.space.xs }}>
-              <Txt variant="caption" tone="dim" numberOfLines={1} style={{ fontWeight: '700' }}>
-                {g.name}
-                <Txt variant="caption" tone="faint">{`  ${g.cwd}`}</Txt>
-              </Txt>
+            <View key={g.cwd}>
+              <Row gap="xs" style={{ minHeight: theme.space.xl, marginTop: theme.space.xs }}>
+                <Label style={{ marginBottom: 0 }}>{g.name}</Label>
+                <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flexShrink: 1 }}>{g.cwd}</Txt>
+              </Row>
               {g.sessions.map((d) => (
-                <Pressable
-                  key={d.claudeSessionId}
-                  testID={`agent-resume-${d.claudeSessionId}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Resume ${d.preview || 'untitled session'}`}
-                  disabled={attaching !== null}
-                  onPress={() => void attach(d)}
-                  style={({ pressed }) => ({ opacity: pressed || attaching === d.claudeSessionId ? 0.6 : 1 })}
-                >
-                  <Card padding="sm" raised>
+                <View key={d.claudeSessionId}>
+                  <Pressable
+                    testID={`agent-resume-${d.claudeSessionId}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Resume ${d.preview || 'untitled session'}`}
+                    disabled={attaching !== null}
+                    onPress={() => void attach(d)}
+                    style={({ pressed }) => ({
+                      minHeight: theme.layout.minTouch,
+                      justifyContent: 'center',
+                      gap: 2,
+                      paddingVertical: theme.space.xs,
+                      opacity: pressed || attaching === d.claudeSessionId ? theme.motion.pressOpacity : 1,
+                    })}
+                  >
                     <Row justify="space-between" gap="sm">
-                      <Txt variant="caption" numberOfLines={1} style={{ flex: 1 }}>
+                      <Txt variant="body" numberOfLines={1} style={{ flex: 1 }}>
                         {d.preview || 'untitled session'}
                       </Txt>
-                      <Caption>{ago(d.mtime, now)}</Caption>
+                      <Micro>{ago(d.mtime, now)}</Micro>
                     </Row>
-                  </Card>
-                </Pressable>
+                  </Pressable>
+                  <Rule bleed={margin} />
+                </View>
               ))}
             </View>
           ))}
-        </Column>
+        </Section>
       ) : null}
     </ScrollView>
   );
 }
 
-function SessionCard({
+/**
+ * One session, three lines: status word and project on the marker line, the
+ * task in prose, then the mono footnote. The remove control rides trailing —
+ * × is one of the universal five and this is its conventional position.
+ */
+function SessionRow({
   session: s,
   now,
   onOpen,
@@ -213,8 +286,9 @@ function SessionCard({
   onRemove: (id: string) => void;
 }) {
   const theme = useTheme();
+  const tone = statusTone(s.status);
   return (
-    <Card padding="sm" testID={`agent-session-${s.id}`}>
+    <View testID={`agent-session-${s.id}`}>
       <Row gap="sm" align="flex-start">
         <Pressable
           accessibilityRole="button"
@@ -223,31 +297,37 @@ function SessionCard({
             haptic('light');
             onOpen(s.id);
           }}
-          style={({ pressed }) => ({ flex: 1, gap: 4, opacity: pressed ? 0.7 : 1 })}
+          style={({ pressed }) => ({
+            flex: 1,
+            gap: theme.space.xxs,
+            paddingVertical: theme.space.sm,
+            minHeight: theme.layout.rowHeight,
+            opacity: pressed ? theme.motion.pressOpacity : 1,
+          })}
         >
-          <Row gap="xs">
-            <Dot status={statusTone(s.status)} pulse={s.status === 'running'} />
-            <Txt variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>{s.title}</Txt>
+          <Row justify="space-between" gap="sm">
+            <Row gap="xs">
+              <Dot status={s.status === 'idle' ? 'neutral' : tone} pulse={s.status === 'running'} size={7} />
+              <Txt variant="label" tone={s.status === 'idle' ? 'dim' : tone}>{statusLabel(s.status)}</Txt>
+            </Row>
+            <Micro tone="dim">{ago(s.lastUsed, now)}</Micro>
           </Row>
-          <Txt variant="monoSmall" tone="dim" numberOfLines={1}>{s.cwd}</Txt>
-          <Row gap="xs">
-            <Badge label={statusLabel(s.status)} status={s.status === 'idle' ? 'neutral' : statusTone(s.status)} />
-            <Caption>{ago(s.lastUsed, now)}</Caption>
-          </Row>
+          <Txt variant="subheading" numberOfLines={1}>{s.title}</Txt>
+          <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{s.cwd}</Txt>
         </Pressable>
         <IconButton
           testID={`agent-del-${s.id}`}
           accessibilityLabel={`Remove ${s.title}`}
           accessibilityHint="Forgets this session in Tether; the transcript stays on the PC"
           variant="plain"
-          size={36}
           hapticTone={null}
           onPress={() => onRemove(s.id)}
         >
-          <Text allowFontScaling={false} style={{ color: theme.colors.textFaint, fontSize: 18, fontWeight: '800' }}>×</Text>
+          <Txt variant="subheading" tone="faint">×</Txt>
         </IconButton>
       </Row>
-    </Card>
+      <Rule bleed={theme.layout.margin} />
+    </View>
   );
 }
 
@@ -298,19 +378,20 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
     void create(p.path);
   }, [create]);
 
+  const margin = theme.layout.margin;
+
   return (
     <ScrollView
       testID="agent-picker"
-      contentContainerStyle={{ padding: theme.space.md, paddingTop: 0, gap: theme.space.sm }}
+      contentContainerStyle={{ paddingHorizontal: margin, paddingTop: theme.space.md, paddingBottom: theme.space.lg }}
       keyboardShouldPersistTaps="handled"
     >
-      <Row justify="space-between" gap="sm">
-        <Txt variant="subheading" heading>Pick a project</Txt>
-        <Row gap="xs">
-          <Button testID="agent-create-project" label="+ New project" size="sm" onPress={() => setCreating(true)} />
-          <Button testID="agent-cancel" label="Cancel" size="sm" variant="ghost" onPress={onCancel} />
-        </Row>
+      <Row justify="space-between" align="flex-end" gap="sm">
+        <Txt variant="title" heading>New session</Txt>
+        <LabelButton testID="agent-cancel" label="Cancel" tone="dim" onPress={onCancel} />
       </Row>
+      <Label style={{ marginTop: theme.space.xxs, marginBottom: 0 }}>Pick where Claude works</Label>
+      <Rule bleed={margin} style={{ marginTop: theme.space.md, marginBottom: theme.space.lg }} />
 
       <NewProjectSheet
         visible={creating}
@@ -319,7 +400,7 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
         onCreated={created}
       />
 
-      {error ? <Banner testID="agent-picker-error" status="bad" message={error} /> : null}
+      {error ? <Banner testID="agent-picker-error" status="bad" message={error} style={{ marginBottom: theme.space.md }} /> : null}
 
       <Input
         testID="agent-cwd"
@@ -343,44 +424,62 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
         }
       />
 
-      {projects === null ? (
-        <Column gap="sm">
-          {Array.from({ length: 4 }, (_, i) => (
-            <Card key={i} padding="sm">
-              <Skeleton width={`${40 + i * 10}%`} height={15} />
-              <Skeleton width="75%" height={11} style={{ marginTop: 8 }} />
-            </Card>
-          ))}
-        </Column>
-      ) : projects.length > 0 ? (
-        <Column gap="xs">
-          <Label>Projects found</Label>
-          {projects.map((p) => (
-            <Pressable
-              key={p.path}
-              testID={`agent-proj-${p.name}`}
-              accessibilityRole="button"
-              accessibilityLabel={`Start a session in ${p.name}`}
-              disabled={busy !== null}
-              onPress={() => {
-                haptic('light');
-                void create(p.path);
-              }}
-              style={({ pressed }) => ({ opacity: pressed || busy === p.path ? 0.6 : 1 })}
-            >
-              <Card padding="sm">
-                <Row justify="space-between" gap="sm">
-                  <Txt variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</Txt>
-                  {p.recent ? <Badge label="recent" status="accent" /> : null}
-                </Row>
-                <Txt variant="monoSmall" tone="dim" numberOfLines={1}>{p.path}</Txt>
-              </Card>
-            </Pressable>
-          ))}
-        </Column>
-      ) : (
-        <Caption>No git repositories were found under the PC's home or Documents folder. Type a path above, or tap "+ New project" to start fresh.</Caption>
-      )}
+      <View style={{ marginTop: theme.space.lg }}>
+        {projects === null ? (
+          <View>
+            {Array.from({ length: 4 }, (_, i) => (
+              <View key={i} style={{ paddingVertical: theme.space.sm, gap: theme.space.xs }}>
+                <Skeleton width={`${40 + i * 10}%`} height={15} />
+                <Skeleton width="75%" height={11} />
+              </View>
+            ))}
+          </View>
+        ) : projects.length > 0 ? (
+          <Section
+            label="Projects found"
+            bleed={margin}
+            rule={false}
+            trailing={
+              <LabelButton testID="agent-create-project" label="+ New project" onPress={() => setCreating(true)} />
+            }
+          >
+            <Rule bleed={margin} />
+            {projects.map((p) => (
+              <View key={p.path}>
+                <Pressable
+                  testID={`agent-proj-${p.name}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Start a session in ${p.name}`}
+                  disabled={busy !== null}
+                  onPress={() => {
+                    haptic('light');
+                    void create(p.path);
+                  }}
+                  style={({ pressed }) => ({
+                    minHeight: theme.layout.rowHeight,
+                    justifyContent: 'center',
+                    gap: 2,
+                    paddingVertical: theme.space.xs,
+                    opacity: pressed || busy === p.path ? theme.motion.pressOpacity : 1,
+                  })}
+                >
+                  <Row justify="space-between" gap="sm">
+                    <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</Txt>
+                    {p.recent ? <Badge label="recent" status="accent" /> : null}
+                  </Row>
+                  <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{p.path}</Txt>
+                </Pressable>
+                <Rule bleed={margin} />
+              </View>
+            ))}
+          </Section>
+        ) : (
+          <View style={{ gap: theme.space.sm }}>
+            <Caption>No git repositories were found under the PC's home or Documents folder. Type a path above, or start fresh.</Caption>
+            <Button testID="agent-create-project" label="+ New project" variant="secondary" onPress={() => setCreating(true)} />
+          </View>
+        )}
+      </View>
     </ScrollView>
   );
 }

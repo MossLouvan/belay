@@ -1,11 +1,16 @@
-// One open session: the live feed, the Allow / Deny / Always card whenever
+// One open session: the live feed, the Allow / Deny / Always prompt whenever
 // Claude wants to touch the machine, and the prompt composer with hold-to-talk.
 // Nothing runs without a tap; the host fails closed on silence.
+//
+// The approval prompt is the highest-stakes UI in the app, so it gets the
+// page's one warn-soft band (docs/DESIGN.md §8) and its Allow keeps the accent
+// even while the session pulses — safety-relevant actions outrank the
+// one-accent rule (§11.5).
 
 import React, { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Badge, Banner, Button, Caption, Card, Dot, IconButton, Label, Row, Txt } from '../ui';
+import { Banner, Button, Caption, Dot, Label, Row, Rule, Txt } from '../ui';
 import { EventRow } from './feed';
 import { MicButton, useVoice } from './mic';
 import { appendTranscript, canPrompt, isBusy, statusLabel, statusTone } from './model';
@@ -45,8 +50,9 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   }, [approve, pending]);
 
   const busy = isBusy(status);
-  const canvas = theme.isDark ? theme.colors.black : theme.colors.surface;
   const recording = voice.state === 'recording';
+  const margin = theme.layout.margin;
+  const tone = statusTone(status);
 
   return (
     <KeyboardAvoidingView
@@ -54,58 +60,65 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
       style={{ flex: 1 }}
       keyboardVerticalOffset={KEYBOARD_OFFSET}
     >
-      <Row justify="space-between" gap="sm" style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.xs }}>
-        <Row gap="xs" style={{ flex: 1 }}>
+      <View style={{ paddingHorizontal: margin, paddingTop: theme.space.xs, paddingBottom: theme.space.sm }}>
+        <Row justify="space-between" gap="sm">
           <Pressable
             testID="agent-back"
             accessibilityRole="button"
             accessibilityLabel="Back to sessions"
             onPress={onBack}
             hitSlop={theme.layout.hitSlop}
-            style={({ pressed }) => ({ paddingVertical: 6, paddingRight: 4, opacity: pressed ? 0.6 : 1 })}
+            style={({ pressed }) => ({ paddingVertical: theme.space.xs, opacity: pressed ? theme.motion.pressOpacity : 1 })}
           >
-            <Txt variant="bodyStrong" tone="accent">‹ Back</Txt>
+            <Label tone="accent" style={{ marginBottom: 0 }}>‹ Back</Label>
           </Pressable>
-          <Dot status={link === 'open' ? statusTone(status) : 'neutral'} pulse={status === 'running'} label={statusLabel(status)} />
-          <Txt variant="bodyStrong" numberOfLines={1} style={{ flexShrink: 1 }}>{snapshot?.title || '…'}</Txt>
-        </Row>
-        <Row gap="xs">
-          <Badge testID="agent-status" label={link === 'open' ? statusLabel(status) : link} status={link === 'open' ? (status === 'idle' ? 'neutral' : statusTone(status)) : 'neutral'} />
           {busy ? <Button testID="agent-stop" label="Stop" size="sm" variant="danger" onPress={stop} /> : null}
         </Row>
-      </Row>
+        <Txt variant="subheading" heading numberOfLines={1} style={{ marginTop: theme.space.xxs }}>
+          {snapshot?.title || '…'}
+        </Txt>
+        <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
+          <Dot
+            status={link === 'open' ? (status === 'idle' ? 'neutral' : tone) : 'neutral'}
+            pulse={status === 'running'}
+            size={7}
+          />
+          <Label testID="agent-status" style={{ marginBottom: 0 }} tone={link === 'open' && status !== 'idle' ? tone : 'dim'}>
+            {link === 'open' ? statusLabel(status) : link}
+          </Label>
+        </Row>
+      </View>
+      <Rule />
 
       {link === 'closed' || link === 'error' ? (
-        <Row
+        <View
           testID="agent-offline"
-          gap="sm"
           style={{
-            marginHorizontal: theme.space.sm,
-            marginBottom: theme.space.xs,
+            marginHorizontal: margin,
+            marginTop: theme.space.sm,
             padding: theme.space.sm,
-            borderRadius: theme.radius.md,
+            gap: theme.space.xs,
             backgroundColor: theme.colors.badSoft,
+            borderRadius: theme.radius.xs,
+            borderLeftWidth: theme.layout.ruleEmphasis,
+            borderLeftColor: theme.colors.bad,
           }}
         >
-          <Txt variant="caption" color={theme.colors.onBadSoft} style={{ flex: 1, fontWeight: '700' }}>
-            {link === 'error' ? note || 'The session connection failed.' : 'Disconnected from the session.'}
+          <Txt variant="label" color={theme.colors.onBadSoft}>
+            {link === 'error' ? 'Connection failed' : 'Disconnected'}
+          </Txt>
+          <Txt variant="caption" tone="dim">
+            {link === 'error' ? note || 'The session connection failed.' : 'Disconnected from the session on the PC.'}
           </Txt>
           <Button testID="agent-reconnect" label="Reconnect" onPress={reconnect} size="sm" variant="secondary" />
-        </Row>
+        </View>
       ) : null}
 
       <ScrollView
         ref={scrollRef}
         testID="agent-feed"
-        style={{
-          flex: 1,
-          marginHorizontal: theme.space.sm,
-          backgroundColor: canvas,
-          borderRadius: theme.radius.md,
-          borderWidth: theme.layout.hairline,
-          borderColor: theme.colors.border,
-        }}
-        contentContainerStyle={{ padding: theme.space.md, gap: theme.space.sm }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: margin, paddingVertical: theme.space.md, gap: theme.space.sm }}
         keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
       >
@@ -125,20 +138,27 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
       </ScrollView>
 
       {pending ? (
-        <Card
+        <View
           testID="agent-ask"
-          padding="sm"
-          elevation="md"
-          style={{ marginHorizontal: theme.space.sm, marginTop: theme.space.sm, borderColor: theme.colors.accent }}
+          style={{
+            marginHorizontal: margin,
+            marginBottom: theme.space.xs,
+            padding: theme.space.sm,
+            gap: theme.space.xs,
+            backgroundColor: theme.colors.warnSoft,
+            borderRadius: theme.radius.xs,
+            borderLeftWidth: theme.layout.ruleEmphasis,
+            borderLeftColor: theme.colors.warn,
+          }}
         >
-          <Label>Claude wants to run</Label>
-          <Txt variant="mono" selectable numberOfLines={showInput ? undefined : 3} style={{ marginBottom: theme.space.xs }}>
-            <Txt variant="mono" tone="accent" style={{ fontWeight: '700' }}>{pending.tool}</Txt>
+          <Txt variant="label" color={theme.colors.onWarnSoft}>Approval needed</Txt>
+          <Txt variant="mono" selectable numberOfLines={showInput ? undefined : 3}>
+            <Txt variant="mono" tone="accent">{pending.tool}</Txt>
             {pending.detail ? `  ${pending.detail}` : ''}
           </Txt>
           {showInput ? (
             <ScrollView
-              style={{ maxHeight: 140, backgroundColor: canvas, borderRadius: theme.radius.sm, marginBottom: theme.space.xs }}
+              style={{ maxHeight: 140, backgroundColor: theme.colors.surface, borderRadius: theme.radius.xs }}
               contentContainerStyle={{ padding: theme.space.sm }}
               nestedScrollEnabled
             >
@@ -151,9 +171,8 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
               accessibilityLabel="Show the full tool input"
               onPress={() => setShowInput(true)}
               hitSlop={theme.layout.hitSlop}
-              style={{ marginBottom: theme.space.xs }}
             >
-              <Caption>show full input ▾</Caption>
+              <Label style={{ marginBottom: 0 }}>Show full input ▾</Label>
             </Pressable>
           )}
           <Row gap="xs">
@@ -169,14 +188,15 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
               style={{ flex: 1.3 }}
             />
           </Row>
-        </Card>
+        </View>
       ) : null}
 
       {note && link === 'open' ? (
-        <Banner testID="agent-note" status="warn" message={note} style={{ marginHorizontal: theme.space.sm, marginTop: theme.space.xs }} />
+        <Banner testID="agent-note" status="warn" message={note} style={{ marginHorizontal: margin, marginBottom: theme.space.xs }} />
       ) : null}
 
-      <View style={{ padding: theme.space.sm, gap: theme.space.xs }}>
+      <Rule />
+      <View style={{ paddingHorizontal: margin, paddingVertical: theme.space.sm }}>
         <Row gap="sm" align="flex-end">
           <MicButton testID="agent-mic" state={voice.state} onPressIn={voice.start} onPressOut={voice.stop} disabled={link !== 'open'} />
           <TextInput
@@ -192,27 +212,26 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
               flex: 1,
               maxHeight: COMPOSER_MAX_HEIGHT,
               minHeight: theme.layout.minTouch,
-              backgroundColor: theme.colors.surfaceAlt,
-              borderRadius: theme.radius.md,
-              borderWidth: recording ? 2 : theme.layout.hairline,
-              borderColor: recording ? theme.colors.accent : theme.colors.borderStrong,
+              backgroundColor: theme.colors.surface,
+              borderRadius: theme.radius.xs,
+              borderWidth: recording ? theme.layout.ruleEmphasis : theme.layout.hairline,
+              borderColor: recording ? theme.colors.focus : theme.colors.border,
               color: theme.colors.text,
-              paddingHorizontal: theme.space.md,
-              paddingVertical: theme.space.sm + 2,
+              paddingHorizontal: theme.space.sm,
+              paddingVertical: theme.space.sm,
               fontSize: 15,
               lineHeight: 20,
             }}
           />
-          <IconButton
+          <Button
             testID="agent-send"
-            accessibilityLabel="Send the prompt"
-            variant="accent"
+            label="Send"
+            size="sm"
             onPress={send}
             disabled={!input.trim() || !canPrompt(session)}
             hapticTone="medium"
-          >
-            <Text allowFontScaling={false} style={{ color: theme.colors.onAccentSoft, fontSize: 18, fontWeight: '800' }}>↑</Text>
-          </IconButton>
+            accessibilityLabel="Send the prompt"
+          />
         </Row>
       </View>
     </KeyboardAvoidingView>

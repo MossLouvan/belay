@@ -93,7 +93,7 @@ export function NewProjectSheet({
         />
 
         <Column gap="xs">
-          <Txt variant="caption" tone="dim" style={{ fontWeight: '700' }}>Create inside</Txt>
+          <Txt variant="label" tone="dim">Create inside</Txt>
           {suggestions.map((s) => (
             <ListItem
               key={s}

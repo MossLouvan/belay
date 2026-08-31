@@ -34,17 +34,20 @@ function KeyCap({ id, label, onPress, active, wide }: KeyCapProps) {
         haptic('light');
         onPress();
       }}
+      // A recessed surfaceAlt key with 4pt corners — the one sanctioned radius
+      // above the 2pt standard — and no border box; only the armed state draws
+      // its accent hairline. Bold mono is banned (docs/DESIGN.md §12).
       style={({ pressed }) => ({
         minWidth: wide ? 56 : theme.layout.minTouch,
-        minHeight: theme.layout.minTouch - 6,
+        minHeight: theme.layout.minTouch,
         paddingHorizontal: theme.space.sm,
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: theme.radius.sm,
-        borderWidth: theme.layout.hairline,
-        borderColor: active ? theme.colors.accent : theme.colors.borderStrong,
+        borderWidth: active ? theme.layout.hairline : 0,
+        borderColor: theme.colors.accent,
         backgroundColor: active ? theme.colors.accentSoft : theme.colors.surfaceAlt,
-        opacity: pressed ? 0.7 : 1,
+        opacity: pressed ? theme.motion.pressOpacity : 1,
       })}
     >
       <Text
@@ -52,8 +55,7 @@ function KeyCap({ id, label, onPress, active, wide }: KeyCapProps) {
         style={{
           color: active ? theme.colors.onAccentSoft : theme.colors.text,
           fontFamily: theme.font.mono,
-          fontSize: 14,
-          fontWeight: '700',
+          fontSize: 13,
         }}
       >
         {label}
@@ -109,11 +111,13 @@ export function KeyBar({ onSend, onClear, onHistory, ptyMode }: KeyBarProps) {
     [alt, consume, ctrl, onHistory, onSend, ptyMode]
   );
 
-  const rowStyle = { gap: 6, paddingHorizontal: theme.space.sm, paddingVertical: 4 } as const;
+  // Rows lead with the 20pt page gutter so the first key sits on the grid's
+  // left edge like everything else on the page.
+  const rowStyle = { gap: theme.space.xs, paddingHorizontal: theme.layout.margin, paddingVertical: theme.space.xxs } as const;
   const secondary = armed ? LETTER_KEYS : SYMBOL_KEYS;
 
   return (
-    <View style={{ gap: 2 }}>
+    <View style={{ gap: theme.space.none }}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={rowStyle}>
         <KeyCap id="Ctrl" label="ctrl" active={ctrl} wide onPress={() => setCtrl((v) => !v)} />
         <KeyCap id="Alt" label="alt" active={alt} wide onPress={() => setAlt((v) => !v)} />

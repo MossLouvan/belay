@@ -1,11 +1,16 @@
 // Step one: point the app at the computer.
+//
+// Ledger anatomy rather than a card: the section label marks the step, the
+// address field is the page's one `surface` fill, and the recent computers
+// are hairline-separated rows under their own micro-label.
 
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Badge, Banner, Button, Caption, Card, Column, Divider, IconButton, Input, Label, ListItem, Txt } from '../ui';
-import { Diagnosis } from './diagnose';
-import { HostResolution, isTailscaleAddress, prettyHost } from './host-input';
+import { Badge, Banner, Button, Caption, IconButton, Input, Label, ListItem, Rule, Txt } from '../ui';
+import type { Diagnosis } from './diagnose';
+import { isTailscaleAddress, prettyHost } from './host-input';
+import type { HostResolution } from './host-input';
 
 export interface HostStepProps {
   value: string;
@@ -59,30 +64,33 @@ function RecentHosts({
   if (recent.length === 0) return null;
 
   return (
-    <View style={{ marginTop: theme.space.md }}>
-      <Divider style={{ marginBottom: theme.space.sm }} />
+    <View style={{ marginTop: theme.space.lg }}>
       <Label>Recent</Label>
+      <Rule bleed={theme.layout.margin} />
       {recent.map((url) => (
-        <ListItem
-          key={url}
-          title={prettyHost(url)}
-          subtitle={isTailscaleAddress(url) ? 'Tailscale' : 'Local network'}
-          onPress={() => onPick(url)}
-          testID={`recent-${prettyHost(url)}`}
-          accessibilityHint="Uses this address"
-          trailing={
-            <IconButton
-              accessibilityLabel={`Forget ${prettyHost(url)}`}
-              onPress={() => onForget(url)}
-              variant="plain"
-              testID={`forget-${prettyHost(url)}`}
-            >
-              <Txt variant="bodyStrong" tone="faint">
-                ×
-              </Txt>
-            </IconButton>
-          }
-        />
+        <View key={url}>
+          <ListItem
+            title={prettyHost(url)}
+            mono
+            subtitle={isTailscaleAddress(url) ? 'Tailscale' : 'Local network'}
+            onPress={() => onPick(url)}
+            testID={`recent-${prettyHost(url)}`}
+            accessibilityHint="Uses this address"
+            trailing={
+              <IconButton
+                accessibilityLabel={`Forget ${prettyHost(url)}`}
+                onPress={() => onForget(url)}
+                variant="plain"
+                testID={`forget-${prettyHost(url)}`}
+              >
+                <Txt variant="bodyStrong" tone="faint">
+                  ×
+                </Txt>
+              </IconButton>
+            }
+          />
+          <Rule bleed={theme.layout.margin} />
+        </View>
       ))}
     </View>
   );
@@ -103,17 +111,14 @@ export function HostStep({
   const theme = useTheme();
 
   return (
-    <Card testID="host-step">
-      <Txt variant="subheading" heading style={{ marginBottom: theme.space.sm }}>
-        Connect to your computer
-      </Txt>
-
+    <View testID="host-step">
       <Input
         testID="host-input"
-        label="Address"
+        label="Computer address"
         value={value}
         onChangeText={onChangeText}
         placeholder="192.168.1.20"
+        mono
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"
@@ -135,7 +140,7 @@ export function HostStep({
       ) : null}
 
       <Button
-        label="Continue"
+        label="Connect"
         onPress={onSubmit}
         loading={busy}
         testID="check-host"
@@ -145,9 +150,9 @@ export function HostStep({
 
       <RecentHosts recent={recent} onPick={onPickRecent} onForget={onForgetRecent} />
 
-      <Column style={{ marginTop: theme.space.md }}>
-        <Caption>Tether talks straight to your computer. Nothing routes through anyone else.</Caption>
-      </Column>
-    </Card>
+      <Caption style={{ marginTop: theme.space.md }}>
+        Tether talks straight to your computer. Nothing routes through anyone else.
+      </Caption>
+    </View>
   );
 }

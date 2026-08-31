@@ -1,19 +1,21 @@
 // The Files tab's toolbar: back/forward/up arrows, the breadcrumb trail, and
-// the copy-path button — Finder's toolbar and path bar folded into one row,
+// the copy-path control — Finder's toolbar and path bar folded into one row,
 // because two rows of chrome on a phone would eat the list they serve.
 //
 // The crumbs scroll horizontally and pin to the end on change, so the folder
 // you are IN is always visible and it is the distant ancestors that get cut
 // off — the same trade-off Finder's path bar makes when the window is narrow.
+// The trail is machine voice: mono, ink for where you are, dim for the way
+// back — never bold, colour is the only hierarchy (docs/DESIGN.md §12).
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text } from 'react-native';
 import { useTheme } from '../theme';
-import { Caption, IconButton, Row, Txt } from '../ui';
+import { Caption, IconButton, Label, Row, Txt } from '../ui';
 import type { Crumb } from '../files-format';
 import { copyText } from './clipboard';
 
-/** How long the copy button shows its "done" tick before reverting. */
+/** How long the copy control shows its "done" tick before reverting. */
 const COPIED_FLASH_MS = 1600;
 
 interface ArrowProps {
@@ -27,8 +29,8 @@ interface ArrowProps {
 function Arrow({ glyph, label, disabled, onPress, testID }: ArrowProps) {
   const theme = useTheme();
   return (
-    <IconButton testID={testID} accessibilityLabel={label} disabled={disabled} onPress={onPress} size={38}>
-      <Text allowFontScaling={false} style={{ color: theme.colors.text, fontSize: 16, fontWeight: '800' }}>
+    <IconButton testID={testID} accessibilityLabel={label} disabled={disabled} onPress={onPress} variant="plain">
+      <Text allowFontScaling={false} style={{ color: theme.colors.text, fontSize: 16, fontFamily: theme.font.mono }}>
         {glyph}
       </Text>
     </IconButton>
@@ -81,7 +83,7 @@ export function PathBar({
   };
 
   return (
-    <Row gap="xs" style={{ paddingHorizontal: theme.space.sm, paddingBottom: theme.space.xs }}>
+    <Row gap="xs" style={{ paddingHorizontal: theme.space.sm, paddingVertical: theme.space.xxs }}>
       <Arrow testID="files-back" glyph="‹" label="Go back" disabled={!canBack} onPress={onBack} />
       <Arrow testID="files-forward" glyph="›" label="Go forward" disabled={!canForward} onPress={onForward} />
       <Arrow testID="files-up" glyph="↑" label="Go to the parent folder" disabled={!canUp} onPress={onUp} />
@@ -97,8 +99,8 @@ export function PathBar({
         {crumbs.map((crumb, index) => (
           <Row key={crumb.path} gap="none">
             {index > 0 ? (
-              <Text allowFontScaling={false} style={{ color: theme.colors.textFaint, fontSize: 13 }}>
-                ›
+              <Text allowFontScaling={false} style={{ color: theme.colors.textFaint, fontSize: 13, fontFamily: theme.font.mono }}>
+                /
               </Text>
             ) : null}
             <Pressable
@@ -107,12 +109,15 @@ export function PathBar({
               accessibilityLabel={`Go to ${crumb.label}`}
               onPress={() => onNavigate(crumb.path)}
               hitSlop={theme.layout.hitSlop}
-              style={({ pressed }) => ({ paddingHorizontal: 6, paddingVertical: 6, opacity: pressed ? 0.6 : 1 })}
+              style={({ pressed }) => ({
+                paddingHorizontal: theme.space.xxs + 2,
+                paddingVertical: theme.space.xs,
+                opacity: pressed ? theme.motion.pressOpacity : 1,
+              })}
             >
               <Txt
                 variant="monoSmall"
-                color={index === crumbs.length - 1 ? theme.colors.text : theme.colors.textDim}
-                style={{ fontWeight: index === crumbs.length - 1 ? '700' : '400' }}
+                tone={index === crumbs.length - 1 ? 'default' : 'dim'}
               >
                 {crumb.label}
               </Txt>
@@ -120,25 +125,27 @@ export function PathBar({
           </Row>
         ))}
       </ScrollView>
-      <IconButton
+      <Pressable
         testID="files-copy-path"
+        accessibilityRole="button"
         accessibilityLabel={copied ? 'Path copied' : 'Copy this folder path'}
-        onPress={copyPath}
+        accessibilityState={{ disabled: !path }}
         disabled={!path}
-        selected={copied}
-        size={38}
+        onPress={() => void copyPath()}
+        hitSlop={theme.layout.hitSlop}
+        style={({ pressed }) => ({
+          minHeight: theme.layout.minTouch,
+          justifyContent: 'center',
+          opacity: !path ? 0.45 : pressed ? theme.motion.pressOpacity : 1,
+        })}
       >
-        <Text
-          allowFontScaling={false}
-          style={{
-            color: copied ? theme.colors.good : copyFailed ? theme.colors.bad : theme.colors.text,
-            fontSize: 14,
-            fontWeight: '800',
-          }}
+        <Label
+          tone={copied ? 'good' : copyFailed ? 'bad' : 'dim'}
+          style={{ marginBottom: 0 }}
         >
-          {copied ? '✓' : copyFailed ? '✗' : '⧉'}
-        </Text>
-      </IconButton>
+          {copied ? '✓ Copied' : copyFailed ? '✗ Failed' : 'Copy'}
+        </Label>
+      </Pressable>
     </Row>
   );
 }

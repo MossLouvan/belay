@@ -5,25 +5,19 @@
 // click) and trackpad (drag anywhere to nudge a visible cursor), because hitting
 // a 12px checkbox on a 1710x1107 desktop from a phone is otherwise guesswork.
 //
-// The chrome is deliberately thin: one control dock under the stage, a paged
-// key bar that slides in over it, and a corner box that takes the whole thing
-// into immersive fullscreen (tab bar and status bar hidden, stage edge-to-edge
-// on black, controls floating on the HUD scrim and auto-hiding).
+// Ledger layout (docs/DESIGN.md §9): header block, full-bleed hairline, then
+// the machine panel — true-dark in both themes, top-aligned, filling all space
+// down to the labelled control dock. While there is no picture the panel's
+// interior IS the empty/error state (src/screen/panel-state.tsx); the old
+// stranded black box and its separate red banner are gone.
 //
 // The socket, the gesture model and the presentational pieces live in
 // `src/screen/*` — sibling files inside `app/(tabs)/` are picked up by
 // expo-router's route context and would register as extra tabs.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Animated,
-  Image,
-  KeyboardAvoidingView,
-  LayoutChangeEvent,
-  Platform,
-  ScrollView,
-  View,
-} from 'react-native';
+import { Animated, Image, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import type { LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useIsFocused, useNavigation } from 'expo-router';
@@ -39,6 +33,7 @@ import {
   Input,
   ListItem,
   Row,
+  Rule,
   SegmentedControl,
   Sheet,
   Txt,
@@ -52,16 +47,14 @@ import {
   fitBox,
   findQuality,
   GESTURE,
-  KeySpec,
   LAUNCHER_NOTE,
   MAC_STEPS,
   messageOf,
   modsFor,
   QUALITY,
-  QualityId,
-  Size,
   STREAM,
 } from '../../src/screen/model';
+import type { KeySpec, QualityId, Size } from '../../src/screen/model';
 import {
   aspectOf,
   isMacHost,
@@ -70,31 +63,29 @@ import {
   useHostFacts,
   useScreenStream,
 } from '../../src/screen/stream';
-import { PendingButton, PointerMode, useViewport } from '../../src/screen/viewport';
+import { useViewport } from '../../src/screen/viewport';
+import type { PendingButton, PointerMode } from '../../src/screen/viewport';
 import { monitorLabel, nextScreenIndex, resolveScreenIndex, screensOf } from '../../src/screen/monitors';
 import {
   IDLE_MODS,
-  ModsState,
-  StickyMod,
   activeMods,
   modNamesForHost,
   releaseLatched,
   tapMod,
 } from '../../src/screen/mods';
+import type { ModsState, StickyMod } from '../../src/screen/mods';
 import { useAutoHide } from '../../src/screen/useAutoHide';
 import {
-  CaptureBlocked,
-  ControlDock,
   Crosshair,
   DotsGlyph,
   KeyBar,
   NoticeArea,
   StageCorner,
-  StageMessage,
   statusColorFor,
   StreamHud,
-  ZoomPill,
 } from '../../src/screen/parts';
+import { ControlDock } from '../../src/screen/dock';
+import { PanelState } from '../../src/screen/panel-state';
 
 export default function ScreenTab() {
   const { connection } = useConnection();
@@ -254,9 +245,9 @@ export default function ScreenTab() {
     if (next !== undefined) setSelectedScreen(next);
   }, [screenIndex, screens]);
 
-  // The corner box: enter fullscreen from the normal layout; in fullscreen it
-  // exits — unless the dock has auto-hidden, in which case the dimmed handle's
-  // job is to bring the controls back first.
+  // The corner control: enter fullscreen from the normal layout; in fullscreen
+  // it exits — unless the dock has auto-hidden, in which case the dimmed
+  // handle's job is to bring the controls back first.
   const onCornerPress = useCallback(() => {
     if (!fullscreen) {
       setFullscreen(true);
@@ -271,18 +262,9 @@ export default function ScreenTab() {
 
   const live = stream.phase === 'live';
   const connecting = stream.phase === 'connecting' || stream.phase === 'reconnecting';
+  const showPanelState = permissions.captureBlocked || !stream.frameUri;
 
-  const noticeArea = (
-    <NoticeArea
-      permissions={permissions}
-      phase={stream.phase}
-      attempt={stream.attempt}
-      streamError={stream.error}
-      actionError={actionError}
-      onHelp={() => setShowHelp(true)}
-      onRetry={recheck}
-    />
-  );
+  const noticeArea = <NoticeArea permissions={permissions} actionError={actionError} onHelp={() => setShowHelp(true)} />;
 
   const typeRow = (
     <Row gap="sm">
@@ -321,6 +303,10 @@ export default function ScreenTab() {
         selectedScreen={screenIndex}
         onCycleMonitor={cycleMonitor}
         onOpenMonitorPicker={() => setShowMonitorPicker(true)}
+        zoom={viewport.zoom}
+        onZoomIn={() => viewport.zoomBy(GESTURE.zoomStep)}
+        onZoomOut={() => viewport.zoomBy(1 / GESTURE.zoomStep)}
+        onZoomReset={viewport.reset}
         floating={fullscreen}
         onInteract={fullscreen ? dockHide.poke : undefined}
       />
@@ -332,7 +318,7 @@ export default function ScreenTab() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={{
         flex: 1,
-        backgroundColor: fullscreen ? theme.colors.black : theme.colors.bg,
+        backgroundColor: fullscreen ? theme.colors.machine : theme.colors.bg,
         paddingTop: fullscreen ? 0 : insets.top,
       }}
     >
@@ -341,16 +327,10 @@ export default function ScreenTab() {
       {fullscreen ? <StatusBar hidden /> : null}
 
       {!fullscreen ? (
-        <Row justify="space-between" style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.xs }}>
-          <Row gap="xs" style={{ flexShrink: 1 }}>
-            <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting} label={PHASE_LABEL[stream.phase]} />
-            <Txt variant="subheading" numberOfLines={1}>
+        <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
+          <Row justify="space-between" gap="sm">
+            <Txt variant="title" heading numberOfLines={1} style={{ flexShrink: 1 }}>
               {connection?.hostName || 'Screen'}
-            </Txt>
-          </Row>
-          <Row gap="xs">
-            <Txt testID="fps" variant="caption" tone="faint">
-              {live ? `${stream.stats.fps} fps` : PHASE_LABEL[stream.phase]}
             </Txt>
             <IconButton
               testID="screen-menu"
@@ -361,18 +341,28 @@ export default function ScreenTab() {
               <DotsGlyph color={theme.colors.textDim} />
             </IconButton>
           </Row>
-        </Row>
+          <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
+            <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting || live} label={PHASE_LABEL[stream.phase]} />
+            <Txt testID="fps" variant="label" tone="dim">
+              {live ? `${PHASE_LABEL[stream.phase]} · ${stream.stats.fps} fps` : PHASE_LABEL[stream.phase]}
+            </Txt>
+          </Row>
+        </View>
       ) : null}
 
       {!fullscreen ? noticeArea : null}
+      {!fullscreen ? <Rule /> : null}
 
+      {/* The machine panel: full-bleed, top-aligned under the header rule,
+          filling everything down to the dock so the page never jumps between
+          the live, waiting and failed states (docs/DESIGN.md §9). */}
       <View
         onLayout={onBoxLayout}
         style={{
           flex: 1,
+          backgroundColor: theme.colors.machine,
           alignItems: 'center',
-          justifyContent: 'center',
-          paddingHorizontal: fullscreen ? 0 : theme.space.sm,
+          justifyContent: fullscreen ? 'center' : 'flex-start',
         }}
       >
         <View
@@ -383,11 +373,8 @@ export default function ScreenTab() {
             width: stage.w > 0 ? stage.w : '100%',
             height: stage.h > 0 ? stage.h : undefined,
             aspectRatio: stage.h > 0 ? undefined : aspect,
-            backgroundColor: theme.colors.black,
-            borderRadius: fullscreen ? 0 : theme.radius.md,
+            backgroundColor: theme.colors.machine,
             overflow: 'hidden',
-            borderWidth: fullscreen ? 0 : theme.layout.hairline,
-            borderColor: theme.colors.border,
           }}
         >
           {/* pointerEvents none on everything inside keeps `screen-surface`
@@ -418,25 +405,12 @@ export default function ScreenTab() {
             ) : null}
           </Animated.View>
 
-          {!stream.frameUri && !permissions.captureBlocked ? (
-            <StageMessage phase={stream.phase} attempt={stream.attempt} hostName={connection?.hostName || 'the host'} />
-          ) : null}
-
           {showHud ? (
             <StreamHud stats={stream.stats} pingMs={facts.pingMs} quality={quality} zoom={viewport.zoom} />
           ) : null}
 
-          {/* Zooming a picture that will never arrive is just clutter. */}
-          {permissions.captureBlocked ? null : (
-            <ZoomPill
-              zoom={viewport.zoom}
-              onZoomIn={() => viewport.zoomBy(GESTURE.zoomStep)}
-              onZoomOut={() => viewport.zoomBy(1 / GESTURE.zoomStep)}
-              onReset={viewport.reset}
-            />
-          )}
-
-          {/* Normal mode: the expand box rides the stage's own top-right corner. */}
+          {/* Normal mode: the labelled FULL control rides the stage's own
+              top-right corner — it acts on the panel, so it stays on it. */}
           {!fullscreen && !permissions.captureBlocked ? (
             <StageCorner
               mode="expand"
@@ -448,9 +422,22 @@ export default function ScreenTab() {
           ) : null}
         </View>
 
-        {/* Outside the stage, which clips: the explanation needs the full area. */}
-        {permissions.captureBlocked ? (
-          <CaptureBlocked known={permissions.known} onHelp={() => setShowHelp(true)} onRetry={recheck} />
+        {/* No picture: the panel interior becomes the guidance surface —
+            state name, the observed cause, one accent action, proof of life.
+            It covers the stage, which has nothing to click anyway. */}
+        {showPanelState ? (
+          <PanelState
+            testID="panel-state"
+            connected={Boolean(connection)}
+            phase={stream.phase}
+            attempt={stream.attempt}
+            streamError={stream.error}
+            captureBlocked={permissions.captureBlocked}
+            captureKnown={permissions.known}
+            hostName={connection?.hostName || 'The computer'}
+            onRetry={recheck}
+            onHelp={() => setShowHelp(true)}
+          />
         ) : null}
 
         {/* Fullscreen: the corner pins to the safe area, not the (letterboxed)
@@ -467,7 +454,7 @@ export default function ScreenTab() {
           />
         ) : null}
 
-        {/* Errors still matter in fullscreen; they float over the top edge. */}
+        {/* Input errors still matter in fullscreen; they float over the top edge. */}
         {fullscreen ? (
           <View
             pointerEvents="box-none"
@@ -479,14 +466,9 @@ export default function ScreenTab() {
       </View>
 
       {!fullscreen ? (
-        <View
-          style={{
-            paddingHorizontal: theme.space.sm,
-            paddingTop: theme.space.xs,
-            paddingBottom: insets.bottom + theme.space.sm,
-          }}
-        >
-          {controls}
+        <View style={{ paddingHorizontal: theme.layout.margin }}>
+          <Rule bleed={theme.layout.margin} />
+          <View style={{ paddingTop: theme.space.xs, paddingBottom: insets.bottom + theme.space.sm }}>{controls}</View>
         </View>
       ) : (
         <Animated.View
@@ -590,7 +572,7 @@ export default function ScreenTab() {
           </Caption>
           <Txt variant="bodyStrong">Both modes</Txt>
           <Caption>
-            Pinch to zoom, two-finger drag to scroll. The right-click and double-click buttons in the dock arm the next
+            Pinch to zoom, two-finger drag to scroll. The right-click and double-click controls in the dock arm the next
             tap only.
           </Caption>
           <Txt variant="bodyStrong">Modifier keys</Txt>

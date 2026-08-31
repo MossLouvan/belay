@@ -1,15 +1,18 @@
-// The card shown when a host is reachable but the tailnet is not.
+// Shown when a host is reachable but the tailnet is not.
 //
-// This is the only failure on the connect screen with a one-tap fix, so it gets
-// its own card rather than a line of red text: the computer is fine, Tailscale
-// on this phone is not, and the button goes straight there.
+// This is the only failure on the connect screen with a one-tap fix, so it
+// gets the full error anatomy (docs/DESIGN.md §11.4) rather than a line of
+// red text: the observed state, what it means, the one accent way forward,
+// and the raw probe result as proof for a stuck setup. The computer is fine;
+// Tailscale on this phone is not, and the button goes straight there.
 
 import React, { useCallback, useState } from 'react';
-import { Linking } from 'react-native';
+import { Linking, View } from 'react-native';
+import { useTheme } from '../theme';
 import { TAILSCALE_APP_URL, TAILSCALE_STORE_URL } from './tailnet';
-import { Button, Card, Column, Txt, haptic } from '../ui';
+import { Button, Micro, Rule, Txt, haptic } from '../ui';
 
-interface TailscaleCardProps {
+interface TailscaleStepProps {
   /** What the computer is called, for a message that names it. */
   readonly hostName: string;
   /** The underlying failure, shown small so a stuck setup can be reported. */
@@ -37,7 +40,8 @@ export async function openTailscale(): Promise<void> {
   }
 }
 
-export function TailscaleCard({ hostName, detail, onRetry, busy }: TailscaleCardProps) {
+export function TailscaleStep({ hostName, detail, onRetry, busy }: TailscaleStepProps) {
+  const theme = useTheme();
   const [opened, setOpened] = useState(false);
 
   const open = useCallback(() => {
@@ -47,36 +51,31 @@ export function TailscaleCard({ hostName, detail, onRetry, busy }: TailscaleCard
   }, []);
 
   return (
-    <Card>
-      <Column gap="sm">
-        <Txt variant="bodyStrong">Turn on Tailscale to connect</Txt>
-        <Txt variant="caption" tone="dim">
-          {hostName} is running, but this phone is not on your tailnet. Switch Tailscale on and
-          Tether connects with no pairing code — at home or anywhere else.
-        </Txt>
+    <View style={{ gap: theme.space.sm }}>
+      <Txt variant="label" tone="warn">Tailscale is off on this phone</Txt>
+      <Txt variant="caption" tone="dim">
+        {hostName} is running, but this phone is not on your tailnet. Switch Tailscale on and
+        Tether connects with no pairing code — at home or anywhere else.
+      </Txt>
 
-        <Button label="Open Tailscale" onPress={open} fullWidth />
+      <Button label="Open Tailscale" onPress={open} fullWidth />
 
-        {opened ? (
-          <Button
-            label="I turned it on — connect"
-            variant="secondary"
-            onPress={onRetry}
-            loading={busy}
-            fullWidth
-          />
-        ) : null}
+      {opened ? (
+        <Button
+          label="I turned it on — connect"
+          variant="secondary"
+          onPress={onRetry}
+          loading={busy}
+          fullWidth
+        />
+      ) : null}
 
-        <Txt variant="caption" tone="faint">
-          Sign in with the same account your computer uses. Nothing routes through anyone else.
-        </Txt>
+      <Txt variant="caption" tone="faint">
+        Sign in with the same account your computer uses. Nothing routes through anyone else.
+      </Txt>
 
-        {detail ? (
-          <Txt variant="caption" tone="faint">
-            Tailnet address said: {detail}
-          </Txt>
-        ) : null}
-      </Column>
-    </Card>
+      {detail ? <Micro>{`Tailnet address said: ${detail}`}</Micro> : null}
+      <Rule bleed={theme.layout.margin} />
+    </View>
   );
 }

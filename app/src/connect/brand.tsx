@@ -1,38 +1,34 @@
 // Wordmark and logo for the connect screen. Drawn from Views so there is no
 // image to decode and it recolours with the theme.
+//
+// The mark is the app's name made literal: a filled square (the computer)
+// tethered by a short rule to an outlined one (the phone). Flat, square, and
+// in `accentGraphic` — the reference's tiny vivid marks, not a badge. Centred
+// on purpose: the brand block is one of the two sanctioned centrings
+// (docs/DESIGN.md §2.6).
 
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Heading, Sub } from '../ui';
+import { Micro, Txt } from '../ui';
 
 /** The tether: a filled square linked to an outlined one. */
-export function LogoMark({ size = 66 }: { size?: number }) {
+export function LogoMark({ size = 20 }: { size?: number }) {
   const theme = useTheme();
-  const inner = Math.round(size * 0.4);
-
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: Math.round(size * 0.3),
-        backgroundColor: theme.colors.accent,
-        alignItems: 'center',
-        justifyContent: 'center',
-        ...theme.elevation.md,
-        shadowColor: theme.colors.accent,
-      }}
+      style={{ flexDirection: 'row', alignItems: 'center' }}
     >
+      <View style={{ width: size, height: size, backgroundColor: theme.colors.accentGraphic }} />
+      <View style={{ width: size, height: theme.layout.ruleEmphasis, backgroundColor: theme.colors.accentGraphic }} />
       <View
         style={{
-          width: inner,
-          height: inner,
-          borderRadius: Math.round(inner * 0.3),
-          borderWidth: Math.max(3, Math.round(size * 0.06)),
-          borderColor: theme.colors.onAccent,
+          width: size,
+          height: size,
+          borderWidth: theme.layout.ruleEmphasis,
+          borderColor: theme.colors.accentGraphic,
         }}
       />
     </View>
@@ -43,12 +39,12 @@ export function LogoMark({ size = 66 }: { size?: number }) {
 export function Brand() {
   const theme = useTheme();
   return (
-    <View style={{ alignItems: 'center' }}>
+    <View style={{ alignItems: 'center', gap: theme.space.sm }}>
       <LogoMark />
-      <Heading style={{ marginTop: theme.space.sm }}>Tether</Heading>
-      <Sub style={{ textAlign: 'center', marginTop: theme.space.xxs }}>
-        Your computer, on your phone.
-      </Sub>
+      <Txt variant="display" heading>
+        Tether
+      </Txt>
+      <Micro tone="dim">Your computer, on your phone</Micro>
     </View>
   );
 }

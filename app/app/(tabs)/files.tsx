@@ -7,16 +7,23 @@
 //
 // The root list is whatever the host reports (Windows gives four, macOS adds
 // /Volumes for external drives), so nothing here assumes a fixed set. The
-// toolbar, sheet, header, info card and pure logic live in `src/files/` and
+// toolbar, sheet, header, info panel and pure logic live in `src/files/` and
 // `src/files-*` — expo-router would turn a helper module under `app/` into a
 // fifth tab.
+//
+// Ledger anatomy: title + mono status line + header rule, the roots as label
+// text-tabs (selection is the 2pt underline), the path in the machine's mono
+// voice, and the list as hairline-separated 52pt rows. Reloading is
+// pull-to-refresh plus the "Go to" and root controls; a labelled Retry
+// appears in the banner when a read has failed.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { FlatList, Platform, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
-import { api, FileEntry } from '../../src/api';
-import { Badge, Banner, EmptyState, IconButton, Input, Row, Skeleton, Txt, haptic } from '../../src/ui';
+import { api } from '../../src/api';
+import type { FileEntry } from '../../src/api';
+import { Banner, EmptyState, Input, Label, Micro, Row, Rule, Skeleton, Txt, haptic } from '../../src/ui';
 import { useTheme } from '../../src/theme';
 import { crumbsFor, isDenied, messageOf, parentOf, sortEntries, viewerKindOf } from '../../src/files-format';
 import type { SortKey } from '../../src/files-format';
@@ -50,6 +57,7 @@ export default function FilesTab() {
   const [path, setPath] = useState('');
   const [entries, setEntries] = useState<readonly FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -185,6 +193,13 @@ export default function FilesTab() {
     setDescending(desc);
   }, []);
 
+  const pullToRefresh = useCallback(async () => {
+    if (!path) return;
+    setRefreshing(true);
+    await openDir(path, false);
+    if (!cancelled.current) setRefreshing(false);
+  }, [openDir, path]);
+
   const crumbs = useMemo(() => crumbsFor(path), [path]);
   const parent = useMemo(() => parentOf(path), [path]);
 
@@ -211,50 +226,43 @@ export default function FilesTab() {
   if (viewer) return <FileViewer file={viewer} onClose={() => setViewer(null)} />;
 
   const denied = isDenied(error);
+  const margin = theme.layout.margin;
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}>
-      <Row justify="space-between" gap="sm" style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.xs }}>
-        <Txt variant="subheading" heading>
-          Files
-        </Txt>
-        <Row gap="xs">
-          <Badge
-            label={`${visible.length} item${visible.length === 1 ? '' : 's'}`}
-            status={folderCount > 0 ? 'accent' : 'neutral'}
-          />
-          <IconButton
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top + theme.space.md }}>
+      <View style={{ paddingHorizontal: margin }}>
+        <Row justify="space-between" align="flex-end" gap="sm">
+          <Txt variant="title" heading>
+            Files
+          </Txt>
+          <Pressable
             testID="files-goto"
+            accessibilityRole="button"
             accessibilityLabel="Go to a folder path"
             accessibilityHint="Type or paste an absolute path"
             onPress={() => setGotoOpen(true)}
-            size={38}
+            hitSlop={theme.layout.hitSlop}
+            style={({ pressed }) => ({
+              minHeight: theme.space.xl,
+              justifyContent: 'center',
+              opacity: pressed ? theme.motion.pressOpacity : 1,
+            })}
           >
-            <Text allowFontScaling={false} style={{ color: theme.colors.text, fontSize: 15, fontWeight: '800' }}>
-              ⌁
-            </Text>
-          </IconButton>
-          <IconButton
-            testID="files-refresh"
-            accessibilityLabel="Reload this folder"
-            onPress={() => path && openDir(path)}
-            size={38}
-          >
-            <Text allowFontScaling={false} style={{ color: theme.colors.text, fontSize: 16, fontWeight: '800' }}>
-              ⟳
-            </Text>
-          </IconButton>
+            <Label tone="accent" style={{ marginBottom: 0 }}>Go to…</Label>
+          </Pressable>
         </Row>
-      </Row>
+        <Label style={{ marginTop: theme.space.xxs, marginBottom: 0 }}>
+          {`${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`}
+        </Label>
+      </View>
+      <Rule style={{ marginTop: theme.space.sm }} />
 
-      {/* Finder's sidebar, phone-sized: the allowed roots as chips. flexGrow/
-          flexShrink are pinned — a horizontal ScrollView in a flex column
-          otherwise collapses to nothing once the list below overflows. */}
+      {/* The allowed roots as text-tabs: the selection IS the 2pt underline. */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         style={{ flexGrow: 0, flexShrink: 0 }}
-        contentContainerStyle={{ alignItems: 'center', gap: 6, paddingHorizontal: theme.space.sm, paddingBottom: theme.space.xs }}
+        contentContainerStyle={{ paddingHorizontal: margin, gap: theme.space.md }}
       >
         {roots.map((root) => {
           const active = path === root.path;
@@ -264,24 +272,28 @@ export default function FilesTab() {
               testID={`root-${root.name}`}
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
+              accessibilityLabel={`Open ${root.name}`}
               onPress={() => {
                 haptic('light');
                 openDir(root.path);
               }}
               style={({ pressed }) => ({
-                minHeight: 36,
+                minHeight: theme.layout.minTouch,
                 justifyContent: 'center',
-                paddingHorizontal: theme.space.md,
-                borderRadius: theme.radius.pill,
-                borderWidth: theme.layout.hairline,
-                borderColor: active ? theme.colors.accent : theme.colors.borderStrong,
-                backgroundColor: active ? theme.colors.accentSoft : theme.colors.surfaceAlt,
-                opacity: pressed ? 0.7 : 1,
+                opacity: pressed ? theme.motion.pressOpacity : 1,
               })}
             >
-              <Txt variant="caption" color={active ? theme.colors.onAccentSoft : theme.colors.textDim} style={{ fontWeight: '700' }}>
+              <Label tone={active ? 'accent' : 'dim'} style={{ marginBottom: 0 }}>
                 {root.name}
-              </Txt>
+              </Label>
+              <View
+                accessibilityElementsHidden
+                style={{
+                  height: theme.layout.ruleEmphasis,
+                  marginTop: theme.space.xxs,
+                  backgroundColor: active ? theme.colors.accentGraphic : 'transparent',
+                }}
+              />
             </Pressable>
           );
         })}
@@ -299,16 +311,15 @@ export default function FilesTab() {
         onNavigate={openDir}
       />
 
-      <Row gap="sm" style={{ paddingHorizontal: theme.space.sm, paddingBottom: theme.space.xs }}>
+      <View style={{ paddingHorizontal: margin, paddingBottom: theme.space.xs }}>
         <Input
           testID="files-search"
           value={query}
           onChangeText={setQuery}
           placeholder="Filter this folder…"
           accessibilityLabel="Filter this folder"
-          style={{ flex: 1 }}
         />
-      </Row>
+      </View>
 
       <SortHeader sortKey={sortKey} descending={descending} onChange={onSort} />
 
@@ -322,21 +333,21 @@ export default function FilesTab() {
               ? `${error}. That path is outside the folders the agent is allowed to read, or the OS refused access.`
               : error
           }
-          action={path ? { label: 'Try again', onPress: () => openDir(path) } : undefined}
-          style={{ marginHorizontal: theme.space.sm, marginBottom: theme.space.xs }}
+          action={path ? { label: 'Retry', onPress: () => openDir(path) } : undefined}
+          style={{ marginHorizontal: margin, marginVertical: theme.space.xs }}
         />
       ) : null}
 
-      {loading ? (
-        <View style={{ paddingHorizontal: theme.space.md, gap: theme.space.md, paddingTop: theme.space.sm }}>
+      {loading && !refreshing ? (
+        <View style={{ paddingHorizontal: margin }}>
           {Array.from({ length: SKELETON_ROWS }, (_, i) => (
-            <Row key={i} gap="sm">
-              <Skeleton width={30} height={26} radius={theme.radius.sm} />
-              <View style={{ flex: 1, gap: 6 }}>
-                <Skeleton width={`${55 + ((i * 7) % 35)}%`} height={13} />
-                <Skeleton width="30%" height={10} />
-              </View>
-            </Row>
+            <View key={i}>
+              <Row justify="space-between" gap="sm" style={{ minHeight: theme.layout.rowHeight }}>
+                <Skeleton width={`${45 + ((i * 7) % 35)}%`} height={13} />
+                <Skeleton width="22%" height={11} />
+              </Row>
+              <Rule bleed={margin} />
+            </View>
           ))}
         </View>
       ) : (
@@ -345,11 +356,14 @@ export default function FilesTab() {
           data={visible}
           renderItem={renderItem}
           keyExtractor={(item) => item.path}
-          contentContainerStyle={{ paddingHorizontal: theme.space.xs, paddingBottom: theme.space.lg, flexGrow: 1 }}
+          contentContainerStyle={{ paddingHorizontal: margin, paddingBottom: theme.space.lg, flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews={Platform.OS !== 'web'}
           initialNumToRender={16}
           extraData={selected}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => void pullToRefresh()} tintColor={theme.colors.accent} />
+          }
           ListEmptyComponent={
             error ? null : query ? (
               <EmptyState
@@ -361,6 +375,11 @@ export default function FilesTab() {
             ) : (
               <EmptyState testID="files-empty" title="This folder is empty" message="There is nothing here to open." />
             )
+          }
+          ListFooterComponent={
+            visible.length > 0 ? (
+              <Micro style={{ marginTop: theme.space.sm }}>Pull down to reload · long-press a row for details</Micro>
+            ) : null
           }
         />
       )}

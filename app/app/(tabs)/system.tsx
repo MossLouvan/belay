@@ -1,19 +1,41 @@
 // System. Live host stats — CPU, memory, disk, power, uptime — with a short
 // rolling history, a selectable poll rate, and honest behaviour when the host
 // stops answering. Also the place where this device forgets the computer.
+//
+// Ledger form (docs/DESIGN.md §7.1): one continuous ledger. Meters up top,
+// flat facts as label-left/value-right rows, controls as labelled sections —
+// no cards, no badges. The refresh icon died with them: the header's live
+// "UPDATED 2S AGO" line plus pull-to-refresh replace it, and a labelled Retry
+// appears only when polling has actually failed (§11.1).
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
-import { api, SystemStats } from '../../src/api';
+import { api } from '../../src/api';
+import type { SystemStats } from '../../src/api';
 import { useTheme } from '../../src/theme';
-import { Badge, Banner, Button, Caption, Card, Column, Dot, IconButton, Label, Row, SegmentedControl, Sheet, Txt } from '../../src/ui';
-import { StatCard } from '../../src/system/stat-card';
-import { BatteryCard, DevicesCard, HostCard, PairedDevice, parseDevices } from '../../src/system/cards';
-import { EMPTY_SERIES, pushSeries, Series } from '../../src/system/history';
-import { fmtAgo, fmtBytes, hasFriendlyOsName, osLabel } from '../../src/system/format';
+import {
+  Banner,
+  Button,
+  Caption,
+  Column,
+  Dot,
+  LedgerRow,
+  Row,
+  Rule,
+  Section,
+  SegmentedControl,
+  Sheet,
+  Txt,
+} from '../../src/ui';
+import { StatSection } from '../../src/system/stat-section';
+import { BatterySection, DevicesSection, HostLedger, parseDevices, statusLine } from '../../src/system/sections';
+import type { PairedDevice } from '../../src/system/sections';
+import { EMPTY_SERIES, pushSeries } from '../../src/system/history';
+import type { Series } from '../../src/system/history';
+import { fmtBytes } from '../../src/system/format';
 import { ThemeToggle } from '../../src/settings/theme-toggle';
 
 type Rate = 'fast' | 'normal' | 'slow' | 'paused';
@@ -144,13 +166,14 @@ export default function SystemTab() {
 
   const stale = Boolean(error);
   const title = stats?.hostname || connection?.hostName || 'Host';
+  const margin = theme.layout.margin;
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.colors.bg }}
       contentContainerStyle={{
-        padding: theme.space.md,
-        paddingTop: insets.top + theme.space.sm,
+        paddingHorizontal: margin,
+        paddingTop: insets.top + theme.space.md,
         paddingBottom: insets.bottom + theme.space.xxl,
         gap: theme.space.md,
         width: '100%',
@@ -161,32 +184,23 @@ export default function SystemTab() {
         <RefreshControl refreshing={refreshing} tintColor={theme.colors.accent} onRefresh={onRefresh} />
       }
     >
-      <Row justify="space-between" align="flex-start" gap="sm">
-        <Column style={{ flex: 1 }} gap="xs">
-          <Txt variant="title" heading numberOfLines={1}>
-            {title}
+      {/* Header anatomy shared by every tab: title, label status line, rule. */}
+      <View>
+        <Txt variant="title" heading numberOfLines={1}>
+          {title}
+        </Txt>
+        <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
+          <Dot
+            status={stale ? 'bad' : 'accent'}
+            pulse={!stale}
+            label={stale ? 'Host unreachable' : 'Live'}
+          />
+          <Txt variant="label" tone="dim" numberOfLines={1}>
+            {statusLine(stale, lastOkAt, clock)}
           </Txt>
-          <Row gap="xs">
-            <Dot status={stale ? 'bad' : 'good'} pulse={!stale} label={stale ? 'Host unreachable' : 'Live'} />
-            <Caption>
-              {stale
-                ? lastOkAt
-                  ? `No response · updated ${fmtAgo(clock - lastOkAt)}`
-                  : 'No response from host'
-                : lastOkAt
-                  ? `Updated ${fmtAgo(clock - lastOkAt)}`
-                  : 'Connecting…'}
-            </Caption>
-          </Row>
-        </Column>
-        <IconButton accessibilityLabel="Refresh stats" onPress={onRefresh} testID="refresh">
-          <Txt variant="subheading" tone="dim">
-            ↻
-          </Txt>
-        </IconButton>
-      </Row>
-
-      {stats && hasFriendlyOsName(stats) ? <Badge label={osLabel(stats)} status="accent" /> : null}
+        </Row>
+        <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
+      </View>
 
       {error ? (
         <Banner
@@ -194,26 +208,28 @@ export default function SystemTab() {
           status="warn"
           title="Lost contact with the host"
           message={`${error} Tether keeps retrying, and the numbers below are the last ones it received.`}
-          action={{ label: 'Retry now', onPress: onRefresh }}
+          action={{ label: 'Retry', onPress: onRefresh }}
         />
       ) : null}
 
-      <StatCard
-        title="CPU"
+      <StatSection
+        label="CPU"
         percent={stats ? stats.cpuPercent : null}
         detail={stats ? `${stats.cpuModel} · ${stats.cpuCount} cores` : undefined}
         history={series.cpu}
+        bleed={margin}
         testID="stat-cpu"
       />
-      <StatCard
-        title="Memory"
+      <StatSection
+        label="Memory"
         percent={stats ? stats.memPercent : null}
         detail={stats ? `${fmtBytes(stats.memUsed)} of ${fmtBytes(stats.memTotal)} in use` : undefined}
         history={series.mem}
+        bleed={margin}
         testID="stat-memory"
       />
-      <StatCard
-        title="Disk"
+      <StatSection
+        label="Disk"
         percent={stats ? stats.diskPercent : null}
         // A host that cannot query its own drive reports zeros. Rendering that
         // as "0% used, 0 B free" would read as a real, alarming measurement.
@@ -225,17 +241,18 @@ export default function SystemTab() {
               : 'This host does not report drive usage'
             : undefined
         }
+        bleed={margin}
         testID="stat-disk"
       />
 
-      {stats?.battery ? <BatteryCard battery={stats.battery} /> : null}
+      {stats?.battery ? <BatterySection battery={stats.battery} bleed={margin} /> : null}
 
-      <HostCard stats={stats} />
+      {/* The flat facts sit rule-to-rule as one ledger, so no gap between rows. */}
+      <View>
+        <HostLedger stats={stats} bleed={margin} />
+      </View>
 
-      <Card padding="sm">
-        <View style={{ paddingHorizontal: theme.space.xs, paddingTop: theme.space.xs }}>
-          <Label>Update rate</Label>
-        </View>
+      <Section label="Update rate" bleed={margin}>
         <SegmentedControl
           options={RATE_OPTIONS}
           value={rate}
@@ -243,30 +260,28 @@ export default function SystemTab() {
           accessibilityLabel="Update rate"
           testID="poll-rate"
         />
-        <View style={{ paddingHorizontal: theme.space.xs, paddingTop: theme.space.sm }}>
-          <Label>Appearance</Label>
-        </View>
+      </Section>
+
+      <Section label="Appearance" bleed={margin}>
         <ThemeToggle testID="theme-toggle" />
-      </Card>
+      </Section>
 
-      <DevicesCard devices={devices} now={clock} />
+      <DevicesSection devices={devices} now={clock} bleed={margin} />
 
-      <Card>
-        <Label>Connection</Label>
-        <Txt variant="monoSmall" tone="dim" numberOfLines={1} style={{ marginBottom: theme.space.md }}>
-          {connection?.host ?? '—'}
-        </Txt>
+      <Section label="Connection" rule={false}>
+        <LedgerRow label="Address:" value={connection?.host ?? '—'} valueTone="dim" bleed={margin} />
         <Button
           testID="disconnect"
-          label="Disconnect this device"
+          label="Forget this computer"
           variant="danger"
           onPress={() => setConfirmForget(true)}
           fullWidth
+          style={{ marginTop: theme.space.sm }}
         />
         <Caption style={{ marginTop: theme.space.sm }}>
           Forgets the saved token on this phone. The computer keeps running; pair again any time with a new code.
         </Caption>
-      </Card>
+      </Section>
 
       <Sheet
         visible={confirmForget}

@@ -23,8 +23,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { wsUrl } from '../../src/api';
-import { Badge, Banner, Button, Row, Dot, SegmentedControl, Txt } from '../../src/ui';
-import { useColorScheme, useTheme } from '../../src/theme';
+import { Banner, Button, Dot, Row, Rule, SegmentedControl, Txt } from '../../src/ui';
+import { useTheme } from '../../src/theme';
 import { ANSI_RAMPS, clearTermState, createTermState, feed } from '../../src/terminal-ansi';
 import type { TermLine, TermOptions, TermState } from '../../src/terminal-ansi';
 import { KeyBar } from '../../src/terminal-keys';
@@ -55,7 +55,6 @@ type ShellMode = 'pty' | 'pipe';
 export default function TerminalTab() {
   const { connection } = useConnection();
   const theme = useTheme();
-  const scheme = useColorScheme();
   const insets = useSafeAreaInsets();
 
   const [term, setTerm] = useState<TermState>(createTermState);
@@ -77,9 +76,12 @@ export default function TerminalTab() {
 
   const fontSize = FONT_SIZES[fontKey];
   const lineHeight = Math.round(fontSize * LINE_HEIGHT_RATIO);
-  const canvas = theme.isDark ? theme.colors.black : theme.colors.surface;
+  // The transcript is a machine panel: true-dark in BOTH themes, so it always
+  // takes the dark ANSI ramp — there is no ANSI-on-light palette to maintain
+  // any more (docs/DESIGN.md §3.4).
+  const canvas = theme.colors.machine;
   const OUTPUT_PADDING = theme.space.sm;
-  const ramp = ANSI_RAMPS[scheme];
+  const ramp = ANSI_RAMPS.dark;
 
   const { geometry, onRowWidth, onProbeWidth, onOutputLayout } = useTerminalGeometry(
     fontSize,
@@ -264,13 +266,13 @@ export default function TerminalTab() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}
     >
-      <Row justify="space-between" style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.xs, gap: theme.space.sm }}>
-        <Row gap="xs">
-          <Dot status={live ? 'good' : status === 'connecting' ? 'warn' : 'bad'} pulse={status === 'connecting'} label={statusLabel} />
-          <Txt variant="subheading" heading>Terminal</Txt>
-        </Row>
-        <Row gap="xs">
-          <Badge testID="term-status" label={statusLabel} status={live ? (mode === 'pipe' ? 'warn' : 'good') : 'neutral'} />
+      {/* Standard header anatomy: title, then the label status line — the pty
+          badge died into a plain "· PTY" suffix here (docs/DESIGN.md §10). */}
+      <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
+        <Row justify="space-between" gap="sm">
+          <Txt variant="title" heading>
+            Terminal
+          </Txt>
           <SegmentedControl
             testID="term-font"
             accessibilityLabel="Text size"
@@ -280,7 +282,17 @@ export default function TerminalTab() {
             style={{ width: 108 }}
           />
         </Row>
-      </Row>
+        <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
+          <Dot
+            status={live ? 'good' : status === 'connecting' ? 'warn' : 'bad'}
+            pulse={status === 'connecting' || live}
+            label={statusLabel}
+          />
+          <Txt testID="term-status" variant="label" tone="dim">
+            {live ? `live · ${statusLabel}` : statusLabel}
+          </Txt>
+        </Row>
+      </View>
 
       {mode === 'pipe' ? (
         <Banner
@@ -288,38 +300,29 @@ export default function TerminalTab() {
           status="warn"
           title="No TTY on the host"
           message="The host fell back to a piped shell, so there is no cursor addressing, no tab completion and no job control. Commands still run and output still streams."
-          style={{ marginHorizontal: theme.space.sm, marginBottom: theme.space.xs }}
+          style={{ marginHorizontal: theme.layout.margin, marginBottom: theme.space.sm }}
         />
       ) : null}
 
       {!live && status !== 'connecting' ? (
-        <Row
+        <Banner
           testID="term-offline"
-          gap="sm"
-          style={{
-            marginHorizontal: theme.space.sm,
-            marginBottom: theme.space.xs,
-            padding: theme.space.sm,
-            borderRadius: theme.radius.md,
-            backgroundColor: status === 'exited' ? theme.colors.warnSoft : theme.colors.badSoft,
-          }}
-        >
-          <Txt
-            variant="caption"
-            color={status === 'exited' ? theme.colors.onWarnSoft : theme.colors.onBadSoft}
-            style={{ flex: 1, fontWeight: '700' }}
-          >
-            {error || (status === 'exited' ? 'The shell exited.' : 'Disconnected from the host.')}
-          </Txt>
-          <Button testID="term-reconnect" label="Reconnect" onPress={reconnect} size="sm" variant="secondary" />
-        </Row>
+          status={status === 'exited' ? 'warn' : 'bad'}
+          title={status === 'exited' ? 'Shell exited' : 'Disconnected'}
+          message={error || (status === 'exited' ? 'The shell on the computer ended.' : 'The terminal connection to the computer dropped.')}
+          action={{ label: 'Reconnect', onPress: reconnect }}
+          style={{ marginHorizontal: theme.layout.margin, marginBottom: theme.space.sm }}
+        />
       ) : null}
 
+      {/* The header (or trailing banner) rule doubles as the machine panel's
+          top hairline — two parallel rules may never sit adjacent (§6). */}
+      <Rule />
       <TerminalOutput
         listRef={listRef}
         lines={term.lines}
         ramp={ramp}
-        redraw={`${fontKey}-${scheme}`}
+        redraw={fontKey}
         fontSize={fontSize}
         lineHeight={lineHeight}
         padding={OUTPUT_PADDING}
@@ -335,11 +338,16 @@ export default function TerminalTab() {
         onContentSizeChange={onContentSizeChange}
       />
 
+      {/* The panel's bottom hairline; the key bar and input dock sit under it
+          back on the page surface. */}
+      <Rule />
       <View style={{ paddingTop: theme.space.xs, paddingBottom: theme.space.sm, gap: theme.space.xs }}>
         <KeyBar onSend={send} onClear={clearScreen} onHistory={recallHistory} ptyMode={mode !== 'pipe'} />
 
-        <Row gap="sm" style={{ paddingHorizontal: theme.space.sm }}>
-          <Txt variant="mono" tone="accent" style={{ fontSize: 16 }}>›</Txt>
+        <Row gap="sm" style={{ paddingHorizontal: theme.layout.margin }}>
+          {/* The continuation prompt stays, in quiet ink — the accent on this
+              screen belongs to RUN alone (docs/DESIGN.md §10). */}
+          <Txt variant="mono" tone="dim" style={{ fontSize: 16 }}>›</Txt>
           <TextInput
             testID="term-input"
             value={input}
@@ -357,10 +365,10 @@ export default function TerminalTab() {
             maxFontSizeMultiplier={1.4}
             style={{
               flex: 1,
-              backgroundColor: theme.colors.surfaceAlt,
-              borderRadius: theme.radius.md,
+              backgroundColor: theme.colors.surface,
+              borderRadius: theme.radius.xs,
               borderWidth: theme.layout.hairline,
-              borderColor: theme.colors.borderStrong,
+              borderColor: theme.colors.border,
               color: theme.colors.text,
               fontFamily: theme.font.mono,
               paddingHorizontal: theme.space.md,

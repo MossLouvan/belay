@@ -45,7 +45,7 @@ export function ImageView({ name, path, size }: ImageViewProps) {
   }
 
   return (
-    <View testID="viewer-image" style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+    <View testID="viewer-image" style={{ flex: 1, backgroundColor: theme.colors.machine }}>
       <Image
         source={{ uri }}
         resizeMode="contain"

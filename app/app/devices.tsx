@@ -3,20 +3,25 @@
 // This is the screen the whole multi-computer model exists for: open the app,
 // see the Mac and the Windows PC, tap one, and it connects. No addresses, no
 // pairing codes, no walking to the machine.
+//
+// Ledger anatomy: title, a mono status line, the header rule, then the
+// machines as hairline-separated rows — every row tappable, reachability
+// carried by the dot and the mono status word, no card around any of it.
 
 import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  Screen, Card, Column, Row, Heading, Caption, Txt, Button, ListItem, Dot,
-  Banner, EmptyState, Sheet, haptic,
+  Screen, Row, Heading, Label, Caption, Txt, Button, ListItem, Dot,
+  Banner, EmptyState, LedgerRow, Rule, Sheet, haptic,
 } from '../src/ui';
 import { useTheme } from '../src/theme';
 import { useConnection } from '../src/connection';
-import { SavedDevice, isReachableFromAnywhere } from '../src/devices/model';
-import { useReachability, Reachability } from '../src/devices/reachability';
+import { isReachableFromAnywhere } from '../src/devices/model';
+import type { SavedDevice } from '../src/devices/model';
+import { useReachability } from '../src/devices/reachability';
+import type { Reachability } from '../src/devices/reachability';
 
 /** How a platform is described in the list. */
 function platformLabel(device: SavedDevice): string {
@@ -39,7 +44,6 @@ function statusText(state: Reachability | undefined, isActive: boolean): string 
 
 export default function Devices() {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const { devices, active, switchTo, forget, phase, activeUrl } = useConnection();
   const { byId, refresh } = useReachability(devices);
 
@@ -64,17 +68,20 @@ export default function Devices() {
     await forget(id);
   }, [pendingForget, forget]);
 
+  const margin = theme.layout.margin;
+
   if (devices.length === 0) {
     return (
-      <Screen>
-        <Column gap="lg" style={{ paddingTop: insets.top + theme.space.lg }}>
+      <Screen padding="page">
+        <View style={{ paddingTop: theme.space.md }}>
           <Heading>My computers</Heading>
+          <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
           <EmptyState
             title="No computers yet"
             message="Run the Tether host agent on your Mac or Windows PC, then add it here."
             action={{ label: 'Add a computer', onPress: () => router.push('/') }}
           />
-        </Column>
+        </View>
       </Screen>
     );
   }
@@ -85,12 +92,15 @@ export default function Devices() {
   const lanOnly = devices.filter((d) => !isReachableFromAnywhere(d));
 
   return (
-    <Screen scroll>
-      <Column gap="lg" style={{ paddingTop: insets.top + theme.space.lg }}>
-        <Column gap="xs">
+    <Screen scroll padding="page">
+      <View style={{ paddingTop: theme.space.md, gap: theme.space.lg }}>
+        <View>
           <Heading>My computers</Heading>
-          <Caption>Tap one to take control.</Caption>
-        </Column>
+          <Label style={{ marginTop: theme.space.xxs, marginBottom: 0 }}>
+            {`${devices.length} paired · tap one to take control`}
+          </Label>
+          <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
+        </View>
 
         {phase === 'unreachable' && active ? (
           <Banner
@@ -101,14 +111,13 @@ export default function Devices() {
           />
         ) : null}
 
-        <Card>
-          <Column gap="xs">
-            {devices.map((device) => {
-              const isActive = active?.id === device.id;
-              const state = byId[device.id];
-              return (
+        <View>
+          {devices.map((device) => {
+            const isActive = active?.id === device.id;
+            const state = byId[device.id];
+            return (
+              <View key={device.id}>
                 <ListItem
-                  key={device.id}
                   testID={`device-${device.id}`}
                   title={device.label}
                   subtitle={`${platformLabel(device)} · ${statusText(state, isActive && phase === 'connected')}`}
@@ -127,15 +136,14 @@ export default function Devices() {
                     />
                   }
                 />
-              );
-            })}
-          </Column>
-        </Card>
+                <Rule bleed={margin} />
+              </View>
+            );
+          })}
+        </View>
 
         {isActiveConnected(phase) && activeUrl ? (
-          <Caption style={{ textAlign: 'center' }}>
-            Connected over {describeUrl(activeUrl)}
-          </Caption>
+          <LedgerRow label="Connected over" value={describeUrl(activeUrl)} valueTone="dim" rule={false} />
         ) : null}
 
         {lanOnly.length > 0 ? (
@@ -158,15 +166,17 @@ export default function Devices() {
           <Button label="Refresh" variant="ghost" onPress={refresh} />
         </Row>
 
-        <View style={{ height: insets.bottom + theme.space.lg }} />
-      </Column>
+        <Caption>
+          Forgetting a computer un-pairs this phone from it; the host keeps running.
+        </Caption>
+      </View>
 
       <Sheet
         visible={pendingForget !== null}
         onClose={() => setPendingForget(null)}
         title={pendingForget ? `Forget ${pendingForget.label}?` : 'Forget this computer?'}
       >
-        <Column gap="md">
+        <View style={{ gap: theme.space.md }}>
           <Txt>
             This phone will be un-paired from it. Your other computers are not affected,
             and you can add it again with a new pairing code.
@@ -176,10 +186,10 @@ export default function Devices() {
               <Button label="Cancel" variant="secondary" fullWidth onPress={() => setPendingForget(null)} />
             </View>
             <View style={{ flex: 1 }}>
-              <Button label="Forget" variant="danger" fullWidth onPress={() => void onConfirmForget()} />
+              <Button label="Forget this computer" variant="danger" fullWidth onPress={() => void onConfirmForget()} />
             </View>
           </Row>
-        </Column>
+        </View>
       </Sheet>
     </Screen>
   );

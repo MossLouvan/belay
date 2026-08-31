@@ -1,17 +1,14 @@
 // The terminal transcript: the measuring probe, the virtualised line list, the
 // "nothing yet" hint and the jump-to-latest affordance.
+//
+// The transcript is a machine panel (docs/DESIGN.md §3.4): true-dark in both
+// themes, full-bleed, no border box — the screen draws the separating
+// hairlines above and below it. Ink on it is the `onMachine` pair, never the
+// page's text colours, which are tuned for paper.
 
 import React, { useCallback } from 'react';
-import {
-  FlatList,
-  LayoutChangeEvent,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  Platform,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+import { FlatList, Platform, Pressable, Text, View } from 'react-native';
+import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { useTheme } from './theme';
 import { Txt } from './ui';
 import type { TermLine } from './terminal-ansi';
@@ -27,9 +24,9 @@ export interface TerminalOutputProps {
   fontSize: number;
   lineHeight: number;
   padding: number;
-  /** Background of the transcript box; the rows' inverse-video colour too. */
+  /** Background of the transcript panel; the rows' inverse-video colour too. */
   canvas: string;
-  /** Shown centred over an empty transcript. */
+  /** Shown over an empty transcript. */
   placeholder: string;
   blank: boolean;
   following: boolean;
@@ -84,18 +81,18 @@ export function TerminalOutput({
       <TermRow
         line={item}
         ramp={ramp}
-        fg={theme.colors.text}
+        fg={theme.colors.onMachine}
         bg={canvas}
         fontFamily={theme.font.mono}
         fontSize={fontSize}
         lineHeight={lineHeight}
       />
     ),
-    [canvas, fontSize, lineHeight, ramp, theme.colors.text, theme.font.mono]
+    [canvas, fontSize, lineHeight, ramp, theme.colors.onMachine, theme.font.mono]
   );
 
   return (
-    <View style={{ flex: 1, marginHorizontal: theme.space.sm }}>
+    <View style={{ flex: 1 }}>
       <Text
         aria-hidden
         accessibilityElementsHidden
@@ -133,20 +130,14 @@ export function TerminalOutput({
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={<View onLayout={onRowWidth} style={{ height: 0 }} />}
         contentContainerStyle={{ padding }}
-        style={{
-          flex: 1,
-          backgroundColor: canvas,
-          borderRadius: theme.radius.md,
-          borderWidth: theme.layout.hairline,
-          borderColor: theme.colors.border,
-        }}
+        style={{ flex: 1, backgroundColor: canvas }}
       />
 
       {/* The buffer always holds one empty line, so FlatList's own empty state
           would never fire — this overlay is the honest "nothing yet" hint. */}
       {blank ? (
         <View pointerEvents="none" style={{ position: 'absolute', top: padding * 2, left: padding * 2 }}>
-          <Txt variant="mono" tone="faint" testID="term-placeholder">
+          <Txt variant="mono" tone="onMachineDim" testID="term-placeholder">
             {placeholder}
           </Txt>
         </View>
@@ -158,19 +149,19 @@ export function TerminalOutput({
           accessibilityRole="button"
           accessibilityLabel="Jump to the latest output"
           onPress={onFollow}
-          style={{
+          style={({ pressed }) => ({
             position: 'absolute',
             right: theme.space.sm,
             bottom: theme.space.sm,
             paddingHorizontal: theme.space.md,
-            minHeight: theme.layout.minTouch - 8,
+            minHeight: theme.layout.minTouch,
             justifyContent: 'center',
-            borderRadius: theme.radius.pill,
+            borderRadius: theme.radius.xs,
             backgroundColor: theme.colors.accent,
-            ...theme.elevation.md,
-          }}
+            opacity: pressed ? theme.motion.pressOpacity : 1,
+          })}
         >
-          <Txt variant="caption" color={theme.colors.onAccent} style={{ fontWeight: '700' }}>
+          <Txt variant="label" color={theme.colors.onAccent}>
             ↓ Latest
           </Txt>
         </Pressable>
