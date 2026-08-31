@@ -16,6 +16,8 @@ import {
   Badge, Banner, Button, Caption, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, Txt, haptic,
 } from '../ui';
 import { ago, groupDiscovered, statusLabel, statusTone } from './model';
+import { askSummary, countdown } from './attention';
+import { refreshAttention, useAgentAttention } from './attention-store';
 import { NewProjectSheet } from './new-project-sheet';
 
 const messageOf = (e: unknown, fallback: string): string => (e instanceof Error ? e.message : fallback);
@@ -69,7 +71,12 @@ function LabelButton({
 
 export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   const theme = useTheme();
-  const [sessions, setSessions] = useState<readonly AgentSessionMeta[] | null>(null);
+  // Sessions come from the shared attention store, which polls while the app
+  // is open — the status words and dots here are live, not a snapshot from
+  // whenever the tab mounted. Fetching once and letting the badges go stale
+  // was this screen's worst lie: it showed "running" over a session that had
+  // been waiting on an approval for ten minutes.
+  const { sessions, fetchedAt, error: pollError } = useAgentAttention();
   const [discovered, setDiscovered] = useState<readonly DiscoveredSession[]>([]);
   const [availability, setAvailability] = useState<Availability | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
@@ -88,16 +95,17 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [status, list, found] = await Promise.all([
+      const [status, found] = await Promise.all([
         api.agentStatus(),
-        api.agentSessions(),
         // Discovery is a nicety: a host that cannot scan ~/.claude must not
         // take the session list down with it.
         api.agentDiscovered().catch(() => ({ sessions: [] as DiscoveredSession[] })),
+        // The session list itself refreshes through the shared store, so this
+        // pull also snaps the badge and banner current.
+        refreshAttention(),
       ]);
       if (!live.current) return;
       setAvailability(status);
-      setSessions(list.sessions);
       setDiscovered(found.sessions);
       setNow(Date.now());
       setError('');
@@ -109,6 +117,11 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Every store poll re-dates the relative times and countdowns on the rows.
+  useEffect(() => {
+    if (fetchedAt) setNow(Date.now());
+  }, [fetchedAt]);
 
   const pullToRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -163,8 +176,8 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
     >
       <Txt variant="title" heading>Agent</Txt>
       <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
-        <Dot status={error ? 'bad' : 'good'} size={7} />
-        <Label style={{ marginBottom: 0 }}>{error ? 'Host not answering' : 'Host connected'}</Label>
+        <Dot status={error || pollError ? 'bad' : 'good'} size={7} />
+        <Label style={{ marginBottom: 0 }}>{error || pollError ? 'Host not answering' : 'Host connected'}</Label>
       </Row>
       <Rule bleed={margin} style={{ marginTop: theme.space.md, marginBottom: theme.space.lg }} />
 
@@ -314,6 +327,18 @@ function SessionRow({
           </Row>
           <Txt variant="subheading" numberOfLines={1}>{s.title}</Txt>
           <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{s.cwd}</Txt>
+          {s.pending ? (
+            // What it wants and how long before the host gives up — so a list
+            // of several sessions leaves no doubt about which one is asking.
+            <Row justify="space-between" gap="sm">
+              <Txt variant="monoSmall" tone="accent" numberOfLines={1} style={{ flexShrink: 1 }}>
+                {askSummary(s.pending.tool, s.pending.detail)}
+              </Txt>
+              {s.pending.expiresAt ? (
+                <Micro tone="dim">{`auto-denies in ${countdown(s.pending.expiresAt, now)}`}</Micro>
+              ) : null}
+            </Row>
+          ) : null}
         </Pressable>
         <IconButton
           testID={`agent-del-${s.id}`}

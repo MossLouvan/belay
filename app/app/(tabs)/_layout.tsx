@@ -18,6 +18,9 @@ import { Redirect, Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { font, useTheme } from '../../src/theme';
+import { waitingSessions } from '../../src/agent/attention';
+import { useAgentAttention } from '../../src/agent/attention-store';
+import { NeedsYouBanner } from '../../src/agent/needs-you-banner';
 
 type TabName = 'screen' | 'agent' | 'terminal' | 'files' | 'system';
 
@@ -199,6 +202,10 @@ export default function TabsLayout() {
   const fontScale = PixelRatio.getFontScale();
   const contentHeight = tabBarContentHeight(fontScale);
   const itemHeight = tabItemHeight(fontScale);
+  // Mounting the attention store here keeps the session list current for the
+  // whole app; the count drives the Agent tab badge and the banner below.
+  const { sessions } = useAgentAttention();
+  const waitingCount = waitingSessions(sessions ?? []).length;
 
   // Guard: never show the tabs without a live connection. Where to send the
   // user depends on why there isn't one — with no computers saved they need the
@@ -208,6 +215,7 @@ export default function TabsLayout() {
   }
 
   return (
+    <View style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -252,9 +260,24 @@ export default function TabsLayout() {
           options={{
             title,
             tabBarIcon: ({ color }) => <TabIcon name={name} color={color} />,
+            // The one tab allowed a badge: sessions blocked on an approval.
+            // Accent, not red — it means "decide", not "broken".
+            ...(name === 'agent' && waitingCount > 0
+              ? {
+                  tabBarBadge: waitingCount,
+                  tabBarBadgeStyle: {
+                    backgroundColor: theme.colors.accent,
+                    color: theme.colors.onAccent,
+                    fontFamily: font.mono,
+                    fontSize: 10,
+                  },
+                }
+              : null),
           }}
         />
       ))}
     </Tabs>
+    <NeedsYouBanner bottom={contentHeight + insets.bottom} />
+    </View>
   );
 }

@@ -53,7 +53,7 @@ export function parseApproval(v: unknown): PendingApproval | null {
   if (!isRecord(v)) return null;
   const id = str(v.id);
   if (!id) return null;
-  return { id, tool: str(v.tool) ?? 'unknown', detail: str(v.detail) ?? '', input: str(v.input) ?? '' };
+  return { id, tool: str(v.tool) ?? 'unknown', detail: str(v.detail) ?? '', input: str(v.input) ?? '', expiresAt: num(v.expiresAt) };
 }
 
 export function parseSnapshot(v: unknown): AgentSnapshot | null {

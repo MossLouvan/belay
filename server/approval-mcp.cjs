@@ -15,6 +15,11 @@ const http = require('node:http');
 const URL_TARGET = process.env.TETHER_APPROVE_URL || '';
 const KEY = process.env.TETHER_APPROVE_KEY || '';
 const SESSION = process.env.TETHER_APPROVE_SESSION || '';
+// The host decides how long an ask may wait (it is configurable there, and may
+// be "forever"); it hands us a window slightly longer than its own so the host
+// always answers first. The fallback only matters if an old host spawns a new
+// sidecar without the variable.
+const TIMEOUT_MS = Number(process.env.TETHER_APPROVE_TIMEOUT_MS) || 31 * 60 * 1000;
 
 let buffer = '';
 process.stdin.on('data', (chunk) => {
@@ -92,9 +97,9 @@ function askPhone(toolName, input) {
     const req = http.request(URL_TARGET, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-      // The host holds this request open until the user answers; give it
-      // slightly longer than the host's own approval timeout.
-      timeout: 6 * 60 * 1000,
+      // The host holds this request open until the user answers; the window
+      // came from the host itself, padded past its own approval timeout.
+      timeout: TIMEOUT_MS,
     }, (res) => {
       let data = '';
       res.on('data', (c) => { data += c; });

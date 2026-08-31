@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildClaudeArgs, parseClaudeLine, toolDetail } from '../src/agent.js';
+import { approvalTimeoutMs, buildClaudeArgs, parseClaudeLine, toolDetail } from '../src/agent.js';
 
 test('toolDetail picks the meaningful field per tool', () => {
   assert.equal(toolDetail('Bash', { command: 'npm test' }), 'npm test');
@@ -82,4 +82,23 @@ test('parseClaudeLine ignores noise and malformed lines', () => {
   assert.equal(parseClaudeLine('not json at all').events.length, 0);
   assert.equal(parseClaudeLine(JSON.stringify({ type: 'user', message: {} })).events.length, 0);
   assert.equal(parseClaudeLine(JSON.stringify({ type: 'stream_event' })).events.length, 0);
+});
+
+test('approvalTimeoutMs: unset and garbage fall back to the 30-minute default', () => {
+  const DEFAULT = 30 * 60 * 1000;
+  assert.equal(approvalTimeoutMs(undefined), DEFAULT);
+  assert.equal(approvalTimeoutMs(''), DEFAULT);
+  assert.equal(approvalTimeoutMs('  '), DEFAULT);
+  assert.equal(approvalTimeoutMs('soon'), DEFAULT);
+  assert.equal(approvalTimeoutMs('-1'), DEFAULT);
+  assert.equal(approvalTimeoutMs('NaN'), DEFAULT);
+});
+
+test('approvalTimeoutMs: zero means wait forever, positives are floored at a minute', () => {
+  assert.equal(approvalTimeoutMs('0'), 0);
+  // A sub-minute window recreates the silent-auto-deny bug with a sharper
+  // edge, so it is rounded up rather than honoured.
+  assert.equal(approvalTimeoutMs('500'), 60_000);
+  assert.equal(approvalTimeoutMs('60000'), 60_000);
+  assert.equal(approvalTimeoutMs('900000'), 900_000);
 });

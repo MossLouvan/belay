@@ -292,10 +292,22 @@ export interface AgentEvent {
 }
 
 /** A permission ask Claude is blocked on until the phone answers. */
-export interface PendingApproval { id: string; tool: string; detail: string; input: string; }
+export interface PendingApproval {
+  id: string; tool: string; detail: string; input: string;
+  /** Epoch ms when the ask auto-denies on the host; absent when it waits forever. */
+  expiresAt?: number;
+}
+
+/**
+ * The ask as it rides on a session-list row: enough to show and answer it from
+ * anywhere in the app, without the full tool input the session view carries.
+ */
+export interface PendingApprovalSummary { id: string; tool: string; detail: string; expiresAt?: number; }
 
 export interface AgentSessionMeta {
   id: string; title: string; cwd: string; status: AgentStatus; lastUsed: number; createdAt: number;
+  /** Present (or null) on new hosts; absent entirely on hosts from before it shipped. */
+  pending?: PendingApprovalSummary | null;
 }
 
 export interface AgentSnapshot extends AgentSessionMeta {

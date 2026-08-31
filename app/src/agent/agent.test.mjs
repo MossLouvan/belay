@@ -36,7 +36,12 @@ test('parses every message type the host sends', () => {
   assert.deepEqual(parseAgentMessage(msg({ type: 'permission-clear' })), { type: 'permission-clear' });
   assert.deepEqual(parseAgentMessage(msg({ type: 'error', error: 'busy' })), { type: 'error', error: 'busy' });
   const ask = parseAgentMessage(msg({ type: 'permission', request: { id: 'p1', tool: 'Bash', detail: 'rm -rf', input: '{}' } }));
-  assert.deepEqual(ask, { type: 'permission', request: { id: 'p1', tool: 'Bash', detail: 'rm -rf', input: '{}' } });
+  assert.deepEqual(ask, { type: 'permission', request: { id: 'p1', tool: 'Bash', detail: 'rm -rf', input: '{}', expiresAt: undefined } });
+  // The deadline rides along when the host sends one; junk deadlines are dropped.
+  const timed = parseAgentMessage(msg({ type: 'permission', request: { id: 'p2', tool: 'Bash', detail: '', input: '{}', expiresAt: 1234 } }));
+  assert.equal(timed.request.expiresAt, 1234);
+  const junk = parseAgentMessage(msg({ type: 'permission', request: { id: 'p3', tool: 'Bash', detail: '', input: '{}', expiresAt: 'soon' } }));
+  assert.equal(junk.request.expiresAt, undefined);
 });
 
 test('rejects garbage instead of rendering it', () => {

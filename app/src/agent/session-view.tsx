@@ -7,10 +7,11 @@
 // even while the session pulses — safety-relevant actions outrank the
 // one-accent rule (§11.5).
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Banner, Button, Caption, Dot, Label, Row, Rule, Txt } from '../ui';
+import { Banner, Button, Caption, Dot, Label, Micro, Row, Rule, Txt } from '../ui';
+import { countdown, expiryUrgent } from './attention';
 import { EventRow } from './feed';
 import { MicButton, useVoice } from './mic';
 import { appendTranscript, canPrompt, isBusy, statusLabel, statusTone } from './model';
@@ -42,6 +43,18 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     prompt(text);
     setInput('');
   }, [input, link, prompt, session, setNote]);
+
+  // The approval clock: ticks each second only while an ask has a deadline,
+  // so the user sees the window shrinking instead of learning about it when
+  // the host silently gives up.
+  const deadline = pending?.expiresAt;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (deadline === undefined) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [deadline]);
 
   const answer = useCallback((allow: boolean, always = false) => {
     if (!pending) return;
@@ -151,7 +164,14 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
             borderLeftColor: theme.colors.warn,
           }}
         >
-          <Txt variant="label" color={theme.colors.onWarnSoft}>Approval needed</Txt>
+          <Row justify="space-between" gap="sm">
+            <Txt variant="label" color={theme.colors.onWarnSoft}>Approval needed</Txt>
+            {deadline !== undefined ? (
+              <Micro testID="agent-ask-countdown" tone={expiryUrgent(deadline, now) ? 'bad' : 'dim'}>
+                {`auto-denies in ${countdown(deadline, now)}`}
+              </Micro>
+            ) : null}
+          </Row>
           <Txt variant="mono" selectable numberOfLines={showInput ? undefined : 3}>
             <Txt variant="mono" tone="accent">{pending.tool}</Txt>
             {pending.detail ? `  ${pending.detail}` : ''}

@@ -7,17 +7,44 @@
 
 import { spawn, ChildProcess, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { isInsideRoots, isDenied } from './files.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APPROVAL_MCP = join(HERE, '..', 'approval-mcp.cjs');
 const META_FILE = join(process.cwd(), 'tether-agent.json');
 const LOG_DIR = join(process.cwd(), 'agent-logs');
 
-const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;   // unanswered asks fail closed
+// How long an approval waits for the phone before it is denied. The original
+// five minutes failed exactly the person this product is for: someone whose
+// phone is in a pocket. Half an hour is the default now, it is configurable,
+// and 0 means wait forever — the ask just sits until someone answers or the
+// session is stopped. Expiry is also no longer silent: see expireApproval.
+const DEFAULT_APPROVAL_TIMEOUT_MS = 30 * 60 * 1000;
+// The stand-in bound when the timeout is "forever": the CLI's MCP tool timeout
+// and the sidecar's HTTP timeout both need *some* number, and a week outlives
+// any plausible wait without leaving a truly immortal blocked request.
+const FOREVER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * TETHER_APPROVAL_TIMEOUT_MS, sanitised. Exported for tests. Garbage falls
+ * back to the default rather than to zero, because a typo silently disabling
+ * the timeout is the opposite of what a typo should do; anything positive is
+ * floored at one minute, because a sub-minute window recreates the original
+ * bug with a sharper edge.
+ */
+export function approvalTimeoutMs(raw: string | undefined = process.env.TETHER_APPROVAL_TIMEOUT_MS): number {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_APPROVAL_TIMEOUT_MS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_APPROVAL_TIMEOUT_MS;
+  if (n === 0) return 0; // wait forever
+  return Math.max(60 * 1000, Math.floor(n));
+}
+
+const APPROVAL_TIMEOUT_MS = approvalTimeoutMs();
 const IDLE_KILL_MS = 30 * 60 * 1000;         // idle processes die; --resume revives
 const EVENT_CAP = 400;                        // in-memory transcript cap per session
 
@@ -91,6 +118,8 @@ export interface PendingApproval {
   tool: string;
   detail: string;
   input: string; // pretty JSON, trimmed, for the expanded view on the phone
+  /** Epoch ms when the ask auto-denies; absent when configured to wait forever. */
+  expiresAt?: number;
 }
 
 interface SessionMeta {
@@ -108,7 +137,7 @@ interface Session extends SessionMeta {
   proc?: ChildProcess;
   procKey?: string;    // secret the MCP sidecar authenticates with
   buffer: string;      // partial stdout line
-  pending?: PendingApproval & { resolve: (allow: boolean, message?: string) => void; timer: NodeJS.Timeout };
+  pending?: PendingApproval & { resolve: (allow: boolean, message?: string) => void; timer?: NodeJS.Timeout };
   autoAllow: Set<string>; // tool names the user chose "always allow" for, this session only
   idleTimer?: NodeJS.Timeout;
   subscribers: Set<(msg: object) => void>;
@@ -241,6 +270,9 @@ function ensureProcess(s: Session): void {
           TETHER_APPROVE_URL: `http://127.0.0.1:${process.env.TETHER_PORT || 8787}/agent/approval-request`,
           TETHER_APPROVE_KEY: s.procKey,
           TETHER_APPROVE_SESSION: s.id,
+          // The sidecar holds its HTTP request open while the ask waits, so it
+          // must outlast this server's own window — including a "forever" one.
+          TETHER_APPROVE_TIMEOUT_MS: String((APPROVAL_TIMEOUT_MS || FOREVER_MS) + 30000),
         },
       },
     },
@@ -251,10 +283,11 @@ function ensureProcess(s: Session): void {
   const args = buildClaudeArgs(cfgPath, s.claudeSessionId);
 
   // Generous MCP timeouts so an approval can sit unanswered while the phone is
-  // in a pocket; the sidecar itself fails closed after APPROVAL_TIMEOUT_MS.
+  // in a pocket; the host itself denies after APPROVAL_TIMEOUT_MS (or never,
+  // when configured to wait), so these only need to sit safely beyond that.
   const proc = spawnClaude(args, s.cwd, {
     MCP_TIMEOUT: '60000',
-    MCP_TOOL_TIMEOUT: String(APPROVAL_TIMEOUT_MS + 30000),
+    MCP_TOOL_TIMEOUT: String((APPROVAL_TIMEOUT_MS || FOREVER_MS) + 60000),
   });
   s.proc = proc;
   s.buffer = '';
@@ -291,16 +324,52 @@ function ensureProcess(s: Session): void {
 // ---- public API used by index.ts ------------------------------------------
 
 export function listSessions() {
+  // The pending summary rides on every row so the phone can show — and answer —
+  // an approval from anywhere, without opening a socket per session. The full
+  // tool input stays out: it can be 2KB per row, and answering only needs the
+  // id; the session view has the whole thing for anyone who wants to read it.
   return [...sessions.values()]
     .sort((a, b) => b.lastUsed - a.lastUsed)
-    .map((s) => ({ id: s.id, title: s.title, cwd: s.cwd, status: s.status, lastUsed: s.lastUsed, createdAt: s.createdAt }));
+    .map((s) => ({
+      id: s.id, title: s.title, cwd: s.cwd, status: s.status, lastUsed: s.lastUsed, createdAt: s.createdAt,
+      pending: s.pending
+        ? { id: s.pending.id, tool: s.pending.tool, detail: s.pending.detail, expiresAt: s.pending.expiresAt }
+        : null,
+    }));
+}
+
+/**
+ * Turn the phone's "where should Claude work" string into a real directory
+ * inside the allowed roots. `~` expands to the host user's home; the path must
+ * exist and be a folder.
+ *
+ * Confined the same way projects.ts confines its mkdir parent, and for a
+ * harder reason: a session cwd is an *execution* primitive. Claude runs there,
+ * reads whatever the folder holds, and one approved `Read` in the wrong
+ * directory (the server's own state dir, say, which holds paired-device
+ * tokens) is exfiltration. The check runs on the realpath, not the lexical
+ * one, so neither `..` nor a planted symlink can smuggle the session outside —
+ * and the *resolved* path is what gets stored and handed to spawn(), so the
+ * path that was checked is the path that runs. Deny-listed locations report
+ * the same "outside" message as genuinely outside ones, matching projects.ts:
+ * confirming which sensitive paths exist is information a probe should not get.
+ */
+export function resolveSessionCwd(cwd: string): string {
+  const expanded = cwd.replace(/^~(?=$|[\\/])/, homedir());
+  if (!existsSync(expanded) || !statSync(expanded).isDirectory()) {
+    throw new Error(`not a folder: ${expanded}`);
+  }
+  let real: string;
+  try { real = realpathSync.native(expanded); }
+  catch { throw new Error(`not a folder: ${expanded}`); }
+  if (!isInsideRoots(real) || isDenied(real)) {
+    throw new Error('that folder is outside the allowed folders');
+  }
+  return real;
 }
 
 function newSession(cwd: string, title?: string, claudeSessionId?: string): Session {
-  const resolved = cwd.replace(/^~(?=$|[\\/])/, homedir());
-  if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
-    throw new Error(`not a folder: ${resolved}`);
-  }
+  const resolved = resolveSessionCwd(cwd);
   const id = randomBytes(8).toString('hex');
   const s: Session = {
     id, cwd: resolved, claudeSessionId,
@@ -350,7 +419,9 @@ export function getSnapshot(id: string) {
     id: s.id, title: s.title, cwd: s.cwd, status: s.status,
     createdAt: s.createdAt, lastUsed: s.lastUsed,
     events: s.events,
-    pending: s.pending ? { id: s.pending.id, tool: s.pending.tool, detail: s.pending.detail, input: s.pending.input } : null,
+    pending: s.pending
+      ? { id: s.pending.id, tool: s.pending.tool, detail: s.pending.detail, input: s.pending.input, expiresAt: s.pending.expiresAt }
+      : null,
   };
 }
 
@@ -419,13 +490,46 @@ export function requestApproval(
       id, tool: toolName,
       detail: toolDetail(toolName, input),
       input: pretty.length > 2000 ? pretty.slice(0, 2000) + '…' : pretty,
+      expiresAt: APPROVAL_TIMEOUT_MS ? Date.now() + APPROVAL_TIMEOUT_MS : undefined,
       resolve: (allow: boolean, message?: string) => resolve({ allow, message }),
-      timer: setTimeout(() => answerApproval(sessionId, id, false, 'no answer from phone (timed out)'), APPROVAL_TIMEOUT_MS),
+      timer: APPROVAL_TIMEOUT_MS ? setTimeout(() => expireApproval(sessionId, id), APPROVAL_TIMEOUT_MS) : undefined,
     };
     s.pending = pending;
     setStatus(s, 'waiting');
-    broadcast(s, { type: 'permission', request: { id, tool: pending.tool, detail: pending.detail, input: pending.input } });
+    broadcast(s, {
+      type: 'permission',
+      request: { id, tool: pending.tool, detail: pending.detail, input: pending.input, expiresAt: pending.expiresAt },
+    });
   });
+}
+
+/**
+ * The ask ran out of clock with nobody there. Distinct from answerApproval on
+ * purpose: a deny the user tapped and a deny nobody chose must not read the
+ * same afterwards. The feed gets a loud `error` line that survives in the
+ * transcript — a session that died unanswered says so instead of just
+ * stopping — and Claude is told the silence was absence, not refusal, so it
+ * wraps up cleanly. Nothing here is terminal: the Claude session persists on
+ * disk, so prompting again re-attempts the work and re-asks fresh. A true
+ * held-open re-ask is not possible through MCP — once the tool call resolves
+ * (or the CLI's own tool timeout fires) that conversational turn is spent —
+ * so "expired, visibly, and one prompt away from resuming" is the honest
+ * version, and TETHER_APPROVAL_TIMEOUT_MS=0 exists for anyone who would
+ * rather the ask simply wait forever.
+ */
+function expireApproval(sessionId: string, approvalId: string): void {
+  const s = sessions.get(sessionId);
+  if (!s || !s.pending || s.pending.id !== approvalId) return;
+  const pending = s.pending;
+  s.pending = undefined;
+  const mins = Math.max(1, Math.round(APPROVAL_TIMEOUT_MS / 60000));
+  pushEvent(s, {
+    t: Date.now(), kind: 'error',
+    text: `nobody answered — ${pending.tool}${pending.detail ? ' (' + pending.detail.slice(0, 80) + ')' : ''} was denied after ${mins} min with no one there. Send a prompt to have Claude pick the work back up.`,
+  });
+  broadcast(s, { type: 'permission-clear' });
+  setStatus(s, 'running');
+  pending.resolve(false, `No one answered the approval on the phone within ${mins} minutes. This is absence, not refusal — stop what you are doing cleanly and summarise what remains, so the user can resume and ask you to retry.`);
 }
 
 export function answerApproval(sessionId: string, approvalId: string, allow: boolean, message?: string, always?: boolean): boolean {
