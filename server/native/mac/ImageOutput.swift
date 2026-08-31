@@ -107,6 +107,40 @@ enum ImageOutput {
                           sourceWidth: sourceWidth, sourceHeight: sourceHeight)
     }
 
+    /// Scales a single captured image to `targetWidth`, keeping its shape.
+    ///
+    /// The window-capture path's counterpart to `composite`: one image, no
+    /// layout to reason about, but the same clamping and interpolation so a
+    /// window frame and a display frame look alike and cost alike.
+    static func scaled(_ image: CGImage, targetWidth: Int) throws -> Composited {
+        let sourceWidth = max(1, image.width)
+        let sourceHeight = max(1, image.height)
+        let clamped = min(max(targetWidth, minimumTargetWidth), min(maximumTargetWidth, sourceWidth))
+        let scale = Double(clamped) / Double(sourceWidth)
+        let outWidth = clamped
+        let outHeight = max(1, Int((Double(sourceHeight) * scale).rounded()))
+
+        guard let context = CGContext(
+            data: nil,
+            width: outWidth,
+            height: outHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) else {
+            throw HostError(.encode, "could not allocate a \(outWidth)x\(outHeight) output surface")
+        }
+        context.interpolationQuality = interpolation
+        context.draw(image, in: CGRect(x: 0, y: 0, width: outWidth, height: outHeight))
+
+        guard let out = context.makeImage() else {
+            throw HostError(.encode, "could not finalise the scaled frame")
+        }
+        return Composited(image: out, width: outWidth, height: outHeight,
+                          sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+    }
+
     /// Maps a top-left-origin display rect into the bottom-left-origin context.
     private static func destinationRect(for display: CGRect, in bounds: CGRect, scale: Double) -> CGRect {
         CGRect(

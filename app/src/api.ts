@@ -244,6 +244,14 @@ export interface HostScreen extends Rect {
   /** Stable index the host expects back as `screen` on capture and input. */
   index: number;
   primary: boolean;
+  /**
+   * Synthesized by a display driver, with no panel attached — a screen a
+   * remote client can take over without stealing it from whoever is at the
+   * host. Classified host-side (server/src/displays.ts); absent on older hosts.
+   */
+  virtualDisplay?: boolean;
+  /** Short human name, e.g. "DELL U2720Q" or "Parsec Virtual Display Adapter". */
+  label?: string;
 }
 
 export interface ScreenInfo {

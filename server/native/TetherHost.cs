@@ -186,13 +186,16 @@ static class TetherHost
                 {
                     case "info": DoInfo(stdout, idObj); break;
                     case "capture": DoCapture(stdout, idObj, c); break;
-                    case "move": Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), ScreenBounds(Get(c, "screen"))); Ok(stdout, idObj); break;
+                    case "move": Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), TargetBounds(c)); Ok(stdout, idObj); break;
                     case "down": MaybeMove(c); Native.Button(Str(Get(c, "button")), true); Ok(stdout, idObj); break;
                     case "up": MaybeMove(c); Native.Button(Str(Get(c, "button")), false); Ok(stdout, idObj); break;
                     case "click": DoClick(stdout, idObj, c); break;
                     case "scroll": Native.Scroll(Int(Get(c, "dy")), Int(Get(c, "dx"))); Ok(stdout, idObj); break;
                     case "key": DoKey(stdout, idObj, c); break;
                     case "text": Native.TypeText(Str(Get(c, "text"))); Ok(stdout, idObj); break;
+                    case "windows": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "windows", WindowList.All() } }); break;
+                    case "capturewindow": DoCaptureWindow(stdout, idObj, c); break;
+                    case "focuswindow": DoFocusWindow(stdout, idObj, c); break;
                     case "ping": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "pong", true } }); break;
                     default: Err(stdout, idObj, "unknown command: " + cmd); break;
                 }
@@ -203,7 +206,25 @@ static class TetherHost
 
     static void MaybeMove(Dictionary<string, object> c)
     {
-        if (Get(c, "x") != null) Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), ScreenBounds(Get(c, "screen")));
+        if (Get(c, "x") != null) Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), TargetBounds(c));
+    }
+
+    /// The rectangle a normalized coordinate is measured against.
+    ///
+    /// A `window` outranks a `screen`, because a client showing one window has
+    /// normalized against that window and nothing else. A window that has
+    /// closed, or moved to zero size, falls back to the monitor rule rather
+    /// than failing: the click lands somewhere harmless instead of being mapped
+    /// against a stale rectangle that may now belong to a different window.
+    static Rectangle TargetBounds(Dictionary<string, object> c)
+    {
+        var hwnd = WindowList.Parse(Get(c, "window"));
+        if (hwnd != IntPtr.Zero)
+        {
+            var b = WindowList.Bounds(hwnd);
+            if (b.Width > 0 && b.Height > 0) return b;
+        }
+        return ScreenBounds(Get(c, "screen"));
     }
 
     /// The monitor a normalized coordinate (or a capture) refers to. A valid
@@ -229,10 +250,15 @@ static class TetherHost
         for (int i = 0; i < all.Length; i++)
         {
             var sb = all[i].Bounds;
-            screens.Add(new Dictionary<string, object> {
+            var entry = new Dictionary<string, object> {
                 { "index", i }, { "X", sb.X }, { "Y", sb.Y }, { "W", sb.Width }, { "H", sb.Height },
                 { "primary", all[i].Primary },
-            });
+            };
+            // Identity strings (adapter/monitor/device path) so the client can
+            // tell a virtual display from a physical one. Merged in rather than
+            // nested so the shape stays flat across both platforms' helpers.
+            foreach (var kv in DisplayIdentity.Describe(all[i].DeviceName)) entry[kv.Key] = kv.Value;
+            screens.Add(entry);
         }
         Reply(w, new Dictionary<string, object> {
             { "id", id }, { "ok", true },
@@ -240,6 +266,64 @@ static class TetherHost
             { "virtual", Rect(v.X, v.Y, v.Width, v.Height) },
             { "screens", screens },
         });
+    }
+
+    /// One window's own pixels, plus where that window currently is.
+    ///
+    /// The bounds ride along with every frame because they are the thing a
+    /// seamless client cannot get any other way: the user drags a window on the
+    /// host, and the only sign of it here is the next frame's rectangle. The
+    /// client moves and resizes its local window to match.
+    ///
+    /// A minimized window has no pixels to print, so it is reported as such
+    /// instead of being sent as a black frame the client would faithfully draw.
+    static void DoCaptureWindow(TextWriter w, object id, Dictionary<string, object> c)
+    {
+        var hwnd = WindowList.Parse(Get(c, "window"));
+        if (hwnd == IntPtr.Zero) { Err(w, id, "no such window"); return; }
+
+        int targetW = Get(c, "w") != null ? Int(Get(c, "w")) : 1280;
+        int quality = Get(c, "q") != null ? Int(Get(c, "q")) : 55;
+
+        Rectangle bounds;
+        using (var shot = WindowList.Grab(hwnd, out bounds))
+        {
+            if (shot == null)
+            {
+                Reply(w, new Dictionary<string, object> {
+                    { "id", id }, { "ok", true }, { "hidden", true },
+                    { "rect", Rect(bounds.X, bounds.Y, bounds.Width, bounds.Height) },
+                });
+                return;
+            }
+
+            int targetH;
+            byte[] bytes = EncodeScaled(shot, bounds.Width, bounds.Height, ref targetW, quality, out targetH);
+            Reply(w, new Dictionary<string, object> {
+                { "id", id }, { "ok", true },
+                { "data", Convert.ToBase64String(bytes) },
+                { "w", targetW }, { "h", targetH },
+                { "sw", bounds.Width }, { "sh", bounds.Height }, { "bytes", bytes.Length },
+                // Nested rather than flat X/Y/W/H beside the frame's own w/h:
+                // two keys differing only in case are legal JSON and a trap for
+                // every case-insensitive parser that reads this reply.
+                { "rect", Rect(bounds.X, bounds.Y, bounds.Width, bounds.Height) },
+                { "title", WindowList.TitleOfPublic(hwnd) },
+            });
+        }
+    }
+
+    /// Raise a window on the host so keystrokes reach it.
+    ///
+    /// Reports `focused: false` rather than failing when Windows refuses the
+    /// foreground change — a refusal is a normal outcome of its foreground-lock
+    /// rules, not a broken call, and the client says so instead of retrying.
+    static void DoFocusWindow(TextWriter w, object id, Dictionary<string, object> c)
+    {
+        var hwnd = WindowList.Parse(Get(c, "window"));
+        if (hwnd == IntPtr.Zero) { Err(w, id, "no such window"); return; }
+        bool focused = WindowList.Focus(hwnd);
+        Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", true }, { "focused", focused } });
     }
 
     static Dictionary<string, object> Rect(int x, int y, int w, int h)
@@ -257,6 +341,41 @@ static class TetherHost
         srcW = w; srcH = h;
     }
 
+    /// Scale a captured bitmap to `targetW` and JPEG-encode it.
+    ///
+    /// Shared by the whole-monitor and single-window capture paths so the two
+    /// cannot drift apart in scaling quality or encoder settings. `targetW` is
+    /// clamped in place — the caller reports back the width it actually got,
+    /// which is not the width it asked for when the source is smaller.
+    static byte[] EncodeScaled(Bitmap source, int sourceW, int sourceH, ref int targetW, int quality, out int targetH)
+    {
+        if (targetW < 64) targetW = 64;
+        if (targetW > sourceW) targetW = sourceW;
+        double scale = targetW / (double)sourceW;
+        targetH = (int)Math.Round(sourceH * scale);
+        if (targetH < 1) targetH = 1;
+
+        using (var outBmp = new Bitmap(targetW, targetH))
+        {
+            using (var g = Graphics.FromImage(outBmp))
+            {
+                // Bilinear, not bicubic: at streaming frame rates the visual
+                // difference is nil and bicubic costs about 3x the CPU.
+                g.InterpolationMode = InterpolationMode.Bilinear;
+                g.PixelOffsetMode = PixelOffsetMode.HighSpeed;
+                g.SmoothingMode = SmoothingMode.None;
+                g.DrawImage(source, 0, 0, targetW, targetH);
+            }
+            var ep = new EncoderParameters(1);
+            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
+            using (var ms = new MemoryStream())
+            {
+                outBmp.Save(ms, jpeg, ep);
+                return ms.ToArray();
+            }
+        }
+    }
+
     static void DoCapture(TextWriter w, object id, Dictionary<string, object> c)
     {
         int targetW = Get(c, "w") != null ? Int(Get(c, "w")) : 1280;
@@ -270,32 +389,8 @@ static class TetherHost
         srcGfx.CopyFromScreen(b.X, b.Y, 0, 0, new Size(b.Width, b.Height), CopyPixelOperation.SourceCopy);
         Native.DrawCursor(srcGfx, b.X, b.Y);
 
-        if (targetW < 64) targetW = 64;
-        if (targetW > b.Width) targetW = b.Width;
-        double scale = targetW / (double)b.Width;
-        int targetH = (int)Math.Round(b.Height * scale);
-        if (targetH < 1) targetH = 1;
-
-        byte[] bytes;
-        using (var outBmp = new Bitmap(targetW, targetH))
-        {
-            using (var g = Graphics.FromImage(outBmp))
-            {
-                // Bilinear, not bicubic: at streaming frame rates the visual
-                // difference is nil and bicubic costs about 3x the CPU.
-                g.InterpolationMode = InterpolationMode.Bilinear;
-                g.PixelOffsetMode = PixelOffsetMode.HighSpeed;
-                g.SmoothingMode = SmoothingMode.None;
-                g.DrawImage(srcBmp, 0, 0, targetW, targetH);
-            }
-            var ep = new EncoderParameters(1);
-            ep.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
-            using (var ms = new MemoryStream())
-            {
-                outBmp.Save(ms, jpeg, ep);
-                bytes = ms.ToArray();
-            }
-        }
+        int targetH;
+        byte[] bytes = EncodeScaled(srcBmp, b.Width, b.Height, ref targetW, quality, out targetH);
 
         Reply(w, new Dictionary<string, object> {
             { "id", id }, { "ok", true },

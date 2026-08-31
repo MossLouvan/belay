@@ -46,6 +46,21 @@ enum Displays {
         return all.first { $0.id == main } ?? all[0]
     }
 
+    /// The display a client-supplied index names, within `displays`.
+    ///
+    /// The index is a position in `active()` order — the same order the `info`
+    /// reply lists screens in, which is what makes the number the phone sends
+    /// back mean the screen it was shown. Absent or out of range falls back to
+    /// the primary, matching the Windows helper's `ScreenBounds` exactly: a
+    /// stale index (a monitor unplugged mid-session) must not point capture and
+    /// input at two different screens, and must never throw.
+    static func at(_ index: Int?, in displays: [DisplayGeometry]) -> DisplayGeometry? {
+        guard !displays.isEmpty else { return nil }
+        if let index, index >= 0, index < displays.count { return displays[index] }
+        let main = CGMainDisplayID()
+        return displays.first { $0.id == main } ?? displays[0]
+    }
+
     static func geometry(of id: CGDirectDisplayID) -> DisplayGeometry {
         let bounds = CGDisplayBounds(id)
         return DisplayGeometry(id: id, bounds: bounds, scale: backingScale(of: id, points: bounds.width))

@@ -35,9 +35,11 @@ fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# AppKit is here only for NSScreen.localizedName in DisplayIdentity.swift —
+# the one display fact CoreGraphics does not expose.
 common_flags=(-O -swift-version 5 -framework ScreenCaptureKit -framework CoreGraphics
               -framework ImageIO -framework ApplicationServices -framework CoreMedia
-              -framework CoreVideo -framework UniformTypeIdentifiers)
+              -framework CoreVideo -framework UniformTypeIdentifiers -framework AppKit)
 
 build_slice() {
   local arch="$1"

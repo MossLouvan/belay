@@ -1,0 +1,29 @@
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src http: https: ws: wss:;" />
+<title>Tether display</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  /* The window is the screen: no margins, no scrollbars, and the canvas fills
+     it exactly so a pointer position maps to the remote display by a single
+     scale factor (main.js locks the window to the remote aspect ratio). */
+  body { background: #000; overflow: hidden; }
+  #screen { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+  #overlay {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; gap: 12px; align-items: center; justify-content: space-between;
+    padding: 6px 12px; font-size: 12px; color: var(--muted);
+    background: rgba(16, 16, 20, 0.82); border-top: 1px solid var(--line);
+    transition: opacity 160ms ease;
+  }
+  #overlay.idle { opacity: 0; pointer-events: none; }
+  #overlay .bad { color: var(--bad); }
+</style>
+<body>
+  <canvas id="screen"></canvas>
+  <div id="overlay">
+    <span id="title"></span>
+    <span id="stats"></span>
+  </div>
+  <script type="module" src="display.js"></script>
+</body>

@@ -28,7 +28,26 @@ export function isTrustedHost(hostHeader: string | undefined): boolean {
   return extraHosts().includes(name);
 }
 
+/**
+ * Origins that are not web pages.
+ *
+ * A native client sends no `Origin` at all. Two clients send an *opaque* one
+ * instead: a page loaded from `file://` (the Electron desktop client) sends
+ * `file://`, and a sandboxed document sends the literal `null`. Neither can be
+ * parsed into a host, so both used to be refused — which is what stopped the
+ * desktop client's WebSocket from ever connecting.
+ *
+ * Accepting them costs nothing the origin check was providing. What it defends
+ * against is DNS rebinding, and that attack's giveaway is the *Host* header,
+ * not the origin: a page served from `evil.example` still sends
+ * `Host: evil.example`, which `isTrustedHost` refuses whatever its origin says.
+ * An opaque origin is therefore no more dangerous than the absent one a native
+ * app already sends.
+ */
+const OPAQUE_ORIGINS = new Set(['null', 'file://']);
+
 export function isTrustedOrigin(origin: string | undefined): boolean {
   if (!origin) return true; // native app
+  if (OPAQUE_ORIGINS.has(origin.trim().toLowerCase())) return true;
   try { return isTrustedHost(new URL(origin).host); } catch { return false; }
 }

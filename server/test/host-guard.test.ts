@@ -39,3 +39,21 @@ test('origins: absent (native app) is fine, trusted hosts pass, anything else fa
   assert.equal(isTrustedOrigin('http://evil.example'), false);
   assert.equal(isTrustedOrigin('not a url'), false);
 });
+
+test('opaque origins are treated as non-browser clients', () => {
+  // The Electron desktop client loads its renderer from file://, so its
+  // WebSocket upgrade carries `Origin: file://`; a sandboxed document sends
+  // the literal `null`. Neither parses to a host, and refusing them is what
+  // kept the desktop client from connecting at all. The Host-header check is
+  // what actually stops DNS rebinding, and it still applies to both.
+  assert.equal(isTrustedOrigin('file://'), true);
+  assert.equal(isTrustedOrigin('null'), true);
+  assert.equal(isTrustedOrigin('NULL'), true);
+  assert.equal(isTrustedOrigin(undefined), true);
+});
+
+test('a real web origin is still checked against the host allow-list', () => {
+  assert.equal(isTrustedOrigin('http://evil.example'), false);
+  assert.equal(isTrustedOrigin('http://192.168.0.35:8787'), true);
+  assert.equal(isTrustedOrigin('not a url'), false);
+});

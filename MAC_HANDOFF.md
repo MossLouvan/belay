@@ -59,3 +59,80 @@ git commit -m "Remove Mac build handoff — standalone iOS app installed"
 git push
 ```
 Do **not** commit the generated `app/ios/` directory — it is gitignored on purpose.
+
+
+---
+
+## Also on the Mac: verify the native helper still builds
+
+Two pieces of Swift were written on the Windows PC, where **swiftc does not
+exist**, and have never been compiled:
+
+1. **Display identity** — `DisplayIdentity.swift`, plus the `screens` list and
+   per-screen input in `main.swift` / `Input.swift` / `Displays.swift`.
+2. **Seamless windows** — `WindowList.swift`, the `windows` / `capturewindow` /
+   `focuswindow` commands in `main.swift`, `ImageOutput.scaled`, and the
+   `window` pointer target in `Input.swift`. The Windows half of the same change was compiled and
+its output checked against real monitors; the macOS half needs the same here.
+
+```bash
+cd tether/server
+npm run build:native:mac          # must succeed; AppKit was added to the flags
+echo '{"id":1,"cmd":"info"}' | ./native/TetherHostMac
+```
+
+The `info` reply should now contain a `screens` array, one entry per display,
+each carrying `index`, geometry, `primary`, and identity fields (`device`,
+`adapter`, `monitor`, `id`, `builtin`, `vendor`, `model`). Check that:
+
+- the built-in panel reports `"builtin": true` and a `monitor` like
+  `"Built-in Retina Display"`;
+- with a virtual display running (DeskPad or BetterDisplay — see
+  [`docs/VIRTUAL-MONITOR.md`](docs/VIRTUAL-MONITOR.md)), that display's name
+  appears, and `/screen/info` marks it `"virtualDisplay": true`;
+- picking a non-primary monitor in the phone app's Screen tab now captures *and*
+  clicks on that monitor — per-screen input is new on macOS, and getting it
+  wrong sends clicks to the wrong display rather than failing loudly.
+
+If `NSScreen.screens` comes back empty in a plain command-line process, the
+`monitor` field will be null and virtual displays will stop being recognised by
+name on macOS. That is the one risk worth checking first.
+
+### Then the seamless-window commands
+
+```bash
+echo '{"id":1,"cmd":"windows"}' | ./native/TetherHostMac
+```
+
+Expect one entry per real window — Safari, Terminal, Mail — and *not* menu bar
+items, the Dock, or tooltips (those live on CoreGraphics layers other than 0 and
+are filtered out). Then capture one by its id:
+
+```bash
+echo '{"id":2,"cmd":"capturewindow","window":"<id>","w":900,"q":70}'   | ./native/TetherHostMac
+```
+
+Things to check, in the order they are likely to bite:
+
+- **`AXValueGetValue` and the generic `axValue` helper in `WindowList.swift`**
+  are the least certain code in the file — a compile error here is expected
+  before it is right. The `value as! AXValue` cast is guarded by a
+  `CFGetTypeID` check, so it should not trap, but Swift may want the generic
+  spelled differently.
+- **`CGWindowListCreateImage` is deprecated** in macOS 14. It should still
+  compile (with a warning) and still work with Screen Recording granted. If a
+  future macOS removes it, the replacement is
+  `SCScreenshotManager.captureImage(contentFilter:configuration:)` with an
+  `SCContentFilter(desktopIndependentWindow:)` — which needs the deployment
+  target raised from 13.0 to 14.0.
+- **Window titles are empty without Screen Recording.** That is macOS policy,
+  not a bug; the app name still shows.
+- **`focuswindow` needs Accessibility** and matches the window by position and
+  size, because AX cannot address a window by CGWindowID. If raising picks the
+  wrong window of an app with several the same size, that match is why.
+
+Then drive it from the desktop client (`cd desktop && npm start`) against this
+Mac as the host, and check that clicks land in the right window — the pointer is
+normalized against the *window* now, so a mapping mistake sends clicks to the
+wrong place rather than failing loudly. See
+[`docs/SEAMLESS-WINDOWS.md`](docs/SEAMLESS-WINDOWS.md).

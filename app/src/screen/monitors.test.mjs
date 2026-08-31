@@ -31,6 +31,8 @@ import {
   resolveScreenIndex,
   nextScreenIndex,
   monitorLabel,
+  monitorDescription,
+  virtualScreen,
 } from './monitors.ts';
 
 // Primary on the right, matching the worked example above.
@@ -98,7 +100,56 @@ test('screensOf ignores duplicate indexes', () => {
 
 test('screensOf zeroes rubbish dimensions rather than passing them through', () => {
   const screens = screensOf({ screens: [{ index: 0, W: NaN, H: -4, primary: true }] });
-  assert.deepEqual(screens, [{ index: 0, primary: true, w: 0, h: 0 }]);
+  assert.deepEqual(screens, [{ index: 0, primary: true, w: 0, h: 0, virtual: false, name: '' }]);
+});
+
+test('screensOf carries the host virtual-display verdict and name', () => {
+  const screens = screensOf({
+    screens: [
+      { index: 0, W: 1920, H: 1080, primary: true, label: 'DELL U2720Q' },
+      { index: 1, W: 1920, H: 1080, primary: false, virtualDisplay: true, label: 'Parsec Virtual Display Adapter' },
+    ],
+  });
+  assert.deepEqual(screens.map((s) => [s.virtual, s.name]), [
+    [false, 'DELL U2720Q'],
+    [true, 'Parsec Virtual Display Adapter'],
+  ]);
+});
+
+test('a host that claims nothing is never read as claiming virtual', () => {
+  // An older host sends neither field; a hostile one may send junk in them.
+  const screens = screensOf({
+    screens: [
+      { index: 0, W: 800, H: 600, primary: true },
+      { index: 1, W: 800, H: 600, primary: false, virtualDisplay: 'yes', label: 42 },
+    ],
+  });
+  assert.deepEqual(screens.map((s) => [s.virtual, s.name]), [[false, ''], [false, '']]);
+  assert.equal(virtualScreen(screens), undefined);
+});
+
+test('virtualScreen finds the first virtual display, or none', () => {
+  const screens = screensOf({
+    screens: [
+      { index: 0, W: 800, H: 600, primary: true },
+      { index: 1, W: 800, H: 600, primary: false, virtualDisplay: true, label: 'Virtual Display' },
+      { index: 2, W: 800, H: 600, primary: false, virtualDisplay: true, label: 'Second Virtual' },
+    ],
+  });
+  assert.equal(virtualScreen(screens)?.index, 1);
+});
+
+test('monitorDescription names the display, falling back to the terse label', () => {
+  const [named, unnamed, bare] = screensOf({
+    screens: [
+      { index: 0, W: 1, H: 1, primary: true, label: 'DELL U2720Q' },
+      { index: 1, W: 1, H: 1, primary: false, virtualDisplay: true },
+      { index: 2, W: 1, H: 1, primary: false },
+    ],
+  });
+  assert.equal(monitorDescription(named), '1 (main) · DELL U2720Q');
+  assert.equal(monitorDescription(unnamed), '2 · Virtual display');
+  assert.equal(monitorDescription(bare), '3');
 });
 
 test('screensOf handles a null info and a non-array screens field', () => {

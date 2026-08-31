@@ -1,0 +1,48 @@
+/* Shared chrome for both renderer windows. Dark by default because a remote
+   screen sits inside it and a bright frame around a dark desktop is glare. */
+:root {
+  color-scheme: dark;
+  --bg: #101014;
+  --panel: #1a1a21;
+  --line: #2c2c36;
+  --text: #e8e8ef;
+  --muted: #9a9aab;
+  --accent: #6ea8fe;
+  --bad: #ff6b6b;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+.pad { padding: 24px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+p.muted { color: var(--muted); margin: 0 0 20px; }
+label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 4px; }
+input {
+  width: 100%; padding: 9px 11px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  font: inherit;
+}
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+button {
+  padding: 9px 14px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--text); font: inherit; cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #0b0b10; font-weight: 600; }
+button:disabled { opacity: 0.5; cursor: default; }
+.row { display: flex; gap: 8px; align-items: center; }
+.error { color: var(--bad); min-height: 20px; margin-top: 12px; }
+.displays { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 8px; }
+.displays li {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+}
+.badge {
+  font-size: 11px; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--accent); color: var(--accent);
+}
+.name { font-weight: 600; }
+.dim { color: var(--muted); font-size: 12px; }

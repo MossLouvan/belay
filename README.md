@@ -34,6 +34,9 @@ through anyone else's servers.
 | Voice prompts + global dictation | ✅ hold-to-talk, transcribed on the PC with whisper.cpp |
 | Resume any past Claude session | ✅ "On this PC" list in the Agent tab, or `npm run sessions` |
 | Runs on iPhone via Expo Go | ✅ |
+| Desktop client — open the PC's displays as windows on another computer | ✅ Electron, `desktop/` |
+| Virtual monitor — work on a display nobody at the host can see | ✅ detected and preferred; you install the driver |
+| Seamless windows — the host's apps as individual windows on your desktop | ✅ Windows host; macOS host written, needs a Mac build |
 | Runs in a browser (same UI) | ✅ used for automated tests |
 | Windows host | ✅ |
 | macOS host | ✅ Apple silicon and Intel |
@@ -56,6 +59,25 @@ On **macOS** you must also grant two permissions before the Screen tab works —
 **→ Accessibility** — to the *terminal app* you launch the host from, not to
 `node`. The host prints a reminder on boot; the details are in
 [`docs/SETUP.md`](docs/SETUP.md).
+
+**Or, from another computer**
+
+```bash
+cd desktop
+npm install
+npm start
+```
+
+Pair with the same 6-digit code, and each of that computer's displays opens as
+an ordinary window on this one. If the host has a virtual monitor, that is the
+display offered first — it lets you work on the machine without taking the
+screen away from whoever is sitting at it.
+
+The same window also lists the host's **open windows**, and can put each one in
+a window of its own on this desktop — the old VMware Unity trick. See
+[`docs/VIRTUAL-MONITOR.md`](docs/VIRTUAL-MONITOR.md),
+[`docs/SEAMLESS-WINDOWS.md`](docs/SEAMLESS-WINDOWS.md) and
+[`desktop/README.md`](desktop/README.md).
 
 **2. On the phone**
 
