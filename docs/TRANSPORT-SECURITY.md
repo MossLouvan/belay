@@ -39,10 +39,29 @@ and `usesCleartextTraffic` was not set.
 
 ```jsonc
 "NSAppTransportSecurity": {
-  "NSAllowsLocalNetworking": true,   // RFC 1918, .local, link-local
-  "NSAllowsArbitraryLoads": true     // everything else, incl. 100.64.0.0/10
+  "NSAllowsArbitraryLoads": true     // every host the user pairs with, incl. 100.64.0.0/10
 }
 ```
+
+**`NSAllowsLocalNetworking` must not be set alongside it.** On iOS 10 and later,
+listing any of the narrower keys — `NSAllowsLocalNetworking`,
+`NSAllowsArbitraryLoadsInWebContent`, `NSAllowsArbitraryLoadsForMedia` — makes
+the OS *ignore* `NSAllowsArbitraryLoads` and honour only the narrow one. Setting
+both did not add local networking to arbitrary loads; it silently replaced them.
+
+That is not a theoretical concern: it shipped. LAN addresses worked, so the app
+looked fine at home, while every request to a `100.x` address failed with
+
+```
+The resource could not be loaded because the app transport security
+policy requires the use of secure connections.
+```
+
+Tailscale hands out CGNAT addresses from `100.64.0.0/10`, which ATS does not
+count as local networking — so the one configuration the standalone build exists
+to provide was the one being blocked. Safari on the same phone reached the same
+address, because ATS does not apply to it, which makes this look like an app bug
+rather than a policy block until you read the error text.
 
 `NSExceptionDomains` — the narrow, preferred mechanism — keys on **domain
 names**. Tether connects to bare IP addresses that the user's own machines
@@ -52,9 +71,8 @@ list, so a domain exception cannot express the rule we actually want, which is
 
 `NSAllowsArbitraryLoads` is the honest way to state that. Apple accepts this for
 apps that connect to user-specified hosts; if this ever goes to the App Store,
-that is the justification to give at review, and `NSAllowsLocalNetworking` is
-kept alongside it because it remains the accurate description of the common
-case.
+that is the justification to give at review. It stands alone precisely because
+adding the narrower key would switch it off.
 
 ## Is cleartext actually acceptable here?
 

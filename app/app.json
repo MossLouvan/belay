@@ -15,7 +15,6 @@
         "NSLocalNetworkUsageDescription": "Tether connects to your PC on your local network or Tailscale to control it.",
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
-          "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoads": true
         },
         "NSCameraUsageDescription": "Tether uses the camera only to scan the pairing code shown on your computer.",
