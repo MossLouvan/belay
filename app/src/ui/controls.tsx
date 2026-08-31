@@ -1,11 +1,15 @@
 // Selection controls and tappable list rows.
+//
+// The segmented control is a text-tab strip now, not a pill track: options are
+// mono micro-labels and the selection state IS the 2pt accentGraphic underline
+// (docs/DESIGN.md §6) — no fill moves around, nothing is boxed.
 
 import React, { useCallback } from 'react';
-import { Pressable, StyleProp, View, ViewStyle } from 'react-native';
+import { Pressable, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import { useTheme } from '../theme';
 import { haptic } from './haptics';
 import { Row } from './layout';
-import { usePressScale } from './motion';
 import { Txt } from './text';
 
 export interface SegmentOption<T extends string> {
@@ -25,18 +29,17 @@ export interface SegmentedControlProps<T extends string> {
 }
 
 /**
- * Visual height of one segment. Deliberately shorter than the 44pt minimum so
- * that the segment *plus* the track's 3pt padding and 1pt border on each side
- * adds up to exactly `layout.minTouch` (36 + 6 + 2 = 44), matching the density
- * of the native iOS control. The shortfall is made up with `hitSlop`.
+ * Visual height of one text tab. Shorter than the 44pt minimum so the strip
+ * stays chrome-dense; the shortfall is made up with vertical `hitSlop` so the
+ * *effective* target is a full `layout.minTouch`.
  */
-const SEGMENT_HEIGHT = 36;
+const SEGMENT_HEIGHT = 32;
 
 /**
- * iOS-style segmented picker.
+ * Text-segmented control: `UPDATE RATE  1S [2S] 5S` style. The selected option
+ * gets the accent label plus the 2pt underline; unselected options sit on the
+ * accentDim track so the strip reads as one control, not scattered words.
  *
- * Each segment is drawn {@link SEGMENT_HEIGHT}pt tall but carries vertical
- * `hitSlop` so its *effective* tab target is a full `layout.minTouch` (44pt).
  * Horizontal slop is intentionally omitted: segments are adjacent, so widening
  * them sideways would make neighbouring targets overlap.
  */
@@ -59,18 +62,7 @@ export function SegmentedControl<T extends string>({
       testID={testID}
       accessibilityRole="tablist"
       accessibilityLabel={accessibilityLabel}
-      style={[
-        {
-          flexDirection: 'row',
-          backgroundColor: theme.colors.surfaceAlt,
-          borderRadius: theme.radius.md,
-          borderWidth: theme.layout.hairline,
-          borderColor: theme.colors.border,
-          padding: 3,
-          gap: 3,
-        },
-        style,
-      ]}
+      style={[{ flexDirection: 'row' }, style]}
     >
       {options.map((option) => {
         const selected = option.value === value;
@@ -93,19 +85,26 @@ export function SegmentedControl<T extends string>({
               alignItems: 'center',
               justifyContent: 'center',
               paddingHorizontal: theme.space.xs,
-              borderRadius: theme.radius.sm,
-              backgroundColor: selected ? theme.colors.accent : 'transparent',
-              opacity: option.disabled ? 0.4 : pressed ? 0.8 : 1,
+              opacity: option.disabled ? 0.4 : pressed ? theme.motion.pressOpacity : 1,
             })}
           >
             <Txt
-              variant="caption"
+              variant="label"
               numberOfLines={1}
-              color={selected ? theme.colors.onAccent : theme.colors.textDim}
-              style={{ fontWeight: '700' }}
+              color={selected ? theme.colors.accent : theme.colors.textDim}
             >
               {option.label}
             </Txt>
+            {/* The underline is the selection state; the dim track under the
+                rest keeps the strip legible as a single control. */}
+            <View
+              style={{
+                alignSelf: 'stretch',
+                height: theme.layout.ruleEmphasis,
+                marginTop: theme.space.xxs,
+                backgroundColor: selected ? theme.colors.accentGraphic : theme.colors.accentDim,
+              }}
+            />
           </Pressable>
         );
       })}
@@ -131,7 +130,12 @@ export interface ListItemProps {
   style?: StyleProp<ViewStyle>;
 }
 
-/** A row in a list. Non-interactive when no `onPress` is supplied. */
+/**
+ * A row in a list. Square, hairline-thinking: no radius, no hover fill —
+ * selection is the soft accent band, press is opacity. Rows keep the uniform
+ * `layout.rowHeight` so a list scans as a table (docs/DESIGN.md §2.7).
+ * Non-interactive when no `onPress` is supplied.
+ */
 export function ListItem({
   title,
   subtitle,
@@ -148,7 +152,6 @@ export function ListItem({
   style,
 }: ListItemProps) {
   const theme = useTheme();
-  const press = usePressScale(0.99);
   const interactive = Boolean(onPress || onLongPress);
 
   const handlePress = useCallback(() => {
@@ -158,10 +161,8 @@ export function ListItem({
   }, [disabled, onPress]);
 
   const rowStyle = {
-    minHeight: theme.layout.minTouch + 8,
-    paddingVertical: theme.space.sm,
-    paddingHorizontal: theme.space.sm + 2,
-    borderRadius: theme.radius.md,
+    minHeight: theme.layout.rowHeight,
+    paddingVertical: theme.space.xs,
     backgroundColor: selected ? theme.colors.accentSoft : 'transparent',
     opacity: disabled ? 0.45 : 1,
   } as const;
@@ -171,7 +172,7 @@ export function ListItem({
       {leading ? <View accessibilityElementsHidden>{leading}</View> : null}
       <View style={{ flex: 1, gap: 2 }}>
         <Txt
-          variant={mono ? 'mono' : 'bodyStrong'}
+          variant={mono ? 'mono' : 'subheading'}
           numberOfLines={1}
           color={destructive ? theme.colors.bad : theme.colors.text}
         >
@@ -179,7 +180,7 @@ export function ListItem({
         </Txt>
         {subtitle ? (
           // A selected row paints the translucent accentSoft fill behind this
-          // text, and textFaint drops to ~3.8:1 once that fill is composited
+          // text, and textFaint drops under 4.5:1 once that fill is composited
           // over the host surface. textDim stays above 4.5:1 on both.
           <Txt variant={mono ? 'monoSmall' : 'caption'} tone={selected ? 'dim' : 'faint'} numberOfLines={1}>
             {subtitle}
@@ -214,7 +215,7 @@ export function ListItem({
   // trailing control previously also fired the row's own onPress.
   if (trailing) {
     return (
-      <Row gap="sm" style={[{ borderRadius: theme.radius.md }, style]}>
+      <Row gap="sm" style={style}>
         <Pressable
           testID={testID}
           accessibilityRole="button"
@@ -224,9 +225,7 @@ export function ListItem({
           disabled={disabled}
           onPress={handlePress}
           onLongPress={onLongPress}
-          onPressIn={press.onPressIn}
-          onPressOut={press.onPressOut}
-          style={{ flex: 1 }}
+          style={({ pressed }) => ({ flex: 1, opacity: pressed ? theme.motion.pressOpacity : 1 })}
         >
           <Row gap="sm" style={rowStyle}>{content}</Row>
         </Pressable>
@@ -234,8 +233,6 @@ export function ListItem({
       </Row>
     );
   }
-
-  const body = <Row gap="sm" style={rowStyle}>{content}</Row>;
 
   return (
     <Pressable
@@ -247,11 +244,9 @@ export function ListItem({
       disabled={disabled}
       onPress={handlePress}
       onLongPress={onLongPress}
-      onPressIn={press.onPressIn}
-      onPressOut={press.onPressOut}
-      style={style}
+      style={({ pressed }) => [{ opacity: pressed ? theme.motion.pressOpacity : 1 }, style]}
     >
-      {body}
+      <Row gap="sm" style={rowStyle}>{content}</Row>
     </Pressable>
   );
 }

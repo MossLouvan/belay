@@ -1,75 +1,65 @@
 // Bottom tab bar for the five control surfaces.
 //
+// Ledger treatment: the bar is the page surface with a hairline top rule —
+// not a floating chrome slab — and each item is a 1.5pt-outline glyph over a
+// wide-tracked mono micro-label. Icons stay (they beat the reference's
+// text-only nav on discoverability), but they are strokes in the label's own
+// colour, never filled blobs (docs/DESIGN.md §11.1); selection is carried by
+// the accent tint alone, so nothing pulses, slides or squishes down here.
+//
 // Icons stay hand-drawn from Views: @expo/vector-icons is not a dependency of
-// this app, and adding an icon font purely for five glyphs would cost a network
-// fetch on web for no visual gain. Each glyph gets a filled/active treatment so
-// selection reads at a glance.
+// this app, and adding an icon font purely for five glyphs would cost a
+// network fetch on web for no visual gain.
 
 import React from 'react';
-import { Animated, ColorValue, PixelRatio, Platform, Text, View, ViewStyle } from 'react-native';
+import { PixelRatio, Text, View } from 'react-native';
+import type { ColorValue, ViewStyle } from 'react-native';
 import { Redirect, Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
-import { useTheme } from '../../src/theme';
-import { useToggleAnimation } from '../../src/ui';
+import { font, useTheme } from '../../src/theme';
 
 type TabName = 'screen' | 'agent' | 'terminal' | 'files' | 'system';
+
+/** The one stroke weight every glyph is drawn with — a thin outline. */
+const STROKE = 1.5;
 
 const GLYPH_BOX: ViewStyle = { alignItems: 'center', justifyContent: 'center', width: 24, height: 24 };
 
 /** Monitor outline with a stand. */
-function ScreenGlyph({ color, active }: GlyphProps) {
+function ScreenGlyph({ color }: GlyphProps) {
   return (
     <View style={GLYPH_BOX}>
-      <View
-        style={{
-          width: 22,
-          height: 15,
-          borderRadius: 4,
-          borderWidth: 2,
-          borderColor: color,
-          backgroundColor: active ? color : 'transparent',
-          opacity: active ? 0.9 : 1,
-        }}
-      />
-      <View style={{ width: 9, height: 2, backgroundColor: color, marginTop: 2.5, borderRadius: 1 }} />
+      <View style={{ width: 22, height: 15, borderRadius: 2, borderWidth: STROKE, borderColor: color }} />
+      <View style={{ width: 9, height: STROKE, backgroundColor: color, marginTop: 2.5 }} />
     </View>
   );
 }
 
 /** A spark: a rotated square with a point at its centre — "something is working for you". */
-function AgentGlyph({ color, active, onActive }: GlyphProps) {
+function AgentGlyph({ color }: GlyphProps) {
   return (
     <View style={GLYPH_BOX}>
       <View
         style={{
           width: 14,
           height: 14,
-          borderRadius: 3,
-          borderWidth: 2,
+          borderRadius: 2,
+          borderWidth: STROKE,
           borderColor: color,
-          backgroundColor: active ? color : 'transparent',
           transform: [{ rotate: '45deg' }],
         }}
       />
-      <View
-        style={{
-          position: 'absolute',
-          width: 4,
-          height: 4,
-          borderRadius: 2,
-          backgroundColor: active ? onActive : color,
-        }}
-      />
+      <View style={{ position: 'absolute', width: 3, height: 3, borderRadius: 1.5, backgroundColor: color }} />
     </View>
   );
 }
 
 /** Terminal window with a prompt. */
-function TerminalGlyph({ color, active, onActive }: GlyphProps) {
+function TerminalGlyph({ color }: GlyphProps) {
   return (
-    <View style={[GLYPH_BOX, { borderRadius: 5, borderWidth: 2, borderColor: color, backgroundColor: active ? color : 'transparent' }]}>
-      <Text allowFontScaling={false} style={{ color: active ? onActive : color, fontSize: 11, fontWeight: '900', marginTop: -1 }}>
+    <View style={[GLYPH_BOX, { borderRadius: 2, borderWidth: STROKE, borderColor: color }]}>
+      <Text allowFontScaling={false} style={{ color, fontFamily: font.mono, fontSize: 10, marginTop: -1 }}>
         {'>_'}
       </Text>
     </View>
@@ -77,40 +67,54 @@ function TerminalGlyph({ color, active, onActive }: GlyphProps) {
 }
 
 /** Folder with a tab. */
-function FilesGlyph({ color, active }: GlyphProps) {
+function FilesGlyph({ color }: GlyphProps) {
   return (
     <View style={GLYPH_BOX}>
-      <View style={{ position: 'absolute', top: 3.5, left: 2, width: 9, height: 4, backgroundColor: color, borderTopLeftRadius: 2, borderTopRightRadius: 2 }} />
+      <View
+        style={{
+          position: 'absolute',
+          top: 3.5,
+          left: 2,
+          width: 9,
+          height: 5,
+          borderTopWidth: STROKE,
+          borderLeftWidth: STROKE,
+          borderRightWidth: STROKE,
+          borderColor: color,
+          borderTopLeftRadius: 2,
+          borderTopRightRadius: 2,
+        }}
+      />
       <View
         style={{
           position: 'absolute',
           top: 6,
           width: 20,
           height: 14,
-          borderRadius: 4,
-          borderWidth: 2,
+          borderRadius: 2,
+          borderWidth: STROKE,
           borderColor: color,
-          backgroundColor: active ? color : 'transparent',
+          backgroundColor: 'transparent',
         }}
       />
     </View>
   );
 }
 
-/** Three-bar activity chart. */
-function SystemGlyph({ color, active }: GlyphProps) {
-  const bar = (height: number, dim: boolean): ViewStyle => ({
-    width: 4,
+/** Three-bar activity chart — outlined, so it matches the stroke language. */
+function SystemGlyph({ color }: GlyphProps) {
+  const bar = (height: number): ViewStyle => ({
+    width: 5,
     height,
-    backgroundColor: color,
-    borderRadius: 2,
-    opacity: active || !dim ? 1 : 0.75,
+    borderWidth: STROKE,
+    borderColor: color,
+    borderRadius: 1,
   });
   return (
     <View style={[GLYPH_BOX, { flexDirection: 'row', alignItems: 'flex-end', gap: 2.5 }]}>
-      <View style={bar(8, true)} />
-      <View style={bar(16, false)} />
-      <View style={bar(11, true)} />
+      <View style={bar(8)} />
+      <View style={bar(16)} />
+      <View style={bar(11)} />
     </View>
   );
 }
@@ -122,9 +126,6 @@ interface GlyphProps {
    * platform colour objects as well as plain strings.
    */
   color: ColorValue;
-  active: boolean;
-  /** Foreground to use on top of a `color`-filled shape. */
-  onActive: string;
 }
 
 const GLYPHS: Record<TabName, (props: GlyphProps) => React.JSX.Element> = {
@@ -135,15 +136,9 @@ const GLYPHS: Record<TabName, (props: GlyphProps) => React.JSX.Element> = {
   system: SystemGlyph,
 };
 
-/**
- * Wraps a glyph with the active-state treatment: a soft accent pill that fades
- * and lifts in. `useToggleAnimation` no-ops when reduced motion is enabled.
- */
-function TabIcon({ name, color, focused }: { name: TabName; color: ColorValue; focused: boolean }) {
-  const theme = useTheme();
-  const progress = useToggleAnimation(focused, theme.motion.fast);
+/** Static glyph slot — selection is colour, not animation or a filled pill. */
+function TabIcon({ name, color }: { name: TabName; color: ColorValue }) {
   const Glyph = GLYPHS[name];
-
   return (
     // Hidden from assistive tech: the tab's own label already names it, and the
     // terminal glyph's ">_" text would otherwise be read as part of that name.
@@ -153,20 +148,7 @@ function TabIcon({ name, color, focused }: { name: TabName; color: ColorValue; f
       aria-hidden
       style={{ width: TAB_ICON_WIDTH, height: TAB_ICON_HEIGHT, alignItems: 'center', justifyContent: 'center' }}
     >
-      <Animated.View
-        style={{
-          position: 'absolute',
-          width: 52,
-          height: 30,
-          borderRadius: theme.radius.pill,
-          backgroundColor: theme.colors.accentSoft,
-          opacity: progress,
-          transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }) }],
-        }}
-      />
-      <Animated.View style={{ transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }] }}>
-        <Glyph color={color} active={focused} onActive={theme.colors.onAccent} />
-      </Animated.View>
+      <Glyph color={color} />
     </View>
   );
 }
@@ -178,7 +160,7 @@ function TabIcon({ name, color, focused }: { name: TabName; color: ColorValue; f
  */
 const TAB_ICON_HEIGHT = 32;
 const TAB_ICON_WIDTH = 56;
-const TAB_LABEL_FONT_SIZE = 11;
+const TAB_LABEL_FONT_SIZE = 10;
 const TAB_LABEL_LINE_RATIO = 1.35;
 const TAB_BAR_PAD_TOP = 6;
 const TAB_BAR_PAD_BOTTOM = 8;
@@ -229,12 +211,15 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        // Selection = the accent; rest state = the micro-label's usual textDim.
         tabBarActiveTintColor: theme.colors.accent,
-        tabBarInactiveTintColor: theme.colors.textFaint,
+        tabBarInactiveTintColor: theme.colors.textDim,
         // The label is redundant next to the icon for screen readers.
         tabBarAccessibilityLabel: undefined,
         tabBarStyle: {
-          backgroundColor: theme.colors.surface,
+          // The bar sits on the page itself — one surface, a hairline rule,
+          // no shadow slab floating over the content.
+          backgroundColor: theme.colors.bg,
           borderTopColor: theme.colors.border,
           borderTopWidth: theme.layout.hairline,
           // Sized from the icon and the scaled label, so nothing is clipped at
@@ -243,12 +228,20 @@ export default function TabsLayout() {
           height: contentHeight + insets.bottom,
           paddingTop: TAB_BAR_PAD_TOP,
           paddingBottom: TAB_BAR_PAD_BOTTOM + insets.bottom,
-          ...(Platform.OS === 'web' ? {} : theme.elevation.md),
         },
         // Sized to its contents, with the default vertical padding removed so the
         // label keeps its full line box instead of being shrunk and clipped.
         tabBarItemStyle: { height: itemHeight, paddingTop: 0, paddingBottom: 0 },
-        tabBarLabelStyle: { fontSize: TAB_LABEL_FONT_SIZE, fontWeight: '700', letterSpacing: 0.2 },
+        // The `micro` style, inlined: navigation options cannot spread a theme
+        // TextStyle that includes lineHeight without re-triggering the clipping
+        // the sizing maths above exists to prevent.
+        tabBarLabelStyle: {
+          fontFamily: font.mono,
+          fontSize: TAB_LABEL_FONT_SIZE,
+          fontWeight: '400',
+          letterSpacing: 1.2,
+          textTransform: 'uppercase',
+        },
         tabBarAllowFontScaling: true,
       }}
     >
@@ -258,7 +251,7 @@ export default function TabsLayout() {
           name={name}
           options={{
             title,
-            tabBarIcon: ({ color, focused }) => <TabIcon name={name} color={color} focused={focused} />,
+            tabBarIcon: ({ color }) => <TabIcon name={name} color={color} />,
           }}
         />
       ))}

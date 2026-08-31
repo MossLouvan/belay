@@ -1,8 +1,14 @@
-// Structural primitives: page shell, rows, cards, dividers and list rows.
+// Structural primitives: page shell, stacks, spacers and rules.
+//
+// The Ledger system has no containers — the page is one surface and structure
+// comes from typography, hairline rules and the spacing scale (docs/DESIGN.md
+// §2). The Card below survives only as a compatibility shim.
 
 import React from 'react';
-import { ScrollView, StyleProp, View, ViewStyle } from 'react-native';
-import { Edge, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScrollView, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { Edge } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
 
 export type SpaceKey = 'none' | 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
@@ -11,8 +17,11 @@ export interface ScreenProps {
   children: React.ReactNode;
   /** Wraps the content in a ScrollView. Defaults to false. */
   scroll?: boolean;
-  /** Horizontal + vertical content padding. Defaults to `md`. */
-  padding?: SpaceKey;
+  /**
+   * Horizontal + vertical content padding. Defaults to `md`; pass `page` for
+   * the 20pt editorial gutter (`layout.margin`) new screens are built on.
+   */
+  padding?: SpaceKey | 'page';
   /** Which safe-area edges to inset. Defaults to top + horizontal. */
   edges?: readonly Edge[];
   /** Overrides the page background (defaults to `colors.bg`). */
@@ -39,7 +48,7 @@ export function Screen({
   testID,
 }: ScreenProps) {
   const theme = useTheme();
-  const pad = theme.space[padding];
+  const pad = padding === 'page' ? theme.layout.margin : theme.space[padding];
   const inner: StyleProp<ViewStyle> = [
     { padding: pad, width: '100%', maxWidth: theme.layout.contentMaxWidth, alignSelf: 'center' },
     contentStyle,
@@ -72,37 +81,30 @@ export function SafeBottomSpacer({ extra = 0 }: { extra?: number }) {
   return <View style={{ height: insets.bottom + extra }} />;
 }
 
+/** @deprecated Shadows are gone; the depth names now all mean "flat". */
 export type Elevation = 'none' | 'sm' | 'md' | 'lg';
 
 export interface CardProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
-  /** Shadow depth. Defaults to `sm`. */
+  /** @deprecated Ignored — the design is flat. */
   elevation?: Elevation;
   padding?: SpaceKey;
-  /** Uses the raised `surfaceAlt` fill instead of `surface`. */
+  /** @deprecated Ignored — there is no raised surface any more. */
   raised?: boolean;
   testID?: string;
 }
 
-/** Surface container. Legacy signature — `{ children, style }` — preserved. */
-export function Card({ children, style, elevation = 'sm', padding = 'md', raised, testID }: CardProps) {
+/**
+ * @deprecated The card is dead (docs/DESIGN.md §7): no fill, no border, no
+ * radius, no shadow. This shim renders a plain padded group so the unmigrated
+ * screens keep compiling and rendering while they move to Section / LedgerRow /
+ * MeterSection (see ledger.tsx). Do not use in new code.
+ */
+export function Card({ children, style, padding = 'md', testID }: CardProps) {
   const theme = useTheme();
   return (
-    <View
-      testID={testID}
-      style={[
-        {
-          backgroundColor: raised ? theme.colors.surfaceAlt : theme.colors.surface,
-          borderRadius: theme.radius.lg,
-          borderWidth: theme.layout.hairline,
-          borderColor: theme.colors.border,
-          padding: theme.space[padding],
-        },
-        theme.elevation[elevation],
-        style,
-      ]}
-    >
+    <View testID={testID} style={[{ padding: theme.space[padding] }, style]}>
       {children}
     </View>
   );

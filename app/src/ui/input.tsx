@@ -1,15 +1,13 @@
 // Text entry. Used for host/port entry on the connect screen, the terminal
 // prompt and file rename dialogs, so it supports mono mode and submit handling.
+//
+// The input is one of only four filled rectangles the Ledger system allows
+// (docs/DESIGN.md §2.1) — a `surface` lift with a hairline border and 2pt
+// corners, so it reads as a slot cut into the page rather than a floating pill.
 
 import React, { useCallback, useState } from 'react';
-import {
-  KeyboardTypeOptions,
-  ReturnKeyTypeOptions,
-  StyleProp,
-  TextInput,
-  View,
-  ViewStyle,
-} from 'react-native';
+import { TextInput, View } from 'react-native';
+import type { KeyboardTypeOptions, ReturnKeyTypeOptions, StyleProp, ViewStyle } from 'react-native';
 import { useTheme } from '../theme';
 import { Label, Txt } from './text';
 
@@ -84,11 +82,13 @@ export function Input({
           alignItems: multiline ? 'flex-start' : 'center',
           gap: theme.space.xs,
           minHeight: theme.layout.minTouch,
-          paddingHorizontal: theme.space.sm + 2,
+          paddingHorizontal: theme.space.sm,
           paddingVertical: multiline ? theme.space.sm : 0,
-          backgroundColor: theme.colors.surfaceAlt,
-          borderRadius: theme.radius.md,
-          borderWidth: focused || invalid ? 2 : theme.layout.hairline,
+          backgroundColor: theme.colors.surface,
+          borderRadius: theme.radius.xs,
+          // Focus and error promote the hairline to the 2pt emphasis weight —
+          // the same two-weight rule discipline as everywhere else (§6).
+          borderWidth: focused || invalid ? theme.layout.ruleEmphasis : theme.layout.hairline,
           borderColor,
           opacity: editable ? 1 : 0.55,
         }}

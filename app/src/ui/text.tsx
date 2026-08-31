@@ -1,26 +1,45 @@
 // Typography primitives. Everything routes through <Txt> so the type scale,
 // colour roles and Dynamic Type caps are applied in exactly one place.
+//
+// Under the Ledger system typography IS the hierarchy (docs/DESIGN.md §2), so
+// these components carry more of the design than any other file: <Label> is
+// the wide-tracked mono micro-label that marks every section, ledger key, tab
+// and quiet button, and its default tone/casing are load-bearing.
 
 import React from 'react';
-import { StyleProp, Text, TextStyle } from 'react-native';
-import { TypeVariant, useTheme } from '../theme';
+import { Text } from 'react-native';
+import type { StyleProp, TextStyle } from 'react-native';
+import { useTheme } from '../theme';
+import type { TypeVariant } from '../theme';
 
-export type TextTone = 'default' | 'dim' | 'faint' | 'accent' | 'good' | 'warn' | 'bad' | 'onAccent';
+export type TextTone =
+  | 'default'
+  | 'dim'
+  | 'faint'
+  | 'accent'
+  | 'good'
+  | 'warn'
+  | 'bad'
+  | 'onAccent'
+  | 'onMachine'
+  | 'onMachineDim';
 
 /**
  * Per-variant Dynamic Type ceilings. Body copy is allowed to grow a long way;
- * headings and all-caps labels are capped tighter because they sit in fixed
- * chrome where unbounded growth destroys the layout.
+ * display/title/label live in fixed chrome where unbounded growth destroys the
+ * layout, so they are capped tighter (docs/DESIGN.md §4.4).
  */
 const MAX_SCALE: Readonly<Record<TypeVariant, number>> = {
-  display: 1.4,
-  title: 1.4,
+  display: 1.2,
+  title: 1.2,
   heading: 1.5,
   subheading: 1.5,
   body: 1.8,
   bodyStrong: 1.8,
   caption: 1.8,
+  numeral: 1.3,
   label: 1.3,
+  micro: 1.3,
   mono: 1.5,
   monoSmall: 1.5,
 };
@@ -64,6 +83,8 @@ export function Txt({
     warn: theme.colors.warn,
     bad: theme.colors.bad,
     onAccent: theme.colors.onAccent,
+    onMachine: theme.colors.onMachine,
+    onMachineDim: theme.colors.onMachineDim,
   };
 
   return (
@@ -107,19 +128,39 @@ export function Sub({ children, style, numberOfLines, testID }: SimpleTextProps)
 }
 
 /**
- * All-caps section label. Legacy signature took only `children`; `style` is
- * additive and optional so existing call sites are unaffected.
+ * The micro-label: wide-tracked uppercase mono, the universal section marker.
+ * Usually `textDim`, going `text` when its section is active and `accent` only
+ * when selected — never bold, never larger than 11pt (docs/DESIGN.md §4.3).
+ * Legacy signature took only `children`; the extras are additive.
  */
-export function Label({ children, style, testID }: SimpleTextProps) {
+export function Label({ children, style, numberOfLines, testID, tone = 'dim' }: SimpleTextProps & { tone?: TextTone }) {
   const theme = useTheme();
   return (
-    <Txt variant="label" tone="faint" testID={testID} style={[{ marginBottom: theme.space.xs }, style]}>
+    <Txt
+      variant="label"
+      tone={tone}
+      numberOfLines={numberOfLines}
+      testID={testID}
+      style={[{ marginBottom: theme.space.xs }, style]}
+    >
       {children}
     </Txt>
   );
 }
 
-/** Monospaced text for paths, command output and IDs. */
+/**
+ * The sub-label for dense chrome: key-bar hints, feed timestamps. Smaller than
+ * <Label> and carries no default margin because it sits inline.
+ */
+export function Micro({ children, style, numberOfLines, testID, tone = 'faint' }: SimpleTextProps & { tone?: TextTone }) {
+  return (
+    <Txt variant="micro" tone={tone} numberOfLines={numberOfLines} testID={testID} style={style}>
+      {children}
+    </Txt>
+  );
+}
+
+/** Monospaced text for paths, command output and IDs — the machine's voice. */
 export function Mono({ children, style, numberOfLines, testID }: SimpleTextProps) {
   return (
     <Txt variant="mono" tone="dim" numberOfLines={numberOfLines} testID={testID} style={style} selectable>

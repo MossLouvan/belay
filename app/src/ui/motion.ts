@@ -1,4 +1,6 @@
-// Motion helpers: reduced-motion detection and the shared press animation.
+// Motion helpers: reduced-motion detection and the shared selection/pulse
+// animations. The Ledger system's motion is small, fast and honest — ease-out
+// timing only, nothing over 240ms, and press feedback is opacity, not scale.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Platform } from 'react-native';
@@ -53,30 +55,22 @@ export interface PressAnimation {
   readonly onPressOut: () => void;
 }
 
+const STATIC_SCALE = new Animated.Value(1);
+const NOOP = (): void => undefined;
+const STATIC_PRESS: PressAnimation = Object.freeze({
+  scale: STATIC_SCALE,
+  onPressIn: NOOP,
+  onPressOut: NOOP,
+});
+
 /**
- * A spring-backed press-down scale. Returns a static value when reduced motion
- * is on, so the handlers stay wired but nothing actually moves.
+ * @deprecated Scale-transform press feedback is banned (docs/DESIGN.md §10) —
+ * use `opacity: pressed ? motion.pressOpacity : 1` in the Pressable's style
+ * instead. This shim keeps the handlers wired but the scale pinned at 1, so
+ * unmigrated call sites compile and simply stop squishing.
  */
-export function usePressScale(to: number = motion.pressScale): PressAnimation {
-  const reduced = useReducedMotion();
-  const value = useRef(new Animated.Value(1)).current;
-
-  const animate = useCallback(
-    (target: number) => {
-      if (reduced) return;
-      Animated.spring(value, {
-        toValue: target,
-        useNativeDriver: USE_NATIVE_DRIVER,
-        ...motion.spring,
-      }).start();
-    },
-    [reduced, value]
-  );
-
-  const onPressIn = useCallback(() => animate(to), [animate, to]);
-  const onPressOut = useCallback(() => animate(1), [animate]);
-
-  return useMemo(() => ({ scale: value, onPressIn, onPressOut }), [value, onPressIn, onPressOut]);
+export function usePressScale(_to: number = motion.pressScale): PressAnimation {
+  return STATIC_PRESS;
 }
 
 /**
@@ -95,12 +89,44 @@ export function useToggleAnimation(active: boolean, duration: number = motion.ba
     }
     const animation = Animated.timing(value, {
       toValue: target,
+      // Reduced motion halves durations app-wide; a non-reduced flip runs full.
       duration,
       useNativeDriver: USE_NATIVE_DRIVER,
     });
     animation.start();
     return () => animation.stop();
   }, [active, duration, reduced, value]);
+
+  return value;
+}
+
+/**
+ * A looping 1 → `low` → 1 opacity for live activity: the pulsing live dot
+ * (motion.pulse) and the streaming cursor (motion.blink). Under reduced motion
+ * it holds full opacity — a frozen half-faded dot would read as a dead state.
+ */
+export function usePulse(active: boolean, period: number = motion.pulse, low: number = 0.4): Animated.Value {
+  const reduced = useReducedMotion();
+  const value = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!active || reduced) {
+      value.setValue(1);
+      return;
+    }
+    const half = period / 2;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(value, { toValue: low, duration: half, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(value, { toValue: 1, duration: half, useNativeDriver: USE_NATIVE_DRIVER }),
+      ])
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      value.setValue(1);
+    };
+  }, [active, reduced, period, low, value]);
 
   return value;
 }

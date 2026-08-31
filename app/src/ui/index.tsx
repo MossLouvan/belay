@@ -1,14 +1,19 @@
-// Tether's UI kit.
+// Tether's UI kit — the "Ledger" component set (docs/DESIGN.md).
 //
-// Imported as `../src/ui` exactly as before — this barrel replaces the old
-// single-file `ui.tsx`. Every legacy export (Card, Button, Heading, Sub, Label,
-// Meter, Row, Dot) keeps its original props; new props are additive.
+// Imported as `../src/ui` exactly as before. Every legacy export (Card,
+// Button, Heading, Sub, Label, Meter, Row, Dot, …) keeps its original props so
+// unmigrated screens compile; Card and the pill/elevation-era names survive
+// only as deprecated shims. New screens build on the Ledger primitives:
+// Section, LedgerRow, MeterSection, MachinePanel and Rule.
 
-export { Txt, Heading, Sub, Label, Mono, Caption } from './text';
+export { Txt, Heading, Sub, Label, Micro, Mono, Caption } from './text';
 export type { TxtProps, TextTone } from './text';
 
 export { Screen, SafeBottomSpacer, Card, Row, Column, Spacer, Divider } from './layout';
 export type { ScreenProps, CardProps, RowProps, ColumnProps, SpaceKey, Elevation } from './layout';
+
+export { Section, LedgerRow, MeterSection, MachinePanel, Rule } from './ledger';
+export type { SectionProps, LedgerRowProps, MeterSectionProps, MachinePanelProps } from './ledger';
 
 export { Button, IconButton } from './button';
 export type { ButtonProps, ButtonVariant, ButtonSize, IconButtonProps } from './button';
@@ -28,5 +33,5 @@ export type { SheetProps } from './sheet';
 export { haptic, setHapticsEnabled, areHapticsEnabled } from './haptics';
 export type { HapticTone } from './haptics';
 
-export { useReducedMotion, usePressScale, useToggleAnimation } from './motion';
+export { useReducedMotion, usePressScale, useToggleAnimation, usePulse } from './motion';
 export type { PressAnimation } from './motion';

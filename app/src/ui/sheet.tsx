@@ -1,8 +1,14 @@
 // Bottom sheet built on RN's Modal so it works identically in Expo Go and on
 // web without pulling in a gesture/reanimated-based sheet library.
+//
+// Ledger treatment: the sheet is a slab of the page (`bg`, square corners,
+// hairline top rule) sliding up from the bottom edge — the scrim, not a
+// shadow, is what separates it from the screen behind. Slide distance is the
+// spec's 8pt translation cap plus fade; reduced motion snaps.
 
 import React, { useEffect, useRef } from 'react';
-import { Animated, Modal, Platform, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { Animated, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
 import { IconButton } from './button';
@@ -53,7 +59,7 @@ export function Sheet({
     return () => animation.stop();
   }, [visible, reduced, slide, theme.motion.slow, theme.motion.fast]);
 
-  const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [48, 0] });
+  const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [8, 0] });
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose} testID={testID}>
@@ -69,35 +75,32 @@ export function Sheet({
           accessibilityViewIsModal
           style={[
             {
-              backgroundColor: theme.colors.surface,
-              borderTopLeftRadius: theme.radius.xl,
-              borderTopRightRadius: theme.radius.xl,
+              backgroundColor: theme.colors.bg,
               borderTopWidth: theme.layout.hairline,
               borderColor: theme.colors.border,
-              paddingHorizontal: theme.space.md,
+              paddingHorizontal: theme.layout.margin,
               paddingTop: theme.space.sm,
               paddingBottom: insets.bottom + theme.space.md,
               opacity: slide,
               transform: [{ translateY }],
             },
-            theme.elevation.lg,
             style,
           ]}
         >
+          {/* Drag affordance: a short emphasis-weight rule, not a pill. */}
           <View
             accessibilityElementsHidden
             style={{
               alignSelf: 'center',
-              width: 40,
-              height: 4,
-              borderRadius: theme.radius.pill,
+              width: 32,
+              height: theme.layout.ruleEmphasis,
               backgroundColor: theme.colors.borderStrong,
               marginBottom: theme.space.sm,
             }}
           />
           {title || !hideClose ? (
             <Row justify="space-between" style={{ marginBottom: theme.space.sm }}>
-              <Txt variant="heading" heading>
+              <Txt variant="label" tone="dim" heading>
                 {title ?? ''}
               </Txt>
               {hideClose ? null : (
@@ -116,7 +119,7 @@ export function Sheet({
 
 /** Small X drawn with two rotated bars, so there is no icon-font dependency. */
 function CloseGlyph({ color }: { color: string }) {
-  const bar: ViewStyle = { position: 'absolute', width: 16, height: 2, borderRadius: 1, backgroundColor: color };
+  const bar: ViewStyle = { position: 'absolute', width: 16, height: 2, backgroundColor: color };
   return (
     <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
       <View style={[bar, { transform: [{ rotate: '45deg' }] }]} />
