@@ -33,8 +33,9 @@ import { printBanner, buildNativeHint } from './banner.js';
 import {
   loadAgentState, listSessions, createSession, getSnapshot, deleteSession,
   sendPrompt, stopSession, subscribe, requestApproval, answerApproval,
-  listProjects, agentAvailable, attachSession, attachedClaudeIds,
+  listProjects, agentAvailable, attachSession, attachedClaudeIds, rememberProjectPath,
 } from './agent.js';
+import { createProject, defaultProjectParent } from './projects.js';
 import { discoverSessions } from './discover.js';
 import { transcribe, transcribeStatus } from './transcribe.js';
 
@@ -472,7 +473,22 @@ app.get('/agent/status', auth, (_req, res) => {
   res.json({ available: agentAvailable(), transcribe: transcribeStatus().ready });
 });
 
-app.get('/agent/projects', auth, (_req, res) => res.json({ projects: listProjects() }));
+// `defaultParent` rides along so the phone can pre-fill the "where" of its
+// New Project sheet without a second request; additive, so old clients that
+// only read `projects` are unaffected.
+app.get('/agent/projects', auth, (_req, res) =>
+  res.json({ projects: listProjects(), defaultParent: defaultProjectParent() }));
+
+app.post('/agent/projects', auth, async (req, res) => {
+  try {
+    // Raw body values on purpose: createProject owns the boundary validation,
+    // and a String() coercion here would turn a missing field into the
+    // plausible-looking name "undefined".
+    const project = await createProject(req.body?.name, req.body?.parent);
+    rememberProjectPath(project.path);
+    res.json({ project });
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
 
 app.get('/agent/sessions', auth, (_req, res) => res.json({ sessions: listSessions() }));
 

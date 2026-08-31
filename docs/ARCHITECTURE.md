@@ -15,6 +15,7 @@ server/              Node host agent (TypeScript) — runs on macOS and Windows
   src/native.ts      manages the compiled helper subprocess
   src/terminal.ts    pty (node-pty) or piped-shell sessions
   src/files.ts       confined file browser
+  src/projects.ts    project creation — the only write path; confined to the same roots as files.ts
   src/system.ts      live stats (composes cpu/disk/osinfo)
   src/cpu.ts         CPU load sampling
   src/disk.ts        disk usage: `df -kP` on POSIX, PowerShell on Windows

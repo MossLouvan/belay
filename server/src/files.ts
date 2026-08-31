@@ -210,6 +210,12 @@ async function describeEntry(dir: string, name: string): Promise<Entry | null> {
 
 export async function listDir(target: string): Promise<{ path: string; entries: Entry[] }> {
   const dir = await resolveInsideRoots(target || HOME);
+  // The Files tab accepts hand-typed paths, so its three failure modes must
+  // stay distinguishable: "outside the roots" and "does not exist" are thrown
+  // above, and pointing at a file must say so rather than leak the raw
+  // ENOTDIR (whose message embeds the scandir syscall and full path).
+  const s = await stat(dir);
+  if (!s.isDirectory()) throw new Error('path is a file, not a folder');
   const names = await readdir(dir);
   const described = await Promise.all(names.map((name) => describeEntry(dir, name)));
   const entries = described.filter((e): e is Entry => e !== null);

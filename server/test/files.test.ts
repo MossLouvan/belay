@@ -160,3 +160,25 @@ test('listing home works and returns real, absolute paths', async () => {
   const lastDir = entries.map((e) => e.dir).lastIndexOf(true);
   if (firstFile !== -1 && lastDir !== -1) assert.ok(lastDir < firstFile);
 });
+
+// --- Distinguishable errors for "paste a path and go" ------------------------
+// The Files tab lets a user type a path directly, so the three ways a path can
+// be wrong must come back as three different messages the app can show as-is:
+// outside the roots, missing, and "that's a file". Before this, listing a file
+// leaked a raw ENOTDIR with the scandir syscall detail in it.
+
+test('listing a path outside the roots names confinement, not existence', async () => {
+  await assert.rejects(() => listDir(outside), /outside the allowed roots/);
+});
+
+test('listing a missing path says it does not exist', async () => {
+  await assert.rejects(() => listDir(join(inside, 'no-such-dir')), /does not exist/);
+});
+
+test('listing a file says it is a file, without syscall noise', async () => {
+  await assert.rejects(() => listDir(join(inside, 'ok.txt')), (e: Error) => {
+    assert.match(e.message, /is a file, not a folder/);
+    assert.doesNotMatch(e.message, /ENOTDIR|scandir/);
+    return true;
+  });
+});

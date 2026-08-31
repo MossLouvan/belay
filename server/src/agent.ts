@@ -451,6 +451,15 @@ function rememberProject(path: string): void {
   persisted.recentProjects = [path, ...persisted.recentProjects.filter((p) => p !== path)].slice(0, 12);
 }
 
+// A freshly created project has no .git yet, so the repo scan below would not
+// find it; recording it as a recent is what makes it appear in the picker the
+// moment it exists. Persisted immediately — creation happens outside any
+// session, so no later saveMeta is coming.
+export function rememberProjectPath(path: string): void {
+  rememberProject(path);
+  saveMeta();
+}
+
 // Recents first, then one level of ~/Documents and ~ scanned for git repos.
 export function listProjects(): { path: string; name: string; recent: boolean }[] {
   const seen = new Set<string>();
