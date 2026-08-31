@@ -18,7 +18,7 @@ import { useConnection } from '../../src/connection';
 import { api, FileEntry } from '../../src/api';
 import { Badge, Banner, EmptyState, IconButton, Input, Row, Skeleton, Txt, haptic } from '../../src/ui';
 import { useTheme } from '../../src/theme';
-import { crumbsFor, isDenied, messageOf, parentOf, sortEntries } from '../../src/files-format';
+import { crumbsFor, isDenied, messageOf, parentOf, sortEntries, viewerKindOf } from '../../src/files-format';
 import type { SortKey } from '../../src/files-format';
 import { FileRow } from '../../src/files-row';
 import { FileViewer } from '../../src/files-viewer';
@@ -129,6 +129,15 @@ export default function FilesTab() {
         return;
       }
       setError('');
+      const kind = viewerKindOf(entry.name);
+      // Only text-shaped kinds are fetched here, up front, so a read failure
+      // lands in the banner. Images and PDFs fetch their own bytes inside the
+      // viewer (they need the raw route, not the JSON one), and a known binary
+      // format opens straight onto its "no preview" notice with nothing moved.
+      if (kind !== 'text' && kind !== 'markdown') {
+        setViewer({ name: entry.name, path: entry.path, size: entry.size, kind });
+        return;
+      }
       try {
         const file = await api.readFile(entry.path);
         if (cancelled.current) return;
@@ -138,6 +147,7 @@ export default function FilesTab() {
           content: file.content,
           truncated: file.truncated,
           size: file.size,
+          kind,
         });
       } catch (e: unknown) {
         if (!cancelled.current) setError(messageOf(e));

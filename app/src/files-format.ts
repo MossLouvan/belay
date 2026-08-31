@@ -68,8 +68,13 @@ const EXTENSION_CATEGORIES: Readonly<Record<string, Category>> = Object.freeze(
   ])
 );
 
+/** Category from a bare filename — what the viewer dispatch needs, since a
+ * file being opened is by definition not a folder. */
+export const categoryOfName = (name: string): Category =>
+  EXTENSION_CATEGORIES[extensionOf(name)] ?? 'other';
+
 export const categoryOf = (entry: FileEntry): Category =>
-  entry.dir ? 'folder' : EXTENSION_CATEGORIES[extensionOf(entry.name)] ?? 'other';
+  entry.dir ? 'folder' : categoryOfName(entry.name);
 
 // --- kind labels -------------------------------------------------------------
 
@@ -157,6 +162,56 @@ export const parentOf = (path: string): string | null => {
   const crumbs = crumbsFor(path);
   return crumbs.length >= 2 ? crumbs[crumbs.length - 2].path : null;
 };
+
+// --- viewer dispatch ---------------------------------------------------------
+
+export type ViewerKind = 'text' | 'markdown' | 'image' | 'pdf' | 'binary';
+
+const VIEWER_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'bmp', 'svg']);
+const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown']);
+
+/**
+ * The categories that are binary through and through — no text fallback would
+ * ever show anything but mojibake, so the viewer states what the file is
+ * instead of fetching it. `doc` lands here too (minus pdf, which has a real
+ * viewer): a .docx is a zip archive whatever its icon suggests.
+ */
+const BINARY_CATEGORIES = new Set<Category>(['archive', 'media', 'binary', 'doc']);
+
+/**
+ * Which viewer a tapped file opens in, decided from its name alone — before
+ * any bytes move, so a movie or a disk image is refused with its kind and
+ * size instead of being downloaded just to discover it is unreadable.
+ */
+export function viewerKindOf(name: string): ViewerKind {
+  const ext = extensionOf(name);
+  if (VIEWER_IMAGE_EXTENSIONS.has(ext)) return 'image';
+  if (ext === 'pdf') return 'pdf';
+  if (MARKDOWN_EXTENSIONS.has(ext)) return 'markdown';
+  if (BINARY_CATEGORIES.has(categoryOfName(name))) return 'binary';
+  // Everything else is worth attempting as text; looksBinary on the fetched
+  // content catches extensionless binaries.
+  return 'text';
+}
+
+/** SVG needs its own rendering path on native — RN's <Image> is raster-only. */
+export const isSvgName = (name: string): boolean => extensionOf(name) === 'svg';
+
+/**
+ * Client-side mirrors of the host's /files/raw ceilings (server/src/files-raw.ts).
+ * Duplicated on purpose: checking the listed size here fails fast with the
+ * same refusal the host would send, without a round trip that was always
+ * going to 413.
+ */
+export const IMAGE_PREVIEW_LIMIT = 25 * 1024 * 1024;
+export const PDF_PREVIEW_LIMIT = 50 * 1024 * 1024;
+
+/** The reason a file cannot be previewed at this size, or null when it can. */
+export function previewTooLarge(kind: ViewerKind, size: number): string | null {
+  const limit = kind === 'image' ? IMAGE_PREVIEW_LIMIT : kind === 'pdf' ? PDF_PREVIEW_LIMIT : null;
+  if (limit === null || size <= limit) return null;
+  return `This file is ${formatSize(size)} — over the ${formatSize(limit)} preview limit for ${kind === 'pdf' ? 'PDFs' : 'images'}.`;
+}
 
 // --- binary detection --------------------------------------------------------
 

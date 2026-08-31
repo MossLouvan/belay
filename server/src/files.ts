@@ -149,8 +149,12 @@ export function isInsideRoots(realTarget: string, roots: readonly string[] = REA
 /**
  * Resolve a caller-supplied path to its real location and assert it is inside
  * the allow-list. Throws with a user-safe message on anything else.
+ *
+ * Exported so files-raw.ts (the binary preview path) goes through the exact
+ * same confinement — two hand-maintained copies of a security check is how one
+ * of them quietly falls behind.
  */
-async function resolveInsideRoots(target: string): Promise<string> {
+export async function resolveInsideRoots(target: string): Promise<string> {
   const lexical = resolve(target);
   let real: string;
   try {

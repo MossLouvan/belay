@@ -7,6 +7,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { createServer } from 'node:http';
+import { createReadStream } from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { hostname } from 'node:os';
 import { URL } from 'node:url';
@@ -27,6 +28,7 @@ import { classifyScreens } from './displays.js';
 import { openableWindows, sanitizeWindows, windowIdOf } from './windows.js';
 import { createTerminal } from './terminal.js';
 import { listDir, readTextFile, ROOTS } from './files.js';
+import { statRawFile } from './files-raw.js';
 import { getStats } from './system.js';
 import { VK, MOD_VK, charToVk } from './keys.js';
 import { printBanner, buildNativeHint } from './banner.js';
@@ -323,6 +325,50 @@ app.get('/files/list', auth, async (req, res) => {
 app.get('/files/read', auth, async (req, res) => {
   try { res.json(await readTextFile(String(req.query.path || ''))); }
   catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+/**
+ * Stream a previewable file's bytes (images and PDFs — see files-raw.ts).
+ *
+ * Authenticated by the same Authorization header as every other REST route —
+ * deliberately NOT by a token or ticket in the query string. Every consumer of
+ * this route can set headers: the app fetches images with `fetch`, and
+ * WKWebView applies `source.headers` to the PDF request it makes. The ticket
+ * dance exists for WebSocket upgrades, where headers are impossible; nothing
+ * here needs a credential in a URL, so no credential goes in a URL.
+ *
+ * Streamed, not buffered: the size ceiling in files-raw.ts protects the
+ * *phone*, and even a file under it should not be copied through this
+ * process's heap when `pipe` moves it chunk by chunk.
+ */
+app.get('/files/raw', auth, async (req, res) => {
+  let raw;
+  try { raw = await statRawFile(String(req.query.path || '')); }
+  catch (e: any) {
+    const tooLarge = /too large/.test(String(e.message));
+    res.status(tooLarge ? 413 : 400).json({ error: e.message });
+    return;
+  }
+  res.set({
+    'Content-Type': raw.mime,
+    'Content-Length': String(raw.size),
+    // Never let a client sniff its way past the declared type (an SVG served
+    // as text/html would execute scripts in a browser context), and never let
+    // an intermediary cache bearer-authed bytes.
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Disposition': 'inline',
+    'Cache-Control': 'no-store',
+  });
+  const stream = createReadStream(raw.path);
+  stream.on('error', () => {
+    // The file vanished or became unreadable between stat and open. Headers
+    // may already be gone, so the only honest signal left is a dead socket.
+    if (!res.headersSent) res.status(500).json({ error: 'file could not be read' });
+    else res.destroy();
+  });
+  // A phone that navigates away mid-download must not leave an open fd behind.
+  res.on('close', () => stream.destroy());
+  stream.pipe(res);
 });
 
 app.get('/screen/info', auth, async (_req, res) => {

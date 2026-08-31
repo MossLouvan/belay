@@ -327,6 +327,16 @@ export const api = {
   fileRoots: () => get<{ roots: { name: string; path: string }[] }>('/files/roots'),
   listDir: (path: string) => get<{ path: string; entries: FileEntry[] }>(`/files/list?path=${encodeURIComponent(path)}`),
   readFile: (path: string) => get<{ path: string; name: string; content: string; truncated: boolean; size: number }>(`/files/read?path=${encodeURIComponent(path)}`),
+  /**
+   * The request a native viewer (WKWebView, an <Image> with headers) makes
+   * for a file's bytes. The credential travels in the Authorization header,
+   * never the URL — a URL is written to proxy and access logs, and this repo
+   * has already had to fix a token-in-URL leak once (see wsUrl below).
+   */
+  rawFileRequest: (path: string): { uri: string; headers: Record<string, string> } => {
+    if (!conn) throw new Error('not connected');
+    return { uri: `${conn.host}/files/raw?path=${encodeURIComponent(path)}`, headers: authHeaders() };
+  },
   screenInfo: () => get<ScreenInfo>('/screen/info'),
   // `screen` is the monitor the coordinates are normalized against (an index
   // from ScreenInfo.screens). Left undefined it is dropped by JSON.stringify,
@@ -417,6 +427,55 @@ export async function transcribeAudio(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Fetch a previewable file's bytes and return them as a data: URI.
+ *
+ * A data URI is the one form every consumer renders without a second
+ * authenticated request: RN's <Image> on iOS, an <img> under react-native-web,
+ * and a WebView shell for SVG. Sizes are bounded — the host refuses anything
+ * over its /files/raw ceilings before a byte is sent — so holding one file
+ * base64-encoded in memory is fine for a viewer.
+ *
+ * The blob → FileReader route is deliberate: RN has no Buffer, and chunking
+ * an ArrayBuffer through btoa by hand is exactly the kind of code that breaks
+ * on a surrogate boundary. FileReader.readAsDataURL exists on both native and
+ * web and does the encoding in one step.
+ */
+/**
+ * A whole image or PDF is a far bigger transfer than any JSON route, so the
+ * 10-second REST deadline would abort legitimate downloads on cellular. The
+ * host has already capped the byte count, so a minute bounds the wait without
+ * cutting off a slow link mid-file.
+ */
+export const RAW_FETCH_TIMEOUT_MS = 60_000;
+
+export async function fetchDataUri(path: string, signal?: AbortSignal): Promise<string> {
+  if (!conn) throw new Error('not connected');
+  const route = `/files/raw?path=${encodeURIComponent(path)}`;
+  const controller = new AbortController();
+  const onExternalAbort = () => controller.abort();
+  signal?.addEventListener('abort', onExternalAbort);
+  const timer = setTimeout(() => controller.abort(), RAW_FETCH_TIMEOUT_MS);
+  let blob: Blob;
+  try {
+    const res = await fetch(conn.host + route, { headers: authHeaders(), signal: controller.signal });
+    if (!res.ok) throw await failureFor(res, route);
+    blob = await res.blob();
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === 'AbortError') throw new TimeoutError(route);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onExternalAbort);
+  }
+  return await new Promise<string>((resolvePromise, rejectPromise) => {
+    const reader = new FileReader();
+    reader.onload = () => resolvePromise(String(reader.result));
+    reader.onerror = () => rejectPromise(new Error('the file could not be decoded'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 /**
