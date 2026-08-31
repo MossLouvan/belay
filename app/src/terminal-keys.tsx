@@ -14,7 +14,7 @@ import type { KeyDef } from './terminal-keymap';
 
 // --- key caps ----------------------------------------------------------------
 
-interface KeyCapProps {
+export interface KeyCapProps {
   id: string;
   label: string;
   onPress: () => void;
@@ -22,7 +22,7 @@ interface KeyCapProps {
   wide?: boolean;
 }
 
-function KeyCap({ id, label, onPress, active, wide }: KeyCapProps) {
+export function KeyCap({ id, label, onPress, active, wide }: KeyCapProps) {
   const theme = useTheme();
   return (
     <Pressable
@@ -69,6 +69,12 @@ export interface KeyBarProps {
   onClear: () => void;
   /** Arrows drive local history when the host has no TTY to interpret them. */
   onHistory: (direction: -1 | 1) => void;
+  /**
+   * An unmodified Tab is the screen's, not the shell's: with text in the input
+   * it runs the completion dance, with none it falls back to a raw `\t`. A
+   * modified Tab (Ctrl/Alt armed) still takes the plain encoding path.
+   */
+  onTab: () => void;
   ptyMode: boolean;
 }
 
@@ -79,7 +85,7 @@ export interface KeyBarProps {
  * or Alt+F on a phone. A modifier applies to the next key press — any key, top
  * row included — and is then disarmed, so it can never leak into a later one.
  */
-export function KeyBar({ onSend, onClear, onHistory, ptyMode }: KeyBarProps) {
+export function KeyBar({ onSend, onClear, onHistory, onTab, ptyMode }: KeyBarProps) {
   const theme = useTheme();
   const [ctrl, setCtrl] = useState(false);
   const [alt, setAlt] = useState(false);
@@ -100,7 +106,12 @@ export function KeyBar({ onSend, onClear, onHistory, ptyMode }: KeyBarProps) {
 
   const pressPrimary = useCallback(
     (key: KeyDef) => {
+      const wasArmed = ctrl || alt;
       consume();
+      if (key.id === 'Tab' && !wasArmed) {
+        onTab();
+        return;
+      }
       const isArrow = key.id === 'Up' || key.id === 'Down';
       if (isArrow && !ptyMode) {
         onHistory(key.id === 'Up' ? -1 : 1);
@@ -108,7 +119,7 @@ export function KeyBar({ onSend, onClear, onHistory, ptyMode }: KeyBarProps) {
       }
       if (key.send) onSend(encodeKey(key.send, { ctrl, alt }));
     },
-    [alt, consume, ctrl, onHistory, onSend, ptyMode]
+    [alt, consume, ctrl, onHistory, onSend, onTab, ptyMode]
   );
 
   // Rows lead with the 20pt page gutter so the first key sits on the grid's

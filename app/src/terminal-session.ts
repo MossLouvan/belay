@@ -20,6 +20,11 @@ export interface ServerMessage {
   readonly type: string;
   readonly data?: string;
   readonly mode?: string;
+  /** Completion replies: echoes the request id so stale answers can be dropped. */
+  readonly id?: string;
+  readonly status?: string;
+  readonly raw?: string;
+  readonly shell?: string;
 }
 
 /** Messages arrive from the network, so nothing about them is assumed. */
@@ -34,10 +39,15 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
   if (typeof record.type !== 'string') return null;
+  const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
   return {
     type: record.type,
-    data: typeof record.data === 'string' ? record.data : undefined,
-    mode: typeof record.mode === 'string' ? record.mode : undefined,
+    data: str(record.data),
+    mode: str(record.mode),
+    id: str(record.id),
+    status: str(record.status),
+    raw: str(record.raw),
+    shell: str(record.shell),
   };
 }
 

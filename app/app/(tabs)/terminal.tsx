@@ -23,7 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { wsUrl } from '../../src/api';
-import { Banner, Button, Dot, Row, Rule, SegmentedControl, Txt } from '../../src/ui';
+import { Banner, Button, Dot, IconButton, Row, Rule, SegmentedControl, Txt } from '../../src/ui';
 import { useTheme } from '../../src/theme';
 import { ANSI_RAMPS, clearTermState, createTermState, feed } from '../../src/terminal-ansi';
 import type { TermLine, TermOptions, TermState } from '../../src/terminal-ansi';
@@ -32,7 +32,10 @@ import { TerminalOutput } from '../../src/terminal-output';
 import { useTerminalGeometry, DEFAULT_GEOMETRY } from '../../src/terminal-geometry';
 import type { Geometry } from '../../src/terminal-geometry';
 import { EMPTY_OUTPUT, FLUSH_MS, drainOutput, parseServerMessage, pushOutput } from '../../src/terminal-session';
-import type { OutputBuffer } from '../../src/terminal-session';
+import type { OutputBuffer, ServerMessage } from '../../src/terminal-session';
+import { applyCandidate, parseCompletion } from '../../src/terminal/complete';
+import { CandidateRow } from '../../src/terminal/candidate-row';
+import { TerminalHelpSheet } from '../../src/terminal/help-sheet';
 
 // --- constants ---------------------------------------------------------------
 
@@ -43,6 +46,14 @@ const RESIZE_DEBOUNCE_MS = 200;
 /** How close to the bottom still counts as "following" the output. */
 const FOLLOW_SLACK_PX = 24;
 const MAX_HISTORY = 50;
+/** Longer than the host's own completion ceiling plus a network round trip, so
+    a reply that will ever come is never abandoned — but a host agent built
+    before completion existed (which ignores the request entirely) releases the
+    key in a couple of seconds instead of hanging it. */
+const COMPLETE_TIMEOUT_MS = 2500;
+const TAB_NOTICE_MS = 5000;
+const PIPE_TAB_NOTICE =
+  'NO COMPLETION — the host shell has no TTY, so tab has nothing to ask. Run "npm i node-pty" next to the host agent, then restart it.';
 
 type FontKey = 'sm' | 'md' | 'lg';
 const FONT_SIZES: Readonly<Record<FontKey, number>> = { sm: 11, md: 12.5, lg: 15 };
@@ -65,6 +76,10 @@ export default function TerminalTab() {
   const [fontKey, setFontKey] = useState<FontKey>('md');
   const [following, setFollowing] = useState(true);
   const [session, setSession] = useState(0);
+  const [candidates, setCandidates] = useState<readonly string[] | null>(null);
+  const [completing, setCompleting] = useState(false);
+  const [tabNotice, setTabNotice] = useState('');
+  const [showHelp, setShowHelp] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const bufferRef = useRef<OutputBuffer>(EMPTY_OUTPUT);
@@ -73,6 +88,11 @@ export default function TerminalTab() {
   const listRef = useRef<FlatList<TermLine>>(null);
   const historyRef = useRef<readonly string[]>([]);
   const historyIndex = useRef<number>(-1);
+  const inputRef = useRef('');
+  const completionSeq = useRef(0);
+  const pendingCompletion = useRef<{ id: string; sent: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completionHandler = useRef<(msg: ServerMessage) => void>(() => {});
 
   const fontSize = FONT_SIZES[fontKey];
   const lineHeight = Math.round(fontSize * LINE_HEIGHT_RATIO);
@@ -93,6 +113,7 @@ export default function TerminalTab() {
   // read without being re-created — those closures outlive a single render.
   geometryRef.current = geometry;
   followingRef.current = following;
+  inputRef.current = input;
 
   // --- session ---------------------------------------------------------------
 
@@ -144,6 +165,10 @@ export default function TerminalTab() {
         setMode(msg.mode === 'pipe' ? 'pipe' : 'pty');
       } else if (msg.type === 'data' && msg.data !== undefined) {
         bufferRef.current = pushOutput(bufferRef.current, msg.data);
+      } else if (msg.type === 'completion') {
+        // Routed through a ref: this closure is created once per session, but
+        // the handler needs the render-current input and pending state.
+        completionHandler.current(msg);
       } else if (msg.type === 'exit') {
         bufferRef.current = pushOutput(bufferRef.current, '\r\n');
         setStatus('exited');
@@ -162,6 +187,14 @@ export default function TerminalTab() {
     return () => {
       cancelled = true;
       clearInterval(timer);
+      // A dance cannot outlive its shell: the reply channel is gone, so the
+      // wait would only ever end in the timeout notice.
+      if (pendingCompletion.current) {
+        clearTimeout(pendingCompletion.current.timer);
+        pendingCompletion.current = null;
+      }
+      setCompleting(false);
+      setCandidates(null);
       if (!socket) return;
       socket.onmessage = null;
       socket.onerror = null;
@@ -179,6 +212,111 @@ export default function TerminalTab() {
     } catch {
       setError('could not reach the shell — try reconnecting');
     }
+  }, []);
+
+  /** Sends an arbitrary control message; `send` above stays keystrokes-only. */
+  const post = useCallback((message: object): boolean => {
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== 1) return false;
+    try {
+      socket.send(JSON.stringify(message));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // --- tab completion --------------------------------------------------------
+  //
+  // The input is a line buffer of its own, so completion is a negotiated dance
+  // with the shell (see src/terminal/complete.ts and the host's
+  // terminal-complete.ts): the host replays the line into the pty, taps tab,
+  // captures the echo, and empties the shell's line again. Because the shell
+  // always ends empty, this TextInput is the only line buffer that persists —
+  // the two can never drift, whatever the shell answered.
+
+  const showTabNotice = useCallback((message: string) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setTabNotice(message);
+    noticeTimer.current = setTimeout(() => setTabNotice(''), TAB_NOTICE_MS);
+  }, []);
+
+  useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
+
+  const requestComplete = useCallback(() => {
+    // §11.4: a Tab that cannot work says so and names the way forward, rather
+    // than being a key that silently does nothing.
+    if (mode === 'pipe') {
+      showTabNotice(PIPE_TAB_NOTICE);
+      return;
+    }
+    if (status !== 'open' || pendingCompletion.current) return;
+    // An empty line has nothing to complete; pass the tab through raw so a
+    // full-screen program driven from the key bar still receives it.
+    if (input.length === 0) {
+      send('\t');
+      return;
+    }
+    const id = String(++completionSeq.current);
+    const timer = setTimeout(() => {
+      if (pendingCompletion.current?.id !== id) return;
+      pendingCompletion.current = null;
+      setCompleting(false);
+      showTabNotice(
+        "COMPLETION TIMED OUT — the shell didn't answer, so the line was left as you typed it. An older host agent may not support completion yet.",
+      );
+    }, COMPLETE_TIMEOUT_MS);
+    pendingCompletion.current = { id, sent: input, timer };
+    setCompleting(true);
+    setCandidates(null);
+    if (!post({ type: 'complete', id, text: input })) {
+      clearTimeout(timer);
+      pendingCompletion.current = null;
+      setCompleting(false);
+    }
+  }, [input, mode, post, send, showTabNotice, status]);
+
+  const handleCompletion = useCallback((msg: ServerMessage) => {
+    const pending = pendingCompletion.current;
+    if (!pending || msg.id !== pending.id) return;
+    clearTimeout(pending.timer);
+    pendingCompletion.current = null;
+    setCompleting(false);
+    if (msg.status === 'unsupported') {
+      showTabNotice(PIPE_TAB_NOTICE);
+      return;
+    }
+    if (msg.status !== 'ok') return;
+    // The line moved on while the shell was thinking; a completion of the old
+    // text splicing into the new one is exactly the desync this design bans.
+    if (inputRef.current !== pending.sent) return;
+    const result = parseCompletion(pending.sent, msg.raw ?? '');
+    if (result.kind === 'line') {
+      setInput(result.line);
+    } else if (result.kind === 'candidates') {
+      setInput(result.line);
+      setCandidates(result.candidates);
+    } else if (result.kind === 'unreadable') {
+      showTabNotice(
+        "COMPLETION UNREADABLE — the shell answered with a full-screen redraw this input can't follow; the line was left as typed.",
+      );
+    } else {
+      showTabNotice('NO MATCH — the shell found nothing to complete here.');
+    }
+  }, [showTabNotice]);
+  completionHandler.current = handleCompletion;
+
+  const pickCandidate = useCallback((candidate: string) => {
+    setCandidates(null);
+    setInput((current) => applyCandidate(current, candidate));
+  }, []);
+
+  const onChangeInput = useCallback((text: string) => {
+    setInput(text);
+    // Any edit stales the offered list — it answered a line that no longer exists.
+    setCandidates(null);
   }, []);
 
   // Resize is debounced: rotation and font changes fire a burst of layouts.
@@ -224,6 +362,7 @@ export default function TerminalTab() {
     }
     historyIndex.current = -1;
     setInput('');
+    setCandidates(null);
     setFollowing(true);
     send(`${command}\r`);
   }, [input, send]);
@@ -273,14 +412,26 @@ export default function TerminalTab() {
           <Txt variant="title" heading>
             Terminal
           </Txt>
-          <SegmentedControl
-            testID="term-font"
-            accessibilityLabel="Text size"
-            options={[{ value: 'sm', label: 'S' }, { value: 'md', label: 'M' }, { value: 'lg', label: 'L' }]}
-            value={fontKey}
-            onChange={setFontKey}
-            style={{ width: 108 }}
-          />
+          <Row gap="xs">
+            <SegmentedControl
+              testID="term-font"
+              accessibilityLabel="Text size"
+              options={[{ value: 'sm', label: 'S' }, { value: 'md', label: 'M' }, { value: 'lg', label: 'L' }]}
+              value={fontKey}
+              onChange={setFontKey}
+              style={{ width: 108 }}
+            />
+            {/* The overflow glyph in its sanctioned trailing corner (§11.1);
+                behind it lives the help sheet that writes the key bar down. */}
+            <IconButton
+              testID="term-help"
+              accessibilityLabel="Terminal help"
+              variant="plain"
+              onPress={() => setShowHelp(true)}
+            >
+              <Txt variant="label" tone="dim">⋯</Txt>
+            </IconButton>
+          </Row>
         </Row>
         <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
           <Dot
@@ -342,7 +493,21 @@ export default function TerminalTab() {
           back on the page surface. */}
       <Rule />
       <View style={{ paddingTop: theme.space.xs, paddingBottom: theme.space.sm, gap: theme.space.xs }}>
-        <KeyBar onSend={send} onClear={clearScreen} onHistory={recallHistory} ptyMode={mode !== 'pipe'} />
+        {candidates ? (
+          <CandidateRow candidates={candidates} onPick={pickCandidate} onDismiss={() => setCandidates(null)} />
+        ) : null}
+        <KeyBar onSend={send} onClear={clearScreen} onHistory={recallHistory} onTab={requestComplete} ptyMode={mode !== 'pipe'} />
+
+        {completing || tabNotice ? (
+          <Txt
+            testID="term-tab-notice"
+            variant="micro"
+            tone={completing ? 'dim' : 'warn'}
+            style={{ paddingHorizontal: theme.layout.margin }}
+          >
+            {completing ? 'ASKING THE SHELL…' : tabNotice}
+          </Txt>
+        ) : null}
 
         <Row gap="sm" style={{ paddingHorizontal: theme.layout.margin }}>
           {/* The continuation prompt stays, in quiet ink — the accent on this
@@ -351,7 +516,7 @@ export default function TerminalTab() {
           <TextInput
             testID="term-input"
             value={input}
-            onChangeText={setInput}
+            onChangeText={onChangeInput}
             placeholder={live ? 'Run a command…' : 'Not connected'}
             placeholderTextColor={theme.colors.textFaint}
             autoCapitalize="none"
@@ -379,6 +544,8 @@ export default function TerminalTab() {
           <Button testID="term-run" label="Run" onPress={runInput} size="sm" />
         </Row>
       </View>
+
+      <TerminalHelpSheet visible={showHelp} onClose={() => setShowHelp(false)} />
     </KeyboardAvoidingView>
   );
 }

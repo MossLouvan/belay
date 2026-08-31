@@ -27,6 +27,7 @@ import { native } from './native.js';
 import { classifyScreens } from './displays.js';
 import { openableWindows, sanitizeWindows, windowIdOf } from './windows.js';
 import { createTerminal } from './terminal.js';
+import { createCompleter, sanitizeCompletionLine } from './terminal-complete.js';
 import { listDir, readTextFile, ROOTS } from './files.js';
 import { statRawFile } from './files-raw.js';
 import { getStats } from './system.js';
@@ -811,8 +812,18 @@ async function handleTerminal(ws: WebSocket, url: URL) {
   if (closed || ws.readyState !== ws.OPEN) { term.kill(); return; }
 
   ws.send(JSON.stringify({ type: 'ready', mode: term.mode }));
+  // Tab completion runs as a short dance against the pty (write line + tab,
+  // capture the echo, kill the shell's line). The completer sits between the
+  // pty and the socket in both directions: it swallows the dance's echo so
+  // escape noise never reaches the transcript, and it holds back keystrokes
+  // that would otherwise land in the shell's half-completed line.
+  const completer = createCompleter(term);
+  // The dance widens the pty so echoes never soft-wrap; this is what it must
+  // narrow back to afterwards, so it follows the client's resizes.
+  let size = { cols: cols || 80, rows: rows || 24 };
   term.onData((data) => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data }));
+    const pass = completer.filter(data);
+    if (pass !== null && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data: pass }));
   });
   term.onExit(() => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'exit' }));
@@ -821,8 +832,21 @@ async function handleTerminal(ws: WebSocket, url: URL) {
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
-      if (msg.type === 'data') term.write(msg.data);
-      else if (msg.type === 'resize') term.resize(msg.cols, msg.rows);
+      if (msg.type === 'data') completer.write(msg.data);
+      else if (msg.type === 'resize') {
+        const next = { cols: Number(msg.cols) || size.cols, rows: Number(msg.rows) || size.rows };
+        size = next;
+        term.resize(next.cols, next.rows);
+      } else if (msg.type === 'complete') {
+        const id = typeof msg.id === 'string' ? msg.id : '';
+        const text = sanitizeCompletionLine(msg.text);
+        const reply = text === null
+          ? Promise.resolve({ status: 'ok' as const, raw: '' })
+          : completer.complete(text, size);
+        void reply.then((result) => {
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'completion', id, ...result }));
+        });
+      }
     } catch { /* ignore */ }
   });
   ws.on('close', () => term.kill());
