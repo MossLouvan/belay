@@ -13,7 +13,7 @@ import { View } from 'react-native';
 import { router } from 'expo-router';
 
 import {
-  Screen, Row, Heading, Label, Caption, Txt, Button, ListItem, Dot,
+  Screen, Row, Heading, Label, Caption, Txt, Button, IconButton, ListItem, Dot,
   Banner, EmptyState, LedgerRow, Rule, Sheet, haptic,
 } from '../src/ui';
 import { useTheme } from '../src/theme';
@@ -52,6 +52,14 @@ export default function Devices() {
 
   const onPick = useCallback(async (device: SavedDevice) => {
     haptic('light');
+    // Re-picking the computer you are already connected to is "never mind":
+    // return to the tab that linked here instead of re-racing its addresses
+    // and dumping the user on Screen. Anything else — another machine, or the
+    // active one while unreachable — is a real (re)connect.
+    if (device.id === active?.id && phase === 'connected' && router.canGoBack()) {
+      router.back();
+      return;
+    }
     setSwitching(device.id);
     try {
       await switchTo(device.id);
@@ -59,7 +67,7 @@ export default function Devices() {
     } finally {
       setSwitching(null);
     }
-  }, [switchTo]);
+  }, [switchTo, active, phase]);
 
   const onConfirmForget = useCallback(async () => {
     if (!pendingForget) return;
@@ -74,7 +82,18 @@ export default function Devices() {
     return (
       <Screen padding="page">
         <View style={{ paddingTop: theme.space.md }}>
-          <Heading>My computers</Heading>
+          <Row justify="space-between" align="flex-end" gap="sm">
+            <Heading>My computers</Heading>
+            {router.canGoBack() ? (
+              <IconButton
+                accessibilityLabel="Back"
+                variant="plain"
+                onPress={() => router.back()}
+              >
+                <Txt variant="title" tone="dim">{'‹'}</Txt>
+              </IconButton>
+            ) : null}
+          </Row>
           <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
           <EmptyState
             title="No computers yet"
@@ -95,7 +114,23 @@ export default function Devices() {
     <Screen scroll padding="page">
       <View style={{ paddingTop: theme.space.md, gap: theme.space.lg }}>
         <View>
-          <Heading>My computers</Heading>
+          <Row justify="space-between" align="flex-end" gap="sm">
+            <Heading>My computers</Heading>
+            {/* Now that every tab header links here, arriving by push is the
+                normal case — and the swipe-back gesture needs its visible
+                twin (docs/DESIGN.md §11.2). ‹ alone is sanctioned in this
+                corner (§11.1). */}
+            {router.canGoBack() ? (
+              <IconButton
+                testID="devices-back"
+                accessibilityLabel="Back"
+                variant="plain"
+                onPress={() => router.back()}
+              >
+                <Txt variant="title" tone="dim">{'‹'}</Txt>
+              </IconButton>
+            ) : null}
+          </Row>
           <Label style={{ marginTop: theme.space.xxs, marginBottom: 0 }}>
             {`${devices.length} paired · tap one to take control`}
           </Label>

@@ -90,6 +90,7 @@ import {
 } from '../../src/screen/parts';
 import { ControlDock } from '../../src/screen/dock';
 import { PanelState } from '../../src/screen/panel-state';
+import { SwitchComputerLink } from '../../src/devices/switch-link';
 
 export default function ScreenTab() {
   const { connection } = useConnection();
@@ -378,11 +379,14 @@ export default function ScreenTab() {
               <DotsGlyph color={theme.colors.textDim} />
             </IconButton>
           </Row>
-          <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
-            <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting || live} label={PHASE_LABEL[stream.phase]} />
-            <Txt testID="fps" variant="label" tone="dim">
-              {live ? `${PHASE_LABEL[stream.phase]} · ${stream.stats.fps} fps` : PHASE_LABEL[stream.phase]}
-            </Txt>
+          <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+            <Row gap="xs" style={{ flexShrink: 1 }}>
+              <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting || live} label={PHASE_LABEL[stream.phase]} />
+              <Txt testID="fps" variant="label" tone="dim" numberOfLines={1}>
+                {live ? `${PHASE_LABEL[stream.phase]} · ${stream.stats.fps} fps` : PHASE_LABEL[stream.phase]}
+              </Txt>
+            </Row>
+            <SwitchComputerLink />
           </Row>
         </View>
       ) : null}

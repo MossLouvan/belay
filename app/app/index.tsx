@@ -18,7 +18,7 @@ import { ParsedPairLink } from '../src/connect/pair-link';
 import { raceAddresses } from '../src/devices/race';
 import { useTheme } from '../src/theme';
 import {
-  Button, Caption, Label, Micro, Row, Rule, Txt, haptic,
+  Button, Caption, Micro, Rule, Txt, haptic,
 } from '../src/ui';
 import { Brand } from '../src/connect/brand';
 import { Diagnosis, diagnoseHostFailure, diagnosePairFailure } from '../src/connect/diagnose';
@@ -32,7 +32,6 @@ import type { PairingDeadEnd } from '../src/connect/dead-end';
 import { detectDeadEnd } from '../src/connect/dead-end';
 import { NoCodeStep } from '../src/connect/no-code-step';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
-import { ThemeToggle } from '../src/settings/theme-toggle';
 
 type Stage = 'host' | 'scan' | 'code' | 'success';
 
@@ -486,7 +485,6 @@ export default function Connect() {
             <ScanPrompt onPress={() => setStage('scan')} />
             <SetupSteps />
             <AwayFromHomeNote />
-            <AppearanceRow />
           </>
         ) : null}
 
@@ -542,19 +540,5 @@ export default function Connect() {
         {stage === 'success' && host ? <SuccessNotice name={host.name} /> : null}
       </ScrollView>
     </KeyboardAvoidingView>
-  );
-}
-
-/** Appearance control, parked at the bottom of the first screen. */
-function AppearanceRow() {
-  const theme = useTheme();
-  return (
-    <Row justify="space-between" gap="sm" style={{ minHeight: theme.layout.minTouch }}>
-      <View style={{ flex: 1 }}>
-        <Label style={{ marginBottom: theme.space.xxs }}>Appearance</Label>
-        <Caption>Follows your device by default.</Caption>
-      </View>
-      <ThemeToggle testID="theme-toggle" style={{ width: 190 }} />
-    </Row>
   );
 }

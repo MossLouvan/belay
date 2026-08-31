@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
+import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { wsUrl } from '../../src/api';
 import { Banner, Button, Dot, IconButton, Row, Rule, SegmentedControl, Txt } from '../../src/ui';
 import { useTheme } from '../../src/theme';
@@ -433,15 +434,18 @@ export default function TerminalTab() {
             </IconButton>
           </Row>
         </Row>
-        <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
-          <Dot
-            status={live ? 'good' : status === 'connecting' ? 'warn' : 'bad'}
-            pulse={status === 'connecting' || live}
-            label={statusLabel}
-          />
-          <Txt testID="term-status" variant="label" tone="dim">
-            {live ? `live · ${statusLabel}` : statusLabel}
-          </Txt>
+        <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+          <Row gap="xs" style={{ flexShrink: 1 }}>
+            <Dot
+              status={live ? 'good' : status === 'connecting' ? 'warn' : 'bad'}
+              pulse={status === 'connecting' || live}
+              label={statusLabel}
+            />
+            <Txt testID="term-status" variant="label" tone="dim" numberOfLines={1}>
+              {live ? `live · ${statusLabel}` : statusLabel}
+            </Txt>
+          </Row>
+          <SwitchComputerLink />
         </Row>
       </View>
 

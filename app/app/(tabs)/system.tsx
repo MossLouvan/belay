@@ -13,6 +13,7 @@ import { RefreshControl, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
+import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { api } from '../../src/api';
 import type { SystemStats } from '../../src/api';
 import { useTheme } from '../../src/theme';
@@ -189,15 +190,18 @@ export default function SystemTab() {
         <Txt variant="title" heading numberOfLines={1}>
           {title}
         </Txt>
-        <Row gap="xs" style={{ marginTop: theme.space.xxs }}>
-          <Dot
-            status={stale ? 'bad' : 'accent'}
-            pulse={!stale}
-            label={stale ? 'Host unreachable' : 'Live'}
-          />
-          <Txt variant="label" tone="dim" numberOfLines={1}>
-            {statusLine(stale, lastOkAt, clock)}
-          </Txt>
+        <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+          <Row gap="xs" style={{ flexShrink: 1 }}>
+            <Dot
+              status={stale ? 'bad' : 'accent'}
+              pulse={!stale}
+              label={stale ? 'Host unreachable' : 'Live'}
+            />
+            <Txt variant="label" tone="dim" numberOfLines={1}>
+              {statusLine(stale, lastOkAt, clock)}
+            </Txt>
+          </Row>
+          <SwitchComputerLink />
         </Row>
         <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
       </View>

@@ -22,6 +22,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, Platform, RefreshControl, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
+import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { api } from '../../src/api';
 import type { FileEntry } from '../../src/api';
 import { Banner, EmptyState, Input, Label, Row, Rule, Skeleton, TrackLabel, Txt } from '../../src/ui';
@@ -252,14 +253,17 @@ export default function FilesTab() {
         {/* The freshness stamp lives up here in the fixed header — visible
             before the need arises, proving the listing's age and implying
             pull-to-refresh — not in a footer nobody scrolls to (§11.2). */}
-        <Label style={{ marginTop: theme.space.xxs, marginBottom: 0 }}>
-          {[
-            `${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`,
-            formatAsOf(now),
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </Label>
+        <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+          <Label numberOfLines={1} style={{ marginBottom: 0, flexShrink: 1 }}>
+            {[
+              `${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`,
+              formatAsOf(now),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Label>
+          <SwitchComputerLink />
+        </Row>
       </View>
       <Rule style={{ marginTop: theme.space.sm }} />
 
