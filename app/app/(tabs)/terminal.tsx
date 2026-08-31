@@ -35,6 +35,7 @@ import type { Geometry } from '../../src/terminal-geometry';
 import { EMPTY_OUTPUT, FLUSH_MS, drainOutput, parseServerMessage, pushOutput } from '../../src/terminal-session';
 import type { OutputBuffer, ServerMessage } from '../../src/terminal-session';
 import { applyCandidate, parseCompletion } from '../../src/terminal/complete';
+import { planTab, trackPrimed } from '../../src/terminal/primed';
 import { CandidateRow } from '../../src/terminal/candidate-row';
 import { TerminalHelpSheet } from '../../src/terminal/help-sheet';
 
@@ -90,6 +91,10 @@ export default function TerminalTab() {
   const historyRef = useRef<readonly string[]>([]);
   const historyIndex = useRef<number>(-1);
   const inputRef = useRef('');
+  /** Whether the shell's line buffer is believed to hold text — the ledger
+      TYPE writes to and tab reads from (src/terminal/primed.ts). A ref, not
+      state: it changes inside `send`, and nothing renders from it. */
+  const primedRef = useRef(false);
   const completionSeq = useRef(0);
   const pendingCompletion = useRef<{ id: string; sent: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -131,6 +136,8 @@ export default function TerminalTab() {
     setStatus('connecting');
     setError('');
     setMode(null);
+    // A fresh shell starts at an empty prompt, whatever the last one held.
+    primedRef.current = false;
 
     // The upgrade URL now needs a single-use ticket fetched over HTTP first, so
     // opening is asynchronous. `cancelled` guards the gap: the effect can be
@@ -210,6 +217,11 @@ export default function TerminalTab() {
     if (!socket || socket.readyState !== 1) return;
     try {
       socket.send(JSON.stringify({ type: 'data', data }));
+      // Every keystroke that reaches the shell updates the primed ledger —
+      // the key bar's letters and arrows included, since an up-arrow can pull
+      // a whole history line into the shell's buffer without this screen
+      // typing a thing.
+      primedRef.current = trackPrimed(primedRef.current, data);
     } catch {
       setError('could not reach the shell — try reconnecting');
     }
@@ -235,6 +247,12 @@ export default function TerminalTab() {
   // captures the echo, and empties the shell's line again. Because the shell
   // always ends empty, this TextInput is the only line buffer that persists —
   // the two can never drift, whatever the shell answered.
+  //
+  // TYPE deliberately violates that emptiness — it parks text at the shell's
+  // prompt with no return — so the dance is gated on the primed ledger
+  // (src/terminal/primed.ts): once the shell's buffer holds anything, tab
+  // flushes the field and goes through raw, and the shell's own completion
+  // does the work in the transcript instead.
 
   const showTabNotice = useCallback((message: string) => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -254,10 +272,22 @@ export default function TerminalTab() {
       return;
     }
     if (status !== 'open' || pendingCompletion.current) return;
-    // An empty line has nothing to complete; pass the tab through raw so a
+    const plan = planTab(input, primedRef.current);
+    // An empty field has nothing to complete; pass the tab through raw so a
     // full-screen program driven from the key bar still receives it.
-    if (input.length === 0) {
-      send('\t');
+    if (plan.kind === 'passthrough') {
+      send(plan.data);
+      return;
+    }
+    // The shell already holds part of the line (a TYPE, a history recall):
+    // the dance would replay this field on top of it and Ctrl-U the lot away,
+    // so the field joins the shell's line instead and the tab goes through
+    // raw — the shell's own completion answers, visibly, at its prompt.
+    if (plan.kind === 'flush') {
+      setInput('');
+      setCandidates(null);
+      setFollowing(true);
+      send(plan.data);
       return;
     }
     const id = String(++completionSeq.current);
@@ -355,6 +385,20 @@ export default function TerminalTab() {
     if (followingRef.current) scrollToEnd();
   }, [scrollToEnd]);
 
+  /** TYPE, the field's primary action: exactly the field's text, no return.
+      The bytes land in the shell's line buffer (or in vim, less, a prompt —
+      wherever is reading), where tab can finish them or more typing can join
+      them. Nothing executes until RUN or the key bar's ⏎ says so. */
+  const typeInput = useCallback(() => {
+    if (input.length === 0) return;
+    setInput('');
+    setCandidates(null);
+    setFollowing(true);
+    send(input);
+  }, [input, send]);
+
+  /** RUN: the field's text plus return. With the field empty it is just the
+      return — the way a line already parked at the prompt by TYPE gets run. */
   const runInput = useCallback(() => {
     const command = input;
     if (command.length > 0) {
@@ -515,13 +559,14 @@ export default function TerminalTab() {
 
         <Row gap="sm" style={{ paddingHorizontal: theme.layout.margin }}>
           {/* The continuation prompt stays, in quiet ink — the accent on this
-              screen belongs to RUN alone (docs/DESIGN.md §10). */}
+              screen belongs to TYPE alone: it is the field's default action,
+              and RUN stands beside it in ink (docs/DESIGN.md §10). */}
           <Txt variant="mono" tone="dim" style={{ fontSize: 16 }}>›</Txt>
           <TextInput
             testID="term-input"
             value={input}
             onChangeText={onChangeInput}
-            placeholder={live ? 'Run a command…' : 'Not connected'}
+            placeholder={live ? 'Type into the shell…' : 'Not connected'}
             placeholderTextColor={theme.colors.textFaint}
             autoCapitalize="none"
             autoCorrect={false}
@@ -529,8 +574,8 @@ export default function TerminalTab() {
             spellCheck={false}
             returnKeyType="send"
             blurOnSubmit={false}
-            onSubmitEditing={runInput}
-            accessibilityLabel="Shell command"
+            onSubmitEditing={typeInput}
+            accessibilityLabel="Shell input"
             maxFontSizeMultiplier={1.4}
             style={{
               flex: 1,
@@ -545,7 +590,21 @@ export default function TerminalTab() {
               fontSize: 14,
             }}
           />
-          <Button testID="term-run" label="Run" onPress={runInput} size="sm" />
+          <Button
+            testID="term-type"
+            label="Type"
+            onPress={typeInput}
+            size="sm"
+            accessibilityHint="Sends the text to the shell without pressing return"
+          />
+          <Button
+            testID="term-run"
+            label="Run"
+            variant="secondary"
+            onPress={runInput}
+            size="sm"
+            accessibilityHint="Sends the text and presses return; with the field empty, just presses return"
+          />
         </Row>
       </View>
 
