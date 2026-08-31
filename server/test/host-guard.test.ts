@@ -57,3 +57,21 @@ test('a real web origin is still checked against the host allow-list', () => {
   assert.equal(isTrustedOrigin('http://192.168.0.35:8787'), true);
   assert.equal(isTrustedOrigin('not a url'), false);
 });
+
+test('Tailscale MagicDNS names are trusted, like .local', () => {
+  // Reaching the host by its MagicDNS name instead of its 100.x address used
+  // to answer 421, which is what stopped "anywhere access" from working by
+  // name. Only Tailscale can issue anything under ts.net, and the name
+  // resolves only inside a tailnet, so it is not a rebinding vector.
+  assert.equal(isTrustedHost('desktop-bb4frer.tailcff490.ts.net'), true);
+  assert.equal(isTrustedHost('desktop-bb4frer.tailcff490.ts.net:8787'), true);
+  assert.equal(isTrustedOrigin('http://desktop-bb4frer.tailcff490.ts.net:8787'), true);
+});
+
+test('a lookalike of a MagicDNS name is still refused', () => {
+  // The suffix has to be the real one, not merely contain it: an attacker
+  // controlling ts.net.evil.example could otherwise pass the check.
+  assert.equal(isTrustedHost('ts.net.evil.example'), false);
+  assert.equal(isTrustedHost('evil-ts.net.example.com'), false);
+  assert.equal(isTrustedHost('nots.net'), false);
+});

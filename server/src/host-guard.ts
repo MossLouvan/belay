@@ -25,6 +25,13 @@ export function isTrustedHost(hostHeader: string | undefined): boolean {
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(name)) return true;
   if (name.includes(':') && /^[0-9a-f:.]+$/.test(name)) return true;
   if (name.endsWith('.local')) return true;
+  // Tailscale MagicDNS names. Trusted for the same reason `.local` is: the name
+  // only resolves inside a tailnet, and only Tailscale can put anything under
+  // `ts.net` — so this is not a name an attacker can point at this machine the
+  // way DNS rebinding needs. Without it, reaching the host by its MagicDNS name
+  // (rather than its 100.x address) answers 421 Misdirected Request, which is
+  // the one thing standing between "works on my LAN" and "works anywhere".
+  if (name === 'ts.net' || name.endsWith('.ts.net')) return true;
   return extraHosts().includes(name);
 }
 
