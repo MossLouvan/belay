@@ -534,6 +534,27 @@ In a borderless system that means: interactive text is `label` style (chrome) or
 the accent (selected/primary); whole-row tap targets are hairline-bounded rows in lists
 where *every* row is tappable — mixed lists of tappable and static rows are forbidden.
 
+Because a section marker, a ledger key and a quiet button are otherwise the *same*
+11pt tracked uppercase mono, that difference is carried by one reserved mark:
+
+> **The track rule.** Interactive text is marked; inert text never is. Any tappable
+> text element that is not a filled or hairline-outlined button carries exactly one
+> reserved mark: the 2pt underline track — `accentGraphic` when selected or active,
+> `accentDim` at rest. No section marker, ledger key, status word, count, or any other
+> inert label may ever carry the track, and no tappable label may ever appear without
+> it. A label without a track does nothing; a label with one is a control. A disabled
+> tracked label dims as a whole — label and track together — so it stays a dimmed
+> control rather than decaying into the inert class. (Trailing `‹ › × + ⌕ ⋯` in their
+> conventional corner/trailing positions remain the only other sanctioned text
+> affordance.)
+
+The mark is the segmented control's own selection language, so it adds no vocabulary —
+it makes the selected state *stronger*: the lit track reads as "the one switched on
+among the marked", not "the only thing marked at all". The primitive is
+`app/src/ui/track-label.tsx` (state logic in `track.ts`); the segmented control, the
+Screen dock, the Files roots and sort header, the path bar's COPY and the `ghost`
+button variant all speak it. Do not draw the mark by hand.
+
 ### 11.2 Hierarchy of discovery, per screen
 
 - **Visible without interaction:** everything needed for the screen's core loop.
@@ -549,6 +570,15 @@ where *every* row is tappable — mixed lists of tappable and static rows are fo
   visible twin.
 - **Never hidden:** destructive actions are one tap deep at most, always behind a
   confirm, always labelled with the noun ("FORGET THIS COMPUTER", not "Forget").
+- **The keyboard is a state, and every state needs a visible exit.** Any surface that
+  can raise the software keyboard must offer (a) drag-to-dismiss on its scrollable —
+  `keyboardDismissMode="interactive"` — and (b) a visible dismiss control while the
+  keyboard is up: the TYPE row's trailing `×`, the terminal key bar's `⌄ HIDE` key, a
+  sheet's own `×`. Tap-outside and toggle-off may exist as shortcuts, never as the
+  sole route — least of all where "outside" does something (the stage clicks the PC,
+  a Files row navigates). And `keyboardShouldPersistTaps` stays `"handled"`: the
+  default swallows the first tap on every control while the keyboard is up, trading a
+  findability bug for a worse one.
 
 ### 11.3 Naming and labels
 

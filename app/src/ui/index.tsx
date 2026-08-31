@@ -18,6 +18,11 @@ export type { SectionProps, LedgerRowProps, MeterSectionProps, MachinePanelProps
 export { Button, IconButton } from './button';
 export type { ButtonProps, ButtonVariant, ButtonSize, IconButtonProps } from './button';
 
+export { TrackLabel } from './track-label';
+export type { TrackLabelProps } from './track-label';
+export { trackInks, DISABLED_TRACK_OPACITY } from './track';
+export type { TrackInkSet, TrackInks, TrackState } from './track';
+
 export { Dot, Meter, Badge, Pill, Banner, Toast, EmptyState, Skeleton } from './feedback';
 export type { Status } from './feedback';
 

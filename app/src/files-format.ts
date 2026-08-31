@@ -47,6 +47,21 @@ export function formatWhen(mtime: number, now: number): string {
   });
 }
 
+/**
+ * The header's freshness stamp: "as of 14:02". A signpost must be seen before
+ * the need arises — this line lives in the fixed header, proving the listing's
+ * age and implying it can be renewed, where the old footer hint only taught
+ * users who scrolled past their whole home directory. Hand-rolled HH:MM (not
+ * toLocaleTimeString) so the stamp is deterministic under test and never grows
+ * an AM/PM suffix the 11pt header line has no room for.
+ */
+export function formatAsOf(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  const date = new Date(ms);
+  const two = (n: number): string => String(n).padStart(2, '0');
+  return `as of ${two(date.getHours())}:${two(date.getMinutes())}`;
+}
+
 export const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf('.');
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';

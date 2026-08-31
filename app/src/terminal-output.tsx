@@ -128,6 +128,10 @@ export function TerminalOutput({
         windowSize={9}
         removeClippedSubviews={Platform.OS !== 'web'}
         keyboardShouldPersistTaps="handled"
+        // Dragging the transcript pulls the keyboard away with the finger —
+        // the natural "scroll up to re-read" gesture doubles as the exit the
+        // tap-to-blur never advertised (docs/DESIGN.md §11.2).
+        keyboardDismissMode="interactive"
         ListHeaderComponent={<View onLayout={onRowWidth} style={{ height: 0 }} />}
         contentContainerStyle={{ padding }}
         style={{ flex: 1, backgroundColor: canvas }}

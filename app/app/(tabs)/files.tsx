@@ -1,7 +1,8 @@
 // Files. Browse the host's allowed roots the way Finder would: back/forward/up
 // arrows, a breadcrumb path bar with copy, a Go-to-Folder sheet for pasted
 // paths, sortable Name/Kind/Size/Date columns with folders leading, and a
-// long-press selection that surfaces an entry's details. Read-only by design —
+// per-row ⋯ (long-press as the shortcut) that surfaces an entry's details.
+// Read-only by design —
 // a phone file manager that can't clobber anything on the PC, and the host
 // exposes no write route at all.
 //
@@ -18,14 +19,14 @@
 // appears in the banner when a read has failed.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Platform, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { FlatList, Platform, RefreshControl, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { api } from '../../src/api';
 import type { FileEntry } from '../../src/api';
-import { Banner, EmptyState, Input, Label, Micro, Row, Rule, Skeleton, Txt, haptic } from '../../src/ui';
+import { Banner, EmptyState, Input, Label, Row, Rule, Skeleton, TrackLabel, Txt } from '../../src/ui';
 import { useTheme } from '../../src/theme';
-import { crumbsFor, isDenied, messageOf, parentOf, sortEntries, viewerKindOf } from '../../src/files-format';
+import { crumbsFor, formatAsOf, isDenied, messageOf, parentOf, sortEntries, viewerKindOf } from '../../src/files-format';
 import type { SortKey } from '../../src/files-format';
 import { FileRow } from '../../src/files-row';
 import { FileViewer } from '../../src/files-viewer';
@@ -218,6 +219,7 @@ export default function FilesTab() {
         selected={selected?.path === item.path}
         onPress={openEntry}
         onLongPress={toggleSelect}
+        onInfo={toggleSelect}
       />
     ),
     [now, openEntry, selected, toggleSelect]
@@ -235,24 +237,28 @@ export default function FilesTab() {
           <Txt variant="title" heading>
             Files
           </Txt>
-          <Pressable
+          {/* Quiet tracked label, not accent: this screen's one accented
+              selection is the active root, and a rarely-used verb must not
+              dilute it (docs/DESIGN.md §3.3). The resting track says tappable. */}
+          <TrackLabel
             testID="files-goto"
-            accessibilityRole="button"
+            label="Go to…"
             accessibilityLabel="Go to a folder path"
             accessibilityHint="Type or paste an absolute path"
             onPress={() => setGotoOpen(true)}
             hitSlop={theme.layout.hitSlop}
-            style={({ pressed }) => ({
-              minHeight: theme.space.xl,
-              justifyContent: 'center',
-              opacity: pressed ? theme.motion.pressOpacity : 1,
-            })}
-          >
-            <Label tone="accent" style={{ marginBottom: 0 }}>Go to…</Label>
-          </Pressable>
+          />
         </Row>
+        {/* The freshness stamp lives up here in the fixed header — visible
+            before the need arises, proving the listing's age and implying
+            pull-to-refresh — not in a footer nobody scrolls to (§11.2). */}
         <Label style={{ marginTop: theme.space.xxs, marginBottom: 0 }}>
-          {`${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`}
+          {[
+            `${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`,
+            formatAsOf(now),
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </Label>
       </View>
       <Rule style={{ marginTop: theme.space.sm }} />
@@ -264,39 +270,19 @@ export default function FilesTab() {
         style={{ flexGrow: 0, flexShrink: 0 }}
         contentContainerStyle={{ paddingHorizontal: margin, gap: theme.space.md }}
       >
-        {roots.map((root) => {
-          const active = path === root.path;
-          return (
-            <Pressable
-              key={root.path}
-              testID={`root-${root.name}`}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={`Open ${root.name}`}
-              onPress={() => {
-                haptic('light');
-                openDir(root.path);
-              }}
-              style={({ pressed }) => ({
-                minHeight: theme.layout.minTouch,
-                justifyContent: 'center',
-                opacity: pressed ? theme.motion.pressOpacity : 1,
-              })}
-            >
-              <Label tone={active ? 'accent' : 'dim'} style={{ marginBottom: 0 }}>
-                {root.name}
-              </Label>
-              <View
-                accessibilityElementsHidden
-                style={{
-                  height: theme.layout.ruleEmphasis,
-                  marginTop: theme.space.xxs,
-                  backgroundColor: active ? theme.colors.accentGraphic : 'transparent',
-                }}
-              />
-            </Pressable>
-          );
-        })}
+        {/* Every root carries the resting track (docs/DESIGN.md §11.1): the
+            unselected ones must look pressable too, or the strip is
+            indistinguishable from the inert count line two lines up. */}
+        {roots.map((root) => (
+          <TrackLabel
+            key={root.path}
+            testID={`root-${root.name}`}
+            label={root.name}
+            accessibilityLabel={`Open ${root.name}`}
+            active={path === root.path}
+            onPress={() => openDir(root.path)}
+          />
+        ))}
       </ScrollView>
 
       <PathBar
@@ -357,7 +343,12 @@ export default function FilesTab() {
           renderItem={renderItem}
           keyExtractor={(item) => item.path}
           contentContainerStyle={{ paddingHorizontal: margin, paddingBottom: theme.space.lg, flexGrow: 1 }}
+          // "handled" stays: the default swallows the first tap on every row
+          // while the filter keyboard is up. The interactive dismiss gives the
+          // drag-away exit — tap-outside here navigates into a folder, so the
+          // scroll gesture is the only non-destructive one (§11.2).
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           removeClippedSubviews={Platform.OS !== 'web'}
           initialNumToRender={16}
           extraData={selected}
@@ -375,11 +366,6 @@ export default function FilesTab() {
             ) : (
               <EmptyState testID="files-empty" title="This folder is empty" message="There is nothing here to open." />
             )
-          }
-          ListFooterComponent={
-            visible.length > 0 ? (
-              <Micro style={{ marginTop: theme.space.sm }}>Pull down to reload · long-press a row for details</Micro>
-            ) : null
           }
         />
       )}

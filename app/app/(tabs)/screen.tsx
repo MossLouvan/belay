@@ -16,7 +16,7 @@
 // expo-router's route context and would register as extra tabs.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { Animated, Image, Keyboard, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -267,6 +267,15 @@ export default function ScreenTab() {
 
   const noticeArea = <NoticeArea permissions={permissions} actionError={actionError} onHelp={() => setShowHelp(true)} />;
 
+  // The visible way out of the keyboard (docs/DESIGN.md §11.2). This surface
+  // has no scrollable to drag and no safe "outside" to tap — every stage touch
+  // is a remote mouse click — so without this × the only exits were sending
+  // unwanted text or knowing to re-press the unmarked TYPE toggle.
+  const closeType = useCallback(() => {
+    Keyboard.dismiss();
+    setTypeOpen(false);
+  }, []);
+
   const typeRow = (
     <Row gap="sm">
       <Input
@@ -279,6 +288,16 @@ export default function ScreenTab() {
         returnKeyType="send"
         onSubmitEditing={sendText}
         autoFocus
+        trailing={
+          <IconButton
+            testID="type-close"
+            accessibilityLabel="Stop typing and hide the keyboard"
+            variant="plain"
+            onPress={closeType}
+          >
+            <Txt variant="label" tone="dim">×</Txt>
+          </IconButton>
+        }
       />
       <Button testID="send-text" label="Send" onPress={sendText} size="sm" />
     </Row>

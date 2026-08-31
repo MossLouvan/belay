@@ -11,7 +11,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text } from 'react-native';
 import { useTheme } from '../theme';
-import { Caption, IconButton, Label, Row, Txt } from '../ui';
+import { Caption, IconButton, Row, TrackLabel, Txt } from '../ui';
 import type { Crumb } from '../files-format';
 import { copyText } from './clipboard';
 
@@ -125,27 +125,20 @@ export function PathBar({
           </Row>
         ))}
       </ScrollView>
-      <Pressable
+      {/* A verb amid mono breadcrumbs and inert markers: only its resting
+          track says it can be tapped (docs/DESIGN.md §11.1). During the ✓/✗
+          flash the track takes the status colour with the label, so the
+          feedback lands in the same mark that announced the control. */}
+      <TrackLabel
         testID="files-copy-path"
-        accessibilityRole="button"
+        label={copied ? '✓ Copied' : copyFailed ? '✗ Failed' : 'Copy'}
         accessibilityLabel={copied ? 'Path copied' : 'Copy this folder path'}
-        accessibilityState={{ disabled: !path }}
         disabled={!path}
         onPress={() => void copyPath()}
         hitSlop={theme.layout.hitSlop}
-        style={({ pressed }) => ({
-          minHeight: theme.layout.minTouch,
-          justifyContent: 'center',
-          opacity: !path ? 0.45 : pressed ? theme.motion.pressOpacity : 1,
-        })}
-      >
-        <Label
-          tone={copied ? 'good' : copyFailed ? 'bad' : 'dim'}
-          style={{ marginBottom: 0 }}
-        >
-          {copied ? '✓ Copied' : copyFailed ? '✗ Failed' : 'Copy'}
-        </Label>
-      </Pressable>
+        labelColor={copied ? theme.colors.good : copyFailed ? theme.colors.bad : undefined}
+        trackColor={copied ? theme.colors.good : copyFailed ? theme.colors.bad : undefined}
+      />
     </Row>
   );
 }

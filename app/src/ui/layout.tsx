@@ -63,7 +63,12 @@ export function Screen({
       {scroll ? (
         <ScrollView
           contentContainerStyle={inner}
+          // "handled" is load-bearing: the default swallows the first tap on
+          // every control while the keyboard is up. The interactive dismiss is
+          // the keyboard's drag-away exit (docs/DESIGN.md §11.2) — iOS tracks
+          // the finger, Android falls back to dismiss-on-drag.
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           showsVerticalScrollIndicator={false}
         >
           {children}

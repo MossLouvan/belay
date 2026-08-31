@@ -40,7 +40,10 @@ const variantStyle = (variant: ButtonVariant, c: Palette): VariantStyle => {
     // on accentSoft composited over the host surface, where solid `accent`
     // falls under 4.5:1. See the `on*Soft` note in theme.ts.
     subtle: { background: c.accentSoft, foreground: c.onAccentSoft, border: 'transparent' },
-    // The quiet text button: no box at all, announced by its label style.
+    // The quiet text button: no box, so under the track rule (docs/DESIGN.md
+    // §11.1) it must carry the 2pt resting track — its label style alone is
+    // indistinguishable from a section marker, which is exactly how "REFRESH"
+    // and "DONE" became invisible. The track is drawn in the render below.
     ghost: { background: 'transparent', foreground: c.text, border: 'transparent' },
   };
   return styles[variant];
@@ -147,16 +150,38 @@ export function Button({
         style,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator color={v.foreground} accessibilityElementsHidden />
-      ) : (
-        <>
-          {icon ? <View accessibilityElementsHidden>{icon}</View> : null}
-          <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={labelStyle}>
-            {label}
-          </Text>
-        </>
-      )}
+      {({ pressed }) =>
+        loading ? (
+          <ActivityIndicator color={v.foreground} accessibilityElementsHidden />
+        ) : (
+          <>
+            {icon ? <View accessibilityElementsHidden>{icon}</View> : null}
+            {variant === 'ghost' ? (
+              // The track rule's mark: accentDim at rest, lighting to the
+              // graphic accent under the pressing finger. Under the label
+              // only, not the padded box — this is a tracked word, not a rule.
+              <View style={{ alignItems: 'center' }}>
+                <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={labelStyle}>
+                  {label}
+                </Text>
+                <View
+                  accessibilityElementsHidden
+                  style={{
+                    alignSelf: 'stretch',
+                    height: theme.layout.ruleEmphasis,
+                    marginTop: theme.space.xxs,
+                    backgroundColor: pressed ? theme.colors.accentGraphic : theme.colors.accentDim,
+                  }}
+                />
+              </View>
+            ) : (
+              <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={labelStyle}>
+                {label}
+              </Text>
+            )}
+          </>
+        )
+      }
     </Pressable>
   );
 }

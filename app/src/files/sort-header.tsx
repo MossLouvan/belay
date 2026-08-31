@@ -5,15 +5,20 @@
 // active column carrying the ▲/▼ caret. The values themselves live inside each
 // row rather than being aligned into columns.
 //
-// Ledger treatment: mono micro-labels, the active sort in accent, and a
-// hairline rule closing the header — no box, no fill. Name sits at the left
-// margin where the row names align; the value columns gather at the right
-// margin where the row values align.
+// Ledger treatment: mono micro-labels on resting tracks — the four columns
+// read as a recognisable sibling of the segmented control, not as inert
+// captions (docs/DESIGN.md §11.1) — with the active column in full ink
+// carrying the ▲/▼ caret and the lit track, and a hairline rule closing the
+// header. The active label is ink rather than accent so the screen's one
+// accented selection stays the root tab (§3.3); the caret plus the
+// accentGraphic track carry the sort state on their own. Name sits at the
+// left margin where the row names align; the value columns gather at the
+// right margin where the row values align.
 
 import React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Label, Rule, Row, haptic } from '../ui';
+import { Rule, Row, TrackLabel } from '../ui';
 import type { SortKey } from '../files-format';
 import { defaultDescending } from '../files-format';
 
@@ -43,29 +48,19 @@ function Column({
 }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <TrackLabel
       testID={`files-sort-${column.key}`}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
+      label={`${column.label}${active ? (descending ? ' ▼' : ' ▲') : ''}`}
       accessibilityLabel={`Sort by ${column.label.toLowerCase()}`}
       accessibilityHint={active ? 'Reverses the current order' : undefined}
-      hitSlop={{ top: 8, bottom: 8 }}
-      onPress={() => {
-        haptic('light');
+      active={active}
+      labelColor={active ? theme.colors.text : undefined}
+      onPress={() =>
         // Finder's rule: a repeat tap flips the order, a fresh column
         // starts in the direction people expect of it (see sort.ts).
-        onChange(column.key, active ? !descending : defaultDescending(column.key));
-      }}
-      style={({ pressed }) => ({
-        minHeight: theme.space.xl,
-        justifyContent: 'center',
-        opacity: pressed ? theme.motion.pressOpacity : 1,
-      })}
-    >
-      <Label tone={active ? 'accent' : 'dim'} style={{ marginBottom: 0 }}>
-        {`${column.label}${active ? (descending ? ' ▼' : ' ▲') : ''}`}
-      </Label>
-    </Pressable>
+        onChange(column.key, active ? !descending : defaultDescending(column.key))
+      }
+    />
   );
 }
 

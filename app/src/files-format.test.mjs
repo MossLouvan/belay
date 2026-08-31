@@ -11,6 +11,7 @@ import {
   defaultDescending,
   extensionOf,
   formatSize,
+  formatAsOf,
   formatWhen,
   isDenied,
   kindOf,
@@ -80,6 +81,15 @@ test('recent timestamps read as relative, and a missing one as nothing', () => {
   assert.equal(formatWhen(now - 3 * 3_600_000, now), '3h ago');
   assert.equal(formatWhen(now - 2 * 86_400_000, now), '2d ago');
   assert.equal(formatWhen(0, now), '');
+});
+
+test('the header freshness stamp is a zero-padded local HH:MM, empty when unknown', () => {
+  const at = new Date(2026, 7, 31, 9, 5).getTime();
+  assert.equal(formatAsOf(at), 'as of 09:05');
+  const late = new Date(2026, 7, 31, 14, 2).getTime();
+  assert.equal(formatAsOf(late), 'as of 14:02');
+  assert.equal(formatAsOf(0), '');
+  assert.equal(formatAsOf(Number.NaN), '');
 });
 
 // --- categories --------------------------------------------------------------

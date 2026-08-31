@@ -14,9 +14,9 @@
 // identical underline treatment.
 
 import React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { getTheme, useTheme } from '../theme';
-import { Row, Txt, haptic } from '../ui';
+import { Row, TrackLabel } from '../ui';
 import { HUD } from './parts';
 import type { MonitorChoice } from './monitors';
 import type { PendingButton, PointerMode } from './viewport';
@@ -35,8 +35,12 @@ interface DockKeyProps {
 }
 
 /**
- * One labelled 44pt control. Quiet mono label, accent + underline when its
- * state is on — text is the control, exactly as the reference's nav works.
+ * One labelled 44pt control, on the shared TrackLabel primitive: quiet mono
+ * label over the resting accentDim track, accent + lit track when its state
+ * is on — text is the control, exactly as the reference's nav works. The
+ * resting track is load-bearing here (docs/DESIGN.md §11.1): without it the
+ * dock is two lines of dim mono identical to the status caption above the
+ * panel, and the momentary keys (zoom, MON) never signal at all.
  */
 function DockKey({
   label,
@@ -51,44 +55,28 @@ function DockKey({
 }: DockKeyProps) {
   const theme = useTheme();
   // Machine-tuned inks for the scrim: the light palette's dim/accent text is
-  // built for paper and fails AA on the near-black HUD.
+  // built for paper and fails AA on the near-black HUD, and the resting track
+  // drops to the HUD hairline so it stays a quiet mark over live video.
   const ink = getTheme('dark').colors;
-  const color = active ? (floating ? ink.accent : theme.colors.accent) : floating ? HUD.ink : theme.colors.textDim;
-  const underline = active ? (floating ? ink.accentGraphic : theme.colors.accentGraphic) : 'transparent';
+  const inks = floating
+    ? { restLabel: HUD.ink, activeLabel: ink.accent, restTrack: HUD.hairline, activeTrack: ink.accentGraphic }
+    : undefined;
 
   return (
-    <Pressable
+    <TrackLabel
       testID={testID}
-      accessibilityRole={radio ? 'tab' : 'button'}
+      label={label}
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{ selected: active }}
-      onPress={() => {
-        haptic('selection');
-        onPress();
-      }}
+      onPress={onPress}
       onLongPress={onLongPress}
-      style={({ pressed }) => ({
-        minHeight: theme.layout.minTouch,
-        minWidth: theme.layout.minTouch,
-        paddingHorizontal: theme.space.xxs,
-        justifyContent: 'center',
-        opacity: pressed ? theme.motion.pressOpacity : 1,
-      })}
-    >
-      <Txt variant="label" numberOfLines={1} color={color} align="center">
-        {label}
-      </Txt>
-      <View
-        accessibilityElementsHidden
-        style={{
-          alignSelf: 'stretch',
-          height: theme.layout.ruleEmphasis,
-          marginTop: theme.space.xxs,
-          backgroundColor: underline,
-        }}
-      />
-    </Pressable>
+      active={active}
+      radio={radio}
+      inks={inks}
+      align="center"
+      hapticTone="selection"
+      style={{ minWidth: theme.layout.minTouch, paddingHorizontal: theme.space.xxs }}
+    />
   );
 }
 
@@ -170,7 +158,10 @@ export function ControlDock({
       }
     >
       <Row justify="space-between" gap="xs">
-        <View testID="pointer-mode" accessibilityRole="tablist" accessibilityLabel="Pointer mode" style={{ flexDirection: 'row', gap: theme.space.xs }}>
+        {/* No gap between TOUCH and PAD: their resting tracks abut into one
+            continuous strip, so the pair reads as a two-position switch — the
+            segmented control's language, not two stray words. */}
+        <View testID="pointer-mode" accessibilityRole="tablist" accessibilityLabel="Pointer mode" style={{ flexDirection: 'row' }}>
           <DockKey
             label="Touch"
             accessibilityLabel="Touch mode"

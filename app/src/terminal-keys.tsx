@@ -6,7 +6,7 @@
 // route — a helper there would render as an extra tab.
 
 import React, { useCallback, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
 import { useTheme } from './theme';
 import { haptic } from './ui';
 import { LAUNCH_KEYS, LETTER_KEYS, PRIMARY_KEYS, SYMBOL_KEYS, encodeKey } from './terminal-keymap';
@@ -147,6 +147,19 @@ export function KeyBar({ onSend, onClear, onHistory, ptyMode }: KeyBarProps) {
             }}
           />
         ))}
+        {/* The keyboard is a state and needs a visible exit (docs/DESIGN.md
+            §11.2). Return can't dismiss here — it runs the command — and the
+            transcript's tap-to-blur is invisible, so the bar that sits right
+            above the keyboard carries the way out, as terminal apps do. */}
+        <KeyCap
+          id="hide"
+          label="⌄ hide"
+          wide
+          onPress={() => {
+            consume();
+            Keyboard.dismiss();
+          }}
+        />
       </ScrollView>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={rowStyle}>
         {secondary.map((ch) => (
