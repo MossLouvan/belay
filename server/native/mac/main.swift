@@ -116,7 +116,7 @@ private func handleCapture(_ command: Command) throws {
     // precedence as the Windows helper's DoCapture.
     let screen = try command.int("screen")
     let all = try Displays.active()
-    let selected = Displays.at(screen, in: all) ?? (try Displays.primary())
+    let selected = try Displays.at(screen, in: all) ?? Displays.primary()
     let targets = wantsVirtual ? all : [selected]
     let bounds = wantsVirtual ? Displays.virtualBounds(all) : selected.bounds
 
