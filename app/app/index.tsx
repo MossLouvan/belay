@@ -25,6 +25,8 @@ import { Diagnosis, diagnoseHostFailure, diagnosePairFailure } from '../src/conn
 import { forgetHost, loadRecentHosts, prettyHost, rememberHost, resolveHost } from '../src/connect/host-input';
 import { AwayFromHomeNote, SetupSteps } from '../src/connect/onboarding';
 import { HostStep } from '../src/connect/host-step';
+import { planTailnetUpgrade, readTailnetProbe } from '../src/connect/tailnet';
+import { TailscaleCard } from '../src/connect/tailscale-card';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
 import { ThemeToggle } from '../src/settings/theme-toggle';
 
@@ -141,6 +143,12 @@ export default function Connect() {
   const [hostError, setHostError] = useState<Diagnosis | null>(null);
   const [pairError, setPairError] = useState<Diagnosis | null>(null);
   const [recent, setRecent] = useState<readonly string[]>([]);
+  /**
+   * Set when the computer answered but its tailnet address did not, which means
+   * Tailscale is off on this phone rather than anything being wrong with the
+   * host. Carries the host's name so the card can say which computer is waiting.
+   */
+  const [tailscaleOff, setTailscaleOff] = useState<string | null>(null);
 
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** False once the screen is gone, so a late `/health` cannot set state. */
@@ -188,6 +196,7 @@ export default function Connect() {
     setHostText(next);
     setTouched(true);
     setHostError(null);
+    setTailscaleOff(null);
   }, []);
 
   const onChangeCode = useCallback((next: string) => {
@@ -240,9 +249,34 @@ export default function Connect() {
       // Over the owner's own tailnet the host has already verified this phone
       // and will pair without a code: go straight there. If that somehow fails
       // the normal code screen is the fallback, so nothing is lost by trying.
-      if (result.pairing === 'tailnet') {
+      //
+      // When the check landed on a LAN address the host cannot recognise the
+      // phone, even though the same phone reaching the same host over Tailscale
+      // would pair with no code. The tailnet address is in the reply, so try it
+      // rather than making anyone read a 100.x address off another screen.
+      const plan = planTailnetUpgrade(result, resolved.url);
+      if (plan.kind === 'ready' || plan.kind === 'upgrade') {
+        const url = plan.kind === 'upgrade' ? plan.url : resolved.url;
+        if (plan.kind === 'upgrade') {
+          setBusy(true);
+          const probe = await checkHostBounded(url);
+          if (!live.current || seq !== checkSeq.current) return;
+          setBusy(false);
+
+          const outcome = readTailnetProbe(url, probe);
+          if (outcome.kind === 'tailscale-off') {
+            setTailscaleOff(result.name || 'Your computer');
+            setStage('code');
+            return;
+          }
+          if (outcome.kind === 'code-required') {
+            setStage('code');
+            return;
+          }
+        }
+
         setBusy(true);
-        try { await completePairing(resolved.url, ''); } finally { if (live.current) setBusy(false); }
+        try { await completePairing(url, ''); } finally { if (live.current) setBusy(false); }
         return;
       }
       setStage('code');
@@ -353,7 +387,23 @@ export default function Connect() {
     setStage('host');
     setPairError(null);
     setCode('');
+    setTailscaleOff(null);
   }, []);
+
+  /**
+   * Re-run the whole check after the user turns Tailscale on.
+   *
+   * Deliberately the same path as the first attempt rather than a direct retry
+   * of the tailnet address: with Tailscale up the host's reply may now name
+   * addresses it could not before, so the upgrade decides again from scratch.
+   */
+  const onRetryTailscale = useCallback(() => {
+    setTailscaleOff(null);
+    setStage('host');
+    setCode('');
+    setPairError(null);
+    void doCheck();
+  }, [doCheck]);
 
   const onPickRecent = useCallback((url: string) => {
     setHostText(prettyHost(url));
@@ -413,15 +463,23 @@ export default function Connect() {
         ) : null}
 
         {stage === 'code' && host ? (
-          <PairStep
-            host={host}
-            code={code}
-            onChangeCode={onChangeCode}
-            onPair={doPair}
-            onBack={onBack}
-            busy={busy}
-            error={pairError}
-          />
+          <>
+            {/* The one-tap fix goes above the digits: turning Tailscale on is
+                easier than reading a code off another screen, and it is what
+                makes the computer reachable away from home too. */}
+            {tailscaleOff ? (
+              <TailscaleCard hostName={tailscaleOff} onRetry={onRetryTailscale} busy={busy} />
+            ) : null}
+            <PairStep
+              host={host}
+              code={code}
+              onChangeCode={onChangeCode}
+              onPair={doPair}
+              onBack={onBack}
+              busy={busy}
+              error={pairError}
+            />
+          </>
         ) : null}
 
         {stage === 'success' && host ? <SuccessCard name={host.name} /> : null}
