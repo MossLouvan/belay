@@ -36,7 +36,7 @@
   --machine-bad: #FF7A70;
   --machine-line: #2E2C29;
 
-  /* type voices: mono is the computer speaking, sans is Tether speaking */
+  /* type voices: mono is the computer speaking, sans is Deskhandler speaking */
   --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 

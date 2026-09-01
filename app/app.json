@@ -1,26 +1,26 @@
 {
   "expo": {
-    "name": "Tether",
-    "slug": "tether",
+    "name": "Deskhandler",
+    "slug": "deskhandler",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
-    "scheme": "tether",
+    "scheme": ["deskhandler", "tether"],
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0b0d12",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mosslouvan.tether",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "Tether connects to your PC on your local network or Tailscale to control it.",
+        "NSLocalNetworkUsageDescription": "Deskhandler connects to your PC on your local network or Tailscale to control it.",
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         },
-        "NSCameraUsageDescription": "Tether uses the camera to scan the pairing code shown on your computer, and to take a photo to send to Claude.",
-        "NSMicrophoneUsageDescription": "Tether listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
-        "NSSpeechRecognitionUsageDescription": "Tether turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device.",
-        "NSPhotoLibraryUsageDescription": "Tether lets you pick photos or screenshots to send to Claude on your computer."
+        "NSCameraUsageDescription": "Deskhandler uses the camera to scan the pairing code shown on your computer, and to take a photo to send to Claude.",
+        "NSMicrophoneUsageDescription": "Deskhandler listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
+        "NSSpeechRecognitionUsageDescription": "Deskhandler turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device.",
+        "NSPhotoLibraryUsageDescription": "Deskhandler lets you pick photos or screenshots to send to Claude on your computer."
       }
     },
     "android": {
@@ -58,7 +58,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Tether uses the camera only to scan the pairing code shown on your computer.",
+          "cameraPermission": "Deskhandler uses the camera only to scan the pairing code shown on your computer.",
           "recordAudioAndroid": false
         }
       ],
@@ -66,15 +66,15 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Tether listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
-          "speechRecognitionPermission": "Tether turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device."
+          "microphonePermission": "Deskhandler listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
+          "speechRecognitionPermission": "Deskhandler turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Tether lets you pick photos or screenshots to send to Claude on your computer.",
-          "cameraPermission": "Tether uses the camera to take a photo to send to Claude on your computer."
+          "photosPermission": "Deskhandler lets you pick photos or screenshots to send to Claude on your computer.",
+          "cameraPermission": "Deskhandler uses the camera to take a photo to send to Claude on your computer."
         }
       ]
     ],

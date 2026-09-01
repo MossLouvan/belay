@@ -1,28 +1,28 @@
-# Spec: Resume any Claude Code session from the Tether Agent tab
+# Spec: Resume any Claude Code session from the Deskhandler Agent tab
 
 **Status:** ready to implement · **Author:** spec written 2026-08-23 · **Repo:** `<repo>`
 
 ## Goal
 
-When the user comes back to this computer (physically or via the Tether phone
+When the user comes back to this computer (physically or via the Deskhandler phone
 app), they should see **every Claude Code session that exists on this machine**
-— not just the ones started from Tether — and be able to resume any of them
-with one tap, with Tether's phone-approval flow attached.
+— not just the ones started from Deskhandler — and be able to resume any of them
+with one tap, with Deskhandler's phone-approval flow attached.
 
-Today the Agent tab only lists sessions Tether itself created
-(`server/tether-agent.json`). Sessions started from a terminal (`claude` in any
+Today the Agent tab only lists sessions Deskhandler itself created
+(`server/deskhandler-agent.json`). Sessions started from a terminal (`claude` in any
 project) are invisible to it, even though Claude Code persists all of them.
 
 ## Background you need (read first)
 
-- **How Tether agent sessions work now:** `server/src/agent.ts`. Each Tether
+- **How Deskhandler agent sessions work now:** `server/src/agent.ts`. Each Deskhandler
   session wraps a `claude` process in bidirectional stream-json mode
   (`--input-format stream-json --output-format stream-json --verbose -p`),
   spawned in a project cwd. It already supports process revival via
   `--resume <claudeSessionId>` — the resume mechanism exists; this spec is
   mostly about **discovery** plus **attach**.
 - **Permission flow (do not break):** every tool use routes through
-  `--permission-prompt-tool mcp__tether-approve__request_permission` served by
+  `--permission-prompt-tool mcp__deskhandler-approve__request_permission` served by
   `server/approval-mcp.cjs`, which POSTs to the loopback route
   `/agent/approval-request` in `server/src/index.ts` and blocks until the user
   answers on the phone (5-minute fail-closed timeout). Any resumed session must
@@ -33,7 +33,7 @@ project) are invisible to it, even though Claude Code persists all of them.
   `~/.claude/projects/<encoded-project-path>/<session-uuid>.jsonl` — one JSONL
   transcript per session. The directory name is the project cwd with path
   separators/colons flattened to dashes (e.g.
-  `C--Users-you-Documents-tether`). **Do not hand-decode the directory name
+  `C--Users-you-Documents-deskhandler`). **Do not hand-decode the directory name
   to recover the cwd** — the encoding is lossy. Instead read the `cwd` field
   that appears in the JSONL entries themselves (most entries carry `cwd`;
   read from the first parseable line that has one).
@@ -69,8 +69,8 @@ New module `server/src/discover.ts`:
   read the first ~64 KB for `cwd`/preview and rely on `fs.stat` for mtime.
   Cap the scan (most recent ~100 sessions by mtime across all projects).
   Cache results for ~30 s.
-- Exclude sessions already attached to a Tether session
-  (`claudeSessionId` match against `tether-agent.json` entries).
+- Exclude sessions already attached to a Deskhandler session
+  (`claudeSessionId` match against `deskhandler-agent.json` entries).
 - Sessions whose transcript is younger than a few seconds may be mid-write by
   a live terminal `claude`; still list them, but see R3 conflict note.
 
@@ -79,7 +79,7 @@ New module `server/src/discover.ts`:
 - `GET /agent/discovered` (auth) → `{ sessions: DiscoveredSession[] }`,
   newest first, grouped client-side.
 - `POST /agent/attach` (auth) body
-  `{ claudeSessionId, cwd, title? }` → creates a Tether session whose
+  `{ claudeSessionId, cwd, title? }` → creates a Deskhandler session whose
   `claudeSessionId` is pre-set, so the next prompt spawns
   `claude ... --resume <id>` with the approval MCP attached. Returns the same
   snapshot shape as `POST /agent/sessions`. Implement in `agent.ts` as e.g.
@@ -90,14 +90,14 @@ New module `server/src/discover.ts`:
 ### R3 — Conflict safety
 
 If the underlying claude session is *currently open* in a terminal, resuming
-it concurrently from Tether would fork/contend. Best-effort guard:
+it concurrently from Deskhandler would fork/contend. Best-effort guard:
 
 - Before attach, check for a running `claude` process whose cwd matches
   (skip this check if not cheaply possible on Windows — then instead surface
   a warning in the UI copy: "If this session is open in a terminal, close it
   there first").
 - `--resume` on a session that another process has open must not corrupt
-  Tether state: if the spawned process exits immediately with an error, the
+  Deskhandler state: if the spawned process exits immediately with an error, the
   existing `agent.ts` exit handler already surfaces an `error` event — verify
   that path works for a bogus/locked session id (unit-testable by feeding the
   exit handler).
@@ -106,7 +106,7 @@ it concurrently from Tether would fork/contend. Best-effort guard:
 
 In `agent-view.tsx` `SessionList`:
 
-- Below Tether's own sessions, a section **"On this PC"** listing discovered
+- Below Deskhandler's own sessions, a section **"On this PC"** listing discovered
   sessions: project folder name (bold), preview text (one line, dim),
   relative time. Group by project folder, newest group first.
 - Tap → `api.agentAttach(...)` → open the session screen exactly like an
@@ -138,7 +138,7 @@ The Agent tab is the *phone* path. For walking back up to the PC itself:
 
 ## Constraints & house rules
 
-- **No live end-to-end testing on this machine.** Do not start the Tether
+- **No live end-to-end testing on this machine.** Do not start the Deskhandler
   server against the real host, do not run the Playwright suite (it drives a
   live host), do not spawn real `claude` sessions to test resume, and never
   inject input. Verify with unit tests + typechecks only; the user live-tests

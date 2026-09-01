@@ -121,7 +121,7 @@ export function suggestParents(projects: readonly AgentProject[]): readonly stri
  */
 export function mapCreateError(message: string): string {
   if (/\(404\)/.test(message)) {
-    return 'This computer\'s Tether host is too old to create folders. Update it there, or make the folder on the PC and pick it from the list.';
+    return 'This computer\'s Deskhandler host is too old to create folders. Update it there, or make the folder on the PC and pick it from the list.';
   }
   return message;
 }

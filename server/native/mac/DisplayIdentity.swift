@@ -1,5 +1,5 @@
 // Display identity for the macOS helper — the counterpart of
-// TetherHostDisplays.cs on Windows, reporting the same four wire keys so the
+// DeskhandlerHostDisplays.cs on Windows, reporting the same four wire keys so the
 // server can read one shape regardless of which host it is talking to.
 //
 // The question being answered is "which of these displays is a virtual one the

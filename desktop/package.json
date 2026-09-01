@@ -1,8 +1,8 @@
 {
-  "name": "tether-desktop",
+  "name": "deskhandler-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Tether desktop client - the paired computer's displays and windows, as windows on this one",
+  "description": "Deskhandler desktop client - the paired computer's displays and windows, as windows on this one",
   "type": "module",
   "main": "main.js",
   "scripts": {

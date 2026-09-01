@@ -5,6 +5,8 @@ import { CODE, HOST } from '../test-env';
 // exists for. Pairing writes a computer here rather than overwriting a single
 // global connection, and the list is what a user without a live connection is
 // sent to, because it is the only screen that can explain why.
+// Still the 'tether.' prefix: the app deliberately kept its storage keys
+// through the rename (see app/src/devices/storage.ts), and this must match.
 const STORE_KEY = 'tether.devices.v1';
 
 async function pair(page: Page) {

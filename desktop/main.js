@@ -1,4 +1,4 @@
-// Tether desktop client — main process.
+// Deskhandler desktop client — main process.
 //
 // Two window kinds:
 //   connect   pairs with a host and lists its displays
@@ -20,7 +20,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen, shell } from 'e
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { clearSession, keymapModeOf, readSession, writeSession } from './src/session.js';
+import { clearSession, keymapModeOf, migrateLegacySession, readSession, writeSession } from './src/session.js';
 import { fitWindow } from './src/displays.js';
 import { cascadeOffset, initialSize, windowLabel } from './src/windows.js';
 
@@ -47,7 +47,7 @@ function createConnectWindow() {
     height: 640,
     minWidth: 480,
     minHeight: 420,
-    title: 'Tether',
+    title: 'Deskhandler',
     backgroundColor: pageGround(),
     webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
@@ -149,6 +149,9 @@ function createSeamlessWindow(session, remote, index = 0) {
 
 app.whenReady().then(() => {
   const userData = app.getPath('userData');
+  // The rename moved the userData directory; pick up the session the
+  // pre-rename build saved so pairing survives the update (see session.js).
+  migrateLegacySession(userData, join(app.getPath('appData'), 'tether-desktop'));
 
   ipcMain.handle('session:read', () => readSession(userData));
   ipcMain.handle('session:write', (_event, session) => {

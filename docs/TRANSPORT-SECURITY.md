@@ -1,6 +1,6 @@
 # Transport security and why the app allows cleartext
 
-Short version: Tether talks plain HTTP to a host you own, over a network you
+Short version: Deskhandler talks plain HTTP to a host you own, over a network you
 control. The iOS and Android defaults assume you are calling a public web API,
 and would silently block that. This document records the exception, why it is
 there, and what would let us remove it.
@@ -64,7 +64,7 @@ address, because ATS does not apply to it, which makes this look like an app bug
 rather than a policy block until you read the error text.
 
 `NSExceptionDomains` — the narrow, preferred mechanism — keys on **domain
-names**. Tether connects to bare IP addresses that the user's own machines
+names**. Deskhandler connects to bare IP addresses that the user's own machines
 report at runtime, and those addresses change. There is no fixed domain to
 list, so a domain exception cannot express the rule we actually want, which is
 "any host the user has explicitly paired with".
@@ -99,6 +99,6 @@ app-layer encryption implemented ourselves. The architecture review picked the
 first, which is also why cleartext-over-tailnet is a deliberate position and not
 an oversight.
 
-If Tether ever moves to a relay-based transport where the network is untrusted,
+If Deskhandler ever moves to a relay-based transport where the network is untrusted,
 this becomes app-layer end-to-end encryption instead, and this exception should
 be revisited at that point.

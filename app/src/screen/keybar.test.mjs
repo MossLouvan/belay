@@ -116,7 +116,7 @@ test('the fifth page is desktop navigation — the three-finger swipe made visib
 
 test('desktop caps send the native chord for each platform', () => {
   // Virtual desktops: Win+Ctrl+arrows on Windows; LITERAL Control+arrows on
-  // macOS — plain ctrl would be remapped to Command by TETHER_MAC_CTRL and
+  // macOS — plain ctrl would be remapped to Command by DESKHANDLER_MAC_CTRL and
   // ⌘← means "line start", not "next space".
   assert.deepEqual(wire('DeskPrev', false), { key: 'left', mods: ['ctrl', 'win'] });
   assert.deepEqual(wire('DeskNext', false), { key: 'right', mods: ['ctrl', 'win'] });

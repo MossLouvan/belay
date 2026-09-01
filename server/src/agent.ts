@@ -25,6 +25,7 @@ import {
 } from './agent-flow.js';
 import type { FlowIO, PendingState, QueuedPrompt } from './agent-flow.js';
 import type { ApprovalGrant } from './approval-scopes.js';
+import { productEnv } from './env.js';
 
 // The stream-json ↔ feed-event translation lives in agent-events.ts (shared
 // with the transcript history loader); re-exported so existing importers and
@@ -34,7 +35,12 @@ export type { AgentEvent } from './agent-events.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APPROVAL_MCP = join(HERE, '..', 'approval-mcp.cjs');
-const META_FILE = join(process.cwd(), 'tether-agent.json');
+const META_FILE = join(process.cwd(), 'deskhandler-agent.json');
+// The pre-rename metadata file. Read only when the new one does not exist —
+// otherwise every session the owner can resume from the phone would vanish
+// from the list on the first boot after the rename. Never written, never
+// deleted: a still-running old host may be using it.
+const LEGACY_META_FILE = join(process.cwd(), 'tether-agent.json');
 const LOG_DIR = join(process.cwd(), 'agent-logs');
 
 // How long an approval waits for the phone before it is denied. The original
@@ -49,13 +55,13 @@ const DEFAULT_APPROVAL_TIMEOUT_MS = 30 * 60 * 1000;
 const FOREVER_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * TETHER_APPROVAL_TIMEOUT_MS, sanitised. Exported for tests. Garbage falls
+ * DESKHANDLER_APPROVAL_TIMEOUT_MS, sanitised. Exported for tests. Garbage falls
  * back to the default rather than to zero, because a typo silently disabling
  * the timeout is the opposite of what a typo should do; anything positive is
  * floored at one minute, because a sub-minute window recreates the original
  * bug with a sharper edge.
  */
-export function approvalTimeoutMs(raw: string | undefined = process.env.TETHER_APPROVAL_TIMEOUT_MS): number {
+export function approvalTimeoutMs(raw: string | undefined = productEnv('APPROVAL_TIMEOUT_MS')): number {
   if (raw === undefined || raw.trim() === '') return DEFAULT_APPROVAL_TIMEOUT_MS;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return DEFAULT_APPROVAL_TIMEOUT_MS;
@@ -101,9 +107,11 @@ let persisted: Persisted = { sessions: [], recentProjects: [] };
 const sessions = new Map<string, Session>();
 
 export function loadAgentState(): void {
-  if (existsSync(META_FILE)) {
+  const source = existsSync(META_FILE) ? META_FILE
+    : (existsSync(LEGACY_META_FILE) ? LEGACY_META_FILE : null);
+  if (source !== null) {
     try {
-      persisted = JSON.parse(readFileSync(META_FILE, 'utf8'));
+      persisted = JSON.parse(readFileSync(source, 'utf8'));
       if (!Array.isArray(persisted.sessions)) persisted.sessions = [];
       if (!Array.isArray(persisted.recentProjects)) persisted.recentProjects = [];
     } catch { persisted = { sessions: [], recentProjects: [] }; }
@@ -160,7 +168,7 @@ export function buildClaudeArgs(mcpConfigPath: string, claudeSessionId?: string)
     '--output-format', 'stream-json',
     '--verbose',
     '--mcp-config', mcpConfigPath,
-    '--permission-prompt-tool', 'mcp__tether-approve__request_permission',
+    '--permission-prompt-tool', 'mcp__deskhandler-approve__request_permission',
     '-p',
   ];
   if (claudeSessionId) args.push('--resume', claudeSessionId);
@@ -257,21 +265,21 @@ function ensureProcess(s: Session): void {
   s.procKey = randomBytes(24).toString('hex');
   const mcpConfig = {
     mcpServers: {
-      'tether-approve': {
+      'deskhandler-approve': {
         command: process.execPath,
         args: [APPROVAL_MCP],
         env: {
-          TETHER_APPROVE_URL: `http://127.0.0.1:${process.env.TETHER_PORT || 8787}/agent/approval-request`,
-          TETHER_APPROVE_KEY: s.procKey,
-          TETHER_APPROVE_SESSION: s.id,
+          DESKHANDLER_APPROVE_URL: `http://127.0.0.1:${productEnv('PORT') || 8787}/agent/approval-request`,
+          DESKHANDLER_APPROVE_KEY: s.procKey,
+          DESKHANDLER_APPROVE_SESSION: s.id,
           // The sidecar holds its HTTP request open while the ask waits, so it
           // must outlast this server's own window — including a "forever" one.
-          TETHER_APPROVE_TIMEOUT_MS: String((APPROVAL_TIMEOUT_MS || FOREVER_MS) + 30000),
+          DESKHANDLER_APPROVE_TIMEOUT_MS: String((APPROVAL_TIMEOUT_MS || FOREVER_MS) + 30000),
         },
       },
     },
   };
-  const cfgPath = join(tmpdir(), `tether-mcp-${s.id}.json`);
+  const cfgPath = join(tmpdir(), `deskhandler-mcp-${s.id}.json`);
   writeFileSync(cfgPath, JSON.stringify(mcpConfig), 'utf8');
 
   const args = buildClaudeArgs(cfgPath, s.claudeSessionId);
@@ -410,7 +418,7 @@ export function attachSession(cwd: string, claudeSessionId: string, title?: stri
   const s = newSession(cwd, title, claudeSessionId);
   // Restore the tail of the Claude-side transcript so the resumed session
   // opens showing the conversation being resumed, not a blank feed. Pushed
-  // through pushEvent so the history also lands in Tether's own log and
+  // through pushEvent so the history also lands in Deskhandler's own log and
   // survives host restarts. Best-effort: a missing or unreadable transcript
   // degrades to the old behaviour, and the info line says which happened
   // instead of letting an empty feed pass for a fresh session.
@@ -425,7 +433,7 @@ export function attachSession(cwd: string, claudeSessionId: string, title?: stri
   return getSnapshot(s.id)!;
 }
 
-// Claude session ids Tether already wraps — the discovery list excludes these.
+// Claude session ids Deskhandler already wraps — the discovery list excludes these.
 export function attachedClaudeIds(): Set<string> {
   const out = new Set<string>();
   for (const s of sessions.values()) if (s.claudeSessionId) out.add(s.claudeSessionId);

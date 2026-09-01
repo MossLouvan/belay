@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { parsePairLink } from './pair-link.ts';
 
 const LINK =
-  'tether://pair?v=1&id=da771aad-caa5-4be3-bbbc-01ae4a36d02b&n=MacBook+Air&p=darwin' +
+  'deskhandler://pair?v=1&id=da771aad-caa5-4be3-bbbc-01ae4a36d02b&n=MacBook+Air&p=darwin' +
   '&c=472234&a=http%3A%2F%2F192.168.1.5%3A8787&a=http%3A%2F%2F100.101.102.103%3A8787';
 
 test('a well-formed link parses', () => {
@@ -27,6 +27,14 @@ test('a well-formed link parses', () => {
     'http://192.168.1.5:8787',
     'http://100.101.102.103:8787',
   ]);
+});
+
+test('a pre-rename tether:// link still parses', () => {
+  // QR codes printed before the rename to Deskhandler are out in the world —
+  // taped to a monitor, saved in a photo roll — and must keep pairing phones.
+  const parsed = parsePairLink(LINK.replace(/^deskhandler:/, 'tether:'));
+  assert.ok(parsed);
+  assert.equal(parsed.code, '472234');
 });
 
 test('every advertised address is kept, so they can be raced', () => {
@@ -44,6 +52,7 @@ test('unrelated QR codes return null instead of throwing', () => {
     'mailto:someone@example.com',
     'tel:+15551234',
     '{"not":"a url"}',
+    'deskhandler://something-else?v=1',
     'tether://something-else?v=1',
   ];
   for (const raw of junk) {

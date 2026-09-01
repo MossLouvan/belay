@@ -1,6 +1,6 @@
 // The saved-computers data model.
 //
-// This file is the fix for the single biggest gap between what Tether does and
+// This file is the fix for the single biggest gap between what Deskhandler does and
 // what it is for. The app used to store one host URL and one token in three
 // flat keys, which meant pairing with the Windows PC *destroyed* the Mac's
 // token — and that even one machine could only ever be remembered at one

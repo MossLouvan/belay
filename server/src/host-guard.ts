@@ -1,5 +1,7 @@
 // Host / Origin allow-list for the HTTP server and WebSocket upgrades.
 
+import { productEnv } from './env.js';
+
 /**
  * Host-header allow-list, the defence CORS cannot provide: DNS rebinding.
  *
@@ -10,10 +12,10 @@
  * it obtains. The one thing that gives such a request away is its `Host`
  * header, which still says `evil.example`. The app connects by IP (or a
  * `.local` name from discovery), so any other hostname is refused outright.
- * Extra names — a Tailscale MagicDNS name, say — go in `TETHER_HOSTS`.
+ * Extra names — a Tailscale MagicDNS name, say — go in `DESKHANDLER_HOSTS`.
  */
 function extraHosts(): readonly string[] {
-  return (process.env.TETHER_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+  return (productEnv('HOSTS') || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
 }
 
 export function isTrustedHost(hostHeader: string | undefined): boolean {

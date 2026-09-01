@@ -1,4 +1,4 @@
-// Tether's UI kit — the "Ledger" component set (docs/DESIGN.md).
+// Deskhandler's UI kit — the "Ledger" component set (docs/DESIGN.md).
 //
 // Imported as `../src/ui` exactly as before. Every legacy export (Card,
 // Button, Heading, Sub, Label, Meter, Row, Dot, …) keeps its original props so

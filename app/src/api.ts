@@ -1,4 +1,4 @@
-// Thin client for the Tether host agent. Holds the host URL + token in memory,
+// Thin client for the Deskhandler host agent. Holds the host URL + token in memory,
 // persists them, and exposes typed helpers for every REST route plus WebSocket
 // URL builders for the screen and terminal streams.
 
@@ -351,7 +351,7 @@ export interface AgentSnapshot extends AgentSessionMeta {
 
 export interface AgentProject { path: string; name: string; recent: boolean; }
 
-/** A Claude Code session found on the PC's disk that Tether hasn't wrapped yet. */
+/** A Claude Code session found on the PC's disk that Deskhandler hasn't wrapped yet. */
 export interface DiscoveredSession {
   claudeSessionId: string;
   cwd: string;

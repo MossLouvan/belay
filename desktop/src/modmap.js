@@ -13,7 +13,7 @@
 // is unit-tested rather than discovered by breaking someone's copy-paste.
 //
 // Mac hosts get the unambiguous spellings (`rawctrl`, `cmd`) instead of
-// `ctrl`, deliberately: the host's own TETHER_MAC_CTRL remap (server/keys.ts)
+// `ctrl`, deliberately: the host's own DESKHANDLER_MAC_CTRL remap (server/keys.ts)
 // exists for the phone app and rewrites the *name* `ctrl` according to a
 // server-side env var this client cannot see. Speaking only the names that
 // env var never touches means the mapping chosen here is the mapping that

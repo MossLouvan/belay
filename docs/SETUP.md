@@ -40,7 +40,7 @@ works on macOS and Windows. If you prefer to be explicit there is also
 `npm start` prints something like:
 
 ```
-  Tether host agent running on your Mac
+  Deskhandler host agent running on your Mac
   ─────────────────────────
   Host name : Mosss-MacBook-Air.local
   Port      : 8787
@@ -62,7 +62,7 @@ Leave the window open. The pairing code refreshes itself until a phone pairs.
 
 ### 3. macOS permissions (the #1 thing that goes wrong)
 
-macOS gates screen capture and synthetic input behind TCC. Tether needs **two**
+macOS gates screen capture and synthetic input behind TCC. Deskhandler needs **two**
 grants, both under **System Settings → Privacy & Security**:
 
 | Permission | Pane | Needed for |
@@ -74,7 +74,7 @@ grants, both under **System Settings → Privacy & Security**:
 node, not to node itself. If you started the host by typing `npm start` in
 Terminal, then it is **Terminal** you must approve — you will see "Terminal",
 "iTerm", "Ghostty" or "Visual Studio Code" in the list, never "node" and never
-"Tether". Approving the wrong entry silently does nothing.
+"Deskhandler". Approving the wrong entry silently does nothing.
 
 The reliable sequence:
 
@@ -116,7 +116,7 @@ The fallback still runs commands and streams output; you just lose full TTY
 semantics (interactive `vim`, `htop`, and friends).
 
 The host spawns your real login shell: `$SHELL` if it is an absolute path that
-exists, otherwise `/bin/zsh`. Set `TETHER_SHELL=/opt/homebrew/bin/fish` (an
+exists, otherwise `/bin/zsh`. Set `DESKHANDLER_SHELL=/opt/homebrew/bin/fish` (an
 absolute path) to override. Sessions start in your home directory with
 `TERM=xterm-256color`.
 
@@ -136,14 +136,14 @@ absolute path) to override. Sessions start in your home directory with
 ```powershell
 cd server
 npm install
-npm run build:native   # compiles native\TetherHost.exe
+npm run build:native   # compiles native\DeskhandlerHost.exe
 npm start
 ```
 
 `npm start` prints something like:
 
 ```
-  Tether host agent running on your PC
+  Deskhandler host agent running on your PC
   ─────────────────────────
   Host name : DESKTOP-XXXX
   Port      : 8787
@@ -161,7 +161,7 @@ Leave this window open. The pairing code refreshes itself until a phone pairs.
 ### 3. Antivirus note
 
 The native helper injects mouse and keyboard input — the same Win32 calls a
-remote-desktop tool uses. Windows Defender may flag `TetherHost.exe` the first
+remote-desktop tool uses. Windows Defender may flag `DeskhandlerHost.exe` the first
 time. It is your own locally-compiled binary; if Defender quarantines it, add an
 exclusion for the `server\native` folder in Windows Security → Virus & threat
 protection → Exclusions, then rebuild. Only do this on a machine you control.
@@ -232,14 +232,14 @@ holding port 8787 — the next install then cannot bind while reporting itself
 healthy. This was observed in practice, not theorised.
 
 The rest of this section is the manual equivalent, if you would rather see what
-the script does. Create `~/Library/LaunchAgents/com.tether.host.plist`:
+the script does. Create `~/Library/LaunchAgents/com.deskhandler.host.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.tether.host</string>
+  <key>Label</key><string>com.deskhandler.host</string>
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/npm</string>
@@ -252,8 +252,8 @@ the script does. Create `~/Library/LaunchAgents/com.tether.host.plist`:
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/tmp/tether.out.log</string>
-  <key>StandardErrorPath</key><string>/tmp/tether.err.log</string>
+  <key>StandardOutPath</key><string>/tmp/deskhandler.out.log</string>
+  <key>StandardErrorPath</key><string>/tmp/deskhandler.err.log</string>
 </dict>
 </plist>
 ```
@@ -266,10 +266,10 @@ profile, so both the absolute path and the explicit `PATH` matter.
 Load, check and unload it:
 
 ```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tether.host.plist
-launchctl print   gui/$(id -u)/com.tether.host | head        # state = running
-tail -f /tmp/tether.out.log                                  # the boot banner
-launchctl bootout gui/$(id -u)/com.tether.host               # stop + unload
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.deskhandler.host.plist
+launchctl print   gui/$(id -u)/com.deskhandler.host | head        # state = running
+tail -f /tmp/deskhandler.out.log                                  # the boot banner
+launchctl bootout gui/$(id -u)/com.deskhandler.host               # stop + unload
 ```
 
 Use `bootstrap gui/$(id -u)` (a per-user *Agent*), not `system/` — a system
@@ -308,21 +308,27 @@ regardless.
 
 ## Environment variables
 
+> Deskhandler used to be called **Tether**, and every variable below used to be
+> `TETHER_*`. The old names are still read as a fallback (the `DESKHANDLER_*`
+> spelling wins when both are set), so a shell profile, LaunchAgent plist or CI
+> config written before the rename keeps working unchanged. Use the new names
+> for anything you write from now on.
+
 | Variable | Default | Purpose |
 |---|---|---|
-| `TETHER_PORT` | `8787` | Port to listen on |
-| `TETHER_ALLOWED_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Browser origins allowed by CORS (the local web build) |
-| `TETHER_HOSTS` | *(empty)* | Extra hostnames accepted in the `Host` header, comma-separated. IP literals, `localhost` and `*.local` are always accepted; anything else is refused to defeat DNS rebinding. Add your Tailscale MagicDNS name here if you connect by name |
-| `TETHER_TAILNET_PAIR` | `1` | Pair without a code for devices on the host's own Tailscale account (`0` to always require the code) |
-| `TETHER_TAILSCALE_CLI` | auto | Path to the `tailscale` CLI if it is somewhere unusual |
-| `TETHER_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |
-| `TETHER_TEST_CODE` | *(unset)* | Fixed pairing code for the Playwright suite; ignored when `NODE_ENV=production` |
-| `TETHER_APPROVAL_TIMEOUT_MS` | `1800000` (30 min) | How long an agent approval waits for the phone before auto-deny; `0` waits forever |
-| `TETHER_NOTIFY_URL` | *(unset — off)* | Webhook the host POSTs to when Claude needs a decision — an [ntfy](https://ntfy.sh) topic URL, Slack/Discord webhook, or your own endpoint. See [`AGENT.md`](AGENT.md#push-notifications-when-the-phone-is-asleep) |
-| `TETHER_NOTIFY_FORMAT` | `ntfy` | `ntfy` or `json` |
-| `TETHER_NOTIFY_EVENTS` | `approval,error` | Which events ping: `approval`, `done`, `error` |
-| `TETHER_NOTIFY_DETAIL` | *(off)* | `on` to include the command/path in the notification (keep off on public ntfy.sh) |
-| `TETHER_NOTIFY_TOKEN` | *(unset)* | Bearer token for the webhook (ntfy access token etc.); never logged |
+| `DESKHANDLER_PORT` | `8787` | Port to listen on |
+| `DESKHANDLER_ALLOWED_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Browser origins allowed by CORS (the local web build) |
+| `DESKHANDLER_HOSTS` | *(empty)* | Extra hostnames accepted in the `Host` header, comma-separated. IP literals, `localhost` and `*.local` are always accepted; anything else is refused to defeat DNS rebinding. Add your Tailscale MagicDNS name here if you connect by name |
+| `DESKHANDLER_TAILNET_PAIR` | `1` | Pair without a code for devices on the host's own Tailscale account (`0` to always require the code) |
+| `DESKHANDLER_TAILSCALE_CLI` | auto | Path to the `tailscale` CLI if it is somewhere unusual |
+| `DESKHANDLER_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |
+| `DESKHANDLER_TEST_CODE` | *(unset)* | Fixed pairing code for the Playwright suite; ignored when `NODE_ENV=production` |
+| `DESKHANDLER_APPROVAL_TIMEOUT_MS` | `1800000` (30 min) | How long an agent approval waits for the phone before auto-deny; `0` waits forever |
+| `DESKHANDLER_NOTIFY_URL` | *(unset — off)* | Webhook the host POSTs to when Claude needs a decision — an [ntfy](https://ntfy.sh) topic URL, Slack/Discord webhook, or your own endpoint. See [`AGENT.md`](AGENT.md#push-notifications-when-the-phone-is-asleep) |
+| `DESKHANDLER_NOTIFY_FORMAT` | `ntfy` | `ntfy` or `json` |
+| `DESKHANDLER_NOTIFY_EVENTS` | `approval,error` | Which events ping: `approval`, `done`, `error` |
+| `DESKHANDLER_NOTIFY_DETAIL` | *(off)* | `on` to include the command/path in the notification (keep off on public ntfy.sh) |
+| `DESKHANDLER_NOTIFY_TOKEN` | *(unset)* | Bearer token for the webhook (ntfy access token etc.); never logged |
 
 ## Agent tab and voice
 
@@ -330,7 +336,7 @@ The Agent tab needs the `claude` CLI on the PC's PATH (`npm i -g @anthropic-ai/c
 
 To get pinged when Claude needs a decision while the phone is locked, install
 the free [ntfy](https://ntfy.sh) app, subscribe to a long random topic, and set
-`TETHER_NOTIFY_URL=https://ntfy.sh/<your-topic>` before `npm start` — the boot
+`DESKHANDLER_NOTIFY_URL=https://ntfy.sh/<your-topic>` before `npm start` — the boot
 banner's `Notify :` line confirms it. Full details, the privacy trade-offs, and
 the generic-webhook payload are in
 [`AGENT.md`](AGENT.md#push-notifications-when-the-phone-is-asleep).

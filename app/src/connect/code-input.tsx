@@ -166,7 +166,7 @@ export function CodeInput({
         returnKeyType="go"
         selectionColor="transparent"
         accessibilityLabel={`Pairing code, ${length} digits`}
-        accessibilityHint="Enter the code shown in the Tether window on your PC"
+        accessibilityHint="Enter the code shown in the Deskhandler window on your PC"
         style={[
           {
             position: 'absolute',

@@ -1,5 +1,5 @@
 // Persistent host state: identity, config, and the device token(s) a paired
-// phone uses. Stored as tether-state.json (gitignored).
+// phone uses. Stored as deskhandler-state.json (gitignored).
 //
 // This file holds long-lived bearer tokens that grant complete control of the
 // machine — screen capture, keystroke injection and a shell. It is therefore
@@ -12,6 +12,8 @@ import { existsSync, readFileSync, writeFileSync, renameSync, chmodSync, unlinkS
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 
+import { productEnv } from './env.js';
+
 /**
  * Where state lives.
  *
@@ -20,7 +22,18 @@ import { hostname } from 'node:os';
  * user appears unpaired for no visible reason. A service manager that sets its
  * own working directory hits this immediately.
  */
-const STATE_FILE = process.env.TETHER_STATE_FILE || join(process.cwd(), 'tether-state.json');
+const CONFIGURED_STATE_FILE = productEnv('STATE_FILE');
+const STATE_FILE = CONFIGURED_STATE_FILE || join(process.cwd(), 'deskhandler-state.json');
+
+/**
+ * Where the pre-rename install kept the same state. Read once, on first boot
+ * after the rename, when the new file does not exist yet — otherwise every
+ * paired phone would silently appear unpaired, which is precisely the failure
+ * mode this module's atomic writes exist to prevent. Never written and never
+ * deleted: an old host binary may still be running against it, and a file of
+ * device tokens is the last thing to clean up speculatively.
+ */
+const LEGACY_STATE_FILE = join(process.cwd(), 'tether-state.json');
 
 /** Owner read/write only — these are credentials, not config. */
 const STATE_FILE_MODE = 0o600;
@@ -123,16 +136,27 @@ function migrate(raw: unknown): Persisted {
 }
 
 export function loadState(): void {
-  if (!existsSync(STATE_FILE)) {
+  // Prefer the current file; fall back to the pre-rename one so an upgrade
+  // keeps every pairing. The fallback only applies to the default location —
+  // an explicit DESKHANDLER_STATE_FILE (or legacy TETHER_STATE_FILE) points
+  // at exactly one file and gets no second guess.
+  const canFallBack = !CONFIGURED_STATE_FILE && existsSync(LEGACY_STATE_FILE);
+  const source = existsSync(STATE_FILE)
+    ? STATE_FILE
+    : (canFallBack ? LEGACY_STATE_FILE : null);
+  if (source === null) {
     state = emptyState();
     return;
   }
+  if (source === LEGACY_STATE_FILE) {
+    console.log(`[state] read ${LEGACY_STATE_FILE}; the next change is saved as ${STATE_FILE} (the old file is kept)`);
+  }
   try {
-    state = migrate(JSON.parse(readFileSync(STATE_FILE, 'utf8')));
+    state = migrate(JSON.parse(readFileSync(source, 'utf8')));
   } catch (e: unknown) {
     // Loud, because the consequence is every paired phone appearing unpaired.
     console.error(
-      `[state] ${STATE_FILE} is unreadable and has been ignored — every paired ` +
+      `[state] ${source} is unreadable and has been ignored — every paired ` +
       `device will need to pair again. Cause: ${e instanceof Error ? e.message : String(e)}`,
     );
     state = emptyState();

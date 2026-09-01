@@ -9,6 +9,8 @@
 
 import { randomInt, timingSafeEqual } from 'node:crypto';
 
+import { productEnv } from './env.js';
+
 const CODE_TTL_MS = 5 * 60 * 1000;
 const CODE_PATTERN = /^\d{6}$/;
 
@@ -24,7 +26,7 @@ let current: { code: string; expires: number } | null = null;
  * `.env` must not be able to silently disable pairing on a real machine.
  */
 export function testCode(): string | null {
-  const forced = process.env.TETHER_TEST_CODE;
+  const forced = productEnv('TEST_CODE');
   if (!forced || !CODE_PATTERN.test(forced)) return null;
   if (process.env.NODE_ENV === 'production') return null;
   return forced;

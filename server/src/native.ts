@@ -4,7 +4,7 @@
 // and input never interleave on the wire.
 //
 // The helper is platform-specific but the wire protocol is not: Windows runs
-// native/TetherHost.exe (C#), macOS runs native/TetherHostMac (Swift), and both
+// native/DeskhandlerHost.exe (C#), macOS runs native/DeskhandlerHostMac (Swift), and both
 // speak the identical JSON command set. Everything below this comment is
 // platform-agnostic.
 
@@ -46,18 +46,31 @@ interface HelperTarget {
  * no native helper at all. Kept as a pure lookup so `available()` and `start()`
  * can never disagree about which binary they mean.
  */
+/**
+ * The renamed helper is preferred, but a helper compiled before the rename is
+ * still accepted: build:native is a manual step, and a rename that quietly
+ * turned the Screen tab off until the owner remembered to re-run it would be a
+ * regression dressed up as housekeeping. The fallback costs one existsSync.
+ */
+function helperPath(current: string, legacy: string): string {
+  const preferred = join(NATIVE_DIR, current);
+  if (existsSync(preferred)) return preferred;
+  const old = join(NATIVE_DIR, legacy);
+  return existsSync(old) ? old : preferred;
+}
+
 function resolveTarget(platform: NodeJS.Platform): HelperTarget | null {
   switch (platform) {
     case 'win32':
       return {
-        path: join(NATIVE_DIR, 'TetherHost.exe'),
+        path: helperPath('DeskhandlerHost.exe', 'TetherHost.exe'),
         buildCommand: 'npm run build:native',
         // Keeps the helper from flashing a console window on Windows.
         spawnOptions: { windowsHide: true },
       };
     case 'darwin':
       return {
-        path: join(NATIVE_DIR, 'TetherHostMac'),
+        path: helperPath('DeskhandlerHostMac', 'TetherHostMac'),
         buildCommand: 'bash native/build-mac.sh',
         spawnOptions: {},
       };
@@ -70,7 +83,7 @@ const TARGET = resolveTarget(process.platform);
 
 function unsupportedPlatformError(): Error {
   return new Error(
-    `Tether's screen capture and input injection are not implemented for platform '${process.platform}'. ` +
+    `Deskhandler's screen capture and input injection are not implemented for platform '${process.platform}'. ` +
       'Supported platforms are Windows (win32) and macOS (darwin). ' +
       'Everything else — terminal, files, system stats — still works.'
   );

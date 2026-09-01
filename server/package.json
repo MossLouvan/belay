@@ -1,9 +1,9 @@
 {
-  "name": "tether-host",
+  "name": "deskhandler-host",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Tether host agent - lets the Tether iOS app control this Windows or macOS machine",
+  "description": "Deskhandler host agent - lets the Deskhandler iOS app control this Windows or macOS machine",
   "main": "dist/index.js",
   "scripts": {
     "start": "tsx src/index.ts",

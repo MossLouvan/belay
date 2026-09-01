@@ -98,7 +98,7 @@ test('the desktop client can tap the Windows key by name', () => {
 
 test('every modifier the desktop client can send a Mac host resolves', () => {
   // The desktop client deliberately never says "ctrl" to a Mac host — that
-  // name belongs to the phone app and is rewritten by TETHER_MAC_CTRL. Its
+  // name belongs to the phone app and is rewritten by DESKHANDLER_MAC_CTRL. Its
   // whole Mac-bound vocabulary is the unambiguous half of the table.
   for (const name of ['rawctrl', 'cmd', 'alt', 'shift']) {
     assert.equal(typeof DARWIN_MOD_VK[name], 'number', `darwin modifier "${name}" missing`);
@@ -108,7 +108,7 @@ test('every modifier the desktop client can send a Mac host resolves', () => {
 test('cmd and rawctrl are fixed points the phone remap cannot touch', () => {
   // The desktop's remap is client-side and speaks only these names, which is
   // what keeps it from ever fighting the host's own ctrl remap: whatever
-  // TETHER_MAC_CTRL says, cmd is Command and rawctrl is Control.
+  // DESKHANDLER_MAC_CTRL says, cmd is Command and rawctrl is Control.
   assert.equal(DARWIN_MOD_VK.cmd, 0x37); // kVK_Command
   assert.equal(DARWIN_MOD_VK.rawctrl, 0x3b); // kVK_Control
 });

@@ -32,5 +32,7 @@ test('the toggle flips and flips back', () => {
 });
 
 test('the storage key is namespaced like the rest of the app', () => {
+  // The 'tether.' prefix is load-bearing: the value is already persisted under
+  // it on real phones, so the rename must NOT reach this key.
   assert.match(MARKDOWN_MODE_KEY, /^tether\./);
 });

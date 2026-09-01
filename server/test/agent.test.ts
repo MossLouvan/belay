@@ -75,7 +75,7 @@ test('buildClaudeArgs adds --resume only for attached/revived sessions', () => {
   const resumed = buildClaudeArgs('C:\\tmp\\mcp.json', 'abc-123');
   assert.equal(resumed[resumed.indexOf('--resume') + 1], 'abc-123');
   // the approval tool must survive the resume path — that's the safety net
-  assert.ok(resumed.includes('mcp__tether-approve__request_permission'));
+  assert.ok(resumed.includes('mcp__deskhandler-approve__request_permission'));
 });
 
 test('parseClaudeLine ignores noise and malformed lines', () => {

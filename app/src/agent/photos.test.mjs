@@ -63,9 +63,9 @@ test('the send reply parses defensively — garbage collapses to zero, never NaN
   assert.deepEqual(parseImagesSent(null), { files: 0, relDir: '' });
   assert.deepEqual(parseImagesSent('ok'), { files: 0, relDir: '' });
   assert.deepEqual(parseImagesSent({ files: NaN, relDir: 7 }), { files: 0, relDir: '' });
-  assert.deepEqual(parseImagesSent({ files: 2.9, relDir: '.tether/images/img-x' }), {
+  assert.deepEqual(parseImagesSent({ files: 2.9, relDir: '.deskhandler/images/img-x' }), {
     files: 2,
-    relDir: '.tether/images/img-x',
+    relDir: '.deskhandler/images/img-x',
   });
 });
 

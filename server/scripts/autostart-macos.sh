@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Install (or remove) the Tether host agent as a macOS LaunchAgent, so the
+# Install (or remove) the Deskhandler host agent as a macOS LaunchAgent, so the
 # machine is reachable from your phone whenever it is awake and logged in.
 #
 # Usage:
@@ -25,11 +25,16 @@
 
 set -euo pipefail
 
-LABEL="com.tether.host"
+LABEL="com.deskhandler.host"
+# The pre-rename label. An install from before the rename registered under this
+# name; if it is left loaded, install would end with two agents fighting over
+# the same port at every login — so install and remove both clean it up.
+LEGACY_LABEL="com.tether.host"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+LEGACY_PLIST="$HOME/Library/LaunchAgents/$LEGACY_LABEL.plist"
 DOMAIN="gui/$(id -u)"
-OUT_LOG="$HOME/Library/Logs/tether.out.log"
-ERR_LOG="$HOME/Library/Logs/tether.err.log"
+OUT_LOG="$HOME/Library/Logs/deskhandler.out.log"
+ERR_LOG="$HOME/Library/Logs/deskhandler.err.log"
 
 SERVER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -39,15 +44,22 @@ is_loaded() {
   launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1
 }
 
+legacy_loaded() {
+  launchctl print "$DOMAIN/$LEGACY_LABEL" >/dev/null 2>&1
+}
+
 case "$action" in
   status)
     if is_loaded; then
-      echo "Tether autostart: INSTALLED"
+      echo "Deskhandler autostart: INSTALLED"
       launchctl print "$DOMAIN/$LABEL" | grep -E "^\s+(state|pid) " || true
       echo
       echo "Logs: $OUT_LOG"
     else
-      echo "Tether autostart: not installed"
+      echo "Deskhandler autostart: not installed"
+    fi
+    if legacy_loaded; then
+      echo "note: the pre-rename agent ($LEGACY_LABEL) is still loaded; re-run install to replace it"
     fi
     exit 0
     ;;
@@ -60,7 +72,11 @@ case "$action" in
       launchctl bootout "$DOMAIN/$LABEL"
       echo "Stopped and unloaded $LABEL"
     fi
-    rm -f "$PLIST"
+    if legacy_loaded; then
+      launchctl bootout "$DOMAIN/$LEGACY_LABEL"
+      echo "Stopped and unloaded $LEGACY_LABEL (pre-rename install)"
+    fi
+    rm -f "$PLIST" "$LEGACY_PLIST"
     echo "Removed $PLIST"
     echo "Your pairings are untouched — they live in the agent's state file."
     exit 0
@@ -108,6 +124,20 @@ if is_loaded; then
   echo "==> Removing the existing agent first"
   launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 fi
+if legacy_loaded || [[ -f "$LEGACY_PLIST" ]]; then
+  echo "==> Removing the pre-rename agent ($LEGACY_LABEL) first"
+  launchctl bootout "$DOMAIN/$LEGACY_LABEL" 2>/dev/null || true
+  rm -f "$LEGACY_PLIST"
+fi
+
+# Pin the state file to whichever one actually holds the pairings. A machine
+# that paired before the rename has tether-state.json and nothing else; pointing
+# the agent at a brand-new deskhandler-state.json would unpair every phone the
+# moment autostart is (re)installed. Once the new file exists it wins.
+STATE_FILE="$SERVER_DIR/deskhandler-state.json"
+if [[ ! -f "$STATE_FILE" && -f "$SERVER_DIR/tether-state.json" ]]; then
+  STATE_FILE="$SERVER_DIR/tether-state.json"
+fi
 
 cat > "$PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -127,7 +157,7 @@ cat > "$PLIST" <<PLIST_EOF
     <key>PATH</key><string>$BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <!-- Pin the state file to the server directory so the agent finds the same
          pairings regardless of what launchd sets as the working directory. -->
-    <key>TETHER_STATE_FILE</key><string>$SERVER_DIR/tether-state.json</string>
+    <key>DESKHANDLER_STATE_FILE</key><string>$STATE_FILE</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -148,7 +178,7 @@ echo "==> Loaded into $DOMAIN"
 sleep 2
 if is_loaded; then
   echo
-  echo "Tether will now start automatically when you log in."
+  echo "Deskhandler will now start automatically when you log in."
   launchctl print "$DOMAIN/$LABEL" | grep -E "^\s+(state|pid) " || true
 else
   echo "warning: the agent did not stay loaded; check $ERR_LOG" >&2

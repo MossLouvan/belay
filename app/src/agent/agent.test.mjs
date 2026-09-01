@@ -17,8 +17,8 @@ import {
 
 const snapshot = {
   id: 'abc123',
-  title: 'tether',
-  cwd: 'C:\\Users\\me\\tether',
+  title: 'deskhandler',
+  cwd: 'C:\\Users\\me\\deskhandler',
   status: 'idle',
   lastUsed: 1000,
   createdAt: 900,
@@ -76,7 +76,7 @@ test('hello replaces the view with the host snapshot and opens the link', () => 
   assert.equal(s.status, 'waiting');
   assert.equal(s.pending.id, 'p1');
   assert.equal(s.events.length, 1);
-  assert.equal(s.snapshot.title, 'tether');
+  assert.equal(s.snapshot.title, 'deskhandler');
 });
 
 test('events append and the feed is capped at EVENT_CAP', () => {
@@ -138,8 +138,8 @@ test('ago is coarse and human', () => {
 });
 
 test('projectName takes the last segment on either separator', () => {
-  assert.equal(projectName('C:\\Users\\me\\tether'), 'tether');
-  assert.equal(projectName('/home/me/tether/'), 'tether');
+  assert.equal(projectName('C:\\Users\\me\\deskhandler'), 'deskhandler');
+  assert.equal(projectName('/home/me/deskhandler/'), 'deskhandler');
   assert.equal(projectName(''), '');
 });
 

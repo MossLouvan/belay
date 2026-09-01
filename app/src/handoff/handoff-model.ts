@@ -47,7 +47,7 @@ export function parseHandoff(status: number, body: unknown): HandoffOutcome {
 export function busyExplanation(status: string): string {
   const doing = status === 'waiting'
     ? 'is waiting for an approval on this phone. Handing off will deny that ask and stop it here'
-    : 'is running under Tether right now. Handing off will stop it here, mid-task';
+    : 'is running under Deskhandler right now. Handing off will stop it here, mid-task';
   return `This session ${doing} — two windows driving one Claude chat corrupt its history, so the phone side always lets go first. The terminal picks up the same conversation.`;
 }
 

@@ -20,10 +20,10 @@ let project = '';
 let outside = '';
 
 before(async () => {
-  project = join(homedir(), '.tether-test-images');
+  project = join(homedir(), '.deskhandler-test-images');
   await rm(project, { recursive: true, force: true });
   await mkdir(project, { recursive: true });
-  outside = await mkdtemp(join(tmpdir(), 'tether-img-outside-'));
+  outside = await mkdtemp(join(tmpdir(), 'deskhandler-img-outside-'));
 });
 
 after(async () => {
@@ -92,7 +92,7 @@ test('deliver writes server-named files in pick order and resets', async () => {
 
   // Names are minted here — pick order, sniffed extension, no client input.
   assert.deepEqual(delivery.files, ['photo-01.jpg', 'photo-02.heic', 'photo-03.png']);
-  assert.match(delivery.relDir, /^\.tether[\\/]images[\\/]img-\d{8}-\d{6}$/);
+  assert.match(delivery.relDir, /^\.deskhandler[\\/]images[\\/]img-\d{8}-\d{6}$/);
   assert.match(delivery.prompt, /compare before and after/);
   assert.match(delivery.prompt, /photo-01\.jpg, photo-02\.heic, photo-03\.png/);
   assert.match(delivery.prompt, /do not commit/);
@@ -107,18 +107,18 @@ test('deliver refuses a project outside the allowed roots and keeps nothing ther
   const drop = new ImageDrop();
   drop.add(JPEG);
   await assert.rejects(() => drop.deliver(outside), /outside the allowed folders/);
-  assert.equal(existsSync(join(outside, '.tether')), false);
+  assert.equal(existsSync(join(outside, '.deskhandler')), false);
   drop.discard();
 });
 
 test('the default prompt asks for a description when there is no note', () => {
-  const prompt = buildImagesPrompt({ relDir: '.tether/images/img-x', fileNames: ['photo-01.jpg'] });
+  const prompt = buildImagesPrompt({ relDir: '.deskhandler/images/img-x', fileNames: ['photo-01.jpg'] });
   assert.match(prompt, /1 photo from my phone/);
   assert.match(prompt, /describe what each photo shows/);
 });
 
 test('pruning image drops keeps the newest maxSaved and ignores recordings-style names', async () => {
-  const imagesDir = join(project, '.tether', 'images');
+  const imagesDir = join(project, '.deskhandler', 'images');
   await rm(imagesDir, { recursive: true, force: true });
   await mkdir(imagesDir, { recursive: true });
   const names = [

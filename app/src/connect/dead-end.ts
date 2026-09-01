@@ -85,12 +85,17 @@ export function detectDeadEnd(
  *
  * There is no gentler lever: the host has no unpair command, and it only
  * issues codes while nothing is paired — so the honest instruction is to
- * clear the paired devices (they live in tether-state.json) and start fresh.
- * TETHER_TEST_CODE is deliberately not offered: it disables expiry and
+ * clear the paired devices (they live in the host's state file) and start
+ * fresh. Both spellings of that file are removed: a host installed before the
+ * rename keeps its pairings in tether-state.json, one after it in
+ * deskhandler-state.json, and guessing wrong would leave the window shut.
+ * DESKHANDLER_TEST_CODE is deliberately not offered: it disables expiry and
  * single-use, and the host itself warns it is for automated tests only.
  */
 export function reopenPairingCommand(platform?: string): string {
-  const remove = platform === 'win32' ? 'del tether-state.json' : 'rm tether-state.json';
+  const remove = platform === 'win32'
+    ? 'del deskhandler-state.json tether-state.json'
+    : 'rm -f deskhandler-state.json tether-state.json';
   return `cd server\n${remove}\nnpm start`;
 }
 

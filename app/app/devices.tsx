@@ -97,7 +97,7 @@ export default function Devices() {
           <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
           <EmptyState
             title="No computers yet"
-            message="Run the Tether host agent on your Mac or Windows PC, then add it here."
+            message="Run the Deskhandler host agent on your Mac or Windows PC, then add it here."
             action={{ label: 'Add a computer', onPress: () => router.push('/') }}
           />
         </View>

@@ -1,8 +1,8 @@
 import { test, expect, Page } from '@playwright/test';
 import { CODE, HOST } from '../test-env';
 
-// End-to-end coverage of the Tether app web build against a live host agent.
-// The server runs with TETHER_TEST_CODE=123456 and starts unpaired, so each
+// End-to-end coverage of the Deskhandler app web build against a live host agent.
+// The server runs with DESKHANDLER_TEST_CODE=123456 and starts unpaired, so each
 // run pairs fresh. Every interactive control on every screen is exercised.
 
 async function pair(page: Page) {
@@ -23,7 +23,7 @@ async function pair(page: Page) {
   await expect(page.getByTestId('screen-surface')).toBeVisible({ timeout: 15000 });
 }
 
-test.describe('Tether', () => {
+test.describe('Deskhandler', () => {
   test('connect screen validates and pairs', async ({ page }) => {
     await page.goto('/');
     await page.evaluate(() => window.localStorage.clear());
@@ -97,7 +97,7 @@ test.describe('Tether', () => {
 
     // Text send lives behind the "Aa" toggle.
     await page.getByTestId('toggle-type').click();
-    await page.getByTestId('type-input').fill('hello from tether');
+    await page.getByTestId('type-input').fill('hello from deskhandler');
     await page.getByTestId('send-text').click();
     await expect(page.getByTestId('type-input')).toHaveValue('');
   });
@@ -107,11 +107,11 @@ test.describe('Tether', () => {
     await page.getByText('Terminal', { exact: true }).click();
 
     await expect(page.getByTestId('term-input')).toBeVisible();
-    await page.getByTestId('term-input').fill('echo tether-terminal-ok');
+    await page.getByTestId('term-input').fill('echo deskhandler-terminal-ok');
     await page.getByTestId('term-run').click();
 
     // Output should eventually echo our marker.
-    await expect(page.getByTestId('term-output')).toContainText('tether-terminal-ok', { timeout: 15000 });
+    await expect(page.getByTestId('term-output')).toContainText('deskhandler-terminal-ok', { timeout: 15000 });
 
     // Quick keys must all be clickable.
     for (const label of ['Ctrl+C', 'Tab', 'Enter', 'Up', 'Down', 'clear']) {
@@ -133,6 +133,9 @@ test.describe('Tether', () => {
     await page.getByTestId('files-up').click();
 
     // Navigate into the Documents root and open the tether folder if present.
+    // 'tether' here is the repo's real directory name on disk (~/projects,
+    // Documents), not the product name — the checkout was not renamed, so the
+    // testid derived from the folder name must not be either.
     await page.getByTestId('root-Documents').click();
     const tether = page.getByTestId('entry-tether');
     if (await tether.count()) {

@@ -7,7 +7,7 @@
 //
 // Why this exists: the host captures ONE monitor and maps normalized input
 // onto that SAME monitor's rect within the virtual desktop. The C# side
-// (TetherHost.cs MoveAbsolute) computes, for virtual desktop V and selected
+// (DeskhandlerHost.cs MoveAbsolute) computes, for virtual desktop V and selected
 // monitor S:
 //
 //   vx = S.X + nx * S.W
@@ -201,7 +201,7 @@ test('monitor labels are 1-based and mark the primary', () => {
 // ---- the coordinate formula, mirrored in JS -------------------------------
 
 test('the host absolute-coordinate formula lands on the selected monitor', () => {
-  // Mirrors TetherHost.cs MoveAbsolute so the mapping can be reasoned about
+  // Mirrors DeskhandlerHost.cs MoveAbsolute so the mapping can be reasoned about
   // (and reviewed) without a Windows box.
   const toAbsolute = (n, S, V, axis) => {
     const [pos, size] = axis === 'x' ? [S.X, S.W] : [S.Y, S.H];

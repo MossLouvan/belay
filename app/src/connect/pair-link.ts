@@ -6,7 +6,7 @@
 // wire a workspace around. The format is documented in the host's copy, and
 // both suites cover the same cases so drift shows up as a test failure.
 //
-//   tether://pair?v=1&id=<uuid>&n=<label>&p=<platform>&c=<code>&a=<url>&a=<url>
+//   deskhandler://pair?v=1&id=<uuid>&n=<label>&p=<platform>&c=<code>&a=<url>&a=<url>
 
 export const PAIR_LINK_VERSION = '1';
 
@@ -34,8 +34,10 @@ export function parsePairLink(raw: string): ParsedPairLink | null {
     return null;
   }
 
-  if (url.protocol !== 'tether:') return null;
-  // `tether://pair?...` parses with host 'pair' and an empty pathname, so
+  // Both the current scheme and the pre-rename 'tether:' are ours: a QR
+  // printed (or photographed) before the rename must still pair this phone.
+  if (url.protocol !== 'deskhandler:' && url.protocol !== 'tether:') return null;
+  // `deskhandler://pair?...` parses with host 'pair' and an empty pathname, so
   // accept either shape rather than depending on which form the platform's URL
   // implementation produces.
   const isPair = url.hostname === 'pair' || url.pathname.replace(/\//g, '') === 'pair';

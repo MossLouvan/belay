@@ -7,11 +7,17 @@ build/
 web-build/
 .expo/
 .expo-shared/
+server/native/DeskhandlerHost.exe
+server/native/DeskhandlerHostMac
+# pre-rename helper binaries, still runnable until the next build:native
 server/native/TetherHost.exe
 server/native/TetherHostMac
 server/dist/
 
 # runtime state (contains device tokens)
+deskhandler-state.json
+server/deskhandler-state.json
+# pre-rename state, kept on disk after migration — same tokens inside
 tether-state.json
 server/tether-state.json
 
@@ -43,6 +49,8 @@ app/ios/
 app/android/
 
 # agent runtime state (session metadata + transcripts)
+deskhandler-agent.json
+server/deskhandler-agent.json
 tether-agent.json
 server/tether-agent.json
 agent-logs/

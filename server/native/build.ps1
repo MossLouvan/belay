@@ -1,4 +1,4 @@
-# Compiles TetherHost.cs into TetherHost.exe using the .NET Framework C#
+# Compiles DeskhandlerHost.cs into DeskhandlerHost.exe using the .NET Framework C#
 # compiler that ships with Windows. No SDK or NuGet restore required.
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -9,9 +9,9 @@ if (-not (Test-Path $csc)) {
 if (-not (Test-Path $csc)) { throw "csc.exe not found. Install the .NET Framework or run with the dotnet SDK." }
 
 # Every source in the helper, compiled in one csc invocation.
-$src = @('TetherHost.cs', 'TetherHostDisplays.cs', 'TetherHostWindows.cs') | ForEach-Object { Join-Path $here $_ }
+$src = @('DeskhandlerHost.cs', 'DeskhandlerHostDisplays.cs', 'DeskhandlerHostWindows.cs') | ForEach-Object { Join-Path $here $_ }
 foreach ($f in $src) { if (-not (Test-Path $f)) { throw "missing source: $f" } }
-$out = Join-Path $here 'TetherHost.exe'
+$out = Join-Path $here 'DeskhandlerHost.exe'
 
 $refs = @(
     'System.dll',

@@ -1,5 +1,5 @@
 // Wire protocol: one JSON object per line in on stdin, one JSON object per line
-// out on stdout. Identical contract to the Windows helper (TetherHost.cs) so the
+// out on stdout. Identical contract to the Windows helper (DeskhandlerHost.cs) so the
 // Node side (server/src/native.ts) needs no per-platform message handling.
 //
 // Everything arriving on stdin is untrusted. `Command` is the only way the rest

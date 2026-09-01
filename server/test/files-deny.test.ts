@@ -1,5 +1,5 @@
 // The deny layer on top of the root allow-list: places inside a root that
-// must never be served because they hold credentials — above all the Tether
+// must never be served because they hold credentials — above all the Deskhandler
 // install directory, whose state file carries every paired device's token.
 
 import { test } from 'node:test';
@@ -11,12 +11,16 @@ import { isDenied, readTextFile, listDir } from '../src/files.js';
 
 const HOME = homedir();
 
-test('the Tether install directory and its state file are denied', () => {
+test('the Deskhandler install directory and its state file are denied', () => {
   assert.equal(isDenied(process.cwd()), true);
-  assert.equal(isDenied(join(process.cwd(), 'tether-state.json')), true);
+  assert.equal(isDenied(join(process.cwd(), 'deskhandler-state.json')), true);
   assert.equal(isDenied(join(process.cwd(), 'src', 'index.ts')), true);
-  assert.equal(isDenied(join(HOME, 'Documents', 'elsewhere', 'tether-state.json')), true);
+  assert.equal(isDenied(join(HOME, 'Documents', 'elsewhere', 'deskhandler-state.json')), true);
   assert.equal(isDenied(join(HOME, 'Documents', 'elsewhere', 'TETHER-AGENT.JSON')), true);
+  // The pre-rename filenames stay denied: a machine that paired before the
+  // rename still has tether-state.json on disk, holding live tokens.
+  assert.equal(isDenied(join(HOME, 'Documents', 'elsewhere', 'tether-state.json')), true);
+  assert.equal(isDenied(join(HOME, 'Documents', 'elsewhere', 'deskhandler-agent.json')), true);
 });
 
 test('credential folders under home are denied, case-insensitively', () => {
@@ -30,7 +34,7 @@ test('credential folders under home are denied, case-insensitively', () => {
 test('ordinary project paths are not denied', () => {
   assert.equal(isDenied(join(HOME, 'Documents', 'project', 'README.md')), false);
   assert.equal(isDenied(join(HOME, 'Desktop')), false);
-  assert.equal(isDenied(join(HOME, '.tether-test-sandbox', 'ok.txt')), false);
+  assert.equal(isDenied(join(HOME, '.deskhandler-test-sandbox', 'ok.txt')), false);
   // A sibling that merely shares the prefix is not inside the denied dir.
   assert.equal(isDenied(process.cwd() + '-other'), false);
 });

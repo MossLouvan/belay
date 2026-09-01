@@ -24,6 +24,8 @@
 //    session, tool name, time left) and the one-line detail is opt-in for
 //    people on a self-hosted or access-controlled endpoint.
 
+import { productEnv } from './env.js';
+
 const HTTP_SCHEMES = new Set(['http:', 'https:']);
 
 /** Long enough for a slow self-hosted ntfy, short enough to never matter. */
@@ -85,42 +87,42 @@ const OFF: NotifyConfig = Object.freeze({
  * than into a webhook that silently never fires or fires somewhere strange.
  */
 export function loadNotifyConfig(env: Record<string, string | undefined> = process.env): NotifyConfig {
-  const raw = (env.TETHER_NOTIFY_URL || '').trim();
+  const raw = (productEnv('NOTIFY_URL', env) || '').trim();
   if (!raw) return OFF;
 
   let url: URL;
   try { url = new URL(raw); }
-  catch { return { ...OFF, disabledReason: 'TETHER_NOTIFY_URL is not a valid URL' }; }
+  catch { return { ...OFF, disabledReason: 'DESKHANDLER_NOTIFY_URL is not a valid URL' }; }
   if (!HTTP_SCHEMES.has(url.protocol)) {
-    return { ...OFF, disabledReason: 'TETHER_NOTIFY_URL must be http(s)' };
+    return { ...OFF, disabledReason: 'DESKHANDLER_NOTIFY_URL must be http(s)' };
   }
 
-  const fmtRaw = (env.TETHER_NOTIFY_FORMAT || 'ntfy').trim().toLowerCase();
+  const fmtRaw = (productEnv('NOTIFY_FORMAT', env) || 'ntfy').trim().toLowerCase();
   if (fmtRaw !== 'ntfy' && fmtRaw !== 'json') {
-    return { ...OFF, disabledReason: `unknown TETHER_NOTIFY_FORMAT "${fmtRaw}" (use ntfy or json)` };
+    return { ...OFF, disabledReason: `unknown DESKHANDLER_NOTIFY_FORMAT "${fmtRaw}" (use ntfy or json)` };
   }
 
   // Unknown event names are a config error, not something to guess around:
   // "approvals" quietly meaning "no notifications at all" would recreate the
   // silent-phone bug this module exists to fix.
-  const evRaw = (env.TETHER_NOTIFY_EVENTS || '').trim();
+  const evRaw = (productEnv('NOTIFY_EVENTS', env) || '').trim();
   const events = new Set<NotifyEventClass>();
   if (evRaw) {
     for (const part of evRaw.split(',').map((p) => p.trim().toLowerCase()).filter(Boolean)) {
       if (part !== 'approval' && part !== 'done' && part !== 'error') {
-        return { ...OFF, disabledReason: `unknown event "${part}" in TETHER_NOTIFY_EVENTS (use approval, done, error)` };
+        return { ...OFF, disabledReason: `unknown event "${part}" in DESKHANDLER_NOTIFY_EVENTS (use approval, done, error)` };
       }
       events.add(part);
     }
   }
   if (events.size === 0) for (const e of DEFAULT_EVENTS) events.add(e);
 
-  const detailRaw = (env.TETHER_NOTIFY_DETAIL || '').trim().toLowerCase();
+  const detailRaw = (productEnv('NOTIFY_DETAIL', env) || '').trim().toLowerCase();
   return {
     enabled: true,
     url: url.toString(),
     format: fmtRaw,
-    token: (env.TETHER_NOTIFY_TOKEN || '').trim(),
+    token: (productEnv('NOTIFY_TOKEN', env) || '').trim(),
     includeDetail: detailRaw === '1' || detailRaw === 'on' || detailRaw === 'true' || detailRaw === 'yes',
     events,
   };
@@ -157,7 +159,7 @@ export interface NotifyMessage {
  * being asked, how long is left — and, only when opted in, what exactly.
  */
 export function buildMessage(ev: NotifyEvent, includeDetail: boolean, now = Date.now()): NotifyMessage {
-  const link = `tether://agent?host=${encodeURIComponent(ev.hostId)}&session=${encodeURIComponent(ev.session.id)}`;
+  const link = `deskhandler://agent?host=${encodeURIComponent(ev.hostId)}&session=${encodeURIComponent(ev.session.id)}`;
   const who = `"${ev.session.title}"`;
   const detail = includeDetail && ev.detail
     ? ` — ${ev.detail.length > DETAIL_CAP ? ev.detail.slice(0, DETAIL_CAP) + '…' : ev.detail}`
@@ -353,7 +355,7 @@ export function notifyBannerLine(cfg: NotifyConfig = notifyConfig()): string {
   if (!cfg.enabled) {
     return cfg.disabledReason
       ? `OFF — ${cfg.disabledReason}`
-      : 'off — set TETHER_NOTIFY_URL to get pinged when Claude needs you (docs/AGENT.md)';
+      : 'off — set DESKHANDLER_NOTIFY_URL to get pinged when Claude needs you (docs/AGENT.md)';
   }
   const events = [...cfg.events].join('+');
   const detail = cfg.includeDetail ? 'with command detail' : 'metadata only';

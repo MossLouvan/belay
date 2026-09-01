@@ -100,7 +100,7 @@ export function voiceErrorMessage(code: string, detail?: string): string | null 
     case 'aborted':
       return null;
     case 'not-allowed':
-      return 'microphone or speech recognition access is off for Tether — allow both in Settings';
+      return 'microphone or speech recognition access is off for Deskhandler — allow both in Settings';
     case 'service-not-allowed':
       return RECOGNIZER_UNAVAILABLE_MESSAGE;
     case 'language-not-supported':
@@ -140,7 +140,7 @@ export function permissionProblem(
   mic: PermissionSnapshot | null,
   speech: PermissionSnapshot | null,
 ): string | null {
-  if (!mic?.granted) return 'microphone access is off for Tether — allow it in Settings to talk';
-  if (!speech?.granted) return 'speech recognition is off for Tether — allow it in Settings to talk';
+  if (!mic?.granted) return 'microphone access is off for Deskhandler — allow it in Settings to talk';
+  if (!speech?.granted) return 'speech recognition is off for Deskhandler — allow it in Settings to talk';
   return null;
 }

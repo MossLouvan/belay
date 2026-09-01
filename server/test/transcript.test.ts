@@ -44,7 +44,7 @@ test('transcriptEvents caps to the most recent events', () => {
 });
 
 test('readTail is bounded and drops the torn first line of a mid-file read', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tether-tail-'));
+  const dir = mkdtempSync(join(tmpdir(), 'deskhandler-tail-'));
   try {
     const file = join(dir, 'big.jsonl');
     const rows = Array.from({ length: 5000 }, (_, i) => line({ type: 'user', message: { content: `row ${i}` } }));
@@ -60,7 +60,7 @@ test('readTail is bounded and drops the torn first line of a mid-file read', () 
 });
 
 test('loadClaudeHistory finds the transcript by scanning project dirs', () => {
-  const root = mkdtempSync(join(tmpdir(), 'tether-hist-'));
+  const root = mkdtempSync(join(tmpdir(), 'deskhandler-hist-'));
   try {
     const projDir = join(root, '-tmp-p');
     mkdirSync(projDir);
@@ -74,7 +74,7 @@ test('loadClaudeHistory finds the transcript by scanning project dirs', () => {
 });
 
 test('a missing or corrupt transcript yields [], never a throw', () => {
-  const root = mkdtempSync(join(tmpdir(), 'tether-hist-'));
+  const root = mkdtempSync(join(tmpdir(), 'deskhandler-hist-'));
   try {
     assert.deepEqual(loadClaudeHistory('nope', root), []);
     assert.deepEqual(loadClaudeHistory('nope', join(root, 'not-a-root')), []);

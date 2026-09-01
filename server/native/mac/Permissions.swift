@@ -48,10 +48,10 @@ struct PermissionStatus {
 }
 
 enum Permissions {
-    /// Set `TETHER_MAC_NO_PROMPT=1` to suppress the one-time system dialogs
+    /// Set `DESKHANDLER_MAC_NO_PROMPT=1` to suppress the one-time system dialogs
     /// (useful when the helper runs unattended under launchd).
     private static var promptingEnabled: Bool {
-        ProcessInfo.processInfo.environment["TETHER_MAC_NO_PROMPT"] != "1"
+        productEnv("MAC_NO_PROMPT") != "1"
     }
 
     /// Whether we were started by launchd rather than from a terminal.
@@ -75,7 +75,7 @@ enum Permissions {
         if startedByLaunchd { return nodeBinaryPath }
         return ProcessInfo.processInfo.environment["TERM_PROGRAM"]
             ?? ProcessInfo.processInfo.environment["__CFBundleIdentifier"]
-            ?? "the app that launched the Tether server (usually Terminal)"
+            ?? "the app that launched the Deskhandler server (usually Terminal)"
     }
 
     /// Absolute path of the node binary running the server, for the + button.
@@ -88,15 +88,15 @@ enum Permissions {
         if proc_pidpath(parent, &buffer, UInt32(buffer.count)) > 0 {
             return String(cString: buffer)
         }
-        return "the node binary running the Tether server"
+        return "the node binary running the Deskhandler server"
     }
 
-    /// Test seam. `TETHER_MAC_FORCE_DENY=screen-recording,accessibility` makes
+    /// Test seam. `DESKHANDLER_MAC_FORCE_DENY=screen-recording,accessibility` makes
     /// the preflight report those grants as missing, so the denial path can be
     /// exercised on a machine where they are actually granted. It can only ever
     /// remove access, never add it.
     private static var forcedDenials: Set<String> {
-        let raw = ProcessInfo.processInfo.environment["TETHER_MAC_FORCE_DENY"] ?? ""
+        let raw = productEnv("MAC_FORCE_DENY") ?? ""
         return Set(raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
     }
 
@@ -147,7 +147,7 @@ enum Permissions {
             // background job, so naming a terminal here would send the user
             // looking for something that is not involved.
             message = """
-            macOS \(kind.rawValue) permission is not granted, and Tether was started by \
+            macOS \(kind.rawValue) permission is not granted, and Deskhandler was started by \
             launchd so macOS cannot prompt for it. Open System Settings → \(kind.settingsPane), \
             click +, and add this binary directly: \(owner). Then run: \
             npm run autostart -- remove && npm run autostart. Terminal, Files and System \
@@ -157,7 +157,7 @@ enum Permissions {
             message = """
             macOS \(kind.rawValue) permission is not granted. \
             Open System Settings → \(kind.settingsPane) and enable "\(owner)" \
-            (the permission is granted to the app that launched the Tether server, not to node itself), \
+            (the permission is granted to the app that launched the Deskhandler server, not to node itself), \
             then fully quit and reopen it and restart the server.
             """
         }

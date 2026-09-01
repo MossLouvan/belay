@@ -1,4 +1,4 @@
-// The Agent tab's home: Tether's own sessions, the "On this PC" list of Claude
+// The Agent tab's home: Deskhandler's own sessions, the "On this PC" list of Claude
 // Code sessions found on disk to resume, and the project picker for a new one.
 //
 // Ledger anatomy (docs/DESIGN.md §7.3): the sessions are three-line rows with
@@ -90,7 +90,7 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
     if (live.current) setRefreshing(false);
   }, [refresh]);
 
-  // Resume a session Claude Code already has on disk: attach it to Tether
+  // Resume a session Claude Code already has on disk: attach it to Deskhandler
   // (with the approval flow) and open it.
   const attach = useCallback(async (d: DiscoveredSession) => {
     if (attaching) return;
@@ -163,7 +163,7 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
           testID="agent-unavailable"
           status="warn"
           title="Claude Code is not on this PC"
-          message="The claude CLI was not found on the computer's PATH. Install Claude Code there, then restart the Tether host."
+          message="The claude CLI was not found on the computer's PATH. Install Claude Code there, then restart the Deskhandler host."
           style={{ marginBottom: theme.space.md }}
         />
       ) : null}
@@ -317,7 +317,7 @@ function SessionRow({
         <IconButton
           testID={`agent-del-${s.id}`}
           accessibilityLabel={`Remove ${s.title}`}
-          accessibilityHint="Forgets this session in Tether; the transcript stays on the PC"
+          accessibilityHint="Forgets this session in Deskhandler; the transcript stays on the PC"
           variant="plain"
           hapticTone={null}
           onPress={() => onRemove(s.id)}

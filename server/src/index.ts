@@ -1,4 +1,4 @@
-// Tether host agent entry point.
+// Deskhandler host agent entry point.
 //
 // HTTP + WebSocket server the phone app talks to. REST for pairing, files,
 // system stats and input; WebSockets for the live screen stream and terminal.
@@ -46,8 +46,9 @@ import { registerRecordingRoutes } from './recording-routes.js';
 import { handleHandoff } from './handoff.js';
 import { registerAgentApprovalRoutes } from './agent-routes.js';
 import { registerImageRoutes } from './image-routes.js';
+import { productEnv } from './env.js';
 
-const PORT = Number(process.env.TETHER_PORT || 8787);
+const PORT = Number(productEnv('PORT') || 8787);
 
 /**
  * Browser origins allowed to call the agent.
@@ -67,7 +68,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
 ] as const;
 
 function allowedOrigins(): readonly string[] {
-  const configured = process.env.TETHER_ALLOWED_ORIGINS;
+  const configured = productEnv('ALLOWED_ORIGINS');
   if (!configured) return DEFAULT_ALLOWED_ORIGINS;
   return configured.split(',').map((o) => o.trim()).filter(Boolean);
 }
@@ -113,7 +114,7 @@ if (deviceCount() === 0) ensureCode();
 
 if (testCodeActive()) {
   console.warn(
-    '[pairing] TETHER_TEST_CODE is set: the pairing code is fixed and reusable, ' +
+    '[pairing] DESKHANDLER_TEST_CODE is set: the pairing code is fixed and reusable, ' +
     'and expiry and single-use are both disabled. This is for automated tests only.',
   );
 }
@@ -550,7 +551,7 @@ app.post('/agent/sessions', auth, (req, res) => {
 });
 
 // Every Claude Code session found on this machine (terminal-started included)
-// that Tether hasn't already wrapped. Previews only — never full transcripts.
+// that Deskhandler hasn't already wrapped. Previews only — never full transcripts.
 app.get('/agent/discovered', auth, (_req, res) => {
   try { res.json({ sessions: discoverSessions(attachedClaudeIds()) }); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -933,7 +934,7 @@ server.on('error', (e: NodeJS.ErrnoException) => {
     console.error(`
   Port ${PORT} is already in use.
 
-  Most likely the Tether agent is already running — in which case your computer
+  Most likely the Deskhandler agent is already running — in which case your computer
   is already reachable and there is nothing to do. Check with:
 
       curl -s http://127.0.0.1:${PORT}/health
@@ -945,7 +946,7 @@ server.on('error', (e: NodeJS.ErrnoException) => {
 
   To run on a different port instead:
 
-      TETHER_PORT=8788 npm start
+      DESKHANDLER_PORT=8788 npm start
 `);
     process.exit(1);
   }
@@ -954,7 +955,7 @@ server.on('error', (e: NodeJS.ErrnoException) => {
   Not allowed to bind port ${PORT}. Ports below 1024 need elevated privileges;
   pick a higher one:
 
-      TETHER_PORT=8787 npm start
+      DESKHANDLER_PORT=8787 npm start
 `);
     process.exit(1);
   }
@@ -1002,7 +1003,7 @@ setInterval(() => {
     // A rotated code gets a fresh failure budget; the old code's budget died
     // with it.
     pairGuard.resetCodeBudget();
-    console.log(`  New pairing code: ${c.code}   (enter this in the Tether app)`);
+    console.log(`  New pairing code: ${c.code}   (enter this in the Deskhandler app)`);
   }
 }, CODE_REFRESH_INTERVAL_MS).unref();
 

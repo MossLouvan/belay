@@ -92,17 +92,19 @@ test('an upgrade plan that was never probed stays honest: untried', () => {
 // ---- reopenPairingCommand -------------------------------------------------
 
 test('the reopen instruction uses rm on mac and del on windows', () => {
-  assert.equal(reopenPairingCommand('darwin'), 'cd server\nrm tether-state.json\nnpm start');
-  assert.equal(reopenPairingCommand('win32'), 'cd server\ndel tether-state.json\nnpm start');
+  assert.equal(reopenPairingCommand('darwin'),
+    'cd server\nrm -f deskhandler-state.json tether-state.json\nnpm start');
+  assert.equal(reopenPairingCommand('win32'),
+    'cd server\ndel deskhandler-state.json tether-state.json\nnpm start');
 });
 
 test('an unknown platform gets the unix form', () => {
-  assert.match(reopenPairingCommand(undefined), /rm tether-state\.json/);
+  assert.match(reopenPairingCommand(undefined), /rm -f deskhandler-state\.json tether-state\.json/);
 });
 
 test('the reopen instruction never mentions the test-code back door', () => {
   for (const platform of ['darwin', 'win32', undefined]) {
-    assert.doesNotMatch(reopenPairingCommand(platform), /TETHER_TEST_CODE/);
+    assert.doesNotMatch(reopenPairingCommand(platform), /TEST_CODE/);
   }
 });
 

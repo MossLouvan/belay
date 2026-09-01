@@ -38,7 +38,7 @@ test('extractMeta trims previews to 120 chars and survives no matches', () => {
 });
 
 function makeFixtures() {
-  const root = mkdtempSync(join(tmpdir(), 'tether-discover-'));
+  const root = mkdtempSync(join(tmpdir(), 'deskhandler-discover-'));
   const projects = join(root, 'projects');
   const proj = join(projects, 'C--fake-proj');
   mkdirSync(proj, { recursive: true });
@@ -82,5 +82,5 @@ test('scanSessions applies exclusion before the cap', () => {
 });
 
 test('scanSessions returns [] for a missing root', () => {
-  assert.deepEqual(scanSessions(join(tmpdir(), 'tether-no-such-root'), new Set()), []);
+  assert.deepEqual(scanSessions(join(tmpdir(), 'deskhandler-no-such-root'), new Set()), []);
 });

@@ -13,8 +13,8 @@ test('windows defaults to PowerShell with the original flags', () => {
   assert.deepEqual([...spec.args], ['-NoLogo', '-NoProfile']);
 });
 
-test('windows honours TETHER_SHELL=cmd via ComSpec', () => {
-  const env = { ComSpec: 'C:\\Windows\\system32\\cmd.exe', TETHER_SHELL: 'cmd' } as NodeJS.ProcessEnv;
+test('windows honours DESKHANDLER_SHELL=cmd via ComSpec', () => {
+  const env = { ComSpec: 'C:\\Windows\\system32\\cmd.exe', DESKHANDLER_SHELL: 'cmd' } as NodeJS.ProcessEnv;
   const spec = resolveShell(env, 'win32');
   assert.equal(spec.file, 'C:\\Windows\\system32\\cmd.exe');
   assert.deepEqual([...spec.args], []);
@@ -38,8 +38,15 @@ test('darwin falls back to /bin/zsh when $SHELL is unset', () => {
   assert.equal(resolveShell({} as NodeJS.ProcessEnv, 'darwin').file, '/bin/zsh');
 });
 
-test('TETHER_SHELL overrides $SHELL on posix', () => {
+test('the legacy TETHER_SHELL is still honoured', () => {
+  // Set in a shell profile before the rename; dropping it would silently
+  // change which shell the Terminal tab opens.
   const env = { SHELL: '/bin/zsh', TETHER_SHELL: '/bin/sh' } as NodeJS.ProcessEnv;
+  assert.equal(resolveShell(env, 'darwin').file, '/bin/sh');
+});
+
+test('DESKHANDLER_SHELL overrides $SHELL on posix', () => {
+  const env = { SHELL: '/bin/zsh', DESKHANDLER_SHELL: '/bin/sh' } as NodeJS.ProcessEnv;
   assert.equal(resolveShell(env, 'darwin').file, '/bin/sh');
 });
 

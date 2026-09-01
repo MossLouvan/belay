@@ -5,18 +5,18 @@ attached to it. Windows and macOS both treat one as a real screen: you can drag
 windows onto it, maximise on it, and set its resolution. Nobody can see it.
 
 That is exactly what a remote client wants. Opening a *physical* display in the
-Tether desktop client takes over a screen someone at that computer is looking
+Deskhandler desktop client takes over a screen someone at that computer is looking
 at — your cursor becomes their cursor. Open a virtual one and the remote
 session gets a workspace of its own, side by side with whoever is using the
 machine.
 
-Tether does not install a driver for you. It detects the ones you install, and
+Deskhandler does not install a driver for you. It detects the ones you install, and
 labels them, so the desktop client can offer the right screen by default.
 
-## How Tether decides a display is virtual
+## How Deskhandler decides a display is virtual
 
 The native helper reports what the OS says about each display and judges
-nothing (`server/native/TetherHostDisplays.cs`, `server/native/mac/DisplayIdentity.swift`).
+nothing (`server/native/DeskhandlerHostDisplays.cs`, `server/native/mac/DisplayIdentity.swift`).
 The classification happens in `server/src/displays.ts`, on two signals:
 
 - **The Windows device interface path.** A physical panel enumerates under
@@ -44,7 +44,7 @@ Any IddCx indirect display driver works. Two that are commonly used:
 
 - **[Virtual Display Driver](https://github.com/itsmikethetech/Virtual-Display-Driver)** —
   open source, actively maintained, configurable resolutions and refresh rates.
-  Installs as a root-enumerated device, so Tether identifies it structurally
+  Installs as a root-enumerated device, so Deskhandler identifies it structurally
   rather than by name.
 - **[Parsec VDD](https://github.com/nomi-san/parsec-vdd)** — the driver Parsec
   ships, usable on its own. Its adapter reports as "Parsec Virtual Display
@@ -53,7 +53,7 @@ Any IddCx indirect display driver works. Two that are commonly used:
 Both need an administrator install and a signed driver package; follow the
 project's own instructions rather than a copy of them here, which would go
 stale. After installing, the new display appears in **Settings → System →
-Display** and Tether picks it up on the next `/screen/info` call.
+Display** and Deskhandler picks it up on the next `/screen/info` call.
 
 Set its resolution to something your client can actually show — a 4K virtual
 display streamed to a 1080p window costs the host encoding time for pixels

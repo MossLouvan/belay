@@ -60,7 +60,7 @@ export function TailscaleStep({ hostName, detail, onRetry, busy }: TailscaleStep
       <Txt variant="caption" tone="dim">
         {hostName} answered on its regular address, but its Tailscale address did not — even
         after several tries. That usually means Tailscale is off or signed out on this phone.
-        With it on, Tether connects with no pairing code — at home or anywhere else.
+        With it on, Deskhandler connects with no pairing code — at home or anywhere else.
       </Txt>
 
       <Button label="Open Tailscale" onPress={open} fullWidth />

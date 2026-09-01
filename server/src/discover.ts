@@ -1,5 +1,5 @@
 // Discovery of every Claude Code session on this machine — not just the ones
-// Tether started. Claude Code persists one JSONL transcript per session under
+// Deskhandler started. Claude Code persists one JSONL transcript per session under
 // ~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl; we scan those, read
 // only the head of each file (transcripts can be tens of MB), and recover the
 // real cwd + the first user prompt so sessions are recognizable in a list.

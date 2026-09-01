@@ -21,6 +21,9 @@ import {
   DeviceStore, emptyStore, parseStore, migrateLegacy, LegacyConnection,
 } from './model';
 
+// Deliberately still 'tether.*' after the rename to Deskhandler: this key is
+// already on the owner's phone, and renaming it would throw away every saved
+// computer and token — pairing all over again to honour a new spelling.
 const STORE_KEY = 'tether.devices.v1';
 
 /** The pre-v1 keys. Read once during migration, then removed. */
@@ -35,6 +38,7 @@ const useKeychain = Platform.OS !== 'web';
 
 /** SecureStore keys may only contain [A-Za-z0-9._-]; computer ids are freer. */
 function secureKey(id: string): string {
+  // Still the 'tether.' prefix: the keychain entries were written under it.
   return 'tether.token.' + id.replace(/[^A-Za-z0-9._-]/g, '_');
 }
 

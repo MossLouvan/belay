@@ -1,4 +1,4 @@
-// Tether native host helper (compiled).
+// Deskhandler native host helper (compiled).
 //
 // A long-lived console process. The Node server writes one JSON command per
 // line to stdin; we write one JSON reply per line to stdout. All screen capture
@@ -154,7 +154,7 @@ static class Native
     }
 }
 
-static class TetherHost
+static class DeskhandlerHost
 {
     static JavaScriptSerializer J = new JavaScriptSerializer();
     static ImageCodecInfo jpeg;

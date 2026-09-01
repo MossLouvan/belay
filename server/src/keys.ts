@@ -1,3 +1,5 @@
+import { productEnv } from './env.js';
+
 // Maps the key names the app sends to the host platform's key codes, and
 // modifier names to their codes. Anything not in the map is handled as literal
 // text by the caller instead.
@@ -87,12 +89,12 @@ export const DARWIN_VK: Record<string, number> = {
  * would send SIGINT to the foreground process, which is both surprising and
  * destructive.
  *
- * Set `TETHER_MAC_CTRL=control` to send literal Control instead (the right
+ * Set `DESKHANDLER_MAC_CTRL=control` to send literal Control instead (the right
  * choice if you mostly drive a terminal). Either way, `rawctrl` always sends
  * literal Control and `cmd` always sends Command, so both are reachable
  * whichever default is configured.
  */
-const ctrlMapsToCommand = (process.env.TETHER_MAC_CTRL || 'cmd').toLowerCase() !== 'control';
+const ctrlMapsToCommand = (productEnv('MAC_CTRL') || 'cmd').toLowerCase() !== 'control';
 const CTRL_TARGET = ctrlMapsToCommand ? MAC_MODIFIER.command : MAC_MODIFIER.control;
 
 export const DARWIN_MOD_VK: Record<string, number> = {

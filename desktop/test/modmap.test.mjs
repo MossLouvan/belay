@@ -4,7 +4,7 @@
 // must exist in the host's MOD_VK table (an unknown name is silently dropped
 // server-side, so the chord arrives without its modifier), and a map bound
 // for a Mac host must never say `ctrl` — that name is rewritten by the host's
-// own TETHER_MAC_CTRL remap, and two remaps deciding the same keystroke is
+// own DESKHANDLER_MAC_CTRL remap, and two remaps deciding the same keystroke is
 // how a keyboard becomes unpredictable.
 
 import { test } from 'node:test';
@@ -55,7 +55,7 @@ test('windows driving mac: Ctrl becomes ⌘ and literal Control stays reachable'
 
 test('windows driving mac, verbatim: literal Control, not the host remap', () => {
   // `rawctrl`, never `ctrl`: verbatim must mean what it says even on a host
-  // whose TETHER_MAC_CTRL default would rewrite `ctrl` into Command.
+  // whose DESKHANDLER_MAC_CTRL default would rewrite `ctrl` into Command.
   const map = modifierMap(false, 'darwin', 'verbatim');
   assert.deepEqual(roles(map), ['rawctrl', 'alt', 'cmd', 'shift']);
 });
@@ -99,7 +99,7 @@ test('a mac host is only ever spoken to in unambiguous spellings', () => {
   for (const clientIsMac of [true, false]) {
     for (const mode of ['remap', 'verbatim']) {
       const map = modifierMap(clientIsMac, 'darwin', mode);
-      assert.ok(!roles(map).includes('ctrl'), 'ctrl is the name TETHER_MAC_CTRL rewrites');
+      assert.ok(!roles(map).includes('ctrl'), 'ctrl is the name DESKHANDLER_MAC_CTRL rewrites');
       assert.ok(!roles(map).includes('meta'));
     }
   }

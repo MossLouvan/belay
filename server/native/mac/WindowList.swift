@@ -1,5 +1,5 @@
 // Per-window enumeration, capture and raise for the macOS helper — the
-// counterpart of TetherHostWindows.cs, answering the same three commands with
+// counterpart of DeskhandlerHostWindows.cs, answering the same three commands with
 // the same wire shapes so the server and the desktop client stay
 // platform-agnostic.
 //
@@ -16,7 +16,7 @@
 //                              of ScreenCaptureKit's SCScreenshotManager, which
 //                              requires macOS 14 — above this helper's 13.0
 //                              deployment target — so this is the path that
-//                              works on every macOS Tether supports. Both need
+//                              works on every macOS Deskhandler supports. Both need
 //                              the Screen Recording grant.
 //   Accessibility (AXUIElement) raising a window. There is no CoreGraphics call
 //                              for it: the window belongs to another process,

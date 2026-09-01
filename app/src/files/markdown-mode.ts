@@ -7,6 +7,9 @@
 
 export type MarkdownMode = 'fancy' | 'raw';
 
+// Still 'tether.*' after the rename: the preference is already persisted under
+// this key, and silently forgetting it would make the toggle feel broken —
+// the exact failure the persistence exists to avoid.
 export const MARKDOWN_MODE_KEY = 'tether.filesMarkdownMode';
 
 /**

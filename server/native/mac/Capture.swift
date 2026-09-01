@@ -69,7 +69,7 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
 
     init(displayID: CGDirectDisplayID) {
         self.displayID = displayID
-        self.sampleQueue = DispatchQueue(label: "tether.capture.\(displayID)", qos: .userInitiated)
+        self.sampleQueue = DispatchQueue(label: "deskhandler.capture.\(displayID)", qos: .userInitiated)
         super.init()
     }
 

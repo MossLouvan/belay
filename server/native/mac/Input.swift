@@ -74,9 +74,9 @@ enum InputSpace: String {
     /// The union of all displays — matches the Windows helper's MOUSEEVENTF_VIRTUALDESK.
     case virtualDesktop = "virtual"
 
-    /// `TETHER_MAC_INPUT_SPACE=virtual` restores Windows-identical behaviour.
+    /// `DESKHANDLER_MAC_INPUT_SPACE=virtual` restores Windows-identical behaviour.
     static var configured: InputSpace {
-        let raw = ProcessInfo.processInfo.environment["TETHER_MAC_INPUT_SPACE"]?.lowercased() ?? ""
+        let raw = productEnv("MAC_INPUT_SPACE")?.lowercased() ?? ""
         return InputSpace(rawValue: raw) ?? .primary
     }
 }
@@ -101,7 +101,7 @@ final class InputController {
     private var heldButtons: Set<MouseButton> = []
 
     private var wheelDelta: Double {
-        guard let raw = ProcessInfo.processInfo.environment["TETHER_MAC_WHEEL_DELTA"],
+        guard let raw = productEnv("MAC_WHEEL_DELTA"),
               let value = Double(raw), value.isFinite, value > 0 else {
             return Self.defaultWheelDelta
         }

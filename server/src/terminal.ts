@@ -9,6 +9,8 @@ import { existsSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 
+import { productEnv } from './env.js';
+
 export interface TermSession {
   write(data: string): void;
   resize(cols: number, rows: number): void;
@@ -66,8 +68,8 @@ function usableShellPath(candidate: string | undefined): string | null {
 }
 
 function posixShellFile(env: NodeJS.ProcessEnv, plat: NodeJS.Platform): string {
-  // TETHER_SHELL is the explicit override; $SHELL is the user's login shell.
-  const explicit = usableShellPath(env.TETHER_SHELL);
+  // DESKHANDLER_SHELL is the explicit override; $SHELL is the user's login shell.
+  const explicit = usableShellPath(productEnv('SHELL', env as Record<string, string | undefined>));
   if (explicit) return explicit;
   const login = usableShellPath(env.SHELL);
   if (login) return login;
@@ -79,14 +81,14 @@ function posixShellFile(env: NodeJS.ProcessEnv, plat: NodeJS.Platform): string {
  * The shell to spawn on this platform.
  *
  * Windows keeps its original behaviour exactly: PowerShell unless
- * TETHER_SHELL=cmd, in which case ComSpec.
+ * DESKHANDLER_SHELL=cmd, in which case ComSpec.
  */
 export function resolveShell(
   env: NodeJS.ProcessEnv = process.env,
   plat: NodeJS.Platform = process.platform,
 ): ShellSpec {
   if (plat === 'win32') {
-    const file = env.ComSpec && env.TETHER_SHELL === 'cmd' ? env.ComSpec : WINDOWS_POWERSHELL;
+    const file = env.ComSpec && productEnv('SHELL', env as Record<string, string | undefined>) === 'cmd' ? env.ComSpec : WINDOWS_POWERSHELL;
     const args = file.toLowerCase().includes('powershell') ? WINDOWS_POWERSHELL_ARGS : [];
     return { file, args };
   }
@@ -219,7 +221,7 @@ export async function createTerminal(cols: number, rows: number): Promise<TermSe
   // A shell that cannot be spawned at all must surface to the user, not vanish.
   child.on('error', (err) => {
     console.error(`[terminal] failed to spawn ${file}: ${err.message}`);
-    const message = `\r\n[tether] could not start shell "${file}": ${err.message}\r\n`;
+    const message = `\r\n[deskhandler] could not start shell "${file}": ${err.message}\r\n`;
     dataCbs.forEach((cb) => cb(message));
     exitCbs.forEach((cb) => cb());
   });

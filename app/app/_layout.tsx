@@ -24,7 +24,7 @@ function Boot() {
   const theme = useTheme();
   return (
     <View
-      accessibilityLabel="Starting Tether"
+      accessibilityLabel="Starting Deskhandler"
       style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.bg }}
     >
       <LogoMark />

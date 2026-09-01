@@ -1,6 +1,6 @@
-// Tether native host helper for macOS.
+// Deskhandler native host helper for macOS.
 //
-// The mirror image of server/native/TetherHost.cs: a long-lived console process
+// The mirror image of server/native/DeskhandlerHost.cs: a long-lived console process
 // that reads one JSON command per line from stdin and writes one JSON reply per
 // line to stdout. server/src/native.ts owns the process and matches replies by
 // `id`. The command set is identical across platforms.

@@ -7,7 +7,7 @@
 // changes — so the monitor being viewed and the monitor receiving input can
 // never drift apart.
 //
-// For reference, the host (TetherHost.cs MoveAbsolute) maps a normalized tap
+// For reference, the host (DeskhandlerHost.cs MoveAbsolute) maps a normalized tap
 // (nx, ny) onto the selected monitor S inside the virtual desktop V as:
 //
 //   vx = S.X + nx * S.W                       // pixel within the desktop

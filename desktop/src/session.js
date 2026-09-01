@@ -28,6 +28,31 @@ export function sessionPath(userDataDir) {
 }
 
 /**
+ * Copy the session saved before the rename to Deskhandler, once.
+ *
+ * Electron derives the userData directory from the package name, so renaming
+ * tether-desktop → deskhandler-desktop silently pointed the client at a fresh,
+ * empty directory — and "empty session" renders as "not paired", making the
+ * rename cost the owner a re-pair for no reason. The old file is copied, not
+ * moved: an old build may still be on this machine and pointed at it, and a
+ * saved token is the last thing to delete speculatively.
+ */
+export function migrateLegacySession(userDataDir, legacyUserDataDir) {
+  try {
+    const current = sessionPath(userDataDir);
+    let hasCurrent = true;
+    try { readFileSync(current); } catch { hasCurrent = false; }
+    if (hasCurrent) return false;
+    const legacy = readSession(legacyUserDataDir);
+    if (!legacy.host && !legacy.token) return false;
+    writeSession(userDataDir, legacy);
+    return true;
+  } catch {
+    return false; // worst case is the pairing screen, which always works
+  }
+}
+
+/**
  * Read the saved session, or the empty one.
  *
  * Every failure — no file yet, unreadable, corrupt JSON, a JSON array where an

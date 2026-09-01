@@ -34,8 +34,8 @@ async function makeRepo(name: string): Promise<string> {
 }
 
 before(async () => {
-  outside = await mkdtemp(join(tmpdir(), 'tether-changes-outside-'));
-  sandbox = join(HOME, '.tether-test-changes');
+  outside = await mkdtemp(join(tmpdir(), 'deskhandler-changes-outside-'));
+  sandbox = join(HOME, '.deskhandler-test-changes');
   await rm(sandbox, { recursive: true, force: true });
   await mkdir(sandbox, { recursive: true });
 });

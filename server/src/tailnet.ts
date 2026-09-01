@@ -22,6 +22,8 @@ import { existsSync } from 'node:fs';
 
 import { isCgnatAddress } from './addresses.js';
 
+import { productEnv } from './env.js';
+
 const WHOIS_TIMEOUT_MS = 3000;
 const SELF_CACHE_MS = 60 * 1000;
 
@@ -35,7 +37,7 @@ let cliPath: string | null | undefined;
 /** The tailscale CLI, or null when it is not installed. Resolved once. */
 export function tailscaleCli(): string | null {
   if (cliPath !== undefined) return cliPath;
-  const configured = process.env.TETHER_TAILSCALE_CLI;
+  const configured = productEnv('TAILSCALE_CLI');
   if (configured && existsSync(configured)) return (cliPath = configured);
   for (const c of CLI_CANDIDATES) if (existsSync(c)) return (cliPath = c);
   // Fall back to PATH lookup; `execFile` will fail cleanly if it is missing.
@@ -119,7 +121,7 @@ export async function whois(ip: string): Promise<Whois | null> {
 
 /** Whether code-less tailnet pairing is enabled at all (on by default). */
 export function tailnetPairingEnabled(): boolean {
-  return process.env.TETHER_TAILNET_PAIR !== '0';
+  return productEnv('TAILNET_PAIR') !== '0';
 }
 
 /**

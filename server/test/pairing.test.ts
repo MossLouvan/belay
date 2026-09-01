@@ -9,18 +9,18 @@ import {
   testCode, testCodeActive,
 } from '../src/pairing.js';
 
-const savedTestCode = process.env.TETHER_TEST_CODE;
+const savedTestCode = process.env.DESKHANDLER_TEST_CODE;
 const savedNodeEnv = process.env.NODE_ENV;
 
 beforeEach(() => {
-  delete process.env.TETHER_TEST_CODE;
+  delete process.env.DESKHANDLER_TEST_CODE;
   delete process.env.NODE_ENV;
   burnCode();
 });
 
 afterEach(() => {
-  if (savedTestCode === undefined) delete process.env.TETHER_TEST_CODE;
-  else process.env.TETHER_TEST_CODE = savedTestCode;
+  if (savedTestCode === undefined) delete process.env.DESKHANDLER_TEST_CODE;
+  else process.env.DESKHANDLER_TEST_CODE = savedTestCode;
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = savedNodeEnv;
   burnCode();
@@ -82,8 +82,8 @@ test('code comparison rejects a wrong-length input without throwing', () => {
   assert.equal(consumeCode('12345678901234'), false);
 });
 
-test('TETHER_TEST_CODE is honoured outside production', () => {
-  process.env.TETHER_TEST_CODE = '123456';
+test('DESKHANDLER_TEST_CODE is honoured outside production', () => {
+  process.env.DESKHANDLER_TEST_CODE = '123456';
   assert.equal(testCode(), '123456');
   assert.equal(testCodeActive(), true);
 
@@ -92,10 +92,22 @@ test('TETHER_TEST_CODE is honoured outside production', () => {
   assert.equal(consumeCode('123456'), true, 'the test code is deliberately reusable');
 });
 
-test('TETHER_TEST_CODE is REFUSED in production', () => {
+test('the legacy TETHER_TEST_CODE still works outside production', () => {
+  // The Playwright suite and any dev scripts written before the rename set
+  // the old name; both spellings must fix the code or CI breaks on update.
+  delete process.env.DESKHANDLER_TEST_CODE;
+  process.env.TETHER_TEST_CODE = '654321';
+  try {
+    assert.equal(testCode(), '654321');
+  } finally {
+    delete process.env.TETHER_TEST_CODE;
+  }
+});
+
+test('DESKHANDLER_TEST_CODE is REFUSED in production', () => {
   // The whole point: an env var inherited from CI or a stray .env must not be
   // able to silently disable pairing security on a real machine.
-  process.env.TETHER_TEST_CODE = '123456';
+  process.env.DESKHANDLER_TEST_CODE = '123456';
   process.env.NODE_ENV = 'production';
 
   assert.equal(testCode(), null);
@@ -106,9 +118,9 @@ test('TETHER_TEST_CODE is REFUSED in production', () => {
   assert.equal(consumeCode('123456'), false, 'the forced code must not pair in production');
 });
 
-test('a malformed TETHER_TEST_CODE is ignored', () => {
+test('a malformed DESKHANDLER_TEST_CODE is ignored', () => {
   for (const bad of ['abc', '12345', '1234567', '']) {
-    process.env.TETHER_TEST_CODE = bad;
+    process.env.DESKHANDLER_TEST_CODE = bad;
     assert.equal(testCode(), null, `${bad} must not be accepted as a test code`);
   }
 });

@@ -57,7 +57,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
       <View style={{ gap: theme.space.md }}>
         <Heading>Scan to connect</Heading>
         <Txt>
-          Tether needs the camera to read the pairing code shown on your computer.
+          Deskhandler needs the camera to read the pairing code shown on your computer.
           It is only used while this screen is open.
         </Txt>
         <Row gap="sm">
@@ -73,7 +73,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
         {!permission.canAskAgain ? (
           <Caption>
             Camera access was declined before, so it has to be re-enabled in iOS
-            Settings under Tether.
+            Settings under Deskhandler.
           </Caption>
         ) : null}
       </View>
@@ -104,7 +104,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
       {sawUnknownCode ? (
         <Banner
           status="warn"
-          title="That code is not a Tether code"
+          title="That code is not a Deskhandler code"
           message="Start the host agent on your computer — it prints the code to scan."
         />
       ) : null}

@@ -1,4 +1,4 @@
-# Tether Design Tokens — "Ledger"
+# Deskhandler Design Tokens — "Ledger"
 
 Concrete values for `app/src/theme.ts`, mapped onto the existing token names so the
 migration is mechanical wherever possible. Read [DESIGN.md](./DESIGN.md) first for the

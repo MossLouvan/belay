@@ -1,4 +1,4 @@
-# Install (or remove) the Tether host agent as a Windows scheduled task, so the
+# Install (or remove) the Deskhandler host agent as a Windows scheduled task, so the
 # machine is reachable from your phone whenever it is awake and logged in.
 #
 # Usage:
@@ -27,22 +27,40 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$TaskName  = 'TetherHostAgent'
+$TaskName  = 'DeskhandlerHostAgent'
+# The pre-rename task name. Left registered, it would race the new task for the
+# port at every logon — so install and remove both clean it up.
+$LegacyTaskName = 'TetherHostAgent'
 $ServerDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
-function Get-TetherTask {
+function Get-HostTask {
     Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+}
+
+function Get-LegacyHostTask {
+    Get-ScheduledTask -TaskName $LegacyTaskName -ErrorAction SilentlyContinue
+}
+
+function Remove-LegacyHostTask {
+    if ($null -ne (Get-LegacyHostTask)) {
+        Stop-ScheduledTask -TaskName $LegacyTaskName -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $LegacyTaskName -Confirm:$false
+        Write-Host "Removed pre-rename scheduled task '$LegacyTaskName'"
+    }
 }
 
 switch ($Action) {
     'status' {
-        $task = Get-TetherTask
+        $task = Get-HostTask
         if ($null -eq $task) {
-            Write-Host 'Tether autostart: not installed'
+            Write-Host 'Deskhandler autostart: not installed'
+            if ($null -ne (Get-LegacyHostTask)) {
+                Write-Host "note: the pre-rename task '$LegacyTaskName' is still registered; re-run install to replace it"
+            }
         }
         else {
             $info = Get-ScheduledTaskInfo -TaskName $TaskName
-            Write-Host 'Tether autostart: INSTALLED'
+            Write-Host 'Deskhandler autostart: INSTALLED'
             Write-Host "  State        : $($task.State)"
             Write-Host "  Last run     : $($info.LastRunTime)"
             Write-Host "  Last result  : $($info.LastTaskResult)"
@@ -50,12 +68,18 @@ switch ($Action) {
         return
     }
     'remove' {
-        if ($null -ne (Get-TetherTask)) {
+        $removed = $false
+        if ($null -ne (Get-HostTask)) {
             Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
             Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
             Write-Host "Removed scheduled task '$TaskName'"
+            $removed = $true
         }
-        else {
+        if ($null -ne (Get-LegacyHostTask)) {
+            Remove-LegacyHostTask
+            $removed = $true
+        }
+        if (-not $removed) {
             Write-Host 'Nothing to remove.'
         }
         Write-Host 'Your pairings are untouched - they live in the agent state file.'
@@ -92,10 +116,11 @@ Write-Host "==> node             : $($node.Source)"
 # so delete the shim an old install may have left behind.
 Remove-Item (Join-Path $ServerDir 'scripts\start-hidden.vbs') -ErrorAction SilentlyContinue
 
-if ($null -ne (Get-TetherTask)) {
+if ($null -ne (Get-HostTask)) {
     Write-Host '==> Removing the existing task first'
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
+Remove-LegacyHostTask
 
 # A plain console task opens a window at every logon, and Task Scheduler has no
 # setting that reliably suppresses a child console on its own. So node runs
@@ -132,7 +157,7 @@ Register-ScheduledTask -TaskName $TaskName `
                        -Trigger $trigger `
                        -Principal $principal `
                        -Settings $settings `
-                       -Description 'Runs the Tether host agent so this PC is reachable from the Tether app.' | Out-Null
+                       -Description 'Runs the Deskhandler host agent so this PC is reachable from the Deskhandler app.' | Out-Null
 
 Write-Host "==> Registered scheduled task '$TaskName'"
 
@@ -140,7 +165,7 @@ Start-ScheduledTask -TaskName $TaskName
 Start-Sleep -Seconds 2
 $info = Get-ScheduledTaskInfo -TaskName $TaskName
 Write-Host ''
-Write-Host 'Tether will now start automatically when you log in.'
+Write-Host 'Deskhandler will now start automatically when you log in.'
 Write-Host "  Last result: $($info.LastTaskResult)  (0 means started cleanly)"
 
 Write-Host @'

@@ -1,4 +1,4 @@
-# Tether
+# Deskhandler
 
 Control your Mac or Windows PC from your iPhone. Self-hosted, private, no
 third-party relay.
@@ -127,7 +127,7 @@ token like a password to the machine.
   the Tailscale daemon (`tailscale whois`) who is connecting, and pairs any
   device signed in to the *same* Tailscale account with no code. Nobody outside
   your tailnet can reach the port, so re-pairing from anywhere is safe. Set
-  `TETHER_TAILNET_PAIR=0` to insist on the code anyway.
+  `DESKHANDLER_TAILNET_PAIR=0` to insist on the code anyway.
 - On LAN, pairing codes are single-use and expire after 5 minutes. Wrong guesses lock
   the client out after 5 attempts, and 20 wrong guesses from anywhere burn the
   code, so a 6-digit code cannot be brute-forced.
@@ -137,17 +137,20 @@ token like a password to the machine.
 - Every screen, input, terminal and file route requires a valid bearer token in
   the `Authorization` header. WebSockets use a one-shot ticket so the token
   never appears in a URL.
-- Browser origins are an explicit allow-list (`TETHER_ALLOWED_ORIGINS`), and
+- Browser origins are an explicit allow-list (`DESKHANDLER_ALLOWED_ORIGINS`), and
   every request's `Host` header must be an IP literal, `localhost`, a `.local`
-  name, or a name in `TETHER_HOSTS` — this defeats DNS rebinding, where a
+  name, or a name in `DESKHANDLER_HOSTS` — this defeats DNS rebinding, where a
   malicious web page re-points its own domain at your PC to sidestep CORS.
 - The file API is read-only, confined to an allow-list of roots, resolves
-  symlinks before checking, and additionally refuses the Tether install
+  symlinks before checking, and additionally refuses the Deskhandler install
   directory (whose state file holds the device tokens) and credential folders
   such as `~/.ssh`, `~/.aws` and `~/.claude`.
 - Transport is plain HTTP: use it over Tailscale or a network you trust. On an
   open network anyone on the segment could read the token off the wire.
-- `tether-state.json` (device tokens) is written owner-only and gitignored.
+- `deskhandler-state.json` (device tokens) is written owner-only and gitignored.
+  A host that paired back when the product was called Tether keeps its
+  pairings: the old `tether-state.json` is read once, carried forward on the
+  next change, and never deleted.
 
 ## License
 
