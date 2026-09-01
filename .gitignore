@@ -37,7 +37,13 @@ app/ios/
 app/android/
 
 # harness / editor
-.claude/
+# Claude session scratch stays local, but the agent loop's definitions are
+# part of the repo — they are what makes /idea-loop reproducible for anyone
+# who clones it.
+.claude/*
+!.claude/agents/
+!.claude/workflows/
+!.claude/commands/
 .DS_Store
 Thumbs.db
 .env
