@@ -119,6 +119,17 @@ export async function whois(ip: string): Promise<Whois | null> {
   try { return parseWhois(await run(['whois', '--json', ip])); } catch { return null; }
 }
 
+/**
+ * Raw `tailscale status --json`, or null when the CLI is missing, the daemon
+ * is stopped, or the call times out. Exposed for peer discovery
+ * (discover-hosts.ts) so it never grows a second Tailscale integration; the
+ * null collapses every failure into one honest fact — "Tailscale could not be
+ * asked" — which is all a caller can act on anyway.
+ */
+export async function tailscaleStatus(): Promise<string | null> {
+  try { return await run(['status', '--json']); } catch { return null; }
+}
+
 /** Whether code-less tailnet pairing is enabled at all (on by default). */
 export function tailnetPairingEnabled(): boolean {
   return productEnv('TAILNET_PAIR') !== '0';

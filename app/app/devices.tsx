@@ -22,6 +22,7 @@ import { isReachableFromAnywhere } from '../src/devices/model';
 import type { SavedDevice } from '../src/devices/model';
 import { useReachability } from '../src/devices/reachability';
 import type { Reachability } from '../src/devices/reachability';
+import { DiscoveredSection } from '../src/devices/discovered-section';
 
 /** How a platform is described in the list. */
 function platformLabel(device: SavedDevice): string {
@@ -44,11 +45,28 @@ function statusText(state: Reachability | undefined, isActive: boolean): string 
 
 export default function Devices() {
   const theme = useTheme();
-  const { devices, active, switchTo, forget, phase, activeUrl } = useConnection();
+  const { devices, active, addDevice, switchTo, forget, phase, activeUrl } = useConnection();
   const { byId, refresh } = useReachability(devices);
 
   const [pendingForget, setPendingForget] = useState<SavedDevice | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
+  /** Bumped by Refresh so the tailnet look-around re-runs with the probes. */
+  const [discoveryNonce, setDiscoveryNonce] = useState(0);
+
+  const refreshAll = useCallback(() => {
+    refresh();
+    setDiscoveryNonce((n) => n + 1);
+  }, [refresh]);
+
+  /**
+   * Save a discovered computer and land on its screen — the identical
+   * outcome the typed and scanned pairing flows produce, so one tap here is
+   * the same as a full pairing there.
+   */
+  const onDiscoveredAdd = useCallback(async (device: SavedDevice) => {
+    await addDevice(device);
+    router.replace('/(tabs)/screen');
+  }, [addDevice]);
 
   const onPick = useCallback(async (device: SavedDevice) => {
     haptic('light');
@@ -181,6 +199,16 @@ export default function Devices() {
           <LedgerRow label="Connected over" value={describeUrl(activeUrl)} valueTone="dim" rule={false} />
         ) : null}
 
+        {/* The connected computer can see the rest of the tailnet, so adding
+            the other machine becomes one tap instead of typing an address. */}
+        <DiscoveredSection
+          saved={devices}
+          connected={isActiveConnected(phase)}
+          viaLabel={active?.label ?? 'your computer'}
+          nonce={discoveryNonce}
+          onAdd={onDiscoveredAdd}
+        />
+
         {lanOnly.length > 0 ? (
           <Banner
             status="warn"
@@ -198,7 +226,7 @@ export default function Devices() {
           <View style={{ flex: 1 }}>
             <Button label="Add a computer" variant="secondary" fullWidth onPress={() => router.push({ pathname: '/', params: { add: '1' } })} />
           </View>
-          <Button label="Refresh" variant="ghost" onPress={refresh} />
+          <Button label="Refresh" variant="ghost" onPress={refreshAll} />
         </Row>
 
         <Caption>

@@ -42,6 +42,7 @@ import {
 import { createProject, defaultProjectParent } from './projects.js';
 import { collectChanges } from './changes.js';
 import { discoverSessions } from './discover.js';
+import { discoverPeerHosts } from './discover-hosts.js';
 import { registerRecordingRoutes } from './recording-routes.js';
 import { handleHandoff } from './handoff.js';
 import { registerAgentApprovalRoutes } from './agent-routes.js';
@@ -376,6 +377,16 @@ app.get('/files/raw', auth, async (req, res) => {
   // A phone that navigates away mid-download must not leave an open fd behind.
   res.on('close', () => stream.destroy());
   stream.pipe(res);
+});
+
+/**
+ * Other Belay hosts on this host's own tailnet, so the phone can offer them as
+ * one-tap adds. Authed: only an already-paired phone may ask this host to
+ * enumerate the owner's machines and probe them.
+ */
+app.get('/discover/hosts', auth, async (req, res) => {
+  try { res.json(await discoverPeerHosts(PORT, req.socket.remoteAddress)); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/screen/info', auth, async (_req, res) => {

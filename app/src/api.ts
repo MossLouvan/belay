@@ -156,6 +156,31 @@ export async function checkHost(host: string, signal?: AbortSignal): Promise<Hos
   }
 }
 
+/** A Belay host the connected computer found on its own tailnet. */
+export interface DiscoveredHost {
+  id: string;
+  label: string;
+  platform: string;
+  /** The peer's name on the tailnet, e.g. "DESKTOP-BB4FRER". */
+  tailnetName: string;
+  /** The address the reporting host reached it on. */
+  url: string;
+  addresses: AdvertisedAddress[];
+}
+
+/**
+ * What /discover/hosts saw. Three distinct empty shapes on purpose — each has
+ * a different fix, so they must never collapse into one "nothing found".
+ */
+export interface DiscoverHostsReply {
+  tailscale: boolean;
+  /** When tailscale is false: what actually failed on the computer. */
+  detail?: string;
+  /** The owner's other online tailnet devices, however many ran Belay. */
+  peers: number;
+  hosts: DiscoveredHost[];
+}
+
 export interface PairResult {
   readonly host: string;
   readonly token: string;
@@ -389,6 +414,8 @@ export const api = {
   devices: () => get<{ devices: PairedDevice[] }>('/devices'),
   /** Re-read this computer's addresses, so a changed IP is learned. */
   addresses: () => get<{ addresses: AdvertisedAddress[]; reachableFromAnywhere: boolean }>('/addresses'),
+  /** Ask the connected computer which other Belay hosts share its tailnet. */
+  discoverHosts: () => get<DiscoverHostsReply>('/discover/hosts'),
   /** Rename this computer on the host, so every phone sees the new name. */
   setLabel: (label: string) => post<{ ok: boolean; label: string }>('/label', { label }),
   /**
