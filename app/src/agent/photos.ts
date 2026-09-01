@@ -72,7 +72,7 @@ export function parseImagesSent(raw: unknown): { files: number; relDir: string }
 // user. Camera denial is a Settings problem — iOS only re-asks there.
 
 export const CAMERA_DENIED_MESSAGE =
-  'camera access is off for Deskhandler — allow it in Settings to take a photo for Claude';
+  'camera access is off for Belay — allow it in Settings to take a photo for Claude';
 
 export function uploadFailureMessage(detail: string): string {
   return `the photos could not be sent — ${detail}`;

@@ -57,13 +57,13 @@ async function pair() {
     // which machine this is rather than just "desktop".
     const result = await call('/pair', {
       method: 'POST',
-      body: { code, deviceName: `${navigator.platform || 'Desktop'} (Deskhandler desktop)` },
+      body: { code, deviceName: `${navigator.platform || 'Desktop'} (Belay desktop)` },
     });
     state.token = String(result.token || '');
     state.label = String(result.name || origin);
     if (!state.token) throw new Error('the host did not return a token');
     await refreshPlatform();
-    await window.deskhandler.saveSession(state);
+    await window.belay.saveSession(state);
     await showPaired();
   } catch (e) {
     showError(e.message);
@@ -115,7 +115,7 @@ function renderKeymap() {
 
 async function showPaired() {
   await refreshPlatform();
-  await window.deskhandler.saveSession(state);
+  await window.belay.saveSession(state);
   renderKeymap();
   $('pair').hidden = true;
   $('paired').hidden = false;
@@ -163,7 +163,7 @@ async function showPaired() {
     const open = document.createElement('button');
     open.textContent = 'Open';
     if (display === preferred) open.className = 'primary';
-    open.addEventListener('click', () => window.deskhandler.openDisplay(state, display));
+    open.addEventListener('click', () => window.belay.openDisplay(state, display));
     right.append(open);
 
     row.append(left, right);
@@ -210,7 +210,7 @@ async function showWindows() {
     const all = document.createElement('button');
     all.textContent = `Open all ${openable.length}`;
     all.className = 'actions';
-    all.addEventListener('click', () => window.deskhandler.openWindows(state, openable));
+    all.addEventListener('click', () => window.belay.openWindows(state, openable));
     hint.after(all);
   }
 
@@ -232,7 +232,7 @@ async function showWindows() {
     open.textContent = 'Open';
     open.title = windowLabel(remote);
     open.disabled = remote.minimized || remote.w <= 0;
-    open.addEventListener('click', () => window.deskhandler.openWindows(state, [remote]));
+    open.addEventListener('click', () => window.belay.openWindows(state, [remote]));
 
     row.append(left, open);
     list.append(row);
@@ -242,7 +242,7 @@ async function showWindows() {
 $('refresh-windows').addEventListener('click', showWindows);
 $('keymap-remap').addEventListener('change', async (event) => {
   state.keymap = event.target.checked ? 'remap' : 'verbatim';
-  await window.deskhandler.saveSession(state);
+  await window.belay.saveSession(state);
   renderKeymap();
 });
 $('connect').addEventListener('click', pair);
@@ -255,14 +255,14 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') showError('');
 });
 $('forget').addEventListener('click', async () => {
-  await window.deskhandler.clearSession();
+  await window.belay.clearSession();
   location.reload();
 });
 
 // A saved session skips straight to the display list. The token is only proven
 // good by a call that uses it, so a stale one (revoked on the host) falls back
 // to the pairing form rather than showing an empty, broken list.
-window.deskhandler.readSession().then(async (saved) => {
+window.belay.readSession().then(async (saved) => {
   if (!saved?.host || !saved?.token) return;
   Object.assign(state, saved);
   try {

@@ -169,7 +169,7 @@ export const KEYS: readonly KeySpec[] = Object.freeze([
   { id: 'Shot', label: 'Shot', key: 'printscreen', mods: ['win'], macKey: '3', macMods: ['cmd', 'shift'], action: 'Screenshot the whole screen' },
   { id: 'Quit', label: 'Quit', key: 'f4', mods: ['alt'], macKey: 'q', macMods: ['cmd'], action: 'Quit the app in front' },
   // Lock needs LITERAL Control on a Mac (⌃⌘Q); plain 'ctrl' would be
-  // remapped to Command by the host's default DESKHANDLER_MAC_CTRL, so the spec
+  // remapped to Command by the host's default BELAY_MAC_CTRL, so the spec
   // says 'rawctrl', which always means Control (server/src/keys.ts).
   { id: 'Lock', label: 'Lock', key: 'l', mods: ['win'], macKey: 'q', macMods: ['rawctrl', 'cmd'], action: 'Lock the computer' },
 
@@ -178,7 +178,7 @@ export const KEYS: readonly KeySpec[] = Object.freeze([
   // Word labels throughout: the chords change shape entirely between hosts
   // (Ctrl+← vs Win+Ctrl+←, ⌃↑ vs Win+Tab). Spaces need LITERAL Control on a
   // Mac, exactly like Lock — plain 'ctrl' would be remapped to Command by the
-  // host's default DESKHANDLER_MAC_CTRL, and ⌘← is "line start", not "next space".
+  // host's default BELAY_MAC_CTRL, and ⌘← is "line start", not "next space".
   { id: 'DeskPrev', label: 'Desk ←', key: 'left', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Previous desktop' },
   { id: 'DeskNext', label: 'Desk →', key: 'right', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Next desktop' },
   { id: 'Overview', label: 'Views', key: 'tab', mods: ['win'], macKey: 'up', macMods: ['rawctrl'], action: 'See every window and desktop' },

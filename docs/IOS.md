@@ -1,6 +1,6 @@
 # Installing on your iPhone
 
-Use a **development build**. It is the only option that fully works for Deskhandler,
+Use a **development build**. It is the only option that fully works for Belay,
 and the section below explains why before covering the alternatives.
 
 ## Option A — development build (recommended, free)
@@ -31,7 +31,7 @@ simply cannot load, and there is nothing to fix: your project is on `latest`,
 Expo Go is on `latest`, and they still disagree. The error claims something
 needs updating when both sides are already current.
 
-**2. It cannot apply config plugins**, and Deskhandler depends on them. Config
+**2. It cannot apply config plugins**, and Belay depends on them. Config
 plugins modify the *native* project at build time; Expo Go is a pre-built
 binary, so it ignores them. In Expo Go all of this is silently inert:
 
@@ -86,7 +86,7 @@ eas build --platform ios --profile preview
 eas submit --platform ios --latest
 ```
 
-EAS builds in the cloud, so this works whether your Deskhandler host is a Mac or a
+EAS builds in the cloud, so this works whether your Belay host is a Mac or a
 Windows PC. Then add yourself as a TestFlight tester in
 [App Store Connect](https://appstoreconnect.apple.com/) and install from the
 TestFlight app. `eas.json` already has `preview` (internal distribution) and
@@ -110,7 +110,9 @@ Then scan the QR with the Camera app.
 
 ## Bundle identifier
 
-The app is `com.mosslouvan.tether` in `app.json` (the pre-rename bundle id,
-kept so updates keep landing on the installed app). Change it to your own
-reverse-domain id before an EAS build if you like; it must be unique across the
-App Store.
+The app is `com.mosslouvan.belay` in `app.json`. It moved with the
+Belay rename once re-pairing was accepted: to iOS a new bundle id is a
+new app, so the first build under this id installs alongside any old Tether
+build (delete that one) and starts with no saved computers. Change the id to
+your own reverse-domain one before an EAS build if you like; it must be unique
+across the App Store.

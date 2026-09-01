@@ -7,10 +7,10 @@
 
 export type MarkdownMode = 'fancy' | 'raw';
 
-// Still 'tether.*' after the rename: the preference is already persisted under
-// this key, and silently forgetting it would make the toggle feel broken —
-// the exact failure the persistence exists to avoid.
-export const MARKDOWN_MODE_KEY = 'tether.filesMarkdownMode';
+// 'belay.*' since the bundle id moved and wiped the old container.
+// The prefix is load-bearing from the first launch on: silently forgetting
+// the choice is the exact failure the persistence exists to avoid.
+export const MARKDOWN_MODE_KEY = 'belay.filesMarkdownMode';
 
 /**
  * Whatever storage held, made safe. Rendered is the default — the point of the

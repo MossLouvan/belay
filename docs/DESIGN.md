@@ -1,6 +1,6 @@
-# Deskhandler Design System — "Ledger"
+# Belay Design System — "Ledger"
 
-Specification for the visual rebuild of the Deskhandler app (Expo / React Native, iOS + web).
+Specification for the visual rebuild of the Belay app (Expo / React Native, iOS + web).
 Companion file: [DESIGN-TOKENS.md](./DESIGN-TOKENS.md) holds the concrete `theme.ts` values.
 
 **Acceptance criteria, in the owner's words:** it must look like the reference
@@ -67,7 +67,7 @@ Stated so they can be applied to a screen this document never saw.
    things are shouting, demote one.
 3. **Mono is the voice of the machine, sans is the voice of the app.** Everything that
    comes *from* the computer — hostnames, paths, sizes, percentages, timestamps, terminal
-   output, IPs — is set in mono. Everything Deskhandler itself says — titles, buttons, prose,
+   output, IPs — is set in mono. Everything Belay itself says — titles, buttons, prose,
    guidance — is set in the sans. This one rule makes data findable at a glance.
 4. **One accent, and it must be earned.** Orange marks exactly three things: the current
    selection, the primary action, and live activity (a streaming cursor, a pulsing live
@@ -81,7 +81,7 @@ Stated so they can be applied to a screen this document never saw.
    things may right-align: values in ledger rows, numerals in tables, and trailing
    actions. Nothing is ever centred except content inside the machine panels and the
    connect screen's brand block.
-7. **Density with rhythm.** Deskhandler is a utility; it is allowed to be dense. Density is
+7. **Density with rhythm.** Belay is a utility; it is allowed to be dense. Density is
    made legible by *repetition* — identical row heights, identical label styles,
    identical rules — not by spacing everything out.
 8. **Findable beats minimal.** When restraint would hide a control someone needs, the
@@ -393,7 +393,7 @@ AGENT                              (title)
 ──────────────────────────────────
 SESSIONS                    + NEW  (label section marker; "+ NEW" is a label
 ────────────────────────────────── button in accent, right-aligned)
-● RUNNING          DESKHANDLER          (row: status label in status colour, project
+● RUNNING          BELAY          (row: status label in status colour, project
   Fix the stream reconnect bug     mono right; second line = task in body,
   12 MIN AGO · 3 APPROVALS WAITING  third = micro in textFaint; approvals
 ──────────────────────────────────  waiting shown in warn, counts are real)
@@ -423,7 +423,7 @@ hero element.
 
 | Screen | Eye lands on | Enforced by |
 |---|---|---|
-| Connect | "DESKHANDLER" brand block, then the address input | `display` 40/900; the input is the only `surface` fill on the page |
+| Connect | "BELAY" brand block, then the address input | `display` 40/900; the input is the only `surface` fill on the page |
 | Devices | The last-used computer's name | Its row alone uses `subheading` 700; others body |
 | Screen | The live video (or its empty state, §9) | It is the only machine panel; chrome around it is `label`-sized |
 | Terminal | Last line of output / the command input | Input dock is anchored bottom with the only accent button ("RUN") |
@@ -510,7 +510,7 @@ closest to the target aesthetic; the work is deleting the card around the output
 
 ## 11. Discoverability doctrine
 
-Minimal editorial design earns its calm by removing affordances; Deskhandler is a dense
+Minimal editorial design earns its calm by removing affordances; Belay is a dense
 utility. These rules resolve the conflict, and **rule 8 of §2 governs: findable wins.**
 
 ### 11.1 How a control announces itself — the rule

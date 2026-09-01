@@ -1,7 +1,7 @@
 // Classifying the host's monitors.
 //
 // The native helpers report what the OS says about each display and judge
-// nothing (see native/DeskhandlerHostDisplays.cs and native/mac/DisplayIdentity.swift).
+// nothing (see native/BelayHostDisplays.cs and native/mac/DisplayIdentity.swift).
 // The judgement happens here, for two reasons: it is the kind of string
 // heuristic that needs correcting as new virtual-display drivers appear, and
 // changing it here costs a server restart rather than a recompile of a native

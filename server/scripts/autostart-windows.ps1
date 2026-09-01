@@ -1,4 +1,4 @@
-# Install (or remove) the Deskhandler host agent as a Windows scheduled task, so the
+# Install (or remove) the Belay host agent as a Windows scheduled task, so the
 # machine is reachable from your phone whenever it is awake and logged in.
 #
 # Usage:
@@ -27,7 +27,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$TaskName  = 'DeskhandlerHostAgent'
+$TaskName  = 'BelayHostAgent'
 # The pre-rename task name. Left registered, it would race the new task for the
 # port at every logon — so install and remove both clean it up.
 $LegacyTaskName = 'TetherHostAgent'
@@ -53,14 +53,14 @@ switch ($Action) {
     'status' {
         $task = Get-HostTask
         if ($null -eq $task) {
-            Write-Host 'Deskhandler autostart: not installed'
+            Write-Host 'Belay autostart: not installed'
             if ($null -ne (Get-LegacyHostTask)) {
                 Write-Host "note: the pre-rename task '$LegacyTaskName' is still registered; re-run install to replace it"
             }
         }
         else {
             $info = Get-ScheduledTaskInfo -TaskName $TaskName
-            Write-Host 'Deskhandler autostart: INSTALLED'
+            Write-Host 'Belay autostart: INSTALLED'
             Write-Host "  State        : $($task.State)"
             Write-Host "  Last run     : $($info.LastRunTime)"
             Write-Host "  Last result  : $($info.LastTaskResult)"
@@ -157,7 +157,7 @@ Register-ScheduledTask -TaskName $TaskName `
                        -Trigger $trigger `
                        -Principal $principal `
                        -Settings $settings `
-                       -Description 'Runs the Deskhandler host agent so this PC is reachable from the Deskhandler app.' | Out-Null
+                       -Description 'Runs the Belay host agent so this PC is reachable from the Belay app.' | Out-Null
 
 Write-Host "==> Registered scheduled task '$TaskName'"
 
@@ -165,7 +165,7 @@ Start-ScheduledTask -TaskName $TaskName
 Start-Sleep -Seconds 2
 $info = Get-ScheduledTaskInfo -TaskName $TaskName
 Write-Host ''
-Write-Host 'Deskhandler will now start automatically when you log in.'
+Write-Host 'Belay will now start automatically when you log in.'
 Write-Host "  Last result: $($info.LastTaskResult)  (0 means started cleanly)"
 
 Write-Host @'

@@ -1,13 +1,13 @@
 // The pairing link encoded into the QR code the host prints at startup.
 //
 // Typing an IP address and then a 6-digit code is the clunkiest part of setting
-// Deskhandler up, and it is the one step that still requires being at the computer.
+// Belay up, and it is the one step that still requires being at the computer.
 // A QR removes the typing entirely: the phone scans it and has the address, the
 // code, and the machine's identity in one go.
 //
 // Format:
 //
-//   deskhandler://pair?v=1&id=<uuid>&n=<label>&p=<platform>&c=<code>&a=<url>&a=<url>
+//   belay://pair?v=1&id=<uuid>&n=<label>&p=<platform>&c=<code>&a=<url>&a=<url>
 //
 // Every address the host knows is included as a repeated `a` parameter, so the
 // phone can save all of them and race them later — the same reason /health
@@ -19,10 +19,10 @@
 
 import { HostAddress } from './addresses.js';
 
-// 'deskhandler' since the rename, with the old scheme still parsed: links that
+// 'belay' since the rename, with the old scheme still parsed: links that
 // already left this machine — QR photos, ntfy notifications sitting on a lock
 // screen — cannot be recalled, so they must keep working.
-export const PAIR_LINK_SCHEME = 'deskhandler';
+export const PAIR_LINK_SCHEME = 'belay';
 export const LEGACY_PAIR_LINK_SCHEME = 'tether';
 export const PAIR_LINK_VERSION = '1';
 
@@ -82,7 +82,7 @@ export function parsePairLink(raw: string): ParsedPairLink | null {
   }
 
   if (url.protocol !== `${PAIR_LINK_SCHEME}:` && url.protocol !== `${LEGACY_PAIR_LINK_SCHEME}:`) return null;
-  // `deskhandler://pair?...` parses with host 'pair' and empty pathname, so accept
+  // `belay://pair?...` parses with host 'pair' and empty pathname, so accept
   // either shape rather than depending on which the platform's URL gives us.
   const isPair = url.hostname === 'pair' || url.pathname.replace(/\//g, '') === 'pair';
   if (!isPair) return null;

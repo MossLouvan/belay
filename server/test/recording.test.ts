@@ -21,10 +21,10 @@ let project = '';
 let outside = '';
 
 before(async () => {
-  project = join(homedir(), '.deskhandler-test-recordings');
+  project = join(homedir(), '.belay-test-recordings');
   await rm(project, { recursive: true, force: true });
   await mkdir(project, { recursive: true });
-  outside = await mkdtemp(join(tmpdir(), 'deskhandler-rec-outside-'));
+  outside = await mkdtemp(join(tmpdir(), 'belay-rec-outside-'));
 });
 
 after(async () => {
@@ -126,7 +126,7 @@ test('discard resets everything and writes nothing to disk', async () => {
   assert.equal(status.state, 'idle');
   assert.equal(status.frames, 0);
   assert.equal(status.bytes, 0);
-  assert.equal(existsSync(join(project, '.deskhandler')), false);
+  assert.equal(existsSync(join(project, '.belay')), false);
 });
 
 test('deliver writes ≤ maxKept ordered frames into the project and resets', async () => {
@@ -140,7 +140,7 @@ test('deliver writes ≤ maxKept ordered frames into the project and resets', as
   assert.ok(delivery.frames.length <= RECORDING.maxKept);
   assert.ok(delivery.frames.length > 0);
   assert.equal(delivery.frames.length, Math.min(before, RECORDING.maxKept));
-  assert.match(delivery.relDir, /^\.deskhandler[\\/]recordings[\\/]rec-\d{8}-\d{6}$/);
+  assert.match(delivery.relDir, /^\.belay[\\/]recordings[\\/]rec-\d{8}-\d{6}$/);
   assert.match(delivery.prompt, /watch the flicker/);
 
   const written = (await readdir(delivery.dir)).sort();
@@ -161,7 +161,7 @@ test('deliver refuses a project outside the allowed roots', async () => {
 });
 
 test('pruneRecordings keeps the newest maxSaved and ignores foreign files', async () => {
-  const recordingsDir = join(project, '.deskhandler', 'recordings');
+  const recordingsDir = join(project, '.belay', 'recordings');
   await rm(recordingsDir, { recursive: true, force: true });
   await mkdir(recordingsDir, { recursive: true });
   const names = [

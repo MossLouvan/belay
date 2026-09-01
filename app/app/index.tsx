@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../src/connection';
 import { checkHost, pair } from '../src/api';
@@ -32,6 +32,7 @@ import type { PairingDeadEnd } from '../src/connect/dead-end';
 import { detectDeadEnd } from '../src/connect/dead-end';
 import { NoCodeStep } from '../src/connect/no-code-step';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
+import { connectLanding } from '../src/connect/landing';
 
 type Stage = 'host' | 'scan' | 'code' | 'success';
 
@@ -117,6 +118,10 @@ export default function Connect() {
   const { ready, connection, addDevice, devices, phase } = useConnection();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
+  // Set by "Add a computer": the redirect below must stand down, or the
+  // button that led here just bounces its user straight back.
+  const { add } = useLocalSearchParams<{ add?: string }>();
+  const adding = add === '1';
 
   const [hostText, setHostText] = useState('');
   const [touched, setTouched] = useState(false);
@@ -164,19 +169,28 @@ export default function Connect() {
   // Already set up from a previous launch. One reachable computer goes straight
   // in; anything else lands on the computer list, which is the only screen that
   // can explain "your Mac did not answer" and offer somewhere to go next.
+  // Unless the user came here on purpose to pair another machine — the
+  // decision itself lives in connect/landing.ts, where node can test it.
   useEffect(() => {
-    if (!ready) return;
-    if (connection) { router.replace('/(tabs)/screen'); return; }
-    if (devices.length > 0 && phase !== 'connecting') router.replace('/devices');
-  }, [ready, connection, devices.length, phase]);
+    const dest = connectLanding({
+      ready,
+      connected: connection !== null,
+      deviceCount: devices.length,
+      connecting: phase === 'connecting',
+      adding,
+    });
+    if (dest) router.replace(dest);
+  }, [ready, connection, devices.length, phase, adding]);
 
   useEffect(() => {
     let live = true;
     loadRecentHosts().then((list) => {
       if (!live) return;
       setRecent(list);
-      // Pre-fill the last computer used, so the common case is one tap.
-      if (list.length > 0) setHostText((current) => current || prettyHost(list[0]));
+      // Pre-fill the last computer used, so the common case is one tap — but
+      // not when adding another: the most recent host is by definition the
+      // machine already paired, the one address that cannot be the answer.
+      if (!adding && list.length > 0) setHostText((current) => current || prettyHost(list[0]));
     });
     return () => {
       live = false;
@@ -485,6 +499,15 @@ export default function Connect() {
             <ScanPrompt onPress={() => setStage('scan')} />
             <SetupSteps />
             <AwayFromHomeNote />
+            {adding && router.canGoBack() ? (
+              <Button
+                testID="cancel-add"
+                label={'\u2039 Back to My Computers'}
+                variant="ghost"
+                fullWidth
+                onPress={() => router.back()}
+              />
+            ) : null}
           </>
         ) : null}
 

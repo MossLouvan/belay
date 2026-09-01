@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 import { APP_ORIGIN, APP_PORT, CODE, HOST_PORT } from './test-env';
 
-// Drives the web build of the Deskhandler app against a live host agent. Both are
+// Drives the web build of the Belay app against a live host agent. Both are
 // started by Playwright (see webServer below) so `npm test` needs no manual
 // setup — previously it did, which is how a set of stale failure artifacts came
 // to sit in the repo describing a bug that had already been fixed, with nobody
@@ -25,15 +25,15 @@ export default defineConfig({
       // The host agent under test, on its own port (see test-env) so a run
       // never collides with — or pairs against — a hand-started agent.
       //
-      // DESKHANDLER_TEST_CODE fixes the pairing code so the suite can pair
+      // BELAY_TEST_CODE fixes the pairing code so the suite can pair
       // repeatedly; the agent refuses that variable when NODE_ENV=production
       // and warns loudly at boot, so it cannot quietly weaken a real deployment.
       //
-      // DESKHANDLER_STATE_FILE keeps test pairings out of the developer's real state
+      // BELAY_STATE_FILE keeps test pairings out of the developer's real state
       // file — without it every run appends a live token to whatever state file
       // belongs to the directory the agent started in.
       //
-      // Never reused: a stray agent would be running without DESKHANDLER_TEST_CODE,
+      // Never reused: a stray agent would be running without BELAY_TEST_CODE,
       // and every pair step would fail against it.
       command: 'npm start',
       cwd: '../server',
@@ -43,10 +43,10 @@ export default defineConfig({
       stdout: 'pipe',
       stderr: 'pipe',
       env: {
-        DESKHANDLER_PORT: String(HOST_PORT),
-        DESKHANDLER_TEST_CODE: CODE,
-        DESKHANDLER_STATE_FILE: 'test-state.json',
-        DESKHANDLER_ALLOWED_ORIGINS: `${APP_ORIGIN},http://localhost:${APP_PORT}`,
+        BELAY_PORT: String(HOST_PORT),
+        BELAY_TEST_CODE: CODE,
+        BELAY_STATE_FILE: 'test-state.json',
+        BELAY_ALLOWED_ORIGINS: `${APP_ORIGIN},http://localhost:${APP_PORT}`,
       },
     },
     {

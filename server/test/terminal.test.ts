@@ -13,8 +13,8 @@ test('windows defaults to PowerShell with the original flags', () => {
   assert.deepEqual([...spec.args], ['-NoLogo', '-NoProfile']);
 });
 
-test('windows honours DESKHANDLER_SHELL=cmd via ComSpec', () => {
-  const env = { ComSpec: 'C:\\Windows\\system32\\cmd.exe', DESKHANDLER_SHELL: 'cmd' } as NodeJS.ProcessEnv;
+test('windows honours BELAY_SHELL=cmd via ComSpec', () => {
+  const env = { ComSpec: 'C:\\Windows\\system32\\cmd.exe', BELAY_SHELL: 'cmd' } as NodeJS.ProcessEnv;
   const spec = resolveShell(env, 'win32');
   assert.equal(spec.file, 'C:\\Windows\\system32\\cmd.exe');
   assert.deepEqual([...spec.args], []);
@@ -45,8 +45,8 @@ test('the legacy TETHER_SHELL is still honoured', () => {
   assert.equal(resolveShell(env, 'darwin').file, '/bin/sh');
 });
 
-test('DESKHANDLER_SHELL overrides $SHELL on posix', () => {
-  const env = { SHELL: '/bin/zsh', DESKHANDLER_SHELL: '/bin/sh' } as NodeJS.ProcessEnv;
+test('BELAY_SHELL overrides $SHELL on posix', () => {
+  const env = { SHELL: '/bin/zsh', BELAY_SHELL: '/bin/sh' } as NodeJS.ProcessEnv;
   assert.equal(resolveShell(env, 'darwin').file, '/bin/sh');
 });
 

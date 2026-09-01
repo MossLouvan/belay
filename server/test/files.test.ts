@@ -21,11 +21,11 @@ let outsideFile = '';
 let inside = '';
 
 before(async () => {
-  outside = await mkdtemp(join(tmpdir(), 'deskhandler-outside-'));
+  outside = await mkdtemp(join(tmpdir(), 'belay-outside-'));
   outsideFile = join(outside, 'secret.txt');
   await writeFile(outsideFile, 'top secret\n', 'utf8');
 
-  inside = join(HOME, '.deskhandler-test-sandbox');
+  inside = join(HOME, '.belay-test-sandbox');
   await rm(inside, { recursive: true, force: true });
   await mkdir(inside, { recursive: true });
   await writeFile(join(inside, 'ok.txt'), 'inside content\n', 'utf8');
@@ -127,7 +127,7 @@ function caseInsensitive(): boolean {
 
 test('a wrong-case path inside the roots still resolves to the real file', async (t) => {
   if (!caseInsensitive()) return t.skip('filesystem is case-sensitive');
-  const wrongCase = join(HOME, '.DESKHANDLER-TEST-SANDBOX', 'OK.TXT');
+  const wrongCase = join(HOME, '.BELAY-TEST-SANDBOX', 'OK.TXT');
   const file = await readTextFile(wrongCase);
   assert.equal(file.content, 'inside content\n');
   // Canonical, on-disk casing — not the caller's spelling.
@@ -142,7 +142,7 @@ test('a wrong-case path outside the roots is still rejected', async (t) => {
 
 test('realpath canonicalises case identically for roots and user paths', async (t) => {
   if (!caseInsensitive()) return t.skip('filesystem is case-sensitive');
-  const wrongCase = join(HOME, '.DESKHANDLER-TEST-SANDBOX');
+  const wrongCase = join(HOME, '.BELAY-TEST-SANDBOX');
   // This is the exact behavioural property files.ts depends on: the native
   // realpath (used for REAL_ROOTS) matches fs.promises.realpath (used for
   // caller paths). The legacy JS realpathSync does NOT canonicalise case,

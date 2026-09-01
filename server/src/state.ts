@@ -1,5 +1,5 @@
 // Persistent host state: identity, config, and the device token(s) a paired
-// phone uses. Stored as deskhandler-state.json (gitignored).
+// phone uses. Stored as belay-state.json (gitignored).
 //
 // This file holds long-lived bearer tokens that grant complete control of the
 // machine — screen capture, keystroke injection and a shell. It is therefore
@@ -23,7 +23,7 @@ import { productEnv } from './env.js';
  * own working directory hits this immediately.
  */
 const CONFIGURED_STATE_FILE = productEnv('STATE_FILE');
-const STATE_FILE = CONFIGURED_STATE_FILE || join(process.cwd(), 'deskhandler-state.json');
+const STATE_FILE = CONFIGURED_STATE_FILE || join(process.cwd(), 'belay-state.json');
 
 /**
  * Where the pre-rename install kept the same state. Read once, on first boot
@@ -138,7 +138,7 @@ function migrate(raw: unknown): Persisted {
 export function loadState(): void {
   // Prefer the current file; fall back to the pre-rename one so an upgrade
   // keeps every pairing. The fallback only applies to the default location —
-  // an explicit DESKHANDLER_STATE_FILE (or legacy TETHER_STATE_FILE) points
+  // an explicit BELAY_STATE_FILE (or legacy TETHER_STATE_FILE) points
   // at exactly one file and gets no second guess.
   const canFallBack = !CONFIGURED_STATE_FILE && existsSync(LEGACY_STATE_FILE);
   const source = existsSync(STATE_FILE)

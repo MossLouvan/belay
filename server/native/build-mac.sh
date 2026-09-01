@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compiles the macOS native helper into server/native/DeskhandlerHostMac.
+# Compiles the macOS native helper into server/native/BelayHostMac.
 #
 # Mirrors build.ps1: it uses only tooling already on the machine. `swiftc` ships
 # with the Xcode Command Line Tools (xcode-select --install), so there is no
@@ -13,7 +13,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 src_dir="$here/mac"
-out="$here/DeskhandlerHostMac"
+out="$here/BelayHostMac"
 # ScreenCaptureKit needs 12.3; SCContentFilter/SCStreamConfiguration options used
 # here are all available by 13.0, which is also the oldest macOS worth targeting.
 deployment_target="13.0"
@@ -43,7 +43,7 @@ common_flags=(-O -swift-version 5 -framework ScreenCaptureKit -framework CoreGra
 
 build_slice() {
   local arch="$1"
-  local dest="$work/DeskhandlerHostMac.$arch"
+  local dest="$work/BelayHostMac.$arch"
   swiftc "${common_flags[@]}" \
     -target "$arch-apple-macos$deployment_target" \
     -o "$dest" "${sources[@]}" 2>"$work/$arch.log" || return 1

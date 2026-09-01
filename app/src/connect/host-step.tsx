@@ -151,7 +151,7 @@ export function HostStep({
       <RecentHosts recent={recent} onPick={onPickRecent} onForget={onForgetRecent} />
 
       <Caption style={{ marginTop: theme.space.md }}>
-        Deskhandler talks straight to your computer. Nothing routes through anyone else.
+        Belay talks straight to your computer. Nothing routes through anyone else.
       </Caption>
     </View>
   );

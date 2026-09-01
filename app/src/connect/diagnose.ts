@@ -41,7 +41,7 @@ function mixedContentHint(url: string): string {
     ? (globalThis as { location?: { protocol?: string } }).location?.protocol
     : undefined;
   if (protocol !== 'https:') return '';
-  return ' This page is served over HTTPS, so your browser blocks plain-HTTP connections to your PC — open Deskhandler over http:// instead.';
+  return ' This page is served over HTTPS, so your browser blocks plain-HTTP connections to your PC — open Belay over http:// instead.';
 }
 
 const REACHABILITY_STEPS =
@@ -57,7 +57,7 @@ export function diagnoseHostFailure(url: string, raw?: string): Diagnosis {
     const code = Number(status[1]);
     if (code === 404) {
       return {
-        title: `Something answered at ${name}, but it isn't Deskhandler`,
+        title: `Something answered at ${name}, but it isn't Belay`,
         message: 'It replied 404 where the host agent reports its health, so whatever is listening there is most likely a different program. Double-check the port — the agent listens on 8787 by default.',
       };
     }
@@ -69,7 +69,7 @@ export function diagnoseHostFailure(url: string, raw?: string): Diagnosis {
     }
     return {
       title: `${name} answered with an error (${code})`,
-      message: 'Something at that address is up but not serving Deskhandler. If it is the host agent, restarting it on your PC usually clears this; if a proxy sits in between, try the PC directly or its Tailscale address.',
+      message: 'Something at that address is up but not serving Belay. If it is the host agent, restarting it on your PC usually clears this; if a proxy sits in between, try the PC directly or its Tailscale address.',
     };
   }
 
@@ -97,7 +97,7 @@ export function diagnosePairFailure(url: string, raw: string): Diagnosis {
   if (/invalid or expired/i.test(detail)) {
     return {
       title: "That code didn't work",
-      message: 'Pairing codes are single-use and expire five minutes after they appear. Check the Deskhandler window on your PC for the current code — it refreshes itself — and enter that one.',
+      message: 'Pairing codes are single-use and expire five minutes after they appear. Check the Belay window on your PC for the current code — it refreshes itself — and enter that one.',
     };
   }
 

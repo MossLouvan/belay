@@ -12,7 +12,7 @@ import { productEnv } from './env.js';
  * it obtains. The one thing that gives such a request away is its `Host`
  * header, which still says `evil.example`. The app connects by IP (or a
  * `.local` name from discovery), so any other hostname is refused outright.
- * Extra names — a Tailscale MagicDNS name, say — go in `DESKHANDLER_HOSTS`.
+ * Extra names — a Tailscale MagicDNS name, say — go in `BELAY_HOSTS`.
  */
 function extraHosts(): readonly string[] {
   return (productEnv('HOSTS') || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);

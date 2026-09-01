@@ -170,7 +170,7 @@ window.addEventListener('blur', () => { pressed = null; });
 window.addEventListener('focus', () => { raised = false; });
 
 document.getElementById('raise').addEventListener('click', () => raise(true));
-document.getElementById('close').addEventListener('click', () => window.deskhandler.closeSelf());
+document.getElementById('close').addEventListener('click', () => window.belay.closeSelf());
 
 // ---- Stream --------------------------------------------------------------
 
@@ -218,7 +218,7 @@ function draw(frame) {
 function follow(frame) {
   if (frame.title && frame.title !== name) {
     name = frame.title;
-    void window.deskhandler.setTitle(name);
+    void window.belay.setTitle(name);
   }
   const next = frame.rect;
   if (!next || !(next.W > 0) || !(next.H > 0)) return;
@@ -227,7 +227,7 @@ function follow(frame) {
   if (rect) scale = scaleOf(current, rect);
   if (shouldResize(current, next, scale)) {
     const size = aspectFit(next, scale);
-    void window.deskhandler.resizeSelf(size.width, size.height);
+    void window.belay.resizeSelf(size.width, size.height);
   }
   rect = next;
 }
@@ -260,7 +260,7 @@ async function connect() {
       // The remote window closed. This one has nothing left to show.
       setStatus('the remote window closed', true);
       socket.close();
-      window.deskhandler.closeSelf();
+      window.belay.closeSelf();
     } else if (message?.type === 'error') {
       setStatus(String(message.error).slice(0, 120), true);
     }

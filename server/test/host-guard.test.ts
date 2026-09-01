@@ -14,21 +14,21 @@ test('IP literals, localhost and .local names are trusted, with or without a por
 });
 
 test('any other hostname is refused — that is what a rebinding attack looks like', () => {
-  for (const h of ['evil.example:8787', 'evil.example', 'deskhandler.evil.example', '', undefined,
+  for (const h of ['evil.example:8787', 'evil.example', 'belay.evil.example', '', undefined,
     '192.168.1.20.evil.example', 'localhost.evil.example']) {
     assert.equal(isTrustedHost(h), false, String(h));
   }
 });
 
-test('DESKHANDLER_HOSTS adds names, case-insensitively', () => {
-  const prev = process.env.DESKHANDLER_HOSTS;
-  process.env.DESKHANDLER_HOSTS = 'MyPC.tail1234.ts.net, other.example';
+test('BELAY_HOSTS adds names, case-insensitively', () => {
+  const prev = process.env.BELAY_HOSTS;
+  process.env.BELAY_HOSTS = 'MyPC.tail1234.ts.net, other.example';
   try {
     assert.equal(isTrustedHost('mypc.tail1234.ts.net:8787'), true);
     assert.equal(isTrustedHost('other.example'), true);
     assert.equal(isTrustedHost('third.example'), false);
   } finally {
-    if (prev === undefined) delete process.env.DESKHANDLER_HOSTS; else process.env.DESKHANDLER_HOSTS = prev;
+    if (prev === undefined) delete process.env.BELAY_HOSTS; else process.env.BELAY_HOSTS = prev;
   }
 });
 

@@ -85,9 +85,9 @@ had items not listed here, send it and they'll be added.
 - [x] Private GitHub repo
 - [x] Expo Go path (use today, no Apple account)
 - [x] EAS build config (`eas.json`) for TestFlight / installable IPA
-- [x] iOS bundle id set (`com.mosslouvan.tether` — deliberately untouched by the
-      Deskhandler rename: a new bundle id is a new app to iOS, which would strand
-      the installed app and its saved computers)
+- [x] iOS bundle id set (`com.mosslouvan.belay` — moved after the rename
+      once re-pairing was accepted; to iOS it is a new app, so the old Tether
+      build and its saved computers were deliberately left behind)
 - [x] Setup, iOS, and architecture docs (macOS + Windows)
 - [x] macOS launchd LaunchAgent recipe, verified by loading it
 

@@ -221,7 +221,7 @@ export default function SystemTab() {
           testID="system-error"
           status="warn"
           title="Lost contact with the host"
-          message={`${error} Deskhandler keeps retrying, and the numbers below are the last ones it received.`}
+          message={`${error} Belay keeps retrying, and the numbers below are the last ones it received.`}
           action={{ label: 'Retry', onPress: onRefresh }}
         />
       ) : null}

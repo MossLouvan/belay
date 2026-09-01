@@ -24,7 +24,7 @@ function Boot() {
   const theme = useTheme();
   return (
     <View
-      accessibilityLabel="Starting Deskhandler"
+      accessibilityLabel="Starting Belay"
       style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.bg }}
     >
       <LogoMark />

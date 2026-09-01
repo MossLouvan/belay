@@ -76,7 +76,7 @@ export function printBanner(info: BannerInfo): void {
   const ips = found.map((a) => a.address);
   const lines: string[] = [
     '',
-    `  Deskhandler host agent running on your ${hostKindLabel()}`,
+    `  Belay host agent running on your ${hostKindLabel()}`,
     '  ─────────────────────────',
     `  Host name : ${info.hostName}`,
     `  Port      : ${info.port}`,
@@ -115,7 +115,7 @@ export function printBanner(info: BannerInfo): void {
   }
 
   if (info.deviceCount === 0 && info.pairingCode) {
-    lines.push('  Scan this in the Deskhandler app to connect:', '');
+    lines.push('  Scan this in the Belay app to connect:', '');
     for (const line of lines) console.log(line);
     lines.length = 0;
 

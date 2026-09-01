@@ -10,8 +10,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { normalizeHost } from '../api';
 
 /** Where the recent-host list lives. Distinct from the keys ../api owns. */
-// Still 'tether.*' after the rename — the list is already stored under it.
-const RECENT_KEY = 'tether.recentHosts';
+// 'belay.*' since the bundle id moved and wiped the old container.
+const RECENT_KEY = 'belay.recentHosts';
 const MAX_RECENT = 5;
 
 export type HostResolution =
@@ -30,7 +30,7 @@ export function isTailscaleAddress(url: string): boolean {
 }
 
 const CREDENTIALS_HINT =
-  'Credentials in the address are ignored. Deskhandler authenticates with the pairing code instead.';
+  'Credentials in the address are ignored. Belay authenticates with the pairing code instead.';
 
 /**
  * True when the input carries a `user:pass@` prefix. `normalizeHost` returns

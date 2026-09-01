@@ -25,11 +25,11 @@ let inside = '';
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 
 before(async () => {
-  outside = await mkdtemp(join(tmpdir(), 'deskhandler-raw-outside-'));
+  outside = await mkdtemp(join(tmpdir(), 'belay-raw-outside-'));
   outsideImage = join(outside, 'secret.png');
   await writeFile(outsideImage, PNG_BYTES);
 
-  inside = join(HOME, '.deskhandler-test-raw');
+  inside = join(HOME, '.belay-test-raw');
   await rm(inside, { recursive: true, force: true });
   await mkdir(inside, { recursive: true });
   await writeFile(join(inside, 'photo.png'), PNG_BYTES);
@@ -40,7 +40,7 @@ before(async () => {
   await writeFile(join(inside, 'noext'), PNG_BYTES);
   // The state file holds every paired device's raw token; served as an
   // "image", it would still be the same bytes.
-  await writeFile(join(inside, 'deskhandler-state.json'), '{"devices":[]}', 'utf8');
+  await writeFile(join(inside, 'belay-state.json'), '{"devices":[]}', 'utf8');
   await symlink(outsideImage, join(inside, 'link-to-secret.png'));
   await symlink(outside, join(inside, 'link-to-outside-dir'));
 });
@@ -79,7 +79,7 @@ test('a path routed through a symlinked directory cannot escape either', async (
 
 test('the deny-listed state file is refused even under an allowed root', async () => {
   await assert.rejects(
-    () => statRawFile(join(inside, 'deskhandler-state.json')),
+    () => statRawFile(join(inside, 'belay-state.json')),
     /outside the allowed roots/,
   );
 });

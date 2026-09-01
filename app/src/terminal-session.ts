@@ -85,7 +85,7 @@ export function drainOutput(buffer: OutputBuffer): { readonly text: string; read
   if (buffer.text.length === 0 && buffer.dropped === 0) return { text: '', next: EMPTY_OUTPUT };
   const notice =
     buffer.dropped > 0
-      ? `\r\n[deskhandler dropped ${buffer.dropped} characters — output arrived faster than it could be drawn]\r\n`
+      ? `\r\n[belay dropped ${buffer.dropped} characters — output arrived faster than it could be drawn]\r\n`
       : '';
   return { text: notice + buffer.text, next: EMPTY_OUTPUT };
 }

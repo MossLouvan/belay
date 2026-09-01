@@ -51,13 +51,13 @@ test('a non-tailnet source is refused without ever consulting the CLI', async ()
   assert.ok(Date.now() - started < 500);
 });
 
-test('DESKHANDLER_TAILNET_PAIR=0 switches the feature off', async () => {
-  const prev = process.env.DESKHANDLER_TAILNET_PAIR;
-  process.env.DESKHANDLER_TAILNET_PAIR = '0';
+test('BELAY_TAILNET_PAIR=0 switches the feature off', async () => {
+  const prev = process.env.BELAY_TAILNET_PAIR;
+  process.env.BELAY_TAILNET_PAIR = '0';
   try {
     assert.equal(tailnetPairingEnabled(), false);
     assert.deepEqual(await tailnetTrusted('100.101.102.103'), { trusted: false });
   } finally {
-    if (prev === undefined) delete process.env.DESKHANDLER_TAILNET_PAIR; else process.env.DESKHANDLER_TAILNET_PAIR = prev;
+    if (prev === undefined) delete process.env.BELAY_TAILNET_PAIR; else process.env.BELAY_TAILNET_PAIR = prev;
   }
 });

@@ -80,7 +80,7 @@ enum Displays {
         return ratio.isFinite && ratio > 0 ? ratio : 1
     }
 
-    /// The rect shape the wire protocol uses (`{X,Y,W,H}`), matching DeskhandlerHost.cs.
+    /// The rect shape the wire protocol uses (`{X,Y,W,H}`), matching BelayHost.cs.
     static func rectPayload(_ rect: CGRect) -> [String: Any] {
         [
             "X": Int(rect.origin.x.rounded()),

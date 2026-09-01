@@ -21,10 +21,11 @@ import {
   DeviceStore, emptyStore, parseStore, migrateLegacy, LegacyConnection,
 } from './model';
 
-// Deliberately still 'tether.*' after the rename to Deskhandler: this key is
-// already on the owner's phone, and renaming it would throw away every saved
-// computer and token — pairing all over again to honour a new spelling.
-const STORE_KEY = 'tether.devices.v1';
+// 'belay.*' since the bundle id moved: a new bundle id is a new app to
+// iOS, with an empty container and keychain, so there was nothing left under
+// the old spelling to strand. The prefix is load-bearing all the same — once
+// something is stored under it, renaming it again means pairing again.
+const STORE_KEY = 'belay.devices.v1';
 
 /** The pre-v1 keys. Read once during migration, then removed. */
 const LEGACY_HOST_KEY = 'tether.host';
@@ -38,8 +39,9 @@ const useKeychain = Platform.OS !== 'web';
 
 /** SecureStore keys may only contain [A-Za-z0-9._-]; computer ids are freer. */
 function secureKey(id: string): string {
-  // Still the 'tether.' prefix: the keychain entries were written under it.
-  return 'tether.token.' + id.replace(/[^A-Za-z0-9._-]/g, '_');
+  // Must match STORE_KEY's prefix era: tokens and blob move (or strand)
+  // together, and the bundle-id change already emptied the keychain.
+  return 'belay.token.' + id.replace(/[^A-Za-z0-9._-]/g, '_');
 }
 
 /**

@@ -16,12 +16,18 @@ test('capture all screens', async ({ page }) => {
 
   await page.getByTestId('host-input').fill(HOST);
   await page.getByTestId('check-host').click();
-  await page.getByTestId('code-input').waitFor();
-  await page.getByTestId('code-input').fill(CODE);
-  await page.screenshot({ path: `${DIR}/02-pair.png` });
 
-  await page.getByTestId('pair-btn').click();
-  await page.getByTestId('screen-surface').waitFor();
+  // Over the owner's own tailnet pairing is codeless and the code screen never
+  // exists — so neither does its screenshot. Off the tailnet, capture it.
+  const codeInput = page.getByTestId('code-input');
+  const surface = page.getByTestId('screen-surface');
+  await codeInput.or(surface).first().waitFor();
+  if (await codeInput.isVisible()) {
+    await codeInput.fill(CODE);
+    await page.screenshot({ path: `${DIR}/02-pair.png` });
+    await page.getByTestId('pair-btn').click();
+  }
+  await surface.waitFor();
   await page.waitForTimeout(2500); // let a frame or two arrive
   await page.screenshot({ path: `${DIR}/03-screen.png` });
 

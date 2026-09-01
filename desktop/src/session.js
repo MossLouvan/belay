@@ -28,10 +28,10 @@ export function sessionPath(userDataDir) {
 }
 
 /**
- * Copy the session saved before the rename to Deskhandler, once.
+ * Copy the session saved before the rename to Belay, once.
  *
  * Electron derives the userData directory from the package name, so renaming
- * tether-desktop → deskhandler-desktop silently pointed the client at a fresh,
+ * tether-desktop → belay-desktop silently pointed the client at a fresh,
  * empty directory — and "empty session" renders as "not paired", making the
  * rename cost the owner a re-pair for no reason. The old file is copied, not
  * moved: an old build may still be on this machine and pointed at it, and a

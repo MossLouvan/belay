@@ -194,8 +194,8 @@ export class ImageDrop {
 
     const batch = this.staged;
     const dirName = timestampDirName(this.startedAt, 'img');
-    const relDir = join('.deskhandler', 'images', dirName);
-    const imagesDir = join(realCwd, '.deskhandler', 'images');
+    const relDir = join('.belay', 'images', dirName);
+    const imagesDir = join(realCwd, '.belay', 'images');
     const dir = join(imagesDir, dirName);
     await mkdir(dir, { recursive: true });
 

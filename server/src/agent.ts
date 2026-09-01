@@ -35,7 +35,7 @@ export type { AgentEvent } from './agent-events.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APPROVAL_MCP = join(HERE, '..', 'approval-mcp.cjs');
-const META_FILE = join(process.cwd(), 'deskhandler-agent.json');
+const META_FILE = join(process.cwd(), 'belay-agent.json');
 // The pre-rename metadata file. Read only when the new one does not exist —
 // otherwise every session the owner can resume from the phone would vanish
 // from the list on the first boot after the rename. Never written, never
@@ -55,7 +55,7 @@ const DEFAULT_APPROVAL_TIMEOUT_MS = 30 * 60 * 1000;
 const FOREVER_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * DESKHANDLER_APPROVAL_TIMEOUT_MS, sanitised. Exported for tests. Garbage falls
+ * BELAY_APPROVAL_TIMEOUT_MS, sanitised. Exported for tests. Garbage falls
  * back to the default rather than to zero, because a typo silently disabling
  * the timeout is the opposite of what a typo should do; anything positive is
  * floored at one minute, because a sub-minute window recreates the original
@@ -168,7 +168,7 @@ export function buildClaudeArgs(mcpConfigPath: string, claudeSessionId?: string)
     '--output-format', 'stream-json',
     '--verbose',
     '--mcp-config', mcpConfigPath,
-    '--permission-prompt-tool', 'mcp__deskhandler-approve__request_permission',
+    '--permission-prompt-tool', 'mcp__belay-approve__request_permission',
     '-p',
   ];
   if (claudeSessionId) args.push('--resume', claudeSessionId);
@@ -265,21 +265,21 @@ function ensureProcess(s: Session): void {
   s.procKey = randomBytes(24).toString('hex');
   const mcpConfig = {
     mcpServers: {
-      'deskhandler-approve': {
+      'belay-approve': {
         command: process.execPath,
         args: [APPROVAL_MCP],
         env: {
-          DESKHANDLER_APPROVE_URL: `http://127.0.0.1:${productEnv('PORT') || 8787}/agent/approval-request`,
-          DESKHANDLER_APPROVE_KEY: s.procKey,
-          DESKHANDLER_APPROVE_SESSION: s.id,
+          BELAY_APPROVE_URL: `http://127.0.0.1:${productEnv('PORT') || 8787}/agent/approval-request`,
+          BELAY_APPROVE_KEY: s.procKey,
+          BELAY_APPROVE_SESSION: s.id,
           // The sidecar holds its HTTP request open while the ask waits, so it
           // must outlast this server's own window — including a "forever" one.
-          DESKHANDLER_APPROVE_TIMEOUT_MS: String((APPROVAL_TIMEOUT_MS || FOREVER_MS) + 30000),
+          BELAY_APPROVE_TIMEOUT_MS: String((APPROVAL_TIMEOUT_MS || FOREVER_MS) + 30000),
         },
       },
     },
   };
-  const cfgPath = join(tmpdir(), `deskhandler-mcp-${s.id}.json`);
+  const cfgPath = join(tmpdir(), `belay-mcp-${s.id}.json`);
   writeFileSync(cfgPath, JSON.stringify(mcpConfig), 'utf8');
 
   const args = buildClaudeArgs(cfgPath, s.claudeSessionId);
@@ -418,7 +418,7 @@ export function attachSession(cwd: string, claudeSessionId: string, title?: stri
   const s = newSession(cwd, title, claudeSessionId);
   // Restore the tail of the Claude-side transcript so the resumed session
   // opens showing the conversation being resumed, not a blank feed. Pushed
-  // through pushEvent so the history also lands in Deskhandler's own log and
+  // through pushEvent so the history also lands in Belay's own log and
   // survives host restarts. Best-effort: a missing or unreadable transcript
   // degrades to the old behaviour, and the info line says which happened
   // instead of letting an empty feed pass for a fresh session.
@@ -433,7 +433,7 @@ export function attachSession(cwd: string, claudeSessionId: string, title?: stri
   return getSnapshot(s.id)!;
 }
 
-// Claude session ids Deskhandler already wraps — the discovery list excludes these.
+// Claude session ids Belay already wraps — the discovery list excludes these.
 export function attachedClaudeIds(): Set<string> {
   const out = new Set<string>();
   for (const s of sessions.values()) if (s.claudeSessionId) out.add(s.claudeSessionId);

@@ -1,4 +1,4 @@
-// Design tokens for Deskhandler — the "Ledger" system (docs/DESIGN.md).
+// Design tokens for Belay — the "Ledger" system (docs/DESIGN.md).
 //
 // Two palettes with one design language: light is "paper" (warm grey ground,
 // near-black ink), dark is "ink" (the same page photographed in negative).
@@ -431,7 +431,7 @@ const subscribeSystem = (listener: () => void): (() => void) => {
   }
 };
 
-/** The OS colour scheme, defaulting to dark when unknown (Deskhandler is dark-first). */
+/** The OS colour scheme, defaulting to dark when unknown (Belay is dark-first). */
 export function useSystemScheme(): ColorScheme {
   return useSyncExternalStore(subscribeSystem, readSystemScheme, readSystemScheme);
 }

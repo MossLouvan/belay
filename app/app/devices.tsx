@@ -97,8 +97,8 @@ export default function Devices() {
           <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
           <EmptyState
             title="No computers yet"
-            message="Run the Deskhandler host agent on your Mac or Windows PC, then add it here."
-            action={{ label: 'Add a computer', onPress: () => router.push('/') }}
+            message="Run the Belay host agent on your Mac or Windows PC, then add it here."
+            action={{ label: 'Add a computer', onPress: () => router.push({ pathname: '/', params: { add: '1' } }) }}
           />
         </View>
       </Screen>
@@ -196,7 +196,7 @@ export default function Devices() {
 
         <Row gap="sm">
           <View style={{ flex: 1 }}>
-            <Button label="Add a computer" variant="secondary" fullWidth onPress={() => router.push('/')} />
+            <Button label="Add a computer" variant="secondary" fullWidth onPress={() => router.push({ pathname: '/', params: { add: '1' } })} />
           </View>
           <Button label="Refresh" variant="ghost" onPress={refresh} />
         </Row>

@@ -20,7 +20,7 @@ import {
 } from '../src/agent-flow.js';
 import type { FlowIO, FlowSession } from '../src/agent-flow.js';
 
-const CWD = mkdtempSync(join(tmpdir(), 'deskhandler-flow-'));
+const CWD = mkdtempSync(join(tmpdir(), 'belay-flow-'));
 
 interface Harness {
   s: FlowSession;

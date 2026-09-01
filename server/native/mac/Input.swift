@@ -74,7 +74,7 @@ enum InputSpace: String {
     /// The union of all displays — matches the Windows helper's MOUSEEVENTF_VIRTUALDESK.
     case virtualDesktop = "virtual"
 
-    /// `DESKHANDLER_MAC_INPUT_SPACE=virtual` restores Windows-identical behaviour.
+    /// `BELAY_MAC_INPUT_SPACE=virtual` restores Windows-identical behaviour.
     static var configured: InputSpace {
         let raw = productEnv("MAC_INPUT_SPACE")?.lowercased() ?? ""
         return InputSpace(rawValue: raw) ?? .primary

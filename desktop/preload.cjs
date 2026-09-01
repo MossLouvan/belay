@@ -8,7 +8,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('deskhandler', {
+contextBridge.exposeInMainWorld('belay', {
   /** The saved host and token, or empty strings when not paired yet. */
   readSession: () => ipcRenderer.invoke('session:read'),
   saveSession: (session) => ipcRenderer.invoke('session:write', session),

@@ -100,11 +100,11 @@ test('staleRecordings is empty under the cap', () => {
 
 test('the prompt references the real relative path and the frame span', () => {
   const prompt = buildPrompt({
-    relDir: '.deskhandler/recordings/rec-20260831-142051',
+    relDir: '.belay/recordings/rec-20260831-142051',
     frameNames: ['frame-01.jpg', 'frame-02.jpg', 'frame-03.jpg'],
     seconds: 38,
   });
-  assert.match(prompt, /\.deskhandler\/recordings\/rec-20260831-142051\//);
+  assert.match(prompt, /\.belay\/recordings\/rec-20260831-142051\//);
   assert.match(prompt, /3 JPEG frames captured over 38s/);
   assert.match(prompt, /frame-01\.jpg through frame-03\.jpg/);
   assert.match(prompt, /describe what happens/);
@@ -113,7 +113,7 @@ test('the prompt references the real relative path and the frame span', () => {
 
 test('a user note becomes the task; the default ask is dropped', () => {
   const prompt = buildPrompt({
-    relDir: '.deskhandler/recordings/rec-20260831-142051',
+    relDir: '.belay/recordings/rec-20260831-142051',
     frameNames: ['frame-01.jpg'],
     seconds: 4,
     note: '  the modal flickers when I click save  ',

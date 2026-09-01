@@ -24,8 +24,8 @@ let outside = '';
 let inside = '';
 
 before(async () => {
-  outside = await mkdtemp(join(tmpdir(), 'deskhandler-agent-cwd-outside-'));
-  inside = join(HOME, '.deskhandler-test-agent-cwd');
+  outside = await mkdtemp(join(tmpdir(), 'belay-agent-cwd-outside-'));
+  inside = join(HOME, '.belay-test-agent-cwd');
   await rm(inside, { recursive: true, force: true });
   await mkdir(inside, { recursive: true });
   await mkdir(join(inside, 'project'));
@@ -46,7 +46,7 @@ test('a real folder inside the roots resolves', () => {
 });
 
 test('~ expands to the host home', () => {
-  const resolved = resolveSessionCwd('~/.deskhandler-test-agent-cwd/project');
+  const resolved = resolveSessionCwd('~/.belay-test-agent-cwd/project');
   assert.equal(resolved, join(inside, 'project'));
 });
 

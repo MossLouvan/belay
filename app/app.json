@@ -1,30 +1,30 @@
 {
   "expo": {
-    "name": "Deskhandler",
-    "slug": "deskhandler",
+    "name": "Belay",
+    "slug": "belay",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
-    "scheme": ["deskhandler", "tether"],
+    "scheme": ["belay", "tether"],
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0b0d12",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mosslouvan.tether",
+      "bundleIdentifier": "com.mosslouvan.belay",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "Deskhandler connects to your PC on your local network or Tailscale to control it.",
+        "NSLocalNetworkUsageDescription": "Belay connects to your PC on your local network or Tailscale to control it.",
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         },
-        "NSCameraUsageDescription": "Deskhandler uses the camera to scan the pairing code shown on your computer, and to take a photo to send to Claude.",
-        "NSMicrophoneUsageDescription": "Deskhandler listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
-        "NSSpeechRecognitionUsageDescription": "Deskhandler turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device.",
-        "NSPhotoLibraryUsageDescription": "Deskhandler lets you pick photos or screenshots to send to Claude on your computer."
+        "NSCameraUsageDescription": "Belay uses the camera to scan the pairing code shown on your computer, and to take a photo to send to Claude.",
+        "NSMicrophoneUsageDescription": "Belay listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
+        "NSSpeechRecognitionUsageDescription": "Belay turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device.",
+        "NSPhotoLibraryUsageDescription": "Belay lets you pick photos or screenshots to send to Claude on your computer."
       }
     },
     "android": {
-      "package": "com.mosslouvan.tether",
+      "package": "com.mosslouvan.belay",
       "adaptiveIcon": {
         "backgroundColor": "#0b0d12",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -58,7 +58,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Deskhandler uses the camera only to scan the pairing code shown on your computer.",
+          "cameraPermission": "Belay uses the camera only to scan the pairing code shown on your computer.",
           "recordAudioAndroid": false
         }
       ],
@@ -66,15 +66,15 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Deskhandler listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
-          "speechRecognitionPermission": "Deskhandler turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device."
+          "microphonePermission": "Belay listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
+          "speechRecognitionPermission": "Belay turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Deskhandler lets you pick photos or screenshots to send to Claude on your computer.",
-          "cameraPermission": "Deskhandler uses the camera to take a photo to send to Claude on your computer."
+          "photosPermission": "Belay lets you pick photos or screenshots to send to Claude on your computer.",
+          "cameraPermission": "Belay uses the camera to take a photo to send to Claude on your computer."
         }
       ]
     ],

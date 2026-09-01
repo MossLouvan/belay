@@ -1,6 +1,6 @@
-# Deskhandler desktop client
+# Belay desktop client
 
-Connect to a computer running the Deskhandler host **from another computer**, and
+Connect to a computer running the Belay host **from another computer**, and
 open its displays as ordinary windows on your desktop — resizable, alt-tabbable,
 snappable beside your local apps.
 
@@ -80,7 +80,7 @@ copies rather than interrupting a terminal), Alt stays ⌥, and the Win key
 sends literal ⌃ — the road back to Control when it is really wanted, though
 the local OS swallows some Win chords before any app sees them. The client
 speaks only the host's unambiguous names (`cmd`, `rawctrl`), so this never
-fights the host's own phone-oriented `DESKHANDLER_MAC_CTRL` remap — one remap is
+fights the host's own phone-oriented `BELAY_MAC_CTRL` remap — one remap is
 in charge, chosen client-side, whatever the host env says.
 
 The mapping is stated in the connect window's **Keyboard** section and in

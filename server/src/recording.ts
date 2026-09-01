@@ -179,8 +179,8 @@ export class Recorder {
 
     const kept = thinFrames(this.frames, RECORDING.maxKept);
     const dirName = recordingDirName(this.startedAt);
-    const relDir = join('.deskhandler', 'recordings', dirName);
-    const recordingsDir = join(realCwd, '.deskhandler', 'recordings');
+    const relDir = join('.belay', 'recordings', dirName);
+    const recordingsDir = join(realCwd, '.belay', 'recordings');
     const dir = join(recordingsDir, dirName);
     await mkdir(dir, { recursive: true });
 

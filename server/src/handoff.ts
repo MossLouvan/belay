@@ -6,7 +6,7 @@
 // session is one transcript file, and two clients resuming it at once (the
 // phone's stream-json child and a fresh terminal) interleave writes and fork
 // the history in a way neither side can see. So the handoff *always* releases
-// Deskhandler's side first: the idle child is killed (resume revives it later, as
+// Belay's side first: the idle child is killed (resume revives it later, as
 // it already does after the idle reaper), and a session that is mid-task is
 // never touched without the phone explicitly saying "stop it" — the route
 // answers 409 and the app asks the user. There is no code path that leaves
@@ -31,7 +31,7 @@ import { getSnapshot, stopSession } from './agent.js';
  * reads what it durably wrote — saveMeta() runs the moment a claude session id
  * appears or changes, so the file is never behind the fact we need.
  */
-const META_FILE = join(process.cwd(), 'deskhandler-agent.json');
+const META_FILE = join(process.cwd(), 'belay-agent.json');
 // agent.ts still *reads* the pre-rename file when the new one is absent, so
 // the handoff must look in the same second place or it would deny a resume
 // that the Agent tab plainly shows.
@@ -45,7 +45,7 @@ export function isClaudeSessionId(value: unknown): value is string {
 }
 
 /**
- * The claude session id recorded for a Deskhandler session, if any. A session that
+ * The claude session id recorded for a Belay session, if any. A session that
  * has never run a prompt has nothing to resume — the handoff then opens plain
  * `claude` in the project, which is honest: the terminal starts where the
  * phone would have.
@@ -235,7 +235,7 @@ const DEFAULT_DEPS: HandoffDeps = {
  *                                   send stop:true; nothing was touched
  *  - 200 { opened: true, terminal, stopped }
  *  - 200 { opened: false, reason }— no terminal here, or the launch failed;
- *                                   the Deskhandler side was still released, so
+ *                                   the Belay side was still released, so
  *                                   pasting the command is safe immediately
  */
 export function createHandoffHandler(deps: HandoffDeps = DEFAULT_DEPS) {

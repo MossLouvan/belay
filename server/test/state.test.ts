@@ -10,9 +10,9 @@ import { mkdtempSync, readFileSync, writeFileSync, statSync, existsSync, rmSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const dir = mkdtempSync(join(tmpdir(), 'deskhandler-state-'));
-const stateFile = join(dir, 'deskhandler-state.json');
-process.env.DESKHANDLER_STATE_FILE = stateFile;
+const dir = mkdtempSync(join(tmpdir(), 'belay-state-'));
+const stateFile = join(dir, 'belay-state.json');
+process.env.BELAY_STATE_FILE = stateFile;
 
 // Imported after the env var is set, since the module reads it at load time.
 const {

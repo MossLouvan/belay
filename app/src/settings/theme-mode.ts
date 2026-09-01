@@ -7,9 +7,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setThemeMode, ThemeMode } from '../theme';
 
-// Still 'tether.*' after the rename: the value is already stored under this
-// key on real phones, and a theme snapping back to default is a rename leak.
-const MODE_KEY = 'tether.themeMode';
+// 'belay.*' since the bundle id moved and wiped the old container —
+// but the prefix is load-bearing again the moment a phone stores a choice
+// under it: renaming it later is a theme snapping back to default.
+const MODE_KEY = 'belay.themeMode';
 
 const MODES: readonly ThemeMode[] = ['system', 'light', 'dark'];
 

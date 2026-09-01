@@ -68,7 +68,7 @@ function usableShellPath(candidate: string | undefined): string | null {
 }
 
 function posixShellFile(env: NodeJS.ProcessEnv, plat: NodeJS.Platform): string {
-  // DESKHANDLER_SHELL is the explicit override; $SHELL is the user's login shell.
+  // BELAY_SHELL is the explicit override; $SHELL is the user's login shell.
   const explicit = usableShellPath(productEnv('SHELL', env as Record<string, string | undefined>));
   if (explicit) return explicit;
   const login = usableShellPath(env.SHELL);
@@ -81,7 +81,7 @@ function posixShellFile(env: NodeJS.ProcessEnv, plat: NodeJS.Platform): string {
  * The shell to spawn on this platform.
  *
  * Windows keeps its original behaviour exactly: PowerShell unless
- * DESKHANDLER_SHELL=cmd, in which case ComSpec.
+ * BELAY_SHELL=cmd, in which case ComSpec.
  */
 export function resolveShell(
   env: NodeJS.ProcessEnv = process.env,
@@ -221,7 +221,7 @@ export async function createTerminal(cols: number, rows: number): Promise<TermSe
   // A shell that cannot be spawned at all must surface to the user, not vanish.
   child.on('error', (err) => {
     console.error(`[terminal] failed to spawn ${file}: ${err.message}`);
-    const message = `\r\n[deskhandler] could not start shell "${file}": ${err.message}\r\n`;
+    const message = `\r\n[belay] could not start shell "${file}": ${err.message}\r\n`;
     dataCbs.forEach((cb) => cb(message));
     exitCbs.forEach((cb) => cb());
   });

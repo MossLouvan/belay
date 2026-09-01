@@ -58,7 +58,7 @@ platform paths intact:
 
 | Concern | macOS | Windows |
 |---|---|---|
-| Shell (`terminal.ts`) | `$SHELL` (absolute + existing), else `/bin/zsh`, spawned as a login shell with `TERM=xterm-256color` | `powershell.exe -NoLogo -NoProfile`, or `%ComSpec%` when `DESKHANDLER_SHELL=cmd` |
+| Shell (`terminal.ts`) | `$SHELL` (absolute + existing), else `/bin/zsh`, spawned as a login shell with `TERM=xterm-256color` | `powershell.exe -NoLogo -NoProfile`, or `%ComSpec%` when `BELAY_SHELL=cmd` |
 | Disk (`disk.ts`) | `df -kP /System/Volumes/Data` — the writable APFS volume, which is what Finder reports; `/` is a sealed snapshot whose "used" figure is meaningless | `Get-PSDrive` on `%SystemDrive%` via PowerShell |
 | OS name (`osinfo.ts`) | `sw_vers` → "macOS 26.3.1" instead of the kernel version `25.3.0` | `"Windows " + os.release()` |
 | Battery (`osinfo.ts`) | `pmset -g batt`, cached for 5s | not reported (`null`) |
@@ -145,7 +145,7 @@ the host's resolution.
   by mistake.
 - Screen streaming is JPEG-over-WebSocket, not hardware-encoded video. It's
   smooth for coding, terminals and browsing. For 60fps gaming/playtesting, pair
-  Deskhandler with Parsec or Sunshine+Moonlight (see the roadmap).
+  Belay with Parsec or Sunshine+Moonlight (see the roadmap).
 
 ## Roadmap
 

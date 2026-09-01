@@ -2,7 +2,7 @@
 //
 // Claude Code spawns this as an MCP stdio server (configured per session by
 // agent.ts) and calls its single tool, request_permission, whenever it wants
-// to use a tool that needs approval. We forward the ask to the Deskhandler host
+// to use a tool that needs approval. We forward the ask to the Belay host
 // over loopback and block until the user answers on their phone. No response
 // within the host's timeout window means deny — this fails closed.
 //
@@ -12,19 +12,19 @@
 
 const http = require('node:http');
 
-// DESKHANDLER_* with a TETHER_* fallback, and the fallback here is not merely
+// BELAY_* with a TETHER_* fallback, and the fallback here is not merely
 // polite: a host process from before the rename can still be running and will
 // spawn THIS file (it resolves the sidecar by path, not by version) with the
 // old variable names. Dropping them would break approvals for that live host
 // the moment this repo updates, without it ever restarting.
-const URL_TARGET = process.env.DESKHANDLER_APPROVE_URL || process.env.TETHER_APPROVE_URL || '';
-const KEY = process.env.DESKHANDLER_APPROVE_KEY || process.env.TETHER_APPROVE_KEY || '';
-const SESSION = process.env.DESKHANDLER_APPROVE_SESSION || process.env.TETHER_APPROVE_SESSION || '';
+const URL_TARGET = process.env.BELAY_APPROVE_URL || process.env.TETHER_APPROVE_URL || '';
+const KEY = process.env.BELAY_APPROVE_KEY || process.env.TETHER_APPROVE_KEY || '';
+const SESSION = process.env.BELAY_APPROVE_SESSION || process.env.TETHER_APPROVE_SESSION || '';
 // The host decides how long an ask may wait (it is configurable there, and may
 // be "forever"); it hands us a window slightly longer than its own so the host
 // always answers first. The fallback only matters if an old host spawns a new
 // sidecar without the variable.
-const TIMEOUT_MS = Number(process.env.DESKHANDLER_APPROVE_TIMEOUT_MS || process.env.TETHER_APPROVE_TIMEOUT_MS) || 31 * 60 * 1000;
+const TIMEOUT_MS = Number(process.env.BELAY_APPROVE_TIMEOUT_MS || process.env.TETHER_APPROVE_TIMEOUT_MS) || 31 * 60 * 1000;
 
 let buffer = '';
 process.stdin.on('data', (chunk) => {
@@ -50,7 +50,7 @@ function handle(line) {
       result: {
         protocolVersion: (req.params && req.params.protocolVersion) || '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'deskhandler-approve', version: '1.0.0' },
+        serverInfo: { name: 'belay-approve', version: '1.0.0' },
       },
     });
   } else if (req.method === 'tools/list') {
@@ -59,7 +59,7 @@ function handle(line) {
       result: {
         tools: [{
           name: 'request_permission',
-          description: 'Ask the Deskhandler user on their phone to approve a tool use.',
+          description: 'Ask the Belay user on their phone to approve a tool use.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -78,7 +78,7 @@ function handle(line) {
       .then((verdict) => {
         const payload = verdict.allow
           ? { behavior: 'allow', updatedInput: args.input || {} }
-          : { behavior: 'deny', message: verdict.message || 'Denied from the Deskhandler app.' };
+          : { behavior: 'deny', message: verdict.message || 'Denied from the Belay app.' };
         send({
           jsonrpc: '2.0', id: req.id,
           result: { content: [{ type: 'text', text: JSON.stringify(payload) }] },

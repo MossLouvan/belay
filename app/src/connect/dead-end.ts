@@ -88,14 +88,14 @@ export function detectDeadEnd(
  * clear the paired devices (they live in the host's state file) and start
  * fresh. Both spellings of that file are removed: a host installed before the
  * rename keeps its pairings in tether-state.json, one after it in
- * deskhandler-state.json, and guessing wrong would leave the window shut.
- * DESKHANDLER_TEST_CODE is deliberately not offered: it disables expiry and
+ * belay-state.json, and guessing wrong would leave the window shut.
+ * BELAY_TEST_CODE is deliberately not offered: it disables expiry and
  * single-use, and the host itself warns it is for automated tests only.
  */
 export function reopenPairingCommand(platform?: string): string {
   const remove = platform === 'win32'
-    ? 'del deskhandler-state.json tether-state.json'
-    : 'rm -f deskhandler-state.json tether-state.json';
+    ? 'del belay-state.json tether-state.json'
+    : 'rm -f belay-state.json tether-state.json';
   return `cd server\n${remove}\nnpm start`;
 }
 

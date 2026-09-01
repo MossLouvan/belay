@@ -4,7 +4,7 @@
 // and input never interleave on the wire.
 //
 // The helper is platform-specific but the wire protocol is not: Windows runs
-// native/DeskhandlerHost.exe (C#), macOS runs native/DeskhandlerHostMac (Swift), and both
+// native/BelayHost.exe (C#), macOS runs native/BelayHostMac (Swift), and both
 // speak the identical JSON command set. Everything below this comment is
 // platform-agnostic.
 
@@ -63,14 +63,14 @@ function resolveTarget(platform: NodeJS.Platform): HelperTarget | null {
   switch (platform) {
     case 'win32':
       return {
-        path: helperPath('DeskhandlerHost.exe', 'TetherHost.exe'),
+        path: helperPath('BelayHost.exe', 'TetherHost.exe'),
         buildCommand: 'npm run build:native',
         // Keeps the helper from flashing a console window on Windows.
         spawnOptions: { windowsHide: true },
       };
     case 'darwin':
       return {
-        path: helperPath('DeskhandlerHostMac', 'TetherHostMac'),
+        path: helperPath('BelayHostMac', 'TetherHostMac'),
         buildCommand: 'bash native/build-mac.sh',
         spawnOptions: {},
       };
@@ -83,7 +83,7 @@ const TARGET = resolveTarget(process.platform);
 
 function unsupportedPlatformError(): Error {
   return new Error(
-    `Deskhandler's screen capture and input injection are not implemented for platform '${process.platform}'. ` +
+    `Belay's screen capture and input injection are not implemented for platform '${process.platform}'. ` +
       'Supported platforms are Windows (win32) and macOS (darwin). ' +
       'Everything else — terminal, files, system stats — still works.'
   );

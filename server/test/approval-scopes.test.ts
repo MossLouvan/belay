@@ -14,7 +14,7 @@ import {
 } from '../src/approval-scopes.js';
 import type { ApprovalGrant } from '../src/approval-scopes.js';
 
-const CWD = resolve('/tmp/deskhandler-scope-test/project');
+const CWD = resolve('/tmp/belay-scope-test/project');
 
 const mint = (tool: string, input: unknown, choiceId: string): ApprovalGrant => {
   const g = grantForChoice(tool, input, choiceId, CWD, () => 'gid');

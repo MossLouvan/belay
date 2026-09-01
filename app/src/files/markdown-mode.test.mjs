@@ -32,7 +32,8 @@ test('the toggle flips and flips back', () => {
 });
 
 test('the storage key is namespaced like the rest of the app', () => {
-  // The 'tether.' prefix is load-bearing: the value is already persisted under
-  // it on real phones, so the rename must NOT reach this key.
-  assert.match(MARKDOWN_MODE_KEY, /^tether\./);
+  // The 'belay.' prefix is load-bearing: once a phone persists the
+  // value under it, moving it forgets the choice. It last moved when the
+  // bundle id did — a wipe anyway — and should not move short of another one.
+  assert.match(MARKDOWN_MODE_KEY, /^belay\./);
 });

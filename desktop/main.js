@@ -1,4 +1,4 @@
-// Deskhandler desktop client — main process.
+// Belay desktop client — main process.
 //
 // Two window kinds:
 //   connect   pairs with a host and lists its displays
@@ -47,7 +47,7 @@ function createConnectWindow() {
     height: 640,
     minWidth: 480,
     minHeight: 420,
-    title: 'Deskhandler',
+    title: 'Belay',
     backgroundColor: pageGround(),
     webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });

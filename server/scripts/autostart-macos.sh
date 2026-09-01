@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Install (or remove) the Deskhandler host agent as a macOS LaunchAgent, so the
+# Install (or remove) the Belay host agent as a macOS LaunchAgent, so the
 # machine is reachable from your phone whenever it is awake and logged in.
 #
 # Usage:
@@ -25,7 +25,7 @@
 
 set -euo pipefail
 
-LABEL="com.deskhandler.host"
+LABEL="com.belay.host"
 # The pre-rename label. An install from before the rename registered under this
 # name; if it is left loaded, install would end with two agents fighting over
 # the same port at every login — so install and remove both clean it up.
@@ -33,8 +33,8 @@ LEGACY_LABEL="com.tether.host"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LEGACY_PLIST="$HOME/Library/LaunchAgents/$LEGACY_LABEL.plist"
 DOMAIN="gui/$(id -u)"
-OUT_LOG="$HOME/Library/Logs/deskhandler.out.log"
-ERR_LOG="$HOME/Library/Logs/deskhandler.err.log"
+OUT_LOG="$HOME/Library/Logs/belay.out.log"
+ERR_LOG="$HOME/Library/Logs/belay.err.log"
 
 SERVER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -51,12 +51,12 @@ legacy_loaded() {
 case "$action" in
   status)
     if is_loaded; then
-      echo "Deskhandler autostart: INSTALLED"
+      echo "Belay autostart: INSTALLED"
       launchctl print "$DOMAIN/$LABEL" | grep -E "^\s+(state|pid) " || true
       echo
       echo "Logs: $OUT_LOG"
     else
-      echo "Deskhandler autostart: not installed"
+      echo "Belay autostart: not installed"
     fi
     if legacy_loaded; then
       echo "note: the pre-rename agent ($LEGACY_LABEL) is still loaded; re-run install to replace it"
@@ -132,9 +132,9 @@ fi
 
 # Pin the state file to whichever one actually holds the pairings. A machine
 # that paired before the rename has tether-state.json and nothing else; pointing
-# the agent at a brand-new deskhandler-state.json would unpair every phone the
+# the agent at a brand-new belay-state.json would unpair every phone the
 # moment autostart is (re)installed. Once the new file exists it wins.
-STATE_FILE="$SERVER_DIR/deskhandler-state.json"
+STATE_FILE="$SERVER_DIR/belay-state.json"
 if [[ ! -f "$STATE_FILE" && -f "$SERVER_DIR/tether-state.json" ]]; then
   STATE_FILE="$SERVER_DIR/tether-state.json"
 fi
@@ -157,7 +157,7 @@ cat > "$PLIST" <<PLIST_EOF
     <key>PATH</key><string>$BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <!-- Pin the state file to the server directory so the agent finds the same
          pairings regardless of what launchd sets as the working directory. -->
-    <key>DESKHANDLER_STATE_FILE</key><string>$STATE_FILE</string>
+    <key>BELAY_STATE_FILE</key><string>$STATE_FILE</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -178,7 +178,7 @@ echo "==> Loaded into $DOMAIN"
 sleep 2
 if is_loaded; then
   echo
-  echo "Deskhandler will now start automatically when you log in."
+  echo "Belay will now start automatically when you log in."
   launchctl print "$DOMAIN/$LABEL" | grep -E "^\s+(state|pid) " || true
 else
   echo "warning: the agent did not stay loaded; check $ERR_LOG" >&2

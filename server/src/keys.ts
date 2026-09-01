@@ -89,7 +89,7 @@ export const DARWIN_VK: Record<string, number> = {
  * would send SIGINT to the foreground process, which is both surprising and
  * destructive.
  *
- * Set `DESKHANDLER_MAC_CTRL=control` to send literal Control instead (the right
+ * Set `BELAY_MAC_CTRL=control` to send literal Control instead (the right
  * choice if you mostly drive a terminal). Either way, `rawctrl` always sends
  * literal Control and `cmd` always sends Command, so both are reachable
  * whichever default is configured.

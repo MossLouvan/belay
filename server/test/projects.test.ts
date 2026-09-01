@@ -23,8 +23,8 @@ let outside = '';
 let inside = '';
 
 before(async () => {
-  outside = await mkdtemp(join(tmpdir(), 'deskhandler-projects-outside-'));
-  inside = join(HOME, '.deskhandler-test-projects');
+  outside = await mkdtemp(join(tmpdir(), 'belay-projects-outside-'));
+  inside = join(HOME, '.belay-test-projects');
   await rm(inside, { recursive: true, force: true });
   await mkdir(inside, { recursive: true });
   await writeFile(join(inside, 'a-file.txt'), 'not a folder\n', 'utf8');
@@ -90,7 +90,7 @@ test('a symlinked parent resolving outside the roots is rejected', async () => {
   assert.ok(!existsSync(join(outside, 'proj')), 'symlink escape must not create anything');
 });
 
-test('the Deskhandler install directory is refused as a parent', async () => {
+test('the Belay install directory is refused as a parent', async () => {
   // process.cwd() is the server install dir, on the deny-list because it holds
   // the paired-device tokens; a project created there would be served back out.
   await assert.rejects(() => createProject('proj', process.cwd()), /outside/i);

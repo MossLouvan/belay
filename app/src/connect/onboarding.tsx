@@ -1,4 +1,4 @@
-// The "what am I looking at" half of the connect screen. Someone opening Deskhandler
+// The "what am I looking at" half of the connect screen. Someone opening Belay
 // for the first time has no idea what an address or a pairing code is, so this
 // explains the whole setup before asking them to type anything.
 //
@@ -37,7 +37,7 @@ function Step({ index, title, detail, code }: StepProps) {
 const STEPS: readonly Omit<StepProps, 'index'>[] = [
   {
     title: 'Start the host agent on your computer',
-    detail: 'It is the small program that lets Deskhandler in. Leave it running.',
+    detail: 'It is the small program that lets Belay in. Leave it running.',
     code: 'cd server && npm start',
   },
   {

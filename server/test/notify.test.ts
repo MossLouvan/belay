@@ -17,14 +17,14 @@ const approvalEvent: NotifyEvent = {
   kind: 'approval',
   host: 'MacBook Air',
   hostId: 'host-1234',
-  session: { id: 'abc123', title: 'deskhandler' },
+  session: { id: 'abc123', title: 'belay' },
   tool: 'Bash',
   detail: 'curl -H "Authorization: Bearer sk-SECRET" https://api.example.com',
   expiresAt: Date.now() + 30 * 60 * 1000,
 };
 
 function cfgWith(url: string, extra: Partial<NotifyConfig> = {}): NotifyConfig {
-  return { ...loadNotifyConfig({ DESKHANDLER_NOTIFY_URL: url }), ...extra };
+  return { ...loadNotifyConfig({ BELAY_NOTIFY_URL: url }), ...extra };
 }
 
 // ---- config parsing --------------------------------------------------------
@@ -39,14 +39,14 @@ test('a malformed or non-http URL disables with a visible reason', () => {
   // A typo must degrade into a banner line, never into a webhook that
   // silently fires nowhere — that would recreate the silent-phone bug.
   for (const bad of ['not a url', 'ftp://ntfy.sh/topic', 'file:///etc/passwd']) {
-    const cfg = loadNotifyConfig({ DESKHANDLER_NOTIFY_URL: bad });
+    const cfg = loadNotifyConfig({ BELAY_NOTIFY_URL: bad });
     assert.equal(cfg.enabled, false, bad);
     assert.ok(cfg.disabledReason, bad);
   }
 });
 
 test('defaults: ntfy format, approval+error events, detail hidden', () => {
-  const cfg = loadNotifyConfig({ DESKHANDLER_NOTIFY_URL: 'https://ntfy.sh/my-topic' });
+  const cfg = loadNotifyConfig({ BELAY_NOTIFY_URL: 'https://ntfy.sh/my-topic' });
   assert.equal(cfg.enabled, true);
   assert.equal(cfg.format, 'ntfy');
   assert.equal(cfg.includeDetail, false);
@@ -68,7 +68,7 @@ test('the legacy TETHER_NOTIFY_* names still configure notifications', () => {
 
 test('the canonical name wins over the legacy one', () => {
   const cfg = loadNotifyConfig({
-    DESKHANDLER_NOTIFY_URL: 'https://ntfy.sh/new-topic',
+    BELAY_NOTIFY_URL: 'https://ntfy.sh/new-topic',
     TETHER_NOTIFY_URL: 'https://ntfy.sh/old-topic',
   });
   assert.match(cfg.url, /new-topic/);
@@ -76,11 +76,11 @@ test('the canonical name wins over the legacy one', () => {
 
 test('events, format, detail and token are all read from the env', () => {
   const cfg = loadNotifyConfig({
-    DESKHANDLER_NOTIFY_URL: 'https://hooks.example.com/x',
-    DESKHANDLER_NOTIFY_FORMAT: 'json',
-    DESKHANDLER_NOTIFY_EVENTS: 'approval, done ,error',
-    DESKHANDLER_NOTIFY_DETAIL: 'on',
-    DESKHANDLER_NOTIFY_TOKEN: ' tk_abc ',
+    BELAY_NOTIFY_URL: 'https://hooks.example.com/x',
+    BELAY_NOTIFY_FORMAT: 'json',
+    BELAY_NOTIFY_EVENTS: 'approval, done ,error',
+    BELAY_NOTIFY_DETAIL: 'on',
+    BELAY_NOTIFY_TOKEN: ' tk_abc ',
   });
   assert.equal(cfg.format, 'json');
   assert.deepEqual([...cfg.events].sort(), ['approval', 'done', 'error']);
@@ -89,13 +89,13 @@ test('events, format, detail and token are all read from the env', () => {
 });
 
 test('an unknown format or event name disables with a reason, not a guess', () => {
-  const badFmt = loadNotifyConfig({ DESKHANDLER_NOTIFY_URL: 'https://x.example', DESKHANDLER_NOTIFY_FORMAT: 'xml' });
+  const badFmt = loadNotifyConfig({ BELAY_NOTIFY_URL: 'https://x.example', BELAY_NOTIFY_FORMAT: 'xml' });
   assert.equal(badFmt.enabled, false);
   assert.match(badFmt.disabledReason || '', /FORMAT/);
 
   // "approvals" quietly meaning "nothing at all" is the failure mode this
   // guards against.
-  const badEv = loadNotifyConfig({ DESKHANDLER_NOTIFY_URL: 'https://x.example', DESKHANDLER_NOTIFY_EVENTS: 'approvals' });
+  const badEv = loadNotifyConfig({ BELAY_NOTIFY_URL: 'https://x.example', BELAY_NOTIFY_EVENTS: 'approvals' });
   assert.equal(badEv.enabled, false);
   assert.match(badEv.disabledReason || '', /approvals/);
 });
@@ -113,11 +113,11 @@ test('an approval message carries computer, session, tool and time left', () => 
   const now = Date.now();
   const msg = buildMessage({ ...approvalEvent, expiresAt: now + 30 * 60 * 1000 }, false, now);
   assert.match(msg.title, /MacBook Air/);
-  assert.match(msg.body, /"deskhandler"/);
+  assert.match(msg.body, /"belay"/);
   assert.match(msg.body, /Bash/);
   assert.match(msg.body, /30 min to answer/);
   assert.equal(msg.priority, 'high');
-  assert.equal(msg.link, 'deskhandler://agent?host=host-1234&session=abc123');
+  assert.equal(msg.link, 'belay://agent?host=host-1234&session=abc123');
 });
 
 test('detail is redacted by default — the secret never enters the message', () => {
@@ -184,7 +184,7 @@ test('the ntfy request puts the text in headers ntfy reads', () => {
   assert.equal(req.url, 'https://ntfy.sh/t');
   assert.match(req.headers.Title, /MacBook Air/);
   assert.equal(req.headers.Priority, 'high');
-  assert.equal(req.headers.Click, 'deskhandler://agent?host=host-1234&session=abc123');
+  assert.equal(req.headers.Click, 'belay://agent?host=host-1234&session=abc123');
   assert.equal(req.headers.Authorization, 'Bearer tk_1');
   assert.match(req.body, /Bash/);
   assert.ok(!req.body.includes('sk-SECRET'));
@@ -314,14 +314,14 @@ test('notify() is synchronous and cannot throw, whatever the config holds', asyn
 // ---- banner -----------------------------------------------------------------
 
 test('the banner says off, why, or where — and never a credential', () => {
-  assert.match(notifyBannerLine(loadNotifyConfig({})), /off — set DESKHANDLER_NOTIFY_URL/);
+  assert.match(notifyBannerLine(loadNotifyConfig({})), /off — set BELAY_NOTIFY_URL/);
   assert.match(
-    notifyBannerLine(loadNotifyConfig({ DESKHANDLER_NOTIFY_URL: 'nope' })),
+    notifyBannerLine(loadNotifyConfig({ BELAY_NOTIFY_URL: 'nope' })),
     /OFF — .*not a valid URL/,
   );
   const on = notifyBannerLine(loadNotifyConfig({
-    DESKHANDLER_NOTIFY_URL: 'https://user:hunter2@ntfy.example.com/topic',
-    DESKHANDLER_NOTIFY_TOKEN: 'tk_SECRET',
+    BELAY_NOTIFY_URL: 'https://user:hunter2@ntfy.example.com/topic',
+    BELAY_NOTIFY_TOKEN: 'tk_SECRET',
   }));
   assert.match(on, /ntfy\.example\.com\/topic/);
   assert.match(on, /metadata only/);

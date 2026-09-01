@@ -105,8 +105,8 @@ test('cmd fallback keeps the path out of the arg list entirely', () => {
 // ---- meta reading ---------------------------------------------------------
 
 test('readClaudeSessionId finds the recorded id and shrugs at garbage', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'deskhandler-handoff-'));
-  const file = join(dir, 'deskhandler-agent.json');
+  const dir = mkdtempSync(join(tmpdir(), 'belay-handoff-'));
+  const file = join(dir, 'belay-agent.json');
   writeFileSync(file, JSON.stringify({
     sessions: [
       { id: 't1', claudeSessionId: CLAUDE_ID },

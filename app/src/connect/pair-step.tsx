@@ -89,7 +89,7 @@ export function PairStep({
         <Caption style={{ marginBottom: theme.space.sm }}>
           {codeUnlikely
             ? `For when ${host.name} is actually showing one — right after a pairing reset, for instance.`
-            : `It is shown in the Deskhandler window on ${host.name}.`}
+            : `It is shown in the Belay window on ${host.name}.`}
         </Caption>
 
         <CodeInput

@@ -92,14 +92,14 @@ export function loadNotifyConfig(env: Record<string, string | undefined> = proce
 
   let url: URL;
   try { url = new URL(raw); }
-  catch { return { ...OFF, disabledReason: 'DESKHANDLER_NOTIFY_URL is not a valid URL' }; }
+  catch { return { ...OFF, disabledReason: 'BELAY_NOTIFY_URL is not a valid URL' }; }
   if (!HTTP_SCHEMES.has(url.protocol)) {
-    return { ...OFF, disabledReason: 'DESKHANDLER_NOTIFY_URL must be http(s)' };
+    return { ...OFF, disabledReason: 'BELAY_NOTIFY_URL must be http(s)' };
   }
 
   const fmtRaw = (productEnv('NOTIFY_FORMAT', env) || 'ntfy').trim().toLowerCase();
   if (fmtRaw !== 'ntfy' && fmtRaw !== 'json') {
-    return { ...OFF, disabledReason: `unknown DESKHANDLER_NOTIFY_FORMAT "${fmtRaw}" (use ntfy or json)` };
+    return { ...OFF, disabledReason: `unknown BELAY_NOTIFY_FORMAT "${fmtRaw}" (use ntfy or json)` };
   }
 
   // Unknown event names are a config error, not something to guess around:
@@ -110,7 +110,7 @@ export function loadNotifyConfig(env: Record<string, string | undefined> = proce
   if (evRaw) {
     for (const part of evRaw.split(',').map((p) => p.trim().toLowerCase()).filter(Boolean)) {
       if (part !== 'approval' && part !== 'done' && part !== 'error') {
-        return { ...OFF, disabledReason: `unknown event "${part}" in DESKHANDLER_NOTIFY_EVENTS (use approval, done, error)` };
+        return { ...OFF, disabledReason: `unknown event "${part}" in BELAY_NOTIFY_EVENTS (use approval, done, error)` };
       }
       events.add(part);
     }
@@ -159,7 +159,7 @@ export interface NotifyMessage {
  * being asked, how long is left — and, only when opted in, what exactly.
  */
 export function buildMessage(ev: NotifyEvent, includeDetail: boolean, now = Date.now()): NotifyMessage {
-  const link = `deskhandler://agent?host=${encodeURIComponent(ev.hostId)}&session=${encodeURIComponent(ev.session.id)}`;
+  const link = `belay://agent?host=${encodeURIComponent(ev.hostId)}&session=${encodeURIComponent(ev.session.id)}`;
   const who = `"${ev.session.title}"`;
   const detail = includeDetail && ev.detail
     ? ` — ${ev.detail.length > DETAIL_CAP ? ev.detail.slice(0, DETAIL_CAP) + '…' : ev.detail}`
@@ -355,7 +355,7 @@ export function notifyBannerLine(cfg: NotifyConfig = notifyConfig()): string {
   if (!cfg.enabled) {
     return cfg.disabledReason
       ? `OFF — ${cfg.disabledReason}`
-      : 'off — set DESKHANDLER_NOTIFY_URL to get pinged when Claude needs you (docs/AGENT.md)';
+      : 'off — set BELAY_NOTIFY_URL to get pinged when Claude needs you (docs/AGENT.md)';
   }
   const events = [...cfg.events].join('+');
   const detail = cfg.includeDetail ? 'with command detail' : 'metadata only';

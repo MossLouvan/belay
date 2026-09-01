@@ -1,4 +1,4 @@
-// Parsing and validation for the "Go to Folder" box — Deskhandler's version of
+// Parsing and validation for the "Go to Folder" box — Belay's version of
 // Finder's ⇧⌘G. People paste paths from everywhere: Finder's "Copy as
 // Pathname", a terminal (which backslash-escapes spaces), a chat message that
 // wrapped the path in quotes, a `file://` URL. All of those should just work,

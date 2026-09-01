@@ -17,7 +17,7 @@
 // requires an attacker who can already write to that exact path on this
 // machine, i.e. someone with local filesystem access who could simply read the
 // file directly; the window itself is sub-millisecond and dominated by network
-// round-trip time. Against Deskhandler's threat model (a remote client on the LAN or
+// round-trip time. Against Belay's threat model (a remote client on the LAN or
 // a Tailnet, with the local user trusted) that residual risk is accepted rather
 // than paid for with an fd-based rewrite of the whole file API.
 
@@ -103,7 +103,7 @@ const REAL_ROOTS: readonly string[] = ROOTS.map((r) => {
  * Places that sit inside a root but must never be served, because reading them
  * is worth more to an attacker than the rest of the home folder put together:
  *
- *   - the Deskhandler install directory itself — `deskhandler-state.json` there holds the
+ *   - the Belay install directory itself — `belay-state.json` there holds the
  *     raw bearer token of every paired device, so one paired phone could read
  *     it and impersonate all the others (and survive its own revocation);
  *   - credential folders and files (`~/.ssh`, `~/.aws`, `~/.claude`, shell
@@ -127,7 +127,7 @@ const DENIED_DIRS: readonly string[] = [
 
 // Both spellings: pre-rename installs still have `tether-*.json` on disk,
 // holding the very same live tokens, and those files never became less secret.
-const DENIED_FILE = /^(?:deskhandler|tether)-(state|agent)\.json$/i;
+const DENIED_FILE = /^(?:belay|tether)-(state|agent)\.json$/i;
 
 export function isDenied(realTarget: string, denied: readonly string[] = DENIED_DIRS): boolean {
   const target = resolve(realTarget);

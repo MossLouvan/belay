@@ -44,7 +44,7 @@ export function Brand() {
     <View style={{ alignItems: 'center', gap: theme.space.sm }}>
       <LogoMark />
       <Txt variant="display" heading>
-        Deskhandler
+        Belay
       </Txt>
       <Micro tone="dim">Your computer, on your phone</Micro>
     </View>

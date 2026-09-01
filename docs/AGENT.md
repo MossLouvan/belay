@@ -4,7 +4,7 @@ Drive Claude Code sessions on your PC from your phone — from anywhere, over
 Tailscale — with every action gated on an Allow/Deny tap.
 
 ```
-  iPhone (Agent tab)                       PC (Deskhandler host)
+  iPhone (Agent tab)                       PC (Belay host)
  ┌───────────────────────┐               ┌─────────────────────────────┐
  │ prompt (text / voice) │──ws /agent───►│ claude  (stream-json, in    │
  │ live activity feed    │◄──events──────│          the project folder)│
@@ -22,15 +22,15 @@ Tailscale — with every action gated on an Allow/Deny tap.
   context.
 - Permissions use Claude Code's `--permission-prompt-tool` hook: a tiny
   bundled MCP sidecar (`server/approval-mcp.cjs`) receives every "may I run
-  this?" ask, forwards it to the Deskhandler host over loopback, and the host holds
+  this?" ask, forwards it to the Belay host over loopback, and the host holds
   it until you tap **Allow**, **Deny**, or **Always <tool>** (always = this
   session only). No answer within 30 minutes = deny (configurable via
-  `DESKHANDLER_APPROVAL_TIMEOUT_MS`; `0` waits forever). The sidecar authenticates
+  `BELAY_APPROVAL_TIMEOUT_MS`; `0` waits forever). The sidecar authenticates
   with a per-process key; the loopback route accepts connections from
   127.0.0.1 only.
 - Transcripts are appended to `server/agent-logs/<id>.jsonl` (gitignored) so a
   session's history survives host restarts; session metadata lives in
-  `server/deskhandler-agent.json`.
+  `server/belay-agent.json`.
 
 ## Setup
 
@@ -59,11 +59,11 @@ recognition permissions the first time you press it.
 ## Resuming past sessions
 
 Claude Code keeps every session on disk (`~/.claude/projects/`), including
-ones started from a terminal. Deskhandler surfaces them two ways:
+ones started from a terminal. Belay surfaces them two ways:
 
 - **On the phone** — the Agent tab's **"On this PC"** section lists them,
   grouped by project, with the first prompt as a preview. Tap one to resume:
-  Deskhandler relaunches it with `--resume`, Claude keeps its full memory of the
+  Belay relaunches it with `--resume`, Claude keeps its full memory of the
   conversation, and the phone-approval flow attaches from the first action.
   The old transcript isn't replayed into the feed — a `resumed session` line
   marks the join point. If a session is still open in a terminal on the PC,
@@ -93,37 +93,37 @@ and it can be self-hosted so the ping never leaves your own infrastructure.
 
 1. Install the **ntfy** app on the iPhone and subscribe to a topic. Treat the
    topic name like a password — on the public ntfy.sh server, anyone who
-   guesses it can read your notifications. `deskhandler-<something long and random>`
+   guesses it can read your notifications. `belay-<something long and random>`
    is the minimum; a self-hosted or access-controlled server is better.
 2. Start the host with the topic URL:
 
    ```bash
-   DESKHANDLER_NOTIFY_URL=https://ntfy.sh/deskhandler-x7f3kq9v2m npm start
+   BELAY_NOTIFY_URL=https://ntfy.sh/belay-x7f3kq9v2m npm start
    ```
 
 3. The boot banner confirms it:
-   `Notify    : https://ntfy.sh/deskhandler-x7f3kq9v2m (ntfy, approval+error, metadata only)`
+   `Notify    : https://ntfy.sh/belay-x7f3kq9v2m (ntfy, approval+error, metadata only)`
 
 A lock-screen notification then reads:
 
 > **MacBook Air: Claude needs a decision**
-> "deskhandler" wants to run Bash. 30 min to answer, then it is denied.
+> "belay" wants to run Bash. 30 min to answer, then it is denied.
 
 — which computer, which session, what is being asked, how long is left.
 Expired asks ("nobody answered — Bash was denied after 30 min. Send a prompt
 to resume."), stopped sessions, and (opted in) finished turns read similarly.
-Tapping the notification opens `deskhandler://agent?host=<hostId>&session=<id>` via
+Tapping the notification opens `belay://agent?host=<hostId>&session=<id>` via
 ntfy's Click header — see the deep-link note below.
 
 ### Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DESKHANDLER_NOTIFY_URL` | *(unset — off)* | Where to POST. An ntfy topic URL, or any http(s) endpoint |
-| `DESKHANDLER_NOTIFY_FORMAT` | `ntfy` | `ntfy` (text body + `Title`/`Priority`/`Click` headers) or `json` (structured payload) |
-| `DESKHANDLER_NOTIFY_EVENTS` | `approval,error` | Comma list of `approval`, `done`, `error`. Expired approvals count as `approval`; `done` (a ping per finished turn) is opt-in because it fires on every turn |
-| `DESKHANDLER_NOTIFY_DETAIL` | *(off)* | `on` to include the one-line tool detail (the command, the file path) in the notification |
-| `DESKHANDLER_NOTIFY_TOKEN` | *(unset)* | Sent as `Authorization: Bearer …` — ntfy access tokens, or your own endpoint's auth. Never logged |
+| `BELAY_NOTIFY_URL` | *(unset — off)* | Where to POST. An ntfy topic URL, or any http(s) endpoint |
+| `BELAY_NOTIFY_FORMAT` | `ntfy` | `ntfy` (text body + `Title`/`Priority`/`Click` headers) or `json` (structured payload) |
+| `BELAY_NOTIFY_EVENTS` | `approval,error` | Comma list of `approval`, `done`, `error`. Expired approvals count as `approval`; `done` (a ping per finished turn) is opt-in because it fires on every turn |
+| `BELAY_NOTIFY_DETAIL` | *(off)* | `on` to include the one-line tool detail (the command, the file path) in the notification |
+| `BELAY_NOTIFY_TOKEN` | *(unset)* | Sent as `Authorization: Bearer …` — ntfy access tokens, or your own endpoint's auth. Never logged |
 
 A malformed URL, format or event list turns notifications **off with the
 reason in the banner** rather than guessing — a typo that silently meant "no
@@ -139,7 +139,7 @@ relay gets the structured fields.
 
 By default the payload is metadata only: computer label, session title, tool
 name, time remaining. The tool's detail line — a shell command, a file path —
-is excluded unless `DESKHANDLER_NOTIFY_DETAIL=on`, because command lines routinely
+is excluded unless `BELAY_NOTIFY_DETAIL=on`, because command lines routinely
 carry secrets (`curl -H "Authorization: …"`) and the zero-setup target most
 people will try first is the public ntfy.sh server, where the topic name is
 the only lock on the door. "MacBook Air: Claude wants to run Bash, 30 min
@@ -160,8 +160,8 @@ recovers.
 ### The deep link, honestly
 
 The host half is done: every notification carries
-`deskhandler://agent?host=<hostId>&session=<sessionId>` (ntfy `Click` header /
-`link` field), and `deskhandler` is the app's registered URL scheme (the
+`belay://agent?host=<hostId>&session=<sessionId>` (ntfy `Click` header /
+`link` field), and `belay` is the app's registered URL scheme (the
 pre-rename `tether` scheme is still registered too, so notifications sent
 before the rename keep opening the app). The
 app half still needs a linking handler that (1) parses that URL, (2) selects

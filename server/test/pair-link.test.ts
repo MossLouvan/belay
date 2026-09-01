@@ -23,13 +23,13 @@ const input = {
 };
 
 test('the built link uses the current scheme', () => {
-  assert.ok(buildPairLink(input).startsWith('deskhandler://pair?'));
+  assert.ok(buildPairLink(input).startsWith('belay://pair?'));
 });
 
 test('a pre-rename tether:// link still parses', () => {
   // QR codes photographed and notifications delivered before the rename are
   // out in the world; the scheme changed, the pairing they promise must not.
-  const legacy = buildPairLink(input).replace(/^deskhandler:/, 'tether:');
+  const legacy = buildPairLink(input).replace(/^belay:/, 'tether:');
   const parsed = parsePairLink(legacy);
   assert.ok(parsed);
   assert.equal(parsed.code, '472234');
@@ -70,7 +70,7 @@ test('unrelated QR codes are rejected rather than throwing', () => {
     'mailto:someone@example.com',
     'tel:+15551234',
     '{"not":"a url"}',
-    'deskhandler://something-else?v=1',
+    'belay://something-else?v=1',
     'tether://something-else?v=1',
   ];
   for (const raw of junk) {

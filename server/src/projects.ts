@@ -24,7 +24,7 @@
 // than being clobbered. That EEXIST check happens *inside* the syscall, so
 // there is no check-then-create race on the target itself; the residual
 // check-then-use window on the parent path string is the same one files.ts
-// documents and accepts under Deskhandler's threat model (local user trusted).
+// documents and accepts under Belay's threat model (local user trusted).
 
 import { mkdir, realpath, stat } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
@@ -101,7 +101,7 @@ export async function createProject(name: unknown, parent: unknown): Promise<Cre
   const segment = validateName(name);
   const dir = await resolveParent(parent);
   const target = join(dir, segment);
-  // The name alone can steer the target onto the deny-list (`deskhandler-state.json`
+  // The name alone can steer the target onto the deny-list (`belay-state.json`
   // as a directory name, say) even with a clean parent.
   if (isDenied(target)) throw new Error('that name cannot be used here');
   try {
