@@ -149,14 +149,14 @@ test.describe('Belay', () => {
     // Up button works.
     await page.getByTestId('files-up').click();
 
-    // Navigate into the Documents root and open the tether folder if present.
-    // 'tether' here is the repo's real directory name on disk (~/projects,
-    // Documents), not the product name — the checkout was not renamed, so the
-    // testid derived from the folder name must not be either.
+    // Navigate into the Documents root and open the belay folder if present.
+    // 'belay' here is the repo's real directory name on disk (~/projects,
+    // Documents); the testid is derived from the folder name, so it tracks the
+    // checkout rather than the product name.
     await page.getByTestId('root-Documents').click();
-    const tether = page.getByTestId('entry-tether');
-    if (await tether.count()) {
-      await tether.click();
+    const belay = page.getByTestId('entry-belay');
+    if (await belay.count()) {
+      await belay.click();
       // Open a text file from the repo (README-like) — just verify the viewer opens.
       const anyFile = page.locator('[data-testid^="entry-"]').first();
       await anyFile.click();
