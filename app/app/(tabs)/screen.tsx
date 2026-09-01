@@ -233,16 +233,38 @@ export default function ScreenTab() {
     setBox((prev) => (prev.w === width && prev.h === height ? prev : { w: width, h: height }));
   }, []);
 
+  // Modifiers resolved by the press that started a hold. Repeats reuse them so
+  // a held Ctrl+Backspace keeps deleting WORDS, even though the latch was
+  // released the moment the first key went out.
+  const heldModsRef = useRef<readonly string[]>([]);
+
   const sendKey = useCallback(
     (spec: KeySpec) => {
       haptic('light');
       const base = modsFor(spec, isMac);
       const latched = modNamesForHost(activeMods(modsRef.current), isMac).filter((m) => !base.includes(m));
+      const mods = [...latched, ...base];
+      heldModsRef.current = mods;
       setMods(releaseLatched);
-      api
-        .key(keyFor(spec, isMac), [...latched, ...base])
+      // Returned so the key bar's auto-repeat can pace itself on the round
+      // trip instead of queueing sends a slow link cannot keep up with.
+      return api
+        .key(keyFor(spec, isMac), mods)
         .catch((e: unknown) => reportError(`Key ${spec.id} failed — ${messageOf(e)}`));
     },
+    [isMac, reportError]
+  );
+
+  /**
+   * One auto-repeat of a key being held down. No haptic (eighteen a second is
+   * a buzz, not feedback) and no latch bookkeeping — just the same chord the
+   * press sent, again.
+   */
+  const repeatKey = useCallback(
+    (spec: KeySpec) =>
+      api
+        .key(keyFor(spec, isMac), [...heldModsRef.current])
+        .catch((e: unknown) => reportError(`Key ${spec.id} failed — ${messageOf(e)}`)),
     [isMac, reportError]
   );
 
@@ -371,7 +393,15 @@ export default function ScreenTab() {
   const controls = (
     <Column gap="xs">
       {keysOn ? (
-        <KeyBar mac={isMac} mods={mods} onKey={sendKey} onMod={tapModifier} floating={fullscreen} testID="key-bar" />
+        <KeyBar
+          mac={isMac}
+          mods={mods}
+          onKey={sendKey}
+          onRepeat={repeatKey}
+          onMod={tapModifier}
+          floating={fullscreen}
+          testID="key-bar"
+        />
       ) : null}
       {typeOpen ? typeRow : null}
       <ControlDock

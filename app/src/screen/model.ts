@@ -122,13 +122,21 @@ export interface KeySpec {
    * label — VoiceOver reading "⌘⇧4" aloud helps nobody.
    */
   readonly action?: string;
+  /**
+   * Holding the cap repeats the key, the way a physical keyboard does (see
+   * repeat.ts). Only for keys whose effect is safe to apply many times in a
+   * row and is visibly incremental — deleting a character, moving a caret.
+   * Never for anything that opens, closes, submits or switches: a held Enter
+   * or Ctrl+W would fire twenty times before the finger lifted.
+   */
+  readonly repeatable?: boolean;
 }
 
 export const KEYS: readonly KeySpec[] = Object.freeze([
   { id: 'Esc', label: 'Esc', key: 'escape' },
   { id: 'Tab', label: 'Tab', key: 'tab' },
   { id: 'Enter', label: 'Enter', key: 'enter' },
-  { id: 'Bksp', label: 'Bksp', key: 'backspace' },
+  { id: 'Bksp', label: 'Bksp', key: 'backspace', repeatable: true },
   { id: 'Ctrl+C', label: 'Ctrl+C', key: 'c', mods: ['ctrl'], macLabel: '⌘C', macMods: ['cmd'], action: 'Copy' },
   { id: 'Ctrl+V', label: 'Ctrl+V', key: 'v', mods: ['ctrl'], macLabel: '⌘V', macMods: ['cmd'], action: 'Paste' },
   { id: 'Win', label: 'Win', key: 'win', macLabel: 'Cmd' },

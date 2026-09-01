@@ -26,6 +26,8 @@ import { KEYS, labelFor } from './model';
 import type { KeySpec, QualityPreset } from './model';
 import { buildKeyPages, pageIndexFor } from './keybar';
 import type { ArrowGlyph, KeyBarCell } from './keybar';
+import { createRepeater } from './repeat';
+import type { Repeater } from './repeat';
 import { DIMMED_OPACITY } from './autohide';
 import type { ModsState, StickyMod } from './mods';
 import type { PermissionState, Phase, StreamStats } from './stream';
@@ -175,7 +177,14 @@ export function StageCorner({ mode, onPress, dimmed = false, accessibilityLabel,
 
 export interface KeyCapProps {
   spec: KeySpec;
-  onPress: (spec: KeySpec) => void;
+  onPress: (spec: KeySpec) => unknown;
+  /**
+   * Sends one auto-repeat of a held key. Distinct from `onPress` because the
+   * press does latch bookkeeping and a haptic that must NOT fire eighteen
+   * times a second; a repeat is the bare key, on the same modifiers.
+   * Omitted, or a spec that is not `repeatable`, leaves the cap tap-only.
+   */
+  onRepeat?: (spec: KeySpec) => unknown;
   mac: boolean;
   /** Draw a chevron instead of the text label (arrow keys). */
   glyph?: ArrowGlyph;
@@ -191,9 +200,33 @@ export interface KeyCapProps {
  * allowed — with an un-bold mono label (bold mono is banned, §12). Only the
  * latch states draw a border; a resting key is a fill, not a box.
  */
-export function KeyCap({ spec, onPress, mac, glyph, sticky = false, latched = false, locked = false, style }: KeyCapProps) {
+export function KeyCap({ spec, onPress, onRepeat, mac, glyph, sticky = false, latched = false, locked = false, style }: KeyCapProps) {
   const theme = useTheme();
   const label = labelFor(spec, mac);
+  const repeats = !sticky && spec.repeatable === true && onRepeat !== undefined;
+
+  // Held-key auto-repeat. The repeater is built once and reads its callbacks
+  // through a ref, so a re-render mid-hold never swaps the loop out from
+  // under a finger that is still down.
+  const handlers = useRef({ onPress, onRepeat, spec });
+  handlers.current = { onPress, onRepeat, spec };
+  // True once press-in has delivered the key, so the trailing onPress does not
+  // send it a second time. Left true after release; the next press-in clears it.
+  const sentOnPressIn = useRef(false);
+  const repeater = useRef<Repeater | null>(null);
+  if (repeats && repeater.current === null) {
+    repeater.current = createRepeater(() => {
+      const current = handlers.current;
+      if (!sentOnPressIn.current) {
+        sentOnPressIn.current = true;
+        return current.onPress(current.spec);
+      }
+      return current.onRepeat?.(current.spec);
+    }, { setTimeout, clearTimeout });
+  }
+  // A cap unmounted mid-hold (page swipe, bar toggled off) must not leave a
+  // key repeating into the host.
+  useEffect(() => () => repeater.current?.stop(), []);
   const background = locked ? theme.colors.accent : latched ? theme.colors.accentSoft : theme.colors.surfaceAlt;
   const ink = locked ? theme.colors.onAccent : latched ? theme.colors.onAccentSoft : theme.colors.text;
   // Shortcut caps announce what they do, not their glyphs — "Screenshot a
@@ -207,8 +240,24 @@ export function KeyCap({ spec, onPress, mac, glyph, sticky = false, latched = fa
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={sticky ? { selected: latched || locked } : undefined}
-      accessibilityHint={sticky ? 'Tap once for the next key, twice quickly to lock' : undefined}
-      onPress={() => onPress(spec)}
+      accessibilityHint={
+        sticky ? 'Tap once for the next key, twice quickly to lock' : repeats ? 'Hold to repeat' : undefined
+      }
+      onPress={() => {
+        // VoiceOver activation fires onPress without a press-in, so the tap
+        // path stays live; a finger press has already sent it.
+        if (sentOnPressIn.current) return;
+        onPress(spec);
+      }}
+      onPressIn={
+        repeats
+          ? () => {
+              sentOnPressIn.current = false;
+              repeater.current?.start();
+            }
+          : undefined
+      }
+      onPressOut={repeats ? () => repeater.current?.stop() : undefined}
       style={({ pressed }) => [
         {
           backgroundColor: background,
@@ -245,7 +294,9 @@ const KEY_PAGES = buildKeyPages(KEYS);
 export interface KeyBarProps {
   mac: boolean;
   mods: ModsState;
-  onKey: (spec: KeySpec) => void;
+  onKey: (spec: KeySpec) => unknown;
+  /** One auto-repeat of a held key — see KeyCapProps.onRepeat. */
+  onRepeat?: (spec: KeySpec) => unknown;
   onMod: (mod: StickyMod) => void;
   /** Floating over the stream (fullscreen): chrome uses the HUD scrim. */
   floating?: boolean;
@@ -259,7 +310,7 @@ export interface KeyBarProps {
  * motion. Sits bare on the page — the keys themselves are the recessed fills,
  * the bar has no box of its own outside the fullscreen scrim.
  */
-export function KeyBar({ mac, mods, onKey, onMod, floating = false, testID }: KeyBarProps) {
+export function KeyBar({ mac, mods, onKey, onRepeat, onMod, floating = false, testID }: KeyBarProps) {
   const theme = useTheme();
   const reduced = useReducedMotion();
   const [width, setWidth] = useState(0);
@@ -306,7 +357,15 @@ export function KeyBar({ mac, mods, onKey, onMod, floating = false, testID }: Ke
         style={{ flex: 1 }}
       />
     ) : (
-      <KeyCap key={entry.spec.id} spec={entry.spec} glyph={entry.glyph} mac={mac} onPress={onKey} style={{ flex: 1 }} />
+      <KeyCap
+        key={entry.spec.id}
+        spec={entry.spec}
+        glyph={entry.glyph}
+        mac={mac}
+        onPress={onKey}
+        onRepeat={onRepeat}
+        style={{ flex: 1 }}
+      />
     );
 
   return (
