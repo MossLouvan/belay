@@ -40,6 +40,10 @@ test('a tool nobody has classified is treated as a run, not a read', () => {
 test('destructive commands and out-of-project writes are danger tier', () => {
   assert.equal(riskTier('Bash', { command: 'rm -rf node_modules' }, CWD), 'danger');
   assert.equal(riskTier('Bash', { command: 'sudo make install' }, CWD), 'danger');
+  // Trailing-flag spellings must not slip past as a quiet 'run' card.
+  assert.equal(riskTier('Bash', { command: 'rm ./build -rf' }, CWD), 'danger');
+  assert.equal(riskTier('Bash', { command: 'rm -r -f dist' }, CWD), 'danger');
+  assert.equal(riskTier('Bash', { command: 'echo warmfile' }, CWD), 'run', 'no false positive on rm-substring');
   assert.equal(riskTier('Bash', { command: 'git push --force origin main' }, CWD), 'danger');
   assert.equal(riskTier('Write', { file_path: '/etc/hosts' }, CWD), 'danger');
   assert.equal(riskTier('Edit', { file_path: join(CWD, '..', 'other', 'x.ts') }, CWD), 'danger');

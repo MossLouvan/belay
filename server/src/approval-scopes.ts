@@ -50,7 +50,9 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit']);
 // be incomplete — it decides presentation and grantability, while the actual
 // safety floor stays "every unmatched ask goes to the phone".
 const DANGEROUS = [
-  /\brm\s+(-[a-z]*[rf][a-z]*\b|--recursive\b|--force\b)/i,
+  // The r/f flag may sit anywhere after `rm` (e.g. `rm ./dir -rf`), not only
+  // immediately after it — match the whole invocation up to a command separator.
+  /\brm\b[^|;&\n]*\s(-[a-z]*[rf][a-z]*\b|--recursive\b|--force\b)/i,
   /\bsudo\b/,
   /\bgit\s+push\b.*(\s--force\b|\s-f\b)/,
   /\bgit\s+reset\s+--hard\b/,
