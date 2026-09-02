@@ -267,8 +267,8 @@ rebuild — which cannot run headless. This is already called out in the
 | # | Milestone | Acceptance metric | Gate |
 |---|---|---|---|
 | **M0** | Pure scaffolding (done + extended here) | `signaling/latency/ice/session/congestion/channels` all green under `node --test`; `relay` green | now ✓ |
-| **M1** | Wire `/ws/webrtc` signaling end-to-end against a fake peer | An offer→answer→ICE→connected round trip passes through `validateSignal` + `StreamSession`; stale-session and `bye` handled; JPEG still default | now |
-| **M2** | Loss-lab simulator over `congestion.ts` | Controller converges to within **±15%** of link capacity and does **not** oscillate across scripted **1–5% loss + 30–80 ms jitter** traces; `channels` routing unit-proven (stuck-key case: key-up always on the reliable channel) | now |
+| **M1** | Wire `/ws/webrtc` signaling end-to-end against a fake peer | An offer→answer→ICE→connected round trip passes through `validateSignal` + `StreamSession`; stale-session and `bye` handled; JPEG still default | done ✓ |
+| **M2** | Loss-lab simulator over `congestion.ts` | Controller converges to within **±15%** of link capacity and does **not** oscillate across scripted **1–5% loss + 30–80 ms jitter** traces; `channels` routing unit-proven (stuck-key case: key-up always on the reliable channel) | done ✓ |
 | **M3** | VideoToolbox encoder on a Mac GPU | Emits a decodable H.264 elementary stream; **encode p95 < 8 ms at 1080p60**; measured bitrate tracks setpoint within ±10% | GPU |
 | **M4** | `libdatachannel` + SRTP to a dev-client on LAN | First real number: **glass-to-glass p50 ≤ 40 ms, p95 ≤ 60 ms** on LAN/Tailscale-direct; ICE reports `direct-local`/`direct-reflexive` | GPU + phone |
 | **M5** | Loss-lab conformance on the *real* path | Under 1–5% loss + cellular jitter with NACK/FEC on: **glass-to-glass p95 ≤ 80 ms**, no stuck key, recovers from a burst loss within one intra-refresh cycle, and **beats JPEG on the same link** ⇒ flip `BELAY_WEBRTC` toward default | GPU + phone |
