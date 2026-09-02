@@ -19,6 +19,7 @@ import {
 import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
 import { createPairGuard } from './pair-guard.js';
+import { createPairReplayCache } from './pair-replay.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
@@ -121,6 +122,10 @@ if (testCodeActive()) {
 }
 
 const pairGuard = createPairGuard();
+// Remembers the token issued for a just-consumed code, so a lost /pair reply
+// can be recovered by an identical retry instead of bricking first-run. See
+// pair-replay.ts.
+const pairReplay = createPairReplayCache();
 const tickets = createTicketStore();
 
 /**
@@ -220,6 +225,7 @@ app.post('/pair', async (req, res) => {
   }
 
   const { code, deviceName } = req.body || {};
+  const codeStr = String(code || '');
 
   // Code-less path: a peer on our own tailnet, verified by the Tailscale
   // daemon, is already proven to be one of the owner's devices. See tailnet.ts
@@ -239,7 +245,16 @@ app.post('/pair', async (req, res) => {
     }
   }
 
-  if (!consumeCode(String(code || ''))) {
+  if (!consumeCode(codeStr)) {
+    // A lost reply to a *successful* pair also lands here on retry: the first
+    // call already burned this code. If this exact code just issued a token,
+    // replay it rather than punish an idempotent retry as a wrong guess — same
+    // token, and no failure charged against the client or the code budget.
+    const replay = pairReplay.lookup(codeStr);
+    if (replay) {
+      res.json(replay);
+      return;
+    }
     const outcome = pairGuard.recordFailure(clientId);
     if (outcome.burnCode) {
       // The per-code budget is spent. Burn it rather than let a distributed
@@ -261,7 +276,11 @@ app.post('/pair', async (req, res) => {
   pairGuard.recordSuccess(clientId);
   pairGuard.resetCodeBudget();
   const device = addDevice(String(deviceName || 'iPhone'));
-  res.json({ token: device.token, name: getHostName() });
+  const body = { token: device.token, name: getHostName() };
+  // Remember the result so a lost reply is recoverable: a retry with the same
+  // (now-burned) code returns this same token instead of a bricking 400.
+  pairReplay.remember(codeStr, body);
+  res.json(body);
 });
 
 // ---- authed routes -------------------------------------------------------
