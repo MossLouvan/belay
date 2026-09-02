@@ -8,7 +8,7 @@
 // machines as hairline-separated rows — every row tappable, reachability
 // carried by the dot and the mono status word, no card around any of it.
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
 
@@ -22,6 +22,7 @@ import { isReachableFromAnywhere } from '../src/devices/model';
 import type { SavedDevice } from '../src/devices/model';
 import { useReachability } from '../src/devices/reachability';
 import type { Reachability } from '../src/devices/reachability';
+import { useAutoReconnect } from '../src/devices/use-auto-reconnect';
 import { DiscoveredSection } from '../src/devices/discovered-section';
 
 /** How a platform is described in the list. */
@@ -45,13 +46,26 @@ function statusText(state: Reachability | undefined, isActive: boolean): string 
 
 export default function Devices() {
   const theme = useTheme();
-  const { devices, active, addDevice, switchTo, forget, phase, activeUrl } = useConnection();
+  const { devices, active, addDevice, switchTo, forget, reconnect, phase, activeUrl } = useConnection();
   const { byId, refresh } = useReachability(devices);
 
   const [pendingForget, setPendingForget] = useState<SavedDevice | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
   /** Bumped by Refresh so the tailnet look-around re-runs with the probes. */
   const [discoveryNonce, setDiscoveryNonce] = useState(0);
+  /** True once the user asks Belay to keep re-attempting a dead connection. */
+  const [keepTrying, setKeepTrying] = useState(false);
+  const reconnectAttempts = useAutoReconnect(keepTrying, phase, reconnect);
+
+  // Stand down the moment the machine answers, and whenever the active computer
+  // changes out from under the loop — the old target's retries mean nothing to
+  // a computer you just switched to.
+  useEffect(() => {
+    if (phase === 'connected') setKeepTrying(false);
+  }, [phase]);
+  useEffect(() => {
+    setKeepTrying(false);
+  }, [active?.id]);
 
   const refreshAll = useCallback(() => {
     refresh();
@@ -155,13 +169,28 @@ export default function Devices() {
           <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
         </View>
 
-        {phase === 'unreachable' && active ? (
-          <Banner
-            status="bad"
-            title={`Could not reach ${active.label}`}
-            message="It may be asleep, powered off, or on a network this phone cannot see."
-            action={{ label: 'Try again', onPress: refresh }}
-          />
+        {active && (phase === 'unreachable' || (keepTrying && phase === 'connecting')) ? (
+          keepTrying ? (
+            <Banner
+              testID="reconnect-banner"
+              status="warn"
+              title={`Reconnecting to ${active.label}…`}
+              message={
+                `Belay keeps trying and will connect the moment it wakes${
+                  reconnectAttempts > 0 ? ` · attempt ${reconnectAttempts}` : ''
+                }.`
+              }
+              action={{ label: 'Stop', onPress: () => setKeepTrying(false) }}
+            />
+          ) : (
+            <Banner
+              testID="unreachable-banner"
+              status="bad"
+              title={`Could not reach ${active.label}`}
+              message="It may be asleep, powered off, or on a network this phone cannot see. Belay can keep trying and connect the moment it wakes."
+              action={{ label: 'Keep trying', onPress: () => { haptic('light'); setKeepTrying(true); } }}
+            />
+          )
         ) : null}
 
         <View>
