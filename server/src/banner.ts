@@ -4,8 +4,8 @@
 
 import qrcode from 'qrcode-terminal';
 
-import { localAddresses, isTailscaleAddress, isCgnatAddress, buildAddresses } from './addresses.js';
-import { buildPairLink } from './pair-link.js';
+import { localAddresses, isTailscaleAddress, isCgnatAddress } from './addresses.js';
+import { emitPairingCode, PairingHostInfo } from './pairing-display.js';
 
 export interface BannerInfo {
   readonly hostName: string;
@@ -19,30 +19,34 @@ export interface BannerInfo {
   readonly platform: string;
 }
 
+// The concrete terminal sinks: a real QR renderer and console.log. `small:
+// true` uses half-block characters so the code fits an 80-column terminal; the
+// default renders roughly twice as tall and wraps.
+const terminalSinks = {
+  qr: (link: string) => qrcode.generate(link, { small: true }),
+  line: (text: string) => console.log(text),
+};
+
 /**
- * Print the pairing QR.
+ * Reprint the QR and the code together after a rotation.
  *
- * Scanning removes the two typing steps — the address and the six digits — that
- * are the clunkiest part of setup and the only part that requires being at the
- * computer. The code is still shown underneath, because a terminal that
- * mangles block characters, a remote SSH session, or simply a phone with no
- * working camera all need the manual path to keep working.
+ * The rotation loop mints a fresh code every few minutes while nothing is
+ * paired. It must reprint the QR too — printing only a text line leaves the
+ * boot QR scrolled above still encoding the now-dead code, which scans as "that
+ * code didn't work" while the code is plainly on screen and burns the client's
+ * failure budget toward a lockout. Going through the shared emitter guarantees
+ * the QR and the digits name the same code.
  */
-function printPairingQr(info: BannerInfo, code: string): void {
-  const addresses = buildAddresses(info.port);
-  if (addresses.length === 0) return;
-
-  const link = buildPairLink({
-    hostId: info.hostId,
-    label: info.label,
-    platform: info.platform,
-    code,
-    addresses,
-  });
-
-  // `small: true` uses half-block characters so the code fits an 80-column
-  // terminal; the default renders roughly twice as tall and wraps.
-  qrcode.generate(link, { small: true });
+export function reprintPairingCode(
+  info: PairingHostInfo,
+  code: string,
+  expiresInSec: number,
+): void {
+  console.log('');
+  console.log('  New pairing code — scan this in the Belay app:');
+  console.log('');
+  emitPairingCode(info, code, expiresInSec, terminalSinks);
+  console.log('');
 }
 
 /** Platform-appropriate label for the machine the agent is running on. */
@@ -119,12 +123,9 @@ export function printBanner(info: BannerInfo): void {
     for (const line of lines) console.log(line);
     lines.length = 0;
 
-    printPairingQr(info, info.pairingCode.code);
-
-    lines.push(
-      '',
-      `  ...or type it in manually — code: ${info.pairingCode.code}   (expires in ${info.pairingCode.expiresInSec}s)`,
-    );
+    // The QR and the manual code line come from the one shared emitter, so this
+    // boot display and the later rotation display can never disagree.
+    emitPairingCode(info, info.pairingCode.code, info.pairingCode.expiresInSec, terminalSinks);
   } else {
     lines.push(`  Paired devices: ${info.deviceCount}. Use the app to connect.`);
   }
