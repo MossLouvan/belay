@@ -71,11 +71,16 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
    * otherwise land you on whichever host happened to be slower.
    */
   const attemptRef = useRef(0);
+  // Always the latest committed store, set synchronously in commit() so a
+  // long-running connectTo reads current state instead of the snapshot it began
+  // with (a forget/disconnect mid-race must not be reverted).
+  const storeRef = useRef<DeviceStore>(store);
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
   /** Persist and hold in state together, so the two can never disagree. */
   const commit = useCallback(async (next: DeviceStore) => {
+    storeRef.current = next;
     setStore(next);
     await saveStore(next).catch(() => { /* already reported in storage */ });
   }, []);
@@ -88,6 +93,9 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
    * winner is recorded so the next attempt tries it first.
    */
   const connectTo = useCallback(async (device: SavedDevice, from: DeviceStore): Promise<void> => {
+    // Seed the latest-store ref from the caller's just-committed store, so the
+    // final commit has a correct base even before React flushes the render.
+    storeRef.current = from;
     const attempt = ++attemptRef.current;
     setPhase('connecting');
 
@@ -135,7 +143,9 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     setActiveUrl(winner.url);
     setPhase('connected');
 
-    let next = recordSuccess(from, device.id, winner.url, winner.rttMs, Date.now());
+    // The current store, not the `from` snapshot captured before the race — a
+    // concurrent forget/rename/disconnect must survive this commit.
+    let next = recordSuccess(storeRef.current, device.id, winner.url, winner.rttMs, Date.now());
     // A computer carried over from the old single-connection layout has a
     // synthesised id; the first host that reports a real one lets it become an
     // ordinary entry, keeping its token.
@@ -151,6 +161,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     loadStore()
       .then(async (loaded) => {
         if (!live) return;
+        storeRef.current = loaded;
         setStore(loaded);
         setReady(true);
         const device = pickActive(loaded);
@@ -175,6 +186,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
   }, [store, commit, connectTo]);
 
   const forget = useCallback(async (id: string) => {
+    attemptRef.current += 1; // cancel any in-flight connect to the forgotten device
     const wasActive = store.activeId === id;
     const next = removeDevice(store, id);
     await commit(next);
@@ -192,6 +204,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
   }, [store, commit, connectTo]);
 
   const rename = useCallback(async (id: string, label: string) => {
+    attemptRef.current += 1; // don't let an in-flight connect revert the rename
     await commit(renameDevice(store, id, label));
   }, [store, commit]);
 
@@ -201,6 +214,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
   }, [store, connectTo]);
 
   const disconnect = useCallback(async () => {
+    attemptRef.current += 1; // cancel any in-flight connect before wiping state
     await commit(emptyStore());
     setConn(null);
     clearClientConnection();

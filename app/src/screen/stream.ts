@@ -6,7 +6,7 @@
 // Screen Recording / Accessibility permission flags.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ScreenInfo, wsUrl } from '../api';
+import { api, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
 import { messageOf, numberOf, PERMISSION_PATTERN, QualityPreset, STREAM } from './model';
 
 export type Phase = 'idle' | 'connecting' | 'live' | 'stalled' | 'reconnecting' | 'error';
@@ -198,6 +198,10 @@ export function useScreenStream(active: boolean, quality: QualityPreset, screen?
       c.sourceWidth = frame.sw;
       c.sourceHeight = frame.sh;
       setFrameUri(`data:image/jpeg;base64,${frame.data}`);
+      // Reset the backoff only once a real frame arrives — not on socket open,
+      // which an accept-then-immediately-close host also triggers, pinning the
+      // retry at the 1s floor forever.
+      if (tries !== 0) { tries = 0; setAttempt(0); }
       // Functional updates so a steady stream of identical values bails out of
       // re-rendering rather than churning at the frame rate.
       setPhase((prev) => (prev === 'live' ? prev : 'live'));
@@ -245,6 +249,13 @@ export function useScreenStream(active: boolean, quality: QualityPreset, screen?
           }),
         );
       } catch (e: unknown) {
+        if (e instanceof UnauthorizedError) {
+          // The phone is no longer paired with this computer. Retrying can only
+          // 401 forever, so this is terminal — surface it instead of looping.
+          setError('This phone is no longer paired with that computer.');
+          setPhase('error');
+          return;
+        }
         setError(`Could not open the screen stream — ${messageOf(e)}`);
         scheduleRetry();
         return;
@@ -252,18 +263,23 @@ export function useScreenStream(active: boolean, quality: QualityPreset, screen?
       if (disposed) { socket.close(); return; }
       socketRef.current = socket;
       socket.onopen = () => {
-        if (disposed) return;
-        tries = 0;
-        setAttempt(0);
+        // Backoff is reset on the first frame (see onFrame), not here — a socket
+        // that opens but never delivers must not clear the counter.
       };
       socket.onmessage = onMessage;
       socket.onerror = () => {
         if (disposed) return;
         setError((prev) => prev ?? 'The host is not reachable on this network.');
       };
-      socket.onclose = () => {
+      socket.onclose = (event: { code?: number }) => {
         if (disposed) return;
         socketRef.current = null;
+        if (event?.code === 4001) {
+          // The host revoked this device mid-stream. Terminal — do not retry.
+          setError('This phone is no longer paired with that computer.');
+          setPhase('error');
+          return;
+        }
         scheduleRetry();
       };
     }
@@ -286,7 +302,12 @@ export function useScreenStream(active: boolean, quality: QualityPreset, screen?
         sourceHeight: c.sourceHeight,
       });
       const stale = c.lastFrameAt > 0 && Date.now() - c.lastFrameAt > STREAM.stallAfterMs;
-      setPhase((prev) => (prev === 'live' && stale ? 'stalled' : prev));
+      if (stale && socketRef.current) {
+        // A half-open socket never fires 'close' on its own; tear it down so the
+        // reconnect path runs instead of freezing on a stale frame forever.
+        setPhase((prev) => (prev === 'live' ? 'stalled' : prev));
+        socketRef.current.close();
+      }
     }, STREAM.statsIntervalMs);
 
     return () => {

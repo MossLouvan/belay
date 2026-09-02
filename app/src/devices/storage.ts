@@ -20,6 +20,7 @@ import { Platform } from 'react-native';
 import {
   DeviceStore, emptyStore, parseStore, migrateLegacy, LegacyConnection,
 } from './model';
+import { SECURE_MARK, resolveLoadedToken, isUnresolved, type KeychainRead } from './token-resolve';
 
 // 'belay.*' since the bundle id moved: a new bundle id is a new app to
 // iOS, with an empty container and keychain, so there was nothing left under
@@ -33,7 +34,6 @@ const LEGACY_TOKEN_KEY = 'tether.token';
 const LEGACY_NAME_KEY = 'tether.hostname';
 
 /** What the blob holds in place of a token that lives in the keychain. */
-const SECURE_MARK = '<keychain>';
 
 const useKeychain = Platform.OS !== 'web';
 
@@ -95,7 +95,14 @@ export async function saveStore(store: DeviceStore): Promise<void> {
  */
 async function stashTokens(store: DeviceStore): Promise<DeviceStore> {
   const keep = new Set(store.devices.map((d) => d.id));
-  await Promise.all(store.devices.map((d) => SecureStore.setItemAsync(secureKey(d.id), d.token)));
+  await Promise.all(
+    store.devices
+      // An unresolved marker means the real token could not be read this load;
+      // writing it back would overwrite the genuine keychain entry with the
+      // sentinel, so leave that entry exactly as it is.
+      .filter((d) => !isUnresolved(d.token))
+      .map((d) => SecureStore.setItemAsync(secureKey(d.id), d.token)),
+  );
   for (const id of await previousIds()) {
     if (!keep.has(id)) await SecureStore.deleteItemAsync(secureKey(id)).catch(() => undefined);
   }
@@ -128,9 +135,17 @@ async function restoreTokens(blob: unknown): Promise<unknown> {
   const restored = await Promise.all(devices.map(async (d) => {
     const dev = d as { id?: unknown; token?: unknown };
     if (dev?.token !== SECURE_MARK || typeof dev.id !== 'string') return d;
-    let token: string | null = null;
-    try { token = await SecureStore.getItemAsync(secureKey(dev.id)); } catch { token = null; }
-    return { ...dev, token: token ?? '' };
+    // Distinguish "entry absent" (null) from "read failed" (throw). A failure
+    // keeps the marker unresolved so the device is NOT dropped and later deleted
+    // — a locked phone must not permanently un-pair a computer.
+    let read: KeychainRead;
+    try {
+      const value = await SecureStore.getItemAsync(secureKey(dev.id));
+      read = value === null ? { kind: 'absent' } : { kind: 'value', token: value };
+    } catch {
+      read = { kind: 'failed' };
+    }
+    return { ...dev, token: resolveLoadedToken(SECURE_MARK, read) };
   }));
   return { ...(blob as object), devices: restored };
 }
