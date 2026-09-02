@@ -35,3 +35,22 @@ export function connectLanding(i: LandingInputs): ConnectLanding {
   if (i.deviceCount > 0 && !i.connecting) return '/devices';
   return null;
 }
+
+/** Where a fresh pair drops the user in. */
+export type PairDestination = '/(tabs)/screen' | '/(tabs)/system';
+
+/**
+ * The first tab shown right after pairing. A Mac that has not granted the
+ * screen-capture permission serves a black Screen tab — a broken-looking first
+ * impression for a brand-new user (docs/FRONTEND-REVAMP.md §4.3 / §5 #4). When
+ * `/health` says the capture helper is not available (`native: false`), land on
+ * System instead: it always works, and the Screen tab keeps its own recovery
+ * card for when the user does open it.
+ *
+ * `native` is `HostCheck.native`. An older host that reports neither way leaves
+ * it `undefined`; we do not assume the tab is broken then, so the destination
+ * stays Screen exactly as before — only an explicit `false` reroutes.
+ */
+export function postPairDestination(native: boolean | undefined): PairDestination {
+  return native === false ? '/(tabs)/system' : '/(tabs)/screen';
+}

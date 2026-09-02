@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { connectLanding } from './landing.ts';
+import { connectLanding, postPairDestination } from './landing.ts';
 
 const base = { ready: true, connected: false, deviceCount: 0, connecting: false, adding: false };
 
@@ -31,4 +31,18 @@ test('coming to add another computer is never bounced away', () => {
   // back — pairing the second machine was unreachable from the UI.
   assert.equal(connectLanding({ ...base, adding: true, deviceCount: 1 }), null);
   assert.equal(connectLanding({ ...base, adding: true, connected: true, deviceCount: 1 }), null);
+});
+
+test('a fresh pair lands on Screen when the host can capture', () => {
+  assert.equal(postPairDestination(true), '/(tabs)/screen');
+});
+
+test('a host with no capture helper lands on System, not a black Screen', () => {
+  assert.equal(postPairDestination(false), '/(tabs)/system');
+});
+
+test('an older host that reports neither way keeps the old Screen landing', () => {
+  // Only an explicit `false` reroutes — an unknown capability must not send a
+  // fully working machine to System.
+  assert.equal(postPairDestination(undefined), '/(tabs)/screen');
 });

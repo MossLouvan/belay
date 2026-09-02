@@ -32,7 +32,7 @@ import type { PairingDeadEnd } from '../src/connect/dead-end';
 import { detectDeadEnd } from '../src/connect/dead-end';
 import { NoCodeStep } from '../src/connect/no-code-step';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
-import { connectLanding } from '../src/connect/landing';
+import { connectLanding, postPairDestination } from '../src/connect/landing';
 
 type Stage = 'host' | 'scan' | 'code' | 'success';
 
@@ -351,8 +351,10 @@ export default function Connect() {
       successTimer.current = setTimeout(() => {
         // Save and connect *before* navigating. The tabs guard redirects away
         // when there is no live connection, so leaving this unawaited bounces
-        // the user straight back to this screen.
-        void addDevice(device).then(() => router.replace('/(tabs)/screen'));
+        // the user straight back to this screen. Land on a tab that actually
+        // works: a Mac without the capture permission would otherwise open on a
+        // black Screen tab as its first impression (postPairDestination).
+        void addDevice(device).then(() => router.replace(postPairDestination(identity.native)));
       }, SUCCESS_DWELL_MS);
     } catch (e: unknown) {
       haptic('error');
