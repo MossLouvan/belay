@@ -6,13 +6,13 @@
 // carry the answer (the socket's message vocabulary lives in index.ts and
 // predates scopes, queues and interrupts).
 
+import { messageOf } from './errors.js';
 import type { Express, Request, RequestHandler, Response } from 'express';
 
 import {
   answerApprovalScoped, cancelQueuedPrompt, interruptSession, listGrants, revokeGrant,
 } from './agent.js';
 
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export function registerAgentApprovalRoutes(app: Express, auth: RequestHandler): void {
   // Like /approve, but `choice` names one of the scope choices the card

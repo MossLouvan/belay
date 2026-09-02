@@ -232,7 +232,7 @@ export function getPlatform(): HostPlatform {
 
 // ---- devices -------------------------------------------------------------
 
-export function newToken(): string {
+function newToken(): string {
   return randomBytes(32).toString('hex');
 }
 

@@ -13,13 +13,13 @@
 // project and a prompt in that session's queue — because this is the only
 // module that may know about both the drop and the agent.
 
+import { messageOf } from './errors.js';
 import express from 'express';
 import type { Express, Request, RequestHandler, Response } from 'express';
 
 import { getSnapshot, sendPrompt } from './agent.js';
 import { IMAGES, imageDrop } from './images.js';
 
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 // 12 MB of image is 16 MB of base64; a little slack for whitespace a client
 // may interleave. Anything bigger is refused by the parser before this

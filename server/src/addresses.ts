@@ -118,10 +118,6 @@ export function localAddresses(): readonly LocalAddress[] {
   return out;
 }
 
-/** Just the addresses, for callers that do not care where they came from. */
-export function localIPv4(): readonly string[] {
-  return localAddresses().map((a) => a.address);
-}
 
 /**
  * Build the advertised address list.

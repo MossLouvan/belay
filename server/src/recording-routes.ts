@@ -8,6 +8,7 @@
 // that session's project and a prompt in that session's queue — because this
 // is the only module that may know about both the recorder and the agent.
 
+import { messageOf } from './errors.js';
 import type { Express, Request, RequestHandler, Response } from 'express';
 
 import { native } from './native.js';
@@ -15,7 +16,6 @@ import { getSnapshot, sendPrompt } from './agent.js';
 import { recorder } from './recording.js';
 import { screenIndexOf } from './stream-params.js';
 
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export function registerRecordingRoutes(app: Express, auth: RequestHandler): void {
   app.get('/recording/status', auth, (_req: Request, res: Response) => {

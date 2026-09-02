@@ -23,6 +23,7 @@ import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
+import { messageOf } from './errors.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
 import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-params.js';
 import { native } from './native.js';
@@ -1014,9 +1015,6 @@ async function handleTerminal(ws: WebSocket, url: URL) {
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
 /** Narrow an unknown thrown value to a message without assuming it is an Error. */
-function messageOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 // ---- boot ----------------------------------------------------------------
 
