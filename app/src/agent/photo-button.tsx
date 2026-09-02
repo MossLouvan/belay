@@ -29,11 +29,6 @@ export interface PhotoSend {
   readonly send: (source: PhotoSource, note: string) => Promise<boolean>;
 }
 
-/** The one route iOS offers out of a denied permission. */
-export function openPhotoSettings(): void {
-  void Linking.openSettings();
-}
-
 /** Compressed enough to move fast on cellular, sharp enough for UI text. */
 const PICKER_OPTIONS: ImagePicker.ImagePickerOptions = {
   mediaTypes: ['images'],

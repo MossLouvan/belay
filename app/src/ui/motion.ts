@@ -64,16 +64,6 @@ const STATIC_PRESS: PressAnimation = Object.freeze({
 });
 
 /**
- * @deprecated Scale-transform press feedback is banned (docs/DESIGN.md §10) —
- * use `opacity: pressed ? motion.pressOpacity : 1` in the Pressable's style
- * instead. This shim keeps the handlers wired but the scale pinned at 1, so
- * unmigrated call sites compile and simply stop squishing.
- */
-export function usePressScale(_to: number = motion.pressScale): PressAnimation {
-  return STATIC_PRESS;
-}
-
-/**
  * Drives a 0..1 Animated value whenever `active` flips. Used for tab-bar and
  * segmented-control selection states.
  */

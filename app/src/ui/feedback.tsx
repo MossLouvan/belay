@@ -181,9 +181,6 @@ export function Badge({
   );
 }
 
-/** @deprecated Pills are banned; this now renders the square Badge. */
-export { Badge as Pill };
-
 /**
  * Inline banner for errors and notices. Announced to screen readers, so it is
  * suitable for surfacing connection failures. The leading 2pt rule is the

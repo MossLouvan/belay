@@ -448,15 +448,6 @@ export function useTheme(): Theme {
   return getTheme(useColorScheme());
 }
 
-/** Cycles system -> light -> dark -> system. Handy for a settings row. */
-export function useThemeToggle(): () => void {
-  const mode = useThemeMode();
-  return useCallback(() => {
-    const next: ThemeMode = mode === 'system' ? 'light' : mode === 'light' ? 'dark' : 'system';
-    setThemeMode(next);
-  }, [mode]);
-}
-
 /**
  * Legacy export. Resolves to the dark palette so pre-existing screens that read
  * `colors.bg` at module scope keep working unchanged.

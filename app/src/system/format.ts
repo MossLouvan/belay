@@ -52,11 +52,6 @@ export function osLabel(stats: SystemStats): string {
   return `${stats.platform} ${stats.release}`.trim();
 }
 
-/** True when the host told us a friendly name rather than a kernel string. */
-export function hasFriendlyOsName(stats: SystemStats): boolean {
-  return Boolean(stats.osName?.trim());
-}
-
 export type Severity = 'good' | 'warn' | 'bad';
 
 /** Usage thresholds, shared by every meter so the colours mean one thing. */
@@ -72,16 +67,6 @@ export function chargeSeverity(battery: BatteryInfo): Severity {
   if (battery.percent <= 15) return 'bad';
   if (battery.percent <= 35) return 'warn';
   return 'good';
-}
-
-export function severityColor(severity: Severity, colors: Palette): string {
-  const map: Readonly<Record<Severity, string>> = { good: colors.good, warn: colors.warn, bad: colors.bad };
-  return map[severity];
-}
-
-/** e.g. "Charging · 82%" / "On battery · 41%". */
-export function batteryHeadline(battery: BatteryInfo): string {
-  return `${battery.charging ? 'Charging' : 'On battery'} · ${Math.round(battery.percent)}%`;
 }
 
 /** The power source as reported by the host, tidied for display. */

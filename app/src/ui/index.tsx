@@ -23,7 +23,7 @@ export type { TrackLabelProps } from './track-label';
 export { trackInks, DISABLED_TRACK_OPACITY } from './track';
 export type { TrackInkSet, TrackInks, TrackState } from './track';
 
-export { Dot, Meter, Badge, Pill, Banner, Toast, EmptyState, Skeleton } from './feedback';
+export { Dot, Meter, Badge, Banner, Toast, EmptyState, Skeleton } from './feedback';
 export type { Status } from './feedback';
 
 export { Input, TextField } from './input';
@@ -38,5 +38,5 @@ export type { SheetProps } from './sheet';
 export { haptic, setHapticsEnabled, areHapticsEnabled } from './haptics';
 export type { HapticTone } from './haptics';
 
-export { useReducedMotion, usePressScale, useToggleAnimation, usePulse } from './motion';
+export { useReducedMotion, useToggleAnimation, usePulse } from './motion';
 export type { PressAnimation } from './motion';

@@ -114,8 +114,3 @@ export function diagnosePairFailure(url: string, raw: string): Diagnosis {
 
   return { title: 'Pairing failed', message: `${prettyHost(url)} said: ${detail}` };
 }
-
-/** Flattens a diagnosis for contexts that only have room for one string. */
-export function diagnosisText(d: Diagnosis): string {
-  return `${d.title}. ${d.message}`;
-}
