@@ -362,6 +362,32 @@ class NativeHost {
   focusWindow(window: string): Promise<{ focused?: boolean }> {
     return this.send({ cmd: 'focuswindow', window });
   }
+  // ---- Virtual display driver (opt-in, behind BELAY_VIRTUAL_DISPLAY) -----
+  //
+  // Ask the helper to create/destroy a driver-backed display at an exact
+  // resolution and refresh, so the host renders what the client can show —
+  // no physical panel required. Arguments are validated in
+  // virtual-display.ts BEFORE these are called; the helper (and on Windows
+  // the driver's IOCTL handler) validates again on its own boundary.
+  //
+  // A helper without the backend (macOS pre-rebuild, Windows without the
+  // BelayVDD driver installed) answers `unknown command` or a structured
+  // E_UNAVAILABLE-style error — the route turns either into a clear message,
+  // never a hang. See docs/VIRTUAL-DISPLAY.md for backend status.
+
+  virtualDisplayCreate(width: number, height: number, refreshHz: number):
+    Promise<{ display?: unknown }> {
+    return this.send({ cmd: 'virtualdisplay', action: 'create', w: width, h: height, hz: refreshHz });
+  }
+
+  virtualDisplayDestroy(): Promise<{ destroyed?: boolean }> {
+    return this.send({ cmd: 'virtualdisplay', action: 'destroy' });
+  }
+
+  virtualDisplayStatus(): Promise<{ active?: boolean; display?: unknown }> {
+    return this.send({ cmd: 'virtualdisplay', action: 'status' });
+  }
+
   scroll(dy: number, dx: number) { return this.send({ cmd: 'scroll', dy, dx }); }
   key(vk: number, mods: number[] = []) { return this.send({ cmd: 'key', vk, mods }); }
   text(text: string) { return this.send({ cmd: 'text', text }); }

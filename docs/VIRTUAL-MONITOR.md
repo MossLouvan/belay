@@ -1,5 +1,10 @@
 # Virtual monitors
 
+> Since this was written, Belay grew an opt-in driver of its own that can
+> *create* a virtual display at the client's exact resolution — see
+> [VIRTUAL-DISPLAY.md](VIRTUAL-DISPLAY.md). This doc remains accurate for
+> third-party tools and for how detection works.
+
 A virtual monitor is a display your computer believes it has, with no panel
 attached to it. Windows and macOS both treat one as a real screen: you can drag
 windows onto it, maximise on it, and set its resolution. Nobody can see it.
