@@ -16,6 +16,17 @@ import { fileURLToPath } from 'node:url';
 
 import { backoffDelay, isHealthyRun } from './backoff.js';
 import type { RawScreen } from './displays.js';
+import type { ValidSignal } from './webrtc/relay.js';
+
+/** A signaling frame pushed FROM the helper (the callee peer) toward Node, to be
+ *  relayed to the phone: the helper's local answer, its ICE candidates, or a
+ *  bye. Unlike capture/input this is not request/reply — the helper emits it
+ *  asynchronously as ICE gathers, so it rides its own line shape (`type:
+ *  'webrtc'`) rather than an id-matched reply. The payload is passed through
+ *  UN-validated: the /ws/webrtc bridge runs it through `validateSignal` on the
+ *  way out, so the relay validates the helper's output on the same boundary it
+ *  validates the phone's — no path skips it. */
+export type WebrtcSignalListener = (signal: unknown) => void;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const NATIVE_DIR = join(__dirname, '..', 'native');
@@ -156,6 +167,12 @@ class NativeHost {
   /** True once stop() is called, so a deliberate shutdown is not restarted. */
   private stopped = false;
 
+  /** Subscribers to signaling frames the helper pushes (answer/ICE/bye). Kept
+   *  as a set so the /ws/webrtc bridge can attach for the life of a session and
+   *  detach cleanly when the socket closes, without leaking a listener per
+   *  reconnect. */
+  private webrtcListeners = new Set<WebrtcSignalListener>();
+
   available(): boolean {
     return TARGET !== null && existsSync(TARGET.path);
   }
@@ -224,6 +241,12 @@ class NativeHost {
           // black screen the user can fix and one they cannot explain.
           for (const warning of msg.warnings || []) console.warn('[native]', warning);
           onReady();
+          return;
+        }
+        // A pushed signaling frame (not an id-matched reply): the helper's local
+        // answer / ICE candidate / bye, on its way to the phone via the bridge.
+        if (msg.type === 'webrtc') {
+          this.dispatchWebrtcSignal(msg.signal);
           return;
         }
         const id = msg.id;
@@ -342,6 +365,42 @@ class NativeHost {
   scroll(dy: number, dx: number) { return this.send({ cmd: 'scroll', dy, dx }); }
   key(vk: number, mods: number[] = []) { return this.send({ cmd: 'key', vk, mods }); }
   text(text: string) { return this.send({ cmd: 'text', text }); }
+
+  // ---- WebRTC signaling (opt-in, behind BELAY_WEBRTC) --------------------
+  //
+  // The helper owns the real peer connection (the ICE callee) and the hardware
+  // encoder; Node only relays SDP/ICE to it. These verbs hand the helper a
+  // validated signaling frame from the phone, and the push subscription
+  // (onWebrtcSignal) carries the helper's local answer/ICE back.
+  //
+  // HARDWARE-GATED: the helper's `webrtc` command and its `type:'webrtc'` push
+  // are the libdatachannel side, which is NOT compiled yet (see
+  // docs/WEBRTC-SLICE.md). Until then a `webrtc` command resolves as the
+  // helper's `unknown command` error, exactly like the seamless-window verbs on
+  // macOS — so the /ws/webrtc route degrades to a clean error, never a hang.
+
+  /** Hand the helper one validated signaling frame from the phone (offer/ICE/
+   *  bye). Request/reply so the caller learns the helper rejected it. */
+  webrtcSignal(signal: ValidSignal): Promise<{ ok?: boolean }> {
+    return this.send({ cmd: 'webrtc', signal });
+  }
+
+  /** Subscribe to signaling frames the helper pushes back (answer/ICE/bye).
+   *  Returns an unsubscribe fn so a closing /ws/webrtc socket detaches cleanly
+   *  rather than leaking one listener per session. */
+  onWebrtcSignal(listener: WebrtcSignalListener): () => void {
+    this.webrtcListeners.add(listener);
+    return () => { this.webrtcListeners.delete(listener); };
+  }
+
+  private dispatchWebrtcSignal(signal: unknown): void {
+    for (const listener of this.webrtcListeners) {
+      // One listener throwing must not stop the others or crash the read loop.
+      try { listener(signal); } catch (e) {
+        console.error('[native] webrtc listener failed:', e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
 
   stop() {
     this.stopped = true;
