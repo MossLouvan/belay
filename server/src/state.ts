@@ -152,7 +152,17 @@ export function loadState(): void {
     console.log(`[state] read ${LEGACY_STATE_FILE}; the next change is saved as ${STATE_FILE} (the old file is kept)`);
   }
   try {
-    state = migrate(JSON.parse(readFileSync(source, 'utf8')));
+    const parsed: unknown = JSON.parse(readFileSync(source, 'utf8'));
+    const hadHostId =
+      !!parsed && typeof parsed === 'object' &&
+      typeof (parsed as { hostId?: unknown }).hostId === 'string' &&
+      (parsed as { hostId?: string }).hostId !== '';
+    state = migrate(parsed);
+    // If migrate had to mint a hostId (pre-v1 file) or we read the legacy file,
+    // persist immediately. Otherwise the mint is lost on exit and the host's
+    // identity changes every restart, so every paired phone sees a mismatch and
+    // marks the computer unreachable. Saving also promotes legacy -> STATE_FILE.
+    if (!hadHostId || source === LEGACY_STATE_FILE) save();
   } catch (e: unknown) {
     // Loud, because the consequence is every paired phone appearing unpaired.
     console.error(
@@ -171,7 +181,7 @@ export function loadState(): void {
  * treats that as "nothing is paired". Writing to a sibling and renaming makes
  * the swap atomic on POSIX and Windows alike.
  */
-function save(): void {
+function save(): boolean {
   const temporary = `${STATE_FILE}.tmp`;
   try {
     writeFileSync(temporary, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: STATE_FILE_MODE });
@@ -179,9 +189,11 @@ function save(): void {
     // rename preserves the temp file's mode, but an older state file created
     // before this change would still be 0644, so re-assert it.
     chmodSync(STATE_FILE, STATE_FILE_MODE);
+    return true;
   } catch (e: unknown) {
     console.error(`[state] failed to save ${STATE_FILE}: ${e instanceof Error ? e.message : String(e)}`);
     try { if (existsSync(temporary)) unlinkSync(temporary); } catch { /* best effort */ }
+    return false;
   }
 }
 
@@ -285,11 +297,12 @@ export function revokeDevice(tokenPrefix: string): boolean {
   const devices = state.devices.filter((d) => !d.token.startsWith(tokenPrefix));
   if (devices.length === before) return false;
   state = { ...state, devices };
-  save();
-  return true;
+  // true only if the removal is durable; a failed write means the token could
+  // come back on restart, and the caller should surface that rather than lie.
+  return save();
 }
 
-export function revokeAll(): void {
+export function revokeAll(): boolean {
   state = { ...state, devices: [] };
-  save();
+  return save();
 }
