@@ -16,6 +16,7 @@ import { buildSavedDevice } from '../src/devices/from-host';
 import { ScanStep } from '../src/connect/scan';
 import { ParsedPairLink } from '../src/connect/pair-link';
 import { raceAddresses } from '../src/devices/race';
+import { hostIdentityMatches } from '../src/devices/identity';
 import { useTheme } from '../src/theme';
 import {
   Button, Caption, Micro, Rule, Txt, haptic,
@@ -89,12 +90,20 @@ function SuccessNotice({ name }: { name: string }) {
  * rather than tried in order so a dead candidate costs one abandoned request
  * instead of a visible delay.
  */
-async function firstReachable(urls: readonly string[]): Promise<string | null> {
+async function firstReachable(
+  urls: readonly string[],
+  expectedHostId: string,
+): Promise<string | null> {
   const winner = await raceAddresses(
     urls.map((url) => ({ url })),
     async (url, signal) => {
       const health = await checkHost(url, signal);
-      return { ok: health.ok, hostId: health.id };
+      // The QR names the host's real id, so an address that answers with a
+      // *different* id is a different machine on a reused address — reject it
+      // rather than pair with, and hand a token to, the wrong computer. Never
+      // legacy here: a scanned link always carries a real id.
+      const ok = health.ok && hostIdentityMatches(expectedHostId, health.id, false);
+      return { ok, hostId: health.id };
     },
   );
   return winner?.url ?? null;
@@ -391,7 +400,7 @@ export default function Connect() {
     setPairError(null);
     setBusy(true);
     try {
-      const reachable = await firstReachable(link.addresses);
+      const reachable = await firstReachable(link.addresses, link.hostId);
       if (!reachable) {
         setStage('host');
         setHostError({

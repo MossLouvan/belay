@@ -15,6 +15,7 @@ import {
   upsertDevice, setActive, removeDevice, renameDevice, recordSuccess,
   orderAddresses, adoptRealId, isLegacyId, findDevice,
 } from './devices/model';
+import { hostIdentityMatches } from './devices/identity';
 import { loadStore, saveStore } from './devices/storage';
 import { raceAddresses } from './devices/race';
 
@@ -91,9 +92,18 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     setPhase('connecting');
 
     const ordered = orderAddresses(device.addresses, device.lastKnownGoodUrl);
+    const legacy = isLegacyId(device.id);
     const winner = await raceAddresses(ordered, async (url, signal) => {
       const health = await checkHost(url, signal);
-      return { ok: health.ok, hostId: health.id };
+      // A saved computer is keyed on the host's stable id, not its URL, because
+      // the URL is the thing that changes: DHCP reassigns a saved LAN address
+      // to a different machine on the next lease. If whoever now answers that
+      // address reports a *different* real id, it is not our computer, and
+      // handing it this pairing's token would leak it — so treat it as a failed
+      // candidate. A synthesised legacy id has nothing to compare against yet
+      // and still adopts the first real id below.
+      const ok = health.ok && hostIdentityMatches(device.id, health.id, legacy);
+      return { ok, hostId: health.id };
     });
 
     // A newer attempt started while this one was in flight; its result wins.
