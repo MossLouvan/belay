@@ -14,8 +14,9 @@ import { URL } from 'node:url';
 
 import {
   loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices,
-  revokeDevice, deviceCount, getHostId, getLabel, setLabel, getPlatform, Device,
+  revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, Device,
 } from './state.js';
+import { wantsPairingReset } from './reset-pairing.js';
 import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
 import { createPairGuard } from './pair-guard.js';
@@ -107,6 +108,21 @@ const CODE_REFRESH_INTERVAL_MS = 30_000;
 loadState();
 loadAgentState();
 if (!getHostName()) setHostName(hostname());
+
+// `--reset-pairing` reopens the pairing window the safe way: clear the paired
+// devices but keep this machine's identity (hostId) and its user-set label. The
+// old advice was to delete belay-state.json, which also regenerates hostId —
+// orphaning the phone's saved computer and duplicating it on the next pair.
+// Clearing devices alone drops deviceCount() to 0, so ensureCode() below opens
+// a fresh code exactly as a first-run host does.
+if (wantsPairingReset(process.argv.slice(2))) {
+  const cleared = deviceCount();
+  revokeAll();
+  console.log(
+    `[pairing] reset: cleared ${cleared} paired device${cleared === 1 ? '' : 's'}; ` +
+    `identity kept (${getLabel()}). A fresh pairing code follows.`,
+  );
+}
 
 // Only open a pairing window when there is nothing paired yet. Previously this
 // ran unconditionally, so every restart of an already-paired host opened a live
@@ -206,6 +222,15 @@ app.get('/health', async (req, res) => {
 // The code is only ever shown on the PC (see banner.ts); the phone POSTs a code
 // the user read off that screen. Wrong guesses are rate limited per client and
 // budgeted per code — see pair-guard.ts for why both limits are needed.
+// A pairing device name is attacker-supplied and persisted verbatim; clamp it
+// the way /label clamps its input (trim, strip control chars, cap length) so a
+// pairing request cannot write megabytes into the credential state file.
+const MAX_DEVICE_NAME = 64;
+function cleanDeviceName(raw: unknown): string {
+  const trimmed = String(raw ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  return (trimmed || 'iPhone').slice(0, MAX_DEVICE_NAME);
+}
+
 app.post('/pair', async (req, res) => {
   const clientId = req.ip ?? 'unknown';
 
@@ -229,7 +254,7 @@ app.post('/pair', async (req, res) => {
     const tailnet = await tailnetTrusted(req.socket.remoteAddress);
     if (tailnet.trusted) {
       pairGuard.recordSuccess(clientId);
-      const device = addDevice(String(deviceName || 'iPhone'));
+      const device = addDevice(cleanDeviceName(deviceName));
       console.log(`[pairing] paired ${device.name} via tailnet identity (${tailnet.peer?.node || clientId})`);
       res.json({ token: device.token, name: getHostName(), via: 'tailnet' });
       return;
@@ -260,7 +285,7 @@ app.post('/pair', async (req, res) => {
 
   pairGuard.recordSuccess(clientId);
   pairGuard.resetCodeBudget();
-  const device = addDevice(String(deviceName || 'iPhone'));
+  const device = addDevice(cleanDeviceName(deviceName));
   res.json({ token: device.token, name: getHostName() });
 });
 
@@ -465,11 +490,25 @@ app.post('/input/scroll', auth, async (req, res) => {
 app.post('/input/drag', auth, async (req, res) => {
   try {
     const { x1, y1, x2, y2, button = 'left' } = req.body || {};
+    // Validate before pressing anything: a non-finite coordinate or an unknown
+    // button must be a clean 400, not a press we cannot reliably release.
+    if (![x1, y1, x2, y2].every((n) => typeof n === 'number' && Number.isFinite(n))) {
+      res.status(400).json({ error: 'drag needs finite x1,y1,x2,y2' }); return;
+    }
+    if (button !== 'left' && button !== 'right' && button !== 'middle') {
+      res.status(400).json({ error: 'unknown button' }); return;
+    }
     const screen = screenIndexOf(req.body?.screen);
     const window = windowIdOf(req.body?.window);
     await native.down(button, x1, y1, screen, window);
-    await native.move(x2, y2, screen, window);
-    await native.up(button, x2, y2, screen, window);
+    try {
+      await native.move(x2, y2, screen, window);
+    } finally {
+      // Always release, even if the move leg failed (a native timeout after a
+      // display wake, a helper crash). Otherwise the button stays physically
+      // held down and every later move becomes a drag.
+      await native.up(button, x2, y2, screen, window).catch(() => {});
+    }
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -496,8 +535,10 @@ app.post('/input/key', auth, async (req, res) => {
   try {
     const { key, mods = [] } = req.body || {};
     const name = String(key || '').toLowerCase();
-    const modVks = (mods as string[]).map((m) => MOD_VK[m.toLowerCase()]).filter((v): v is number => !!v);
-    let vk: number | null = VK[name] ?? null;
+    const modVks = (Array.isArray(mods) ? mods : [])
+      .map((m) => (Object.hasOwn(MOD_VK, String(m).toLowerCase()) ? MOD_VK[String(m).toLowerCase()] : undefined))
+      .filter((v): v is number => v !== undefined);
+    let vk: number | null = Object.hasOwn(VK, name) ? VK[name] ?? null : null;
     if (vk === null) vk = charToVk(String(key || ''));
     if (vk !== null) {
       await native.key(vk, modVks);
@@ -648,23 +689,49 @@ const wss = new WebSocketServer({ noServer: true });
 const liveSockets = new Map<WebSocket, string>();
 
 // One handler per WS path. Auth happens once here at the upgrade.
+const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent']);
+
 server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url || '', 'http://localhost');
-  if (!isTrustedHost(req.headers.host) || !isTrustedOrigin(req.headers.origin)) {
-    socket.write('HTTP/1.1 421 Misdirected Request\r\n\r\n'); socket.destroy(); return;
+  // Parse first, guarded: a malformed request target (e.g. "///") makes
+  // `new URL` throw ERR_INVALID_URL. Before this guard the throw escaped the
+  // handler and the socket was never destroyed — an unauthenticated file-
+  // descriptor leak, one per request, reachable from any web page.
+  let url: URL;
+  try {
+    url = new URL(req.url || '', 'http://localhost');
+  } catch {
+    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n'); socket.destroy(); return;
   }
 
-  // A ticket is preferred; the raw token is still accepted so an app built
-  // before /ws-ticket existed keeps working. New clients should never send it —
-  // see the route above for why a token in a URL is a problem.
-  const ticket = url.searchParams.get('ticket') || '';
-  const redeemed = ticket ? tickets.redeem(ticket) : null;
-  const token = redeemed ?? url.searchParams.get('token') ?? '';
+  try {
+    if (!isTrustedHost(req.headers.host) || !isTrustedOrigin(req.headers.origin)) {
+      socket.write('HTTP/1.1 421 Misdirected Request\r\n\r\n'); socket.destroy(); return;
+    }
 
-  const device = findDevice(token);
-  if (!device) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
-  touchDevice(device);
-  const track = (ws: WebSocket) => { liveSockets.set(ws, device.token); ws.on('close', () => liveSockets.delete(ws)); };
+    // Validate the route BEFORE redeeming the single-use ticket, so an upgrade to
+    // an unknown path can no longer burn a ticket it will never use.
+    if (!WS_ROUTES.has(url.pathname)) {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return;
+    }
+
+    // A ticket is preferred; the raw token is still accepted so an app built
+    // before /ws-ticket existed keeps working. New clients should never send it —
+    // see the route above for why a token in a URL is a problem.
+    const ticket = url.searchParams.get('ticket') || '';
+    const redeemed = ticket ? tickets.redeem(ticket) : null;
+    const token = redeemed ?? url.searchParams.get('token') ?? '';
+
+    const device = findDevice(token);
+    if (!device) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
+    touchDevice(device);
+    // Every tracked socket gets an 'error' listener: an unhandled 'error' event
+    // on a ws crashes the process under Node's default policy (handleAgent was
+    // the one handler missing it).
+    const track = (ws: WebSocket) => {
+      liveSockets.set(ws, device.token);
+      ws.on('error', () => { /* 'close' follows and cleans up */ });
+      ws.on('close', () => liveSockets.delete(ws));
+    };
 
   if (url.pathname === '/ws/screen') {
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleScreen(ws, url); });
@@ -682,9 +749,12 @@ server.on('upgrade', (req, socket, head) => {
     });
   } else if (url.pathname === '/ws/agent') {
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAgent(ws, url); });
-  } else {
-    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-    socket.destroy();
+    }
+  } catch (e) {
+    // Any unexpected failure during the upgrade must tear the socket down rather
+    // than leak it — the whole point of the guard above.
+    console.error('[upgrade] failed:', messageOf(e));
+    try { socket.destroy(); } catch { /* already gone */ }
   }
 });
 

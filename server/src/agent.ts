@@ -7,7 +7,7 @@
 
 import { spawn, ChildProcess, execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, readdirSync, statSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, readdirSync, statSync, realpathSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -89,6 +89,7 @@ interface Session extends SessionMeta {
   events: AgentEvent[];
   proc?: ChildProcess;
   procKey?: string;    // secret the MCP sidecar authenticates with
+  mcpConfigPath?: string; // 0600 temp file holding that secret; unlinked on exit
   buffer: string;      // partial stdout line
   pending?: PendingState;
   queued?: QueuedPrompt;
@@ -280,7 +281,13 @@ function ensureProcess(s: Session): void {
     },
   };
   const cfgPath = join(tmpdir(), `belay-mcp-${s.id}.json`);
-  writeFileSync(cfgPath, JSON.stringify(mcpConfig), 'utf8');
+  // 0600, not the default 0644: this file carries the approval key that is the
+  // only authenticator on the loopback /agent/approval-request, so no other
+  // local user may read it. Unlink any stale copy first so the mode is applied
+  // to a fresh inode rather than left at a previous run's permissions.
+  try { unlinkSync(cfgPath); } catch { /* absent is fine */ }
+  writeFileSync(cfgPath, JSON.stringify(mcpConfig), { encoding: 'utf8', mode: 0o600 });
+  s.mcpConfigPath = cfgPath;
 
   const args = buildClaudeArgs(cfgPath, s.claudeSessionId);
 
@@ -320,6 +327,7 @@ function ensureProcess(s: Session): void {
   let stderrTail = '';
   proc.stderr?.on('data', (b: Buffer) => { stderrTail = (stderrTail + b.toString()).slice(-2000); });
   proc.on('exit', (code) => {
+    if (s.mcpConfigPath) { try { unlinkSync(s.mcpConfigPath); } catch { /* already gone */ } s.mcpConfigPath = undefined; }
     if (s.proc !== proc) return;
     s.proc = undefined;
     if (s.pending) answerApproval(s.id, s.pending.id, false, 'session process exited');

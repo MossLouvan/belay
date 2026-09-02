@@ -8,8 +8,6 @@ Run one round with `/idea-loop`. Keep it running with `/loop 45m /idea-loop`.
 
 Every agent in the loop runs on **Fable 5**.
 
-> Implementation note: the workflow runtime resolves only built-in subagent types, so each role's instructions are inlined into its prompt and every agent runs as `general-purpose` (still on Fable 5). The `.claude/agents/*.md` files remain the human-readable source of truth for these roles.
-
 ## The roster
 
 | Agent | Role | Writes code | Verified by |

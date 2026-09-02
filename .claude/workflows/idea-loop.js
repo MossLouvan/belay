@@ -17,52 +17,6 @@ export const meta = {
 // Every agent in this loop runs on Fable 5.
 const MODEL = 'fable';
 
-// The workflow runtime resolves only built-in subagent types, not the custom
-// .claude/agents/*.md definitions, so each role's instructions are inlined here
-// as a prompt preamble and every agent runs as `general-purpose`. The .md files
-// remain the human-readable source of truth for these same roles.
-const ROLES = {
-  ceo:
-    'You are the CEO of Belay, an app that lets someone control their computer from ' +
-    'their phone. You decide what is worth building next; you never write code or open ' +
-    'a PR. Before proposing anything, READ the repo: docs/PRODUCT-REVIEW.md, ' +
-    'docs/FEATURE-AUDIT.md, docs/CHECKLIST.md, docs/DESIGN.md, and `git log --oneline -40`. ' +
-    'A good idea is a specific, user-visible change small enough for one PR, born from a ' +
-    'real friction. Ground every idea in something you actually read and cite it. Never ' +
-    'propose deleting a compatibility shim (TETHER_* env fallbacks, tether-state.json, the ' +
-    'legacy tether: URL scheme, legacy storage keys) — they are load-bearing migration ' +
-    'paths. Flag anything touching auth, pairing tokens, or the approval flow in risks.',
-  ideaVerifier:
-    'You judge ONE idea through ONE lens named in your task. Stay strictly in that lens. ' +
-    'Go look at the real code/docs/git log — a verdict with no file, symbol, or commit ' +
-    'behind it is worthless. Default to rejecting when uncertain: a wrongly-killed idea ' +
-    'costs one slot, a wrongly-passed one costs an engineer a wasted build. Be specific ' +
-    'about what would change your mind.',
-  codeVerifier:
-    'You review ONE branch through ONE lens named in your task. You do not fix anything. ' +
-    'Read the real diff (`git diff main...HEAD`), not the description of it. Look hardest ' +
-    'at edges the happy path skips: release/cancel paths, empty/single inputs, a promise ' +
-    'that settles after its owner is gone, an event that fires twice. Every finding needs ' +
-    'a file and line. The compatibility shims must still be intact — a diff that "cleans ' +
-    'up" TETHER_*/tether-state.json/the tether: scheme silently unpairs every device.',
-  crossAuditor:
-    'You audit VERDICTS, not the underlying artifact. Another panel has already judged it; ' +
-    'catch the ones who judged badly. Check each cited file/line/commit against the real ' +
-    'repo; flag any verifier that strayed outside its lens, any contradiction between two ' +
-    'verifiers, and anything obvious the whole panel missed. Do NOT re-judge the artifact ' +
-    'on the merits, and do not audit an audit. Uphold each verdict or overturn it with a ' +
-    'specific reason.',
-  pm:
-    'You are the project manager for Belay. THE ONE NON-NEGOTIABLE RULE: everything you ' +
-    'produce goes to a pull request; nothing you produce touches main. Never commit or ' +
-    'push to main — always branch first, always open the PR with `gh pr create`. Match the ' +
-    'conventions of the code you change: pure logic gets its own module + adjacent ' +
-    '.test.mjs (see app/src/screen/repeat.ts); comments explain why; return new values, ' +
-    'never mutate. docs/DESIGN.md governs anything user-visible. Before opening a PR run ' +
-    '`cd app && npx tsc --noEmit && npm test` and `cd server && npm test`; a red suite is ' +
-    'not a PR. Never claim a test passed that you did not run.',
-};
-
 // The verification matrix. Each artifact is judged once per lens by an
 // independent agent, then every one of those verdicts is audited by a peer —
 // that second pass is the agents verifying each other, and it is what stops a
@@ -228,12 +182,11 @@ function scorePanel(agentName, lenses, verdicts, audit) {
 
 phase('Ideate');
 const ideation = await agent(
-  ROLES.ceo + '\n\n' +
-    `Propose ${IDEA_COUNT} candidate ideas for Belay. Read the repo first — ` +
+  `Propose ${IDEA_COUNT} candidate ideas for Belay. Read the repo first — ` +
     `docs/PRODUCT-REVIEW.md, docs/FEATURE-AUDIT.md, docs/CHECKLIST.md, docs/DESIGN.md, ` +
     `and \`git log --oneline -40\` — so nothing you propose is already shipped. ` +
     `Each idea must be one pull request's worth of work and must name the evidence it came from.`,
-  { agentType: 'general-purpose', model: MODEL, phase: 'Ideate', label: 'ceo:ideate', schema: IDEAS_SCHEMA },
+  { agentType: 'ceo', model: MODEL, phase: 'Ideate', label: 'ceo:ideate', schema: IDEAS_SCHEMA },
 );
 
 const ideas = (ideation?.ideas ?? []).slice(0, IDEA_COUNT);
@@ -253,13 +206,12 @@ const judged = await pipeline(
     parallel(
       IDEA_LENSES.map((lens) => () =>
         agent(
-          ROLES.ideaVerifier + '\n\n' +
-            `Judge this Belay idea through the ${lens} lens only.\n\n` +
+          `Judge this Belay idea through the ${lens} lens only.\n\n` +
             `Title: ${idea.title}\nProblem: ${idea.problem}\n` +
             `Proposed change: ${idea.change}\nCEO's evidence: ${idea.evidence}\n` +
             `CEO's stated risks: ${idea.risks ?? 'none stated'}`,
           {
-            agentType: 'general-purpose',
+            agentType: 'idea-verifier',
             model: MODEL,
             phase: 'Judge',
             label: `judge:${lens}:${idea.id}`,
@@ -270,13 +222,12 @@ const judged = await pipeline(
     ),
   async (verdicts, idea) => {
     const audit = await agent(
-      ROLES.crossAuditor + '\n\n' +
       `Audit these verdicts on the Belay idea "${idea.title}". Check every citation ` +
         `against the real repo, flag any verifier that strayed outside its lens, and ` +
         `report anything the whole panel missed. Do not re-judge the idea itself.\n\n` +
         IDEA_LENSES.map((lens, i) => `${lens}: ${JSON.stringify(verdicts[i])}`).join('\n'),
       {
-        agentType: 'general-purpose',
+        agentType: 'cross-auditor',
         model: MODEL,
         phase: 'Cross-audit',
         label: `audit:${idea.id}`,
@@ -303,15 +254,14 @@ if (surviving.length === 0) {
 // whole surviving set before it can choose.
 phase('Triage');
 const picked = await agent(
-  ROLES.pm + '\n\n' +
-    `Here are the Belay ideas that survived the verification panel, each with its ` +
+  `Here are the Belay ideas that survived the verification panel, each with its ` +
     `verdict table. Pick at most ${BUILD_LIMIT} to build this round, and say why you ` +
     `killed the rest. Prefer small, user-visible, cleanly landable work.\n\n` +
     surviving
       .map((s) => `### ${s.idea.id} — ${s.idea.title}\n${s.idea.problem}\n\n${s.table}\n` +
         (s.missedObvious ? `\nAuditor flagged as missed: ${s.missedObvious}\n` : ''))
       .join('\n'),
-  { agentType: 'general-purpose', model: MODEL, phase: 'Triage', label: 'pm:triage', schema: PICK_SCHEMA },
+  { agentType: 'project-manager', model: MODEL, phase: 'Triage', label: 'pm:triage', schema: PICK_SCHEMA },
 );
 
 const byId = new Map(surviving.map((s) => [s.idea.id, s]));
@@ -329,7 +279,6 @@ const shipped = await pipeline(
   // otherwise trample each other in one checkout.
   (item) =>
     agent(
-      ROLES.pm + '\n\n' +
       `Implement this Belay idea on a NEW BRANCH. Never commit to main, never push to main.\n\n` +
         `Idea: ${item.idea.title}\nProblem: ${item.idea.problem}\nChange: ${item.idea.change}\n\n` +
         `Match the conventions of the code you are changing. Pure logic gets its own module ` +
@@ -337,7 +286,7 @@ const shipped = await pipeline(
         `\`cd server && npm test\` and report their real output. Commit to the branch. ` +
         `Do NOT open the pull request — a later step does that.`,
       {
-        agentType: 'general-purpose',
+        agentType: 'project-manager',
         model: MODEL,
         phase: 'Build',
         isolation: 'worktree',
@@ -354,12 +303,11 @@ const shipped = await pipeline(
     const verdicts = await parallel(
       CODE_LENSES.map((lens) => () =>
         agent(
-          ROLES.codeVerifier + '\n\n' +
           `Review branch ${build.branch} through the ${lens} lens only. Read the real diff ` +
             `with \`git diff main...${build.branch}\` — the summary below is a claim to check, ` +
             `not a description to trust.\n\nClaimed: ${build.summary}`,
           {
-            agentType: 'general-purpose',
+            agentType: 'code-verifier',
             model: MODEL,
             phase: 'Review',
             label: `review:${lens}:${item.idea.id}`,
@@ -375,14 +323,13 @@ const shipped = await pipeline(
     if (!stage?.verdicts) return stage;
     const { build, verdicts } = stage;
     const audit = await agent(
-      ROLES.crossAuditor + '\n\n' +
       `Audit these code-review verdicts on branch ${build.branch}. Verify every cited ` +
         `file and line actually says what the reviewer claims, flag any reviewer that ` +
         `strayed outside its lens, and report anything the whole panel walked past. ` +
         `Do not re-review the diff yourself.\n\n` +
         CODE_LENSES.map((lens, i) => `${lens}: ${JSON.stringify(verdicts[i])}`).join('\n'),
       {
-        agentType: 'general-purpose',
+        agentType: 'cross-auditor',
         model: MODEL,
         phase: 'Audit code',
         label: `audit-code:${item.idea.id}`,
@@ -397,7 +344,6 @@ const shipped = await pipeline(
     }
 
     const ship = await agent(
-      ROLES.pm + '\n\n' +
       `Open a pull request for branch ${build.branch} against main in ${REPO}, using ` +
         `\`gh pr create\`. Do not merge it and do not touch main.\n\n` +
         `The body must contain, in order: what changed and why; the idea's verification ` +
@@ -407,7 +353,7 @@ const shipped = await pipeline(
         `## Tests\n${build.testOutput ?? 'not reported'}\n` +
         (panel.missedObvious ? `\n## Auditor flagged\n${panel.missedObvious}\n` : ''),
       {
-        agentType: 'general-purpose',
+        agentType: 'project-manager',
         model: MODEL,
         phase: 'Ship',
         label: `pr:${item.idea.id}`,

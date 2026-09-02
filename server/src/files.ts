@@ -21,7 +21,7 @@
 // a Tailnet, with the local user trusted) that residual risk is accepted rather
 // than paid for with an fd-based rewrite of the whole file API.
 
-import { readdir, stat, lstat, readFile, realpath } from 'node:fs/promises';
+import { readdir, stat, lstat, realpath, open } from 'node:fs/promises';
 import { realpathSync, existsSync, statSync } from 'node:fs';
 import { resolve, join, sep, basename } from 'node:path';
 import { homedir } from 'node:os';
@@ -246,14 +246,24 @@ export async function readTextFile(target: string): Promise<TextFile> {
   const s = await stat(file);
   if (s.isDirectory()) throw new Error('path is a directory');
   if (!s.isFile()) throw new Error('path is not a regular file');
-  const buf = await readFile(file);
-  const truncated = buf.length > MAX_READ;
-  const slice = truncated ? buf.subarray(0, MAX_READ) : buf;
-  return {
-    path: file,
-    name: basename(file),
-    content: slice.toString('utf8'),
-    truncated,
-    size: s.size,
-  };
+  // Read at most MAX_READ bytes from disk, gated on the stat size — NOT the whole
+  // file then truncate. A multi-GB file must cost 512 KB of host memory to
+  // preview, not its full size (which a remote client can trigger in one tap and
+  // OOM the host with a few concurrent requests).
+  const truncated = s.size > MAX_READ;
+  const toRead = truncated ? MAX_READ : s.size;
+  const handle = await open(file, 'r');
+  try {
+    const buffer = Buffer.alloc(toRead);
+    const { bytesRead } = await handle.read(buffer, 0, toRead, 0);
+    return {
+      path: file,
+      name: basename(file),
+      content: buffer.subarray(0, bytesRead).toString('utf8'),
+      truncated,
+      size: s.size,
+    };
+  } finally {
+    await handle.close();
+  }
 }
