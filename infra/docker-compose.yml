@@ -1,0 +1,40 @@
+# One Belay PoP: a stateless rendezvous + a coturn relay, sharing one secret.
+#
+# UNVERIFIED-DEPLOY: this topology is written to the documented behavior of
+# both services but has not been load-tested or run against live cross-NAT
+# traffic here. docs/SCALABILITY.md carries the verification runbook — run it
+# before pointing any real client at a PoP.
+#
+# Secrets: BELAY_TURN_SECRET comes from the environment (or a secrets file) —
+# generate with `openssl rand -hex 32`. It is the ONLY shared state between the
+# two services, and it grants relay minutes, never access to any host.
+
+services:
+  rendezvous:
+    build: ./rendezvous
+    restart: unless-stopped
+    environment:
+      BELAY_RENDEZVOUS_PORT: "8790"
+      BELAY_TURN_SECRET: "${BELAY_TURN_SECRET:?run: export BELAY_TURN_SECRET=$(openssl rand -hex 32)}"
+      # Public names of THIS PoP's coturn. turns: on 443 is the UDP-blocked-
+      # network fallback and needs real TLS certs in ./turn/tls.
+      BELAY_TURN_URLS: "${BELAY_TURN_URLS:-turn:turn.belay.example:3478?transport=udp,turns:turn.belay.example:443?transport=tcp}"
+    ports:
+      - "8790:8790"
+    # Terminate public TLS (wss://) in front of this — e.g. Caddy/nginx or the
+    # cloud load balancer. The rendezvous itself speaks plain HTTP/WS.
+
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    restart: unless-stopped
+    network_mode: host # TURN needs a real port range; Docker NAT would defeat it
+    volumes:
+      - ./turn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      # - ./turn/tls:/etc/coturn/tls:ro   # fullchain.pem + privkey.pem for turns:
+    command:
+      - --config=/etc/coturn/turnserver.conf
+      - --static-auth-secret=${BELAY_TURN_SECRET:?}
+      # Advertise the PoP's public address when behind 1:1 NAT (cloud VMs):
+      # - --external-ip=203.0.113.7
+      - --min-port=49160
+      - --max-port=49960

@@ -1,26 +1,26 @@
-// Host-side signaling validation and relay for the LAN/Tailscale WebRTC slice.
+// Signaling envelope validation at the rendezvous boundary.
 //
-// There is no cloud rendezvous here: the phone and host already share an
-// authenticated WebSocket, so signaling is just SDP + ICE relayed across it. The
-// host's job at this boundary is not to interpret the SDP — it never parses the
-// media — but to VALIDATE the envelope before it reaches the peer-connection
-// layer, because everything crossing this socket is attacker-controlled the
-// moment a device is paired.
+// MIRRORS server/src/webrtc/relay.ts — same wire shapes, same caps, kept in
+// sync by hand (the packages deliberately share no build). The rendezvous is a
+// separate deployable with a hostile-by-default input surface: every frame that
+// arrives here came off the public internet, so the same validate-before-touch
+// discipline the host applies to a paired device applies here to everyone.
 //
-// Pure functions over the message shape, so the WS handler stays thin and the
-// rules are tested directly. Mirrors the discipline the JPEG path's input
-// validation already follows.
+// The rendezvous validates ONLY the outer envelope: kind, sessionId, size caps.
+// It never interprets the SDP, and it never sees — let alone verifies — the
+// end-to-end `seal` that the host and client attach to each message
+// (server/src/webrtc/envelope.ts). That seal is deliberately opaque bytes to
+// this process: an honest-but-curious or fully compromised rendezvous can drop
+// or misroute signaling, but it cannot forge a message either peer will accept.
 
-/** Caps sized for real SDP/ICE, small enough that a flood can't exhaust memory.
- *  A full offer with a couple of media sections is a few KB; 64KB is generous. */
+/** Caps sized for real SDP/ICE, small enough that a flood can't exhaust memory. */
 export const SIGNAL_LIMITS = Object.freeze({
   maxSdpBytes: 64 * 1024,
   maxCandidateBytes: 1024,
   maxReasonBytes: 256,
   maxSessionIdBytes: 128,
-  /** Optional end-to-end seal (envelope.ts) for signaling that crosses the
-   *  cloud rendezvous. Opaque at this layer; capped so it cannot be abused as
-   *  a bulk side channel. Mirrored in infra/rendezvous/src/signal.ts. */
+  /** The end-to-end seal (ts + nonce + HMAC tag) is opaque here; cap it so it
+   *  cannot be abused as a bulk side channel through the relay. */
   maxSealBytes: 512,
 });
 
@@ -32,8 +32,7 @@ export interface ValidSignal {
   readonly sdp?: string;
   readonly candidate?: string;
   readonly reason?: string;
-  /** End-to-end authenticity seal — verified by envelope.ts on the cloud
-   *  path, absent and unused on the LAN path. */
+  /** Opaque end-to-end authenticity seal, relayed verbatim, never verified here. */
   readonly seal?: string;
 }
 
@@ -43,10 +42,7 @@ export type ValidationResult =
 
 /**
  * Validates one decoded signaling message. Rejects unknown kinds, missing or
- * oversized fields, and a session id that isn't a plain token — never throws, so
- * a malformed frame is a clean 4xx-equivalent rejection rather than a crash
- * (the unauthenticated-WS-upgrade DoS the playtest found came from exactly this
- * kind of unguarded parse).
+ * oversized fields, and a session id that isn't a plain token — never throws.
  */
 export function validateSignal(input: unknown): ValidationResult {
   if (!input || typeof input !== 'object') return fail('signal is not an object');
@@ -88,20 +84,14 @@ export function validateSignal(input: unknown): ValidationResult {
   }
 }
 
-/** Truncates to at most `maxBytes` UTF-8 bytes without splitting a code point
- *  or emitting a lone surrogate — String.slice counts UTF-16 units, which let up
- *  to 4x the intended bytes through. */
+/** Truncates to at most `maxBytes` UTF-8 bytes without splitting a code point. */
 function truncateBytes(s: string, maxBytes: number): string {
   if (byteLen(s) <= maxBytes) return s;
   const buf = Buffer.from(s, 'utf8').subarray(0, maxBytes);
-  // Decoding with fatal:false replaces a trailing partial code point with U+FFFD;
-  // trim that so a caller never receives a stray replacement char.
-  return new TextDecoder('utf-8').decode(buf).replace(/\uFFFD+$/, '');
+  return new TextDecoder('utf-8').decode(buf).replace(/�+$/, '');
 }
 
 function byteLen(s: string): number {
-  // Bytes, not UTF-16 code units — a caps check on .length lets a multibyte
-  // payload slip past the intended memory bound.
   return Buffer.byteLength(s, 'utf8');
 }
 
