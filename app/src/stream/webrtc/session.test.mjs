@@ -93,6 +93,27 @@ test('an adapter failure surfaces via onError instead of throwing out', async ()
   assert.equal(errs[0], 'boom');
 });
 
+test('a reconnect does not double-count the session in directRatio', async () => {
+  const a = fakeAdapter();
+  const s = new StreamSession('caller', 'sid', a);
+  await s.start();
+  await s.onSignal({ kind: 'answer', sessionId: 'sid', sdp: 'x' });
+  s.noteSelectedPair('candidate:1 1 udp 1 1.2.3.4 5 typ host', 'candidate:2 1 udp 1 5.6.7.8 9 typ host');
+  await s.onConnectionState('connected');
+  await s.onConnectionState('disconnected'); // transient
+  await s.onConnectionState('connected');    // re-enters connected without a restart
+  const totals = s.metrics().iceTotals;
+  assert.equal(totals['direct-local'], 1, 'counted once despite two connected transitions');
+});
+
+test('phase callback reports answering then negotiating, each once', async () => {
+  const a = fakeAdapter();
+  const phases = [];
+  const s = new StreamSession('callee', 'sid', a, { onPhaseChange: (p) => phases.push(p) });
+  await s.onSignal({ kind: 'offer', sessionId: 'sid', sdp: 'o' });
+  assert.deepEqual(phases, ['answering', 'negotiating'], 'no duplicate negotiating, answering not skipped');
+});
+
 test('stop is terminal: sends bye, tears down, and ignores later signals', async () => {
   const a = fakeAdapter();
   const s = new StreamSession('caller', 'sid', a);

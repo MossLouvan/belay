@@ -54,6 +54,17 @@ test('bye truncates an over-long reason rather than rejecting', () => {
   if (r.ok) assert.ok((r.message.reason ?? '').length <= SIGNAL_LIMITS.maxReasonBytes);
 });
 
+test('bye reason truncates by BYTES without a trailing replacement char', () => {
+  const star = '\u2605'; // 3 UTF-8 bytes each
+  const r = validateSignal({ kind: 'bye', sessionId: 'a', reason: star.repeat(200) });
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    const bytes = Buffer.byteLength(r.message.reason ?? '', 'utf8');
+    assert.ok(bytes <= SIGNAL_LIMITS.maxReasonBytes, `reason is ${bytes} bytes, within cap`);
+    assert.ok(!(r.message.reason ?? '').endsWith('\uFFFD'), 'no lone replacement char at the cut');
+  }
+});
+
 test('the webrtc path is OFF by default and only on for explicit truthy flags', () => {
   assert.equal(webrtcEnabled({}), false);
   assert.equal(webrtcEnabled({ BELAY_WEBRTC: '' }), false);

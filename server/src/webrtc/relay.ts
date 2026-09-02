@@ -68,10 +68,21 @@ export function validateSignal(input: unknown): ValidationResult {
       return ok({ kind, sessionId, candidate: msg.candidate });
     }
     case 'bye': {
-      const reason = typeof msg.reason === 'string' ? msg.reason.slice(0, SIGNAL_LIMITS.maxReasonBytes) : '';
+      const reason = typeof msg.reason === 'string' ? truncateBytes(msg.reason, SIGNAL_LIMITS.maxReasonBytes) : '';
       return ok({ kind, sessionId, reason });
     }
   }
+}
+
+/** Truncates to at most `maxBytes` UTF-8 bytes without splitting a code point
+ *  or emitting a lone surrogate — String.slice counts UTF-16 units, which let up
+ *  to 4x the intended bytes through. */
+function truncateBytes(s: string, maxBytes: number): string {
+  if (byteLen(s) <= maxBytes) return s;
+  const buf = Buffer.from(s, 'utf8').subarray(0, maxBytes);
+  // Decoding with fatal:false replaces a trailing partial code point with U+FFFD;
+  // trim that so a caller never receives a stray replacement char.
+  return new TextDecoder('utf-8').decode(buf).replace(/\uFFFD+$/, '');
 }
 
 function byteLen(s: string): number {

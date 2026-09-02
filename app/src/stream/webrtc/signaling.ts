@@ -46,7 +46,7 @@ export type SignalEffect =
   | { readonly do: 'set-remote'; readonly sdp: string; readonly type: 'offer' | 'answer' }
   | { readonly do: 'add-ice'; readonly candidate: string }
   | { readonly do: 'send'; readonly message: SignalMessage }
-  | { readonly do: 'flush-candidates' }
+  | { readonly do: 'flush-candidates'; readonly candidates: readonly string[] }
   | { readonly do: 'teardown'; readonly reason: string };
 
 export interface Transition {
@@ -71,6 +71,9 @@ export function begin(state: SignalState): Transition {
 
 /** Our own offer/answer SDP came back from the peer connection: send it. */
 export function localDescription(state: SignalState, type: 'offer' | 'answer', sdp: string): Transition {
+  // A create-offer/create-answer that resolves AFTER the session was closed must
+  // not send SDP or un-close the session.
+  if (state.phase === 'closed') return { state, effects: [] };
   const message: SignalMessage = { kind: type, sdp, sessionId: state.sessionId };
   const nextPhase: SignalPhase = type === 'offer' ? 'offering' : 'negotiating';
   return { state: { ...state, phase: nextPhase }, effects: [{ do: 'send', message }] };
@@ -78,6 +81,10 @@ export function localDescription(state: SignalState, type: 'offer' | 'answer', s
 
 /** A signaling message arrived from the peer. The heart of the machine. */
 export function receive(state: SignalState, message: SignalMessage): Transition {
+  // A closed session is terminal: a late or replayed message must never
+  // resurrect it. This mirrors connectionStateChanged/restart/close.
+  if (state.phase === 'closed') return { state, effects: [] };
+
   // A message for a different session is stale (an old negotiation, a late
   // duplicate). Ignoring it is what stops the "resurrected dead session" class
   // of bug the connect-lifecycle audit flagged.
@@ -96,6 +103,10 @@ export function receive(state: SignalState, message: SignalMessage): Transition 
         state: { ...state, phase: 'answering', pendingRemoteCandidates: [] },
         effects: [
           { do: 'set-remote', sdp: message.sdp, type: 'offer' },
+          // Candidates buffered before the offer arrived are added now, after the
+          // remote description exists — dropping them intermittently fails
+          // negotiation on a CGNAT path that rides an early srflx/relay candidate.
+          { do: 'flush-candidates', candidates: state.pendingRemoteCandidates },
           { do: 'create-answer' },
         ],
       };
@@ -105,10 +116,10 @@ export function receive(state: SignalState, message: SignalMessage): Transition 
         return { state, effects: [] };
       }
       return {
-        state: { ...state, phase: 'negotiating' },
+        state: { ...state, phase: 'negotiating', pendingRemoteCandidates: [] },
         effects: [
           { do: 'set-remote', sdp: message.sdp, type: 'answer' },
-          { do: 'flush-candidates' },
+          { do: 'flush-candidates', candidates: state.pendingRemoteCandidates },
         ],
       };
     }

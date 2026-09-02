@@ -15,12 +15,23 @@ test('glass-to-glass subtracts the clock offset between the two devices', () => 
   assert.equal(glassToGlassMs(frame, 4000), 40);
 });
 
-test('clock offset cancels a symmetric network delay (NTP-style)', () => {
-  // client clock = host clock + 100. One-way delay 10ms each direction.
+test('clock offset is (client - host) and cancels a symmetric delay', () => {
+  // client clock = host + 100. One-way delay 10ms each way.
   // t0 client-send=0, t1 host-recv=(0+10)-100=-90, t2 host-reply=-90, t3 client-recv=0+20=20
   const { offsetMs, rttMs } = estimateClockOffset(0, -90, -90, 20);
-  assert.equal(offsetMs, -100, 'recovers client-minus-host offset');
+  assert.equal(offsetMs, 100, 'client runs 100ms ahead of the host');
   assert.equal(rttMs, 20, 'RTT is the round trip minus host processing');
+});
+
+test('estimateClockOffset feeds glassToGlassMs correctly (composition)', () => {
+  // The bug the board caught: each function was right alone but composed with
+  // an inverted sign. This pins the two together.
+  // client = host + 250. A frame captured at host-ms 1000, one-way delay 15ms,
+  // is presented at client-ms (1000 + 15) + 250 = 1265 -> true latency 15ms.
+  const { offsetMs } = estimateClockOffset(0, -235, -235, 30); // client +250, RTT 30
+  assert.equal(offsetMs, 250);
+  const latency = glassToGlassMs({ captureHostMs: 1000, presentClientMs: 1265, seq: 1 }, offsetMs);
+  assert.equal(latency, 15, 'composed latency is the true one-way present delay');
 });
 
 test('window reports percentiles, not a mean that hides spikes', () => {
@@ -65,4 +76,14 @@ test('empty window yields null percentiles, not NaN', () => {
 
 test('rejects a non-positive capacity instead of misbehaving later', () => {
   assert.throws(() => new LatencyWindow(0), RangeError);
+});
+
+test('ignores frames with a bogus seq or non-finite timing (boundary guard)', () => {
+  const w = new LatencyWindow(10);
+  w.add({ captureHostMs: 0, presentClientMs: 10, seq: 1 }, 0);
+  w.add({ captureHostMs: 0, presentClientMs: 10, seq: NaN }, 0);
+  w.add({ captureHostMs: 0, presentClientMs: 10, seq: -3 }, 0);
+  w.add({ captureHostMs: NaN, presentClientMs: 10, seq: 2 }, 0);
+  assert.equal(w.count, 1, 'only the one valid frame is recorded');
+  assert.equal(w.dropped, 0, 'garbage never poisons drop accounting');
 });

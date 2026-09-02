@@ -44,7 +44,10 @@ export function estimateClockOffset(
   t3: number,
 ): { offsetMs: number; rttMs: number } {
   const rttMs = t3 - t0 - (t2 - t1);
-  const offsetMs = (t1 - t0 + (t2 - t3)) / 2;
+  // (client - host), the SAME convention glassToGlassMs subtracts, so the output
+  // of this feeds straight in. The NTP identity for (server - client) is
+  // ((t1-t0)+(t2-t3))/2; negating it gives (client - server) = (client - host).
+  const offsetMs = (t0 - t1 + (t3 - t2)) / 2;
   return { offsetMs, rttMs };
 }
 
@@ -67,6 +70,10 @@ export class LatencyWindow {
 
   /** Records one frame's glass-to-glass ms and updates drop accounting. */
   add(frame: FrameTiming, clockOffsetMs: number): void {
+    // Never trust the producer: a NaN/negative/non-integer seq or a non-finite
+    // timing would silently corrupt drop accounting and the percentile window.
+    if (!Number.isSafeInteger(frame.seq) || frame.seq < 0) return;
+    if (!Number.isFinite(frame.captureHostMs) || !Number.isFinite(frame.presentClientMs)) return;
     if (this.lastSeq >= 0 && frame.seq > this.lastSeq + 1) {
       this.drops += frame.seq - this.lastSeq - 1;
     }

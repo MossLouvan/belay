@@ -34,8 +34,9 @@ test('caller sends its local offer, then applies the answer and flushes ICE', ()
   assert.equal(ans.state.phase, 'negotiating');
   assert.deepEqual(ans.effects, [
     { do: 'set-remote', sdp: 'v=0 answer', type: 'answer' },
-    { do: 'flush-candidates' },
+    { do: 'flush-candidates', candidates: [] },
   ]);
+  assert.deepEqual(ans.state.pendingRemoteCandidates, [], 'buffer cleared to prevent a double-flush');
 });
 
 test('callee applies the offer and creates an answer', () => {
@@ -44,6 +45,7 @@ test('callee applies the offer and creates an answer', () => {
   assert.equal(t.state.phase, 'answering');
   assert.deepEqual(t.effects, [
     { do: 'set-remote', sdp: 'v=0 offer', type: 'offer' },
+    { do: 'flush-candidates', candidates: [] },
     { do: 'create-answer' },
   ]);
 });
@@ -53,6 +55,17 @@ test('ICE candidates arriving before the remote description are buffered', () =>
   const t = receive(s, { kind: 'ice', candidate: 'cand-A', sessionId: SID });
   assert.deepEqual(t.effects, [], 'not added to the peer connection yet');
   assert.deepEqual(t.state.pendingRemoteCandidates, ['cand-A']);
+});
+
+test('callee flushes candidates buffered before the offer (the dropped-ICE bug)', () => {
+  let s = initialState('callee', SID);
+  s = receive(s, { kind: 'ice', candidate: 'early-1', sessionId: SID }).state; // pre-offer, buffered
+  s = receive(s, { kind: 'ice', candidate: 'early-2', sessionId: SID }).state;
+  assert.deepEqual(s.pendingRemoteCandidates, ['early-1', 'early-2']);
+  const t = receive(s, { kind: 'offer', sdp: 'o', sessionId: SID });
+  const flush = t.effects.find((e) => e.do === 'flush-candidates');
+  assert.deepEqual(flush.candidates, ['early-1', 'early-2'], 'buffered candidates are flushed, not dropped');
+  assert.deepEqual(t.state.pendingRemoteCandidates, []);
 });
 
 test('ICE candidates after negotiation is live are added immediately', () => {

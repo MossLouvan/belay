@@ -40,6 +40,12 @@ export class StreamSession {
   private readonly latency = new LatencyWindow();
   private readonly ice = new IceStats();
   private clockOffsetMs = 0;
+  /** True once this negotiation's routing has been tallied, so a reconnect that
+   *  re-enters 'connected' cannot double-count the session in directRatio. */
+  private tallied = false;
+  /** Deduplicates onPhaseChange so nested-apply reentrancy cannot emit a phase
+   *  twice or skip one (the callee 'answering' was previously never reported). */
+  private lastEmittedPhase: SignalState['phase'];
   /** Local candidate type of the selected pair, held until the remote type is
    *  known so the pair can be classified once, on connect. */
   private localSelected: ReturnType<typeof candidateType> | null = null;
@@ -57,6 +63,7 @@ export class StreamSession {
     this.peer = peer;
     this.cb = cb;
     this.state = initialState(role, sessionId);
+    this.lastEmittedPhase = this.state.phase;
   }
 
   get phase(): SignalState['phase'] {
@@ -116,16 +123,34 @@ export class StreamSession {
   // ── the effect interpreter: pure Transition -> real adapter calls ──────────
 
   private async apply(transition: Transition): Promise<void> {
-    const phaseChanged = transition.state.phase !== this.state.phase;
+    const prevPhase = this.state.phase;
     this.state = transition.state;
+
+    // A fresh negotiation (offering/answering entered anew) clears the previous
+    // routing tally and selected pair, so a reconnect is a new session sample.
+    if ((this.state.phase === 'offering' || this.state.phase === 'answering') && prevPhase !== this.state.phase) {
+      this.tallied = false;
+      this.localSelected = null;
+      this.remoteSelected = null;
+    }
+
+    // Emit BEFORE running effects and dedupe against the last emitted phase, so
+    // a nested apply (create-answer -> localDescription -> apply) reports phases
+    // in order and never twice.
+    if (this.state.phase !== this.lastEmittedPhase) {
+      this.lastEmittedPhase = this.state.phase;
+      this.cb.onPhaseChange?.(this.state.phase);
+    }
+
     for (const effect of transition.effects) {
       await this.run(effect);
     }
-    // Tally routing the moment the session connects, from the pair already noted.
-    if (phaseChanged && this.state.phase === 'connected' && this.localSelected && this.remoteSelected) {
+
+    // Tally routing once, the first time this negotiation reaches 'connected'.
+    if (this.state.phase === 'connected' && !this.tallied && this.localSelected && this.remoteSelected) {
+      this.tallied = true;
       this.ice.recordPair(this.localSelected, this.remoteSelected);
     }
-    if (phaseChanged) this.cb.onPhaseChange?.(this.state.phase);
   }
 
   private async run(effect: SignalEffect): Promise<void> {
@@ -148,7 +173,7 @@ export class StreamSession {
           await this.peer.addIceCandidate(effect.candidate);
           break;
         case 'flush-candidates':
-          for (const candidate of this.state.pendingRemoteCandidates) {
+          for (const candidate of effect.candidates) {
             await this.peer.addIceCandidate(candidate);
           }
           break;
