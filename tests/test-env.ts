@@ -11,8 +11,8 @@ export const APP_PORT = Number(process.env.BELAY_TEST_APP_PORT || process.env.TE
 export const HOST = `127.0.0.1:${HOST_PORT}`;
 export const APP_ORIGIN = `http://127.0.0.1:${APP_PORT}`;
 
-// Matches BELAY_TEST_CODE, which playwright.config.ts passes to the agent.
-// The agent accepts this fixed code only when that variable is set, refuses it
-// outright under NODE_ENV=production, and warns loudly at boot — so it cannot
-// quietly end up weakening a real deployment.
+// Matches BELAY_TEST_CODE, which playwright.config.ts passes to the agent
+// alongside the BELAY_ALLOW_TEST_CODE=1 opt-in. The agent honours this fixed
+// code only when that explicit opt-in is present and warns loudly at boot — so
+// a stray inherited variable cannot quietly end up weakening a real deployment.
 export const CODE = '123456';

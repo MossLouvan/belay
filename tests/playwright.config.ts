@@ -26,15 +26,17 @@ export default defineConfig({
       // never collides with — or pairs against — a hand-started agent.
       //
       // BELAY_TEST_CODE fixes the pairing code so the suite can pair
-      // repeatedly; the agent refuses that variable when NODE_ENV=production
-      // and warns loudly at boot, so it cannot quietly weaken a real deployment.
+      // repeatedly, and BELAY_ALLOW_TEST_CODE=1 is the explicit opt-in the
+      // agent requires before it will honour that code. The agent ignores
+      // BELAY_TEST_CODE unless that opt-in is present and warns loudly at boot,
+      // so a variable inherited by a real deployment cannot quietly weaken it.
       //
       // BELAY_STATE_FILE keeps test pairings out of the developer's real state
       // file — without it every run appends a live token to whatever state file
       // belongs to the directory the agent started in.
       //
-      // Never reused: a stray agent would be running without BELAY_TEST_CODE,
-      // and every pair step would fail against it.
+      // Never reused: a stray agent would be running without the test-code
+      // opt-in, and every pair step would fail against it.
       command: 'npm start',
       cwd: '../server',
       url: `http://127.0.0.1:${HOST_PORT}/health`,
@@ -45,6 +47,7 @@ export default defineConfig({
       env: {
         BELAY_PORT: String(HOST_PORT),
         BELAY_TEST_CODE: CODE,
+        BELAY_ALLOW_TEST_CODE: '1',
         BELAY_STATE_FILE: 'test-state.json',
         BELAY_ALLOWED_ORIGINS: `${APP_ORIGIN},http://localhost:${APP_PORT}`,
       },

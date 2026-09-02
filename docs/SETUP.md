@@ -322,7 +322,8 @@ regardless.
 | `BELAY_TAILNET_PAIR` | `1` | Pair without a code for devices on the host's own Tailscale account (`0` to always require the code) |
 | `BELAY_TAILSCALE_CLI` | auto | Path to the `tailscale` CLI if it is somewhere unusual |
 | `BELAY_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |
-| `BELAY_TEST_CODE` | *(unset)* | Fixed pairing code for the Playwright suite; ignored when `NODE_ENV=production` |
+| `BELAY_TEST_CODE` | *(unset)* | Fixed pairing code for the Playwright suite; honoured only when `BELAY_ALLOW_TEST_CODE=1` is also set |
+| `BELAY_ALLOW_TEST_CODE` | *(unset)* | Explicit opt-in the test harness sets to activate `BELAY_TEST_CODE`; without it the fixed code is ignored |
 | `BELAY_APPROVAL_TIMEOUT_MS` | `1800000` (30 min) | How long an agent approval waits for the phone before auto-deny; `0` waits forever |
 | `BELAY_NOTIFY_URL` | *(unset — off)* | Webhook the host POSTs to when Claude needs a decision — an [ntfy](https://ntfy.sh) topic URL, Slack/Discord webhook, or your own endpoint. See [`AGENT.md`](AGENT.md#push-notifications-when-the-phone-is-asleep) |
 | `BELAY_NOTIFY_FORMAT` | `ntfy` | `ntfy` or `json` |

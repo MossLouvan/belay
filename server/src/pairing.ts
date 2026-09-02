@@ -9,26 +9,39 @@
 
 import { randomInt, timingSafeEqual } from 'node:crypto';
 
-import { productEnv } from './env.js';
-
 const CODE_TTL_MS = 5 * 60 * 1000;
 const CODE_PATTERN = /^\d{6}$/;
 
 let current: { code: string; expires: number } | null = null;
 
+// Set when `burnCode()` runs, and cleared when a fresh code is minted. In test
+// mode there is no live `current` to null out, so this flag is what lets a burn
+// actually disable pairing — without it the per-code brute-force budget would
+// be silently inert whenever the fixed test code is active.
+let testCodeBurned = false;
+
 /**
  * The fixed code used by the automated end-to-end suite, if one is configured
- * and permitted.
+ * and explicitly permitted.
  *
  * This bypasses expiry *and* single-use, so it is a complete defeat of pairing
- * security. It is therefore refused outright in production rather than merely
- * discouraged by a comment — an env var inherited from a CI shell or a stray
- * `.env` must not be able to silently disable pairing on a real machine.
+ * security. It is therefore gated on an explicit opt-in — `BELAY_ALLOW_TEST_CODE=1`,
+ * which only the test harness sets — rather than on the *absence* of
+ * `NODE_ENV=production`. Nothing in the shipped run path sets NODE_ENV (`npm
+ * start` is `tsx src/index.ts`; the launchd plist sets only PATH and
+ * BELAY_STATE_FILE), so the old gate was unreachable and a `BELAY_TEST_CODE`
+ * inherited from a CI shell or a stray `.env` silently disabled pairing on a
+ * real machine. With the opt-in the guard fires by default: the code does
+ * nothing unless someone deliberately turned the harness on.
+ *
+ * This is a test knob, not a user setting, so it is read under the canonical
+ * BELAY_ name only — no legacy TETHER_ fallback, which would only widen the
+ * surface a stray inherited variable can attack.
  */
 export function testCode(): string | null {
-  const forced = productEnv('TEST_CODE');
+  const forced = process.env.BELAY_TEST_CODE;
   if (!forced || !CODE_PATTERN.test(forced)) return null;
-  if (process.env.NODE_ENV === 'production') return null;
+  if (process.env.BELAY_ALLOW_TEST_CODE !== '1') return null;
   return forced;
 }
 
@@ -41,6 +54,9 @@ export function generateCode(): string {
   const forced = testCode();
   const code = forced ?? String(randomInt(0, 1_000_000)).padStart(6, '0');
   current = { code, expires: Date.now() + CODE_TTL_MS };
+  // A freshly minted code re-enables pairing, mirroring how a new random code
+  // clears a burn in the non-test path.
+  testCodeBurned = false;
   return code;
 }
 
@@ -60,13 +76,19 @@ export function currentCode(): { code: string; expiresInSec: number } | null {
  */
 export function burnCode(): void {
   current = null;
+  // Disable the fixed test code too. Otherwise the per-code brute-force budget
+  // — which calls this after too many failures — would be a no-op whenever the
+  // test code is active, leaving that budget completely inert.
+  testCodeBurned = true;
 }
 
 export function consumeCode(code: string): boolean {
   const forced = testCode();
   if (forced) {
     // Test mode: the fixed code stays valid and reusable so an automated suite
-    // can pair repeatedly. Refused in production by `testCode()`.
+    // can pair repeatedly — but a burn still takes it out of service until the
+    // next code is minted, so the brute-force guard is not silently defeated.
+    if (testCodeBurned) return false;
     return equalsConstantTime(code, forced);
   }
   if (!current) return false;
