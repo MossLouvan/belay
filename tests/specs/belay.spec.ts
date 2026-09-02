@@ -2,8 +2,9 @@ import { test, expect, Page } from '@playwright/test';
 import { CODE, HOST } from '../test-env';
 
 // End-to-end coverage of the Belay app web build against a live host agent.
-// The server runs with BELAY_TEST_CODE=123456 and starts unpaired, so each
-// run pairs fresh. Every interactive control on every screen is exercised.
+// The server runs with BELAY_TEST_CODE=123456 (plus the BELAY_ALLOW_TEST_CODE=1
+// opt-in) and starts unpaired, so each run pairs fresh. Every interactive
+// control on every screen is exercised.
 
 async function pair(page: Page) {
   await page.goto('/');
