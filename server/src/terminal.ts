@@ -16,6 +16,10 @@ export interface TermSession {
   resize(cols: number, rows: number): void;
   onData(cb: (data: string) => void): void;
   onExit(cb: () => void): void;
+  /** Stop/resume the flow of onData, for backpressure on a slow client. Safe to
+   *  call repeatedly; a no-op where the underlying source cannot pause. */
+  pause(): void;
+  resume(): void;
   kill(): void;
   mode: 'pty' | 'pipe';
 }
@@ -164,6 +168,8 @@ function createPtySession(pty: any, ctx: SpawnContext): TermSession {
     },
     onData: (cb) => term.onData(cb),
     onExit: (cb) => term.onExit(() => cb()),
+    pause: () => { try { term.pause(); } catch { /* not supported */ } },
+    resume: () => { try { term.resume(); } catch { /* not supported */ } },
     kill: () => { try { term.kill(); } catch { /* already gone */ } },
   };
 }
@@ -232,6 +238,8 @@ export async function createTerminal(cols: number, rows: number): Promise<TermSe
     resize: () => { /* not supported for piped shells */ },
     onData: (cb) => dataCbs.push(cb),
     onExit: (cb) => exitCbs.push(cb),
+    pause: () => { try { child.stdout?.pause(); } catch { /* closed */ } },
+    resume: () => { try { child.stdout?.resume(); } catch { /* closed */ } },
     kill: () => { try { child.kill(); } catch { /* already gone */ } },
   };
 }

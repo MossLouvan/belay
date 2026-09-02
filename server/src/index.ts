@@ -701,6 +701,28 @@ const server = createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 // Open sockets by the token that opened them, so revocation can tear them down.
 const liveSockets = new Map<WebSocket, string>();
+// Liveness per socket: set true on open and on every pong, cleared each sweep.
+const wsAlive = new WeakMap<WebSocket, boolean>();
+const WS_HEARTBEAT_MS = 30_000;
+
+/** Arm heartbeat tracking for a socket the upgrade handler just accepted. */
+function armHeartbeat(ws: WebSocket): void {
+  wsAlive.set(ws, true);
+  ws.on('pong', () => wsAlive.set(ws, true));
+}
+
+// One shared sweep: ping every live socket; a socket that did not pong since the
+// last sweep is presumed dead and terminated (which fires 'close' -> cleanup and
+// the client's own reconnect path).
+const heartbeat = setInterval(() => {
+  for (const ws of liveSockets.keys()) {
+    if (wsAlive.get(ws) === false) { ws.terminate(); continue; }
+    wsAlive.set(ws, false);
+    try { ws.ping(); } catch { /* terminating socket */ }
+  }
+}, WS_HEARTBEAT_MS);
+// Never let the heartbeat hold the process open on its own.
+heartbeat.unref?.();
 
 // One handler per WS path. Auth happens once here at the upgrade.
 const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent']);
@@ -743,6 +765,7 @@ server.on('upgrade', (req, socket, head) => {
     // the one handler missing it).
     const track = (ws: WebSocket) => {
       liveSockets.set(ws, device.token);
+      armHeartbeat(ws);
       ws.on('error', () => { /* 'close' follows and cleans up */ });
       ws.on('close', () => liveSockets.delete(ws));
     };
@@ -944,10 +967,22 @@ async function handleTerminal(ws: WebSocket, url: URL) {
   // The dance widens the pty so echoes never soft-wrap; this is what it must
   // narrow back to afterwards, so it follows the client's resizes.
   let size = { cols: cols || 80, rows: rows || 24 };
+  // Backpressure: ws.send() buffers in memory, so a chatty shell on a slow link
+  // (yes, a build log) would grow host RSS without bound — the screen/window
+  // loops already guard against this. When the socket's buffer climbs past the
+  // ceiling, pause the pty until the drain check clears it, so we throttle the
+  // producer instead of dropping bytes out of the transcript.
+  let ptyPaused = false;
+  const drainCheck = setInterval(() => {
+    if (ptyPaused && ws.bufferedAmount < MAX_BUFFERED_BYTES / 2) { term.resume(); ptyPaused = false; }
+  }, 100);
+  drainCheck.unref?.();
   term.onData((data) => {
     const pass = completer.filter(data);
     if (pass !== null && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'data', data: pass }));
+    if (!ptyPaused && ws.bufferedAmount > MAX_BUFFERED_BYTES) { term.pause(); ptyPaused = true; }
   });
+  ws.on('close', () => clearInterval(drainCheck));
   term.onExit(() => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'exit' }));
     ws.close();
