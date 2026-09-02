@@ -41,6 +41,14 @@ const STEPS: readonly Omit<StepProps, 'index'>[] = [
     code: 'cd server && npm start',
   },
   {
+    // The Screen tab is black until this is granted, and macOS never prompts
+    // for it on a background agent — so a first-time Mac user has no way to know
+    // it is even needed. Windows and Linux need nothing here, hence "On a Mac".
+    title: 'On a Mac, allow Screen Recording',
+    detail:
+      'System Settings › Privacy & Security › Screen Recording — switch on the app running the host agent (Terminal, or your code editor), then start it again. Without it the Screen tab stays black; Agent, Terminal, Files and System still work.',
+  },
+  {
     title: 'Read the address it prints',
     detail: 'Something like 192.168.1.20:8787. Type it in below.',
   },

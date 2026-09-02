@@ -26,6 +26,11 @@ export type { TrackInkSet, TrackInks, TrackState } from './track';
 export { Dot, Meter, Badge, Banner, Toast, EmptyState, Skeleton } from './feedback';
 export type { Status } from './feedback';
 
+export { ConnectionStatus } from './connection-status';
+export type { ConnectionStatusProps } from './connection-status';
+export { describeConnection } from './connection-view';
+export type { ConnectionPhase, ConnectionView } from './connection-view';
+
 export { Input, TextField } from './input';
 export type { InputProps } from './input';
 
