@@ -14,8 +14,9 @@ import { URL } from 'node:url';
 
 import {
   loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices,
-  revokeDevice, deviceCount, getHostId, getLabel, setLabel, getPlatform, Device,
+  revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, Device,
 } from './state.js';
+import { wantsPairingReset } from './reset-pairing.js';
 import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
 import { createPairGuard } from './pair-guard.js';
@@ -107,6 +108,21 @@ const CODE_REFRESH_INTERVAL_MS = 30_000;
 loadState();
 loadAgentState();
 if (!getHostName()) setHostName(hostname());
+
+// `--reset-pairing` reopens the pairing window the safe way: clear the paired
+// devices but keep this machine's identity (hostId) and its user-set label. The
+// old advice was to delete belay-state.json, which also regenerates hostId —
+// orphaning the phone's saved computer and duplicating it on the next pair.
+// Clearing devices alone drops deviceCount() to 0, so ensureCode() below opens
+// a fresh code exactly as a first-run host does.
+if (wantsPairingReset(process.argv.slice(2))) {
+  const cleared = deviceCount();
+  revokeAll();
+  console.log(
+    `[pairing] reset: cleared ${cleared} paired device${cleared === 1 ? '' : 's'}; ` +
+    `identity kept (${getLabel()}). A fresh pairing code follows.`,
+  );
+}
 
 // Only open a pairing window when there is nothing paired yet. Previously this
 // ran unconditionally, so every restart of an already-paired host opened a live

@@ -83,20 +83,24 @@ export function detectDeadEnd(
 /**
  * The exact commands that reopen the pairing window on the computer.
  *
- * There is no gentler lever: the host has no unpair command, and it only
- * issues codes while nothing is paired — so the honest instruction is to
- * clear the paired devices (they live in the host's state file) and start
- * fresh. Both spellings of that file are removed: a host installed before the
- * rename keeps its pairings in tether-state.json, one after it in
- * belay-state.json, and guessing wrong would leave the window shut.
- * BELAY_TEST_CODE is deliberately not offered: it disables expiry and
- * single-use, and the host itself warns it is for automated tests only.
+ * The host only issues codes while nothing is paired, so the window is reopened
+ * by clearing the paired devices. It must be cleared *without* discarding the
+ * machine's identity: deleting belay-state.json used to do it, but that also
+ * regenerates the host's `hostId` — the very key the app saves computers on —
+ * which orphans the phone's saved entry, resets a renamed machine's label, and
+ * makes the next pairing appear as a *second*, duplicate computer. `npm start
+ * --reset-pairing` clears only the devices and keeps hostId and label, so the
+ * saved computer keeps working after re-pairing. The command is the same on
+ * every platform — no file to remove, so no `del`/`rm` split, and no guessing
+ * between belay-state.json and the legacy tether-state.json. BELAY_TEST_CODE is
+ * deliberately not offered: it disables expiry and single-use, and the host
+ * itself warns it is for automated tests only.
+ *
+ * `platform` is retained for signature stability (callers pass the host's OS);
+ * the instruction no longer varies by it.
  */
-export function reopenPairingCommand(platform?: string): string {
-  const remove = platform === 'win32'
-    ? 'del belay-state.json tether-state.json'
-    : 'rm -f belay-state.json tether-state.json';
-  return `cd server\n${remove}\nnpm start`;
+export function reopenPairingCommand(_platform?: string): string {
+  return 'cd server\nnpm start -- --reset-pairing';
 }
 
 /**

@@ -13,8 +13,9 @@ import {
 import {
   DeviceStore, SavedDevice, emptyStore, activeDevice as pickActive,
   upsertDevice, setActive, removeDevice, renameDevice, recordSuccess,
-  orderAddresses, adoptRealId, isLegacyId, findDevice,
+  orderAddresses, adoptRealId, findDevice,
 } from './devices/model';
+import { checkHostIdentity } from './devices/identity';
 import { loadStore, saveStore } from './devices/storage';
 import { raceAddresses } from './devices/race';
 
@@ -109,6 +110,21 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       return;
     }
 
+    const verdict = checkHostIdentity(device.id, winner.hostId);
+    if (verdict === 'mismatch') {
+      // Something answered at this address, but it reports a different host id
+      // than the one we saved — the computer reset its pairing and minted a
+      // fresh identity. Our token was issued to the old one, so every authed
+      // call would 401. A false 'connected' here shows a dead computer with the
+      // old label; report it as unreachable, which is the honest state and the
+      // one that routes the user back to re-pairing.
+      setConn(null);
+      clearClientConnection();
+      setActiveUrl(null);
+      setPhase('unreachable');
+      return;
+    }
+
     const resolved: Connection = {
       host: winner.url,
       token: device.token,
@@ -123,7 +139,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     // A computer carried over from the old single-connection layout has a
     // synthesised id; the first host that reports a real one lets it become an
     // ordinary entry, keeping its token.
-    if (winner.hostId && isLegacyId(device.id)) {
+    if (verdict === 'adopt' && winner.hostId) {
       next = adoptRealId(next, device.id, winner.hostId);
     }
     await commit(next);

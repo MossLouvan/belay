@@ -91,15 +91,23 @@ test('an upgrade plan that was never probed stays honest: untried', () => {
 
 // ---- reopenPairingCommand -------------------------------------------------
 
-test('the reopen instruction uses rm on mac and del on windows', () => {
-  assert.equal(reopenPairingCommand('darwin'),
-    'cd server\nrm -f belay-state.json tether-state.json\nnpm start');
-  assert.equal(reopenPairingCommand('win32'),
-    'cd server\ndel belay-state.json tether-state.json\nnpm start');
+// Regression: the reset must NOT delete belay-state.json. Deleting it
+// regenerates the host's id, which orphans the phone's saved computer and
+// duplicates it on the next pair. --reset-pairing clears only the devices and
+// keeps the machine's identity and label.
+test('the reopen instruction resets pairing without deleting state', () => {
+  const expected = 'cd server\nnpm start -- --reset-pairing';
+  assert.equal(reopenPairingCommand('darwin'), expected);
+  assert.equal(reopenPairingCommand('win32'), expected);
+  assert.equal(reopenPairingCommand(undefined), expected);
 });
 
-test('an unknown platform gets the unix form', () => {
-  assert.match(reopenPairingCommand(undefined), /rm -f belay-state\.json tether-state\.json/);
+test('the reopen instruction never removes the host state file', () => {
+  for (const platform of ['darwin', 'win32', undefined]) {
+    const cmd = reopenPairingCommand(platform);
+    assert.doesNotMatch(cmd, /rm -f|del /, 'no file deletion — that would drop identity');
+    assert.doesNotMatch(cmd, /belay-state\.json|tether-state\.json/, 'never names the state file');
+  }
 });
 
 test('the reopen instruction never mentions the test-code back door', () => {
