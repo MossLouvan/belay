@@ -19,7 +19,7 @@ import type {
   StyleProp,
   ViewStyle,
 } from 'react-native';
-import { useTheme } from '../theme';
+import { getTheme, useTheme } from '../theme';
 import type { Theme } from '../theme';
 import { Banner, Column, Micro, Row, Txt, haptic, useReducedMotion } from '../ui';
 import { KEYS, labelFor } from './model';
@@ -91,7 +91,7 @@ function Bracket({ left, top, rotate, color }: { left: number; top: number; rota
  * Four corner brackets: opening outward reads "expand", flipped 180° they all
  * point at the centre and read "collapse" — the standard fullscreen pair.
  */
-function FullscreenGlyph({ mode, color }: { mode: 'expand' | 'collapse'; color: string }) {
+export function FullscreenGlyph({ mode, color }: { mode: 'expand' | 'collapse'; color: string }) {
   const rot = (base: number): string => `${mode === 'expand' ? base : base + 180}deg`;
   return (
     <View style={{ width: 18, height: 18 }}>
@@ -99,6 +99,45 @@ function FullscreenGlyph({ mode, color }: { mode: 'expand' | 'collapse'; color: 
       <Bracket left={10} top={0} rotate={rot(90)} color={color} />
       <Bracket left={10} top={10} rotate={rot(180)} color={color} />
       <Bracket left={0} top={10} rotate={rot(270)} color={color} />
+    </View>
+  );
+}
+
+/**
+ * Eye glyph for the keys show/hide control: an outline lid with a pupil, and a
+ * diagonal slash when the keys are hidden (the standard "hidden" affordance).
+ * Paired with a mono label like every other stage control, so it stays within
+ * the discoverability doctrine (docs/DESIGN.md §11.1) rather than a bare icon.
+ */
+export function EyeGlyph({ off, color }: { off: boolean; color: string }) {
+  return (
+    <View style={{ width: 18, height: 12, alignItems: 'center', justifyContent: 'center' }}>
+      {/* lid: an ellipse approximated by a wide rounded box */}
+      <View
+        style={{
+          width: 18,
+          height: 11,
+          borderRadius: 6,
+          borderWidth: 1.5,
+          borderColor: color,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {/* pupil */}
+        <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: color }} />
+      </View>
+      {off ? (
+        <View
+          style={{
+            position: 'absolute',
+            width: 22,
+            height: 1.5,
+            backgroundColor: color,
+            transform: [{ rotate: '-45deg' }],
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -112,6 +151,57 @@ export function DotsGlyph({ color }: { color: string }) {
       <View style={dot} />
       <View style={dot} />
     </View>
+  );
+}
+
+// --- stage overlay buttons ---------------------------------------------------
+
+export interface StageButtonProps {
+  glyph: React.ReactNode;
+  label: string;
+  onPress: () => void;
+  accessibilityLabel: string;
+  /** Painted like an active toggle when on (accent tint on the label). */
+  active?: boolean;
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+}
+
+/**
+ * One floating control over the stage: a glyph above its mono label, on the HUD
+ * scrim. Each button does exactly ONE thing on every press — no press-once-to-
+ * reveal, press-again-to-act. Used for the keys (eye) and fullscreen controls.
+ */
+export function StageButton({ glyph, label, onPress, accessibilityLabel, active = false, style, testID }: StageButtonProps) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ selected: active }}
+      hitSlop={theme.layout.hitSlop}
+      onPress={() => { haptic('light'); onPress(); }}
+      style={({ pressed }) => [
+        {
+          minWidth: theme.layout.minTouch,
+          minHeight: theme.layout.minTouch,
+          paddingHorizontal: theme.space.xxs,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: theme.space.xxs,
+          borderRadius: theme.radius.xs,
+          backgroundColor: HUD.scrim,
+          borderWidth: theme.layout.hairline,
+          borderColor: active ? getTheme('dark').colors.accent : HUD.hairline,
+          opacity: pressed ? 0.85 : 1,
+        },
+        style,
+      ]}
+    >
+      {glyph}
+      <Micro style={{ color: active ? getTheme('dark').colors.accent : HUD.inkDim }}>{label}</Micro>
+    </Pressable>
   );
 }
 
@@ -222,7 +312,12 @@ export function KeyCap({ spec, onPress, onRepeat, mac, glyph, sticky = false, la
         return current.onPress(current.spec);
       }
       return current.onRepeat?.(current.spec);
-    }, { setTimeout, clearTimeout });
+    }, {
+      // Wrap the globals so `this` is the global object, not this literal — an
+      // unbound window.setTimeout throws "Illegal invocation" on the web build.
+      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+      clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    });
   }
   // A cap unmounted mid-hold (page swipe, bar toggled off) must not leave a
   // key repeating into the host.

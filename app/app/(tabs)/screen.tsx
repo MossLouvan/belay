@@ -82,9 +82,12 @@ import { useAutoHide } from '../../src/screen/useAutoHide';
 import {
   Crosshair,
   DotsGlyph,
+  EyeGlyph,
+  FullscreenGlyph,
+  HUD,
   KeyBar,
   NoticeArea,
-  StageCorner,
+  StageButton,
   statusColorFor,
   StreamHud,
 } from '../../src/screen/parts';
@@ -333,20 +336,39 @@ export default function ScreenTab() {
     router.navigate('/agent');
   }, [sent]);
 
-  // The corner control: enter fullscreen from the normal layout; in fullscreen
-  // it exits — unless the dock has auto-hidden, in which case the dimmed
-  // handle's job is to bring the controls back first.
-  const onCornerPress = useCallback(() => {
-    if (!fullscreen) {
-      setFullscreen(true);
-      return;
-    }
-    if (!dockHide.visible) {
-      dockHide.poke();
-      return;
-    }
-    setFullscreen(false);
+  // Two separate, single-action stage controls (docs/DESIGN.md §11.2): the eye
+  // shows/hides the on-screen keys, and the brackets enter/exit full screen.
+  // Neither changes meaning between taps — the old one-button-does-both flow was
+  // the confusing part. In full screen a press also pokes the auto-hidden dock
+  // back, as a harmless side effect, so the rest of the controls are reachable.
+  const toggleKeys = useCallback(() => {
+    if (fullscreen) dockHide.poke();
+    setKeysOn((v) => !v);
   }, [fullscreen, dockHide]);
+  const toggleFullscreen = useCallback(() => {
+    setFullscreen((v) => !v);
+  }, []);
+
+  // The two stage controls, rendered at the top-right in both layouts.
+  const stageControls = (positionStyle: object) => (
+    <View style={[{ position: 'absolute', flexDirection: 'row', gap: theme.space.xxs }, positionStyle]}>
+      <StageButton
+        testID="stage-keys"
+        glyph={<EyeGlyph off={!keysOn} color={HUD.ink} />}
+        label="Keys"
+        active={keysOn}
+        accessibilityLabel={keysOn ? 'Hide the on-screen keys' : 'Show the on-screen keys'}
+        onPress={toggleKeys}
+      />
+      <StageButton
+        testID="stage-fullscreen"
+        glyph={<FullscreenGlyph mode={fullscreen ? 'collapse' : 'expand'} color={HUD.ink} />}
+        label={fullscreen ? 'Exit' : 'Full'}
+        accessibilityLabel={fullscreen ? 'Exit full screen' : 'Enter full screen'}
+        onPress={toggleFullscreen}
+      />
+    </View>
+  );
 
   const live = stream.phase === 'live';
   const connecting = stream.phase === 'connecting' || stream.phase === 'reconnecting';
@@ -536,17 +558,11 @@ export default function ScreenTab() {
             <StreamHud stats={stream.stats} pingMs={facts.pingMs} quality={quality} zoom={viewport.zoom} />
           ) : null}
 
-          {/* Normal mode: the labelled FULL control rides the stage's own
-              top-right corner — it acts on the panel, so it stays on it. */}
-          {!fullscreen && !permissions.captureBlocked ? (
-            <StageCorner
-              mode="expand"
-              onPress={onCornerPress}
-              accessibilityLabel="Enter full screen"
-              testID="stage-corner"
-              style={{ top: theme.space.xs, right: theme.space.xs }}
-            />
-          ) : null}
+          {/* Normal mode: the two stage controls (Keys eye + Full brackets)
+              ride the stage's own top-right corner. */}
+          {!fullscreen && !permissions.captureBlocked
+            ? stageControls({ top: theme.space.xs, right: theme.space.xs })
+            : null}
         </View>
 
         {/* No picture: the panel interior becomes the guidance surface —
@@ -567,19 +583,12 @@ export default function ScreenTab() {
           />
         ) : null}
 
-        {/* Fullscreen: the corner pins to the safe area, not the (letterboxed)
-            stage, so it is always exactly where the thumb expects it. Dimmed
-            while the dock is hidden — then its press reveals rather than exits. */}
-        {fullscreen ? (
-          <StageCorner
-            mode="collapse"
-            dimmed={!dockHide.visible}
-            onPress={onCornerPress}
-            accessibilityLabel={dockHide.visible ? 'Exit full screen' : 'Show the controls'}
-            testID="stage-corner"
-            style={{ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs }}
-          />
-        ) : null}
+        {/* Fullscreen: the two controls pin to the safe area (not the
+            letterboxed stage), always visible and each a single action — no
+            reveal-then-act. A press also pokes the auto-hidden dock back. */}
+        {fullscreen
+          ? stageControls({ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs })
+          : null}
 
         {/* Input errors still matter in fullscreen; they float over the top edge. */}
         {fullscreen ? (
