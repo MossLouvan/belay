@@ -51,6 +51,8 @@ import { handleHandoff } from './handoff.js';
 import { registerAgentApprovalRoutes } from './agent-routes.js';
 import { registerImageRoutes } from './image-routes.js';
 import { productEnv } from './env.js';
+import { webrtcEnabled } from './webrtc/flag.js';
+import { SignalingBridge } from './webrtc/bridge.js';
 
 const PORT = Number(productEnv('PORT') || 8787);
 
@@ -726,7 +728,15 @@ const heartbeat = setInterval(() => {
 heartbeat.unref?.();
 
 // One handler per WS path. Auth happens once here at the upgrade.
+//
+// /ws/webrtc exists ONLY when BELAY_WEBRTC is on: the WebRTC path is opt-in
+// until the loss-lab conformance suite passes, and a route that is absent from
+// this set is rejected at the upgrade with a 404 before a ticket is ever
+// redeemed — so a half-finished signaling path can never be reached, let alone
+// regress the shipping JPEG-over-WebSocket transport, unless it is deliberately
+// enabled. JPEG (/ws/screen) stays the default and the fallback.
 const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent']);
+if (webrtcEnabled()) WS_ROUTES.add('/ws/webrtc');
 
 server.on('upgrade', (req, socket, head) => {
   // Parse first, guarded: a malformed request target (e.g. "///") makes
@@ -787,6 +797,10 @@ server.on('upgrade', (req, socket, head) => {
     });
   } else if (url.pathname === '/ws/agent') {
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAgent(ws, url); });
+  } else if (url.pathname === '/ws/webrtc') {
+    // Only reachable when BELAY_WEBRTC is on (WS_ROUTES gate above). Signaling
+    // relay only — Node never sees media.
+    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleWebrtc(ws, url); });
     }
   } catch (e) {
     // Any unexpected failure during the upgrade must tear the socket down rather
@@ -795,6 +809,75 @@ server.on('upgrade', (req, socket, head) => {
     try { socket.destroy(); } catch { /* already gone */ }
   }
 });
+
+/**
+ * WebRTC signaling relay (opt-in, BELAY_WEBRTC). Bridges this authenticated
+ * socket — the phone, the ICE caller — to the native helper, the ICE callee
+ * that owns the real peer connection and the hardware encoder. Node relays
+ * SDP/ICE and nothing else; it never sees the media.
+ *
+ * Every frame in either direction is validated by SignalingBridge (relay.ts)
+ * before it is forwarded, and the bridge is torn down with the socket so a new
+ * connection is a fresh session rather than a resurrected one.
+ *
+ * NOTE: the helper's `webrtc` verb and its pushed answer/ICE are the
+ * libdatachannel side, which is not compiled yet (docs/WEBRTC-SLICE.md). Until
+ * it is, a forwarded offer resolves as the helper's `unknown command` error and
+ * this route reports it cleanly rather than hanging — the wiring, the auth
+ * binding and the validation are exercised now; only the media half is gated.
+ */
+function handleWebrtc(ws: WebSocket, url: URL) {
+  // A session id may be pinned from the upgrade URL; otherwise the bridge binds
+  // it from the first valid frame. Either way, a later frame for a different
+  // session is rejected rather than forwarded.
+  const sessionId = url.searchParams.get('session') || undefined;
+
+  const bridge = new SignalingBridge(
+    { deliver: (m) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)); } },
+    { deliver: (m) => { void native.webrtcSignal(m).catch((e: unknown) => {
+      // The helper rejected/could not take the frame (e.g. not built): tell the
+      // phone so it can fall back to JPEG rather than wait out a silent stall.
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', error: messageOf(e) }));
+    }); } },
+    sessionId,
+  );
+
+  // The helper pushes its local answer/ICE/bye back asynchronously as ICE
+  // gathers; relay each through the bridge (validated) toward the phone.
+  const detach = native.onWebrtcSignal((sig) => {
+    const result = bridge.ingest('host', sig);
+    if (!result.ok) console.warn('[webrtc] dropped a helper signal:', result.error);
+  });
+
+  ws.on('message', (raw) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw.toString());
+    } catch {
+      ws.send(JSON.stringify({ type: 'error', error: 'signaling frame is not valid JSON' }));
+      return;
+    }
+    const result = bridge.ingest('client', parsed);
+    if (!result.ok) {
+      ws.send(JSON.stringify({ type: 'error', error: result.error }));
+    }
+    // A `bye` closes the bridge; drop the socket so the session is fully torn
+    // down on both ends.
+    if (bridge.isClosed && ws.readyState === ws.OPEN) ws.close();
+  });
+
+  ws.on('close', () => {
+    detach();
+    // Best-effort: tell the helper the session ended so it releases its peer
+    // connection and encoder, but only once a session id is actually bound.
+    const bound = bridge.sessionId;
+    if (bound && !bridge.isClosed) {
+      void native.webrtcSignal({ kind: 'bye', sessionId: bound, reason: 'signaling socket closed' })
+        .catch(() => { /* helper may already be gone */ });
+    }
+    bridge.close();
+  });
+}
 
 // Screen stream: capture-encode-send in a self-scheduling loop. The next frame
 // is only requested after the previous one is sent, so a slow link naturally

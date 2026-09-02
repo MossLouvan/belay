@@ -11,6 +11,11 @@
 // runs under the test runner: a fake adapter records what the controller asked
 // it to do, and the assertions pin the wiring without a browser.
 
+import { channelFor, type ChannelId } from './channels.ts';
+import {
+  DEFAULT_ABR_CONFIG, initialAbrState, nextAbrState,
+  type AbrConfig, type AbrState, type LinkFeedback,
+} from './congestion.ts';
 import { IceStats, candidateType, classifyPair, type ConnectionKind } from './ice.ts';
 import { LatencyWindow, type FrameTiming } from './latency.ts';
 import {
@@ -18,6 +23,11 @@ import {
   localDescription, receive,
   type SignalEffect, type SignalMessage, type SignalRole, type SignalState, type Transition,
 } from './signaling.ts';
+
+/** Where the ABR controller starts before it has any link feedback. A
+ *  conservative 2.5 Mbps — high enough to look sharp on a good LAN immediately,
+ *  low enough not to flood a constrained uplink for the first few intervals. */
+export const DEFAULT_START_BITRATE_BPS = 2_500_000;
 
 /** What the device layer must provide. Each call maps to one RTCPeerConnection
  *  operation; none of them are performed here. */
@@ -28,11 +38,24 @@ export interface PeerAdapter {
   addIceCandidate(candidate: string): Promise<void>;
   send(message: SignalMessage): void;
   teardown(reason: string): void;
+  /** Apply an adaptive-bitrate setpoint to the video encoder (VideoToolbox /
+   *  Media Foundation). Optional: a signaling-only fake omits it. */
+  setBitrate?(bitrateBps: number): void;
+  /** Send one input/control event on a specific data channel (the routing that
+   *  channels.ts decides). Optional for the same reason. */
+  sendOn?(channel: ChannelId, kind: string, payload: unknown): void;
 }
 
 export interface SessionCallbacks {
   onPhaseChange?(phase: SignalState['phase']): void;
   onError?(message: string): void;
+}
+
+export interface SessionOptions {
+  /** Initial encoder bitrate before any link feedback arrives. */
+  readonly startBitrateBps?: number;
+  /** Override the ABR tuning (min/max/step). Defaults to DEFAULT_ABR_CONFIG. */
+  readonly abrConfig?: AbrConfig;
 }
 
 export class StreamSession {
@@ -54,16 +77,24 @@ export class StreamSession {
   private readonly peer: PeerAdapter;
   private readonly cb: SessionCallbacks;
 
+  /** Adaptive-bitrate control state (congestion.ts). Evolves as link feedback
+   *  arrives; its setpoint is pushed to the encoder via peer.setBitrate. */
+  private abr: AbrState;
+  private readonly abrConfig: AbrConfig;
+
   constructor(
     role: SignalRole,
     sessionId: string,
     peer: PeerAdapter,
     cb: SessionCallbacks = {},
+    options: SessionOptions = {},
   ) {
     this.peer = peer;
     this.cb = cb;
     this.state = initialState(role, sessionId);
     this.lastEmittedPhase = this.state.phase;
+    this.abrConfig = options.abrConfig ?? DEFAULT_ABR_CONFIG;
+    this.abr = initialAbrState(options.startBitrateBps ?? DEFAULT_START_BITRATE_BPS, this.abrConfig);
   }
 
   get phase(): SignalState['phase'] {
@@ -108,6 +139,39 @@ export class StreamSession {
     this.remoteSelected = candidateType(remote);
   }
 
+  /**
+   * Feed one interval of WebRTC link feedback (loss ratio + RTT, from
+   * transport-cc / RTCP) to the ABR controller and apply the new setpoint to the
+   * encoder. Returns the chosen bitrate. This is the seam that makes
+   * congestion.ts actually drive the encoder rather than sit inert — the device
+   * layer calls it every feedback interval; the control law lives in
+   * congestion.ts and is loss-lab-verified.
+   */
+  onLinkFeedback(feedback: LinkFeedback): number {
+    this.abr = nextAbrState(this.abr, feedback, this.abrConfig);
+    this.peer.setBitrate?.(this.abr.bitrateBps);
+    return this.abr.bitrateBps;
+  }
+
+  /** The current ABR setpoint (bits/sec). */
+  get bitrateBps(): number {
+    return this.abr.bitrateBps;
+  }
+
+  /**
+   * Route one input/control event onto the correct data channel and send it,
+   * returning the channel chosen so telemetry can see the policy decision. This
+   * is where channels.ts is wired into the transport seam: a key or key-up
+   * always goes out reliable+ordered (never a stuck key), pointer motion goes
+   * out newest-wins, control traffic on its own reliable channel — all decided
+   * by the pure, tested policy, never ad hoc here.
+   */
+  sendEvent(kind: string, payload: unknown): ChannelId {
+    const channel = channelFor(kind);
+    this.peer.sendOn?.(channel, kind, payload);
+    return channel;
+  }
+
   metrics(): SessionMetrics {
     const local = this.localSelected;
     const remote = this.remoteSelected;
@@ -117,6 +181,7 @@ export class StreamSession {
       latency: this.latency.snapshot(),
       connectionKind: kind,
       iceTotals: this.ice.snapshot(),
+      bitrateBps: this.abr.bitrateBps,
     };
   }
 
@@ -202,4 +267,6 @@ export interface SessionMetrics {
   readonly latency: ReturnType<LatencyWindow['snapshot']>;
   readonly connectionKind: ConnectionKind | null;
   readonly iceTotals: ReturnType<IceStats['snapshot']>;
+  /** The live ABR setpoint (bits/sec) the encoder is being driven to. */
+  readonly bitrateBps: number;
 }

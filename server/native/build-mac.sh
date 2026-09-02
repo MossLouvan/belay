@@ -41,6 +41,34 @@ common_flags=(-O -swift-version 5 -framework ScreenCaptureKit -framework CoreGra
               -framework ImageIO -framework ApplicationServices -framework CoreMedia
               -framework CoreVideo -framework UniformTypeIdentifiers -framework AppKit)
 
+# ── WebRTC path (opt-in, HARDWARE-GATED) ─────────────────────────────────────
+# The default build deliberately globs only the top-level mac/*.swift, so
+# mac/encode/ (VideoEncoder.swift) and mac/transport/ (libdatachannel shim) are
+# EXCLUDED and the shipping helper is unchanged. Set BELAY_WEBRTC_BUILD=1 to
+# fold them in — this path is NOT yet verified (it needs a prebuilt static
+# libdatachannel archive and has not been compiled end-to-end; see
+# docs/WEBRTC-SLICE.md). It is wired here so enabling it is a build-flag change,
+# not a script rewrite.
+if [ "${BELAY_WEBRTC_BUILD:-}" = "1" ]; then
+  echo "note: BELAY_WEBRTC_BUILD=1 — folding in the hardware-gated WebRTC encoder/transport (UNVERIFIED)" >&2
+  shopt -s nullglob
+  sources+=("$src_dir"/encode/*.swift)
+  shopt -u nullglob
+  # VideoEncoder needs VideoToolbox; the transport shim needs libdatachannel and
+  # its deps (libjuice/usrsctp/srtp), a C++ runtime, and the bridging header that
+  # exposes belay_transport.h to Swift. Vendor libdatachannel as a prebuilt
+  # static archive under mac/transport/vendor/ (checked in or fetched here) — the
+  # one place ARCHITECTURE.md's "no dependency to restore" claim bends.
+  : "${LIBDATACHANNEL_ROOT:=$src_dir/transport/vendor/libdatachannel}"
+  common_flags+=(-framework VideoToolbox
+                 -import-objc-header "$src_dir/transport/belay-bridging.h"
+                 "$src_dir/transport/belay_transport.cpp"
+                 -Xcc "-DBELAY_HAVE_LIBDATACHANNEL"
+                 -I "$LIBDATACHANNEL_ROOT/include"
+                 -L "$LIBDATACHANNEL_ROOT/lib"
+                 -ldatachannel-static -ljuice-static -lusrsctp -lsrtp2 -lc++)
+fi
+
 build_slice() {
   local arch="$1"
   local dest="$work/BelayHostMac.$arch"

@@ -135,3 +135,74 @@ test('a stale-session signal is ignored', async () => {
   assert.equal(a.calls.length, before);
   assert.equal(s.phase, 'offering');
 });
+
+// ── ABR (congestion.ts) and channel routing (channels.ts), wired into the
+//    session/transport seam so they are actually used, not inert ─────────────
+
+/** The fake adapter above omits the optional transport methods; this one adds
+ *  them so the session's setpoint/routing decisions are observable. */
+function transportAdapter(overrides = {}) {
+  const base = fakeAdapter(overrides);
+  return {
+    ...base,
+    bitrates: [],
+    routed: [],
+    setBitrate(bps) { this.bitrates.push(bps); base.calls.push(`bitrate:${bps}`); },
+    sendOn(channel, kind, payload) { this.routed.push({ channel, kind, payload }); base.calls.push(`on:${channel}:${kind}`); },
+  };
+}
+
+test('link feedback drives the ABR setpoint into the encoder (setBitrate)', () => {
+  const a = transportAdapter();
+  const s = new StreamSession('caller', 'sid', a, {}, { startBitrateBps: 2_000_000 });
+  assert.equal(s.bitrateBps, 2_000_000);
+
+  // A clean interval probes upward; the new setpoint is pushed to the adapter.
+  const up = s.onLinkFeedback({ lossRatio: 0, rttMs: 20 });
+  assert.ok(up > 2_000_000, 'clean feedback increases the setpoint');
+  assert.equal(s.bitrateBps, up);
+  assert.equal(a.bitrates.at(-1), up, 'the setpoint reached the encoder');
+
+  // Heavy loss backs off hard.
+  const down = s.onLinkFeedback({ lossRatio: 0.2, rttMs: 20 });
+  assert.ok(down < up, 'heavy loss decreases the setpoint');
+  assert.equal(a.bitrates.at(-1), down);
+});
+
+test('metrics expose the live bitrate setpoint', () => {
+  const a = transportAdapter();
+  const s = new StreamSession('caller', 'sid', a, {}, { startBitrateBps: 1_500_000 });
+  assert.equal(s.metrics().bitrateBps, 1_500_000);
+  s.onLinkFeedback({ lossRatio: 0, rttMs: 15 });
+  assert.equal(s.metrics().bitrateBps, s.bitrateBps);
+});
+
+test('a key and a key-up always route to the reliable input channel (no stuck key)', () => {
+  const a = transportAdapter();
+  const s = new StreamSession('caller', 'sid', a);
+  assert.equal(s.sendEvent('key', { vk: 65 }), 'input');
+  assert.equal(s.sendEvent('up', { vk: 65 }), 'input');
+  assert.equal(s.sendEvent('text', 'hi'), 'input');
+  assert.deepEqual(a.routed.map((r) => r.channel), ['input', 'input', 'input']);
+});
+
+test('pointer motion routes to the unreliable cursor channel; control to control', () => {
+  const a = transportAdapter();
+  const s = new StreamSession('caller', 'sid', a);
+  assert.equal(s.sendEvent('move', { x: 1, y: 2 }), 'cursor');
+  assert.equal(s.sendEvent('scroll', { dy: 3 }), 'cursor');
+  assert.equal(s.sendEvent('keyframe', {}), 'control');
+  assert.equal(s.sendEvent('ping', {}), 'control');
+  // Unknown kinds fail safe onto the reliable control channel.
+  assert.equal(s.sendEvent('mystery', {}), 'control');
+});
+
+test('the session works with a signaling-only adapter that omits the transport hooks', () => {
+  // The optional setBitrate/sendOn must be safe to call when absent — the JPEG
+  // fallback path and the M1 fake adapter both lack them.
+  const a = fakeAdapter();
+  const s = new StreamSession('caller', 'sid', a);
+  assert.doesNotThrow(() => s.onLinkFeedback({ lossRatio: 0, rttMs: 20 }));
+  assert.doesNotThrow(() => s.sendEvent('key', { vk: 1 }));
+  assert.equal(s.sendEvent('move', {}), 'cursor'); // still returns the routing decision
+});

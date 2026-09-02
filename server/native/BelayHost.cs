@@ -197,6 +197,7 @@ static class BelayHost
                     case "capturewindow": DoCaptureWindow(stdout, idObj, c); break;
                     case "focuswindow": DoFocusWindow(stdout, idObj, c); break;
                     case "ping": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "pong", true } }); break;
+                    case "webrtc": DoWebrtc(stdout, idObj, c); break;
                     default: Err(stdout, idObj, "unknown command: " + cmd); break;
                 }
             }
@@ -208,6 +209,46 @@ static class BelayHost
     {
         if (Get(c, "x") != null) Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), TargetBounds(c));
     }
+
+    // ── WebRTC transport (opt-in, HARDWARE-GATED) ────────────────────────────
+    //
+    // STATUS: WRITTEN-BUT-HARDWARE-GATED. The Windows media path is not built.
+    // The intended shape mirrors macOS (server/native/mac): replace the GDI
+    // CopyFromScreen + System.Drawing JPEG in DoCapture/EnsureSource with
+    //   1. Desktop Duplication (IDXGIOutputDuplication) for a GPU surface with no
+    //      CPU readback, feeding
+    //   2. a Media Foundation H.264/HEVC hardware encoder chosen by the support
+    //      matrix below (NVENC -> QSV -> AMF -> software), whose NAL sink is
+    //   3. the libdatachannel SRTP video track (the same statically-linked
+    //      transport shim as mac/transport, exposed to C# via P/Invoke).
+    // The `webrtc` verb then hands the peer SDP/ICE and pushes the helper's
+    // local answer/ICE back as `type:"webrtc"` lines (see native.ts). Input
+    // injection (SendInput) is unchanged and already bypasses the video pipeline.
+    //
+    // Until that is built, the verb fails cleanly — exactly like an unknown
+    // command — so /ws/webrtc degrades to a JPEG fallback rather than hanging.
+    static void DoWebrtc(TextWriter w, object id, Dictionary<string, object> c)
+    {
+        Err(w, id, "webrtc transport is not built on this host (HARDWARE-GATED: "
+                 + "needs Desktop Duplication + Media Foundation + libdatachannel). "
+                 + "Falling back to JPEG.");
+    }
+
+    /// Hardware encoder preference on Windows, best first. The real path
+    /// enumerates Media Foundation transforms (MFT_CATEGORY_VIDEO_ENCODER,
+    /// hardware-only) and picks the first available; the software fallback cannot
+    /// sustain 60fps at useful resolution and is a last resort. Expressed as the
+    /// support matrix (docs/PERFORMANCE-PLAN.md §6) even though selection is not
+    /// wired yet, so the ordering is reviewable now.
+    enum EncoderKind { NvEnc, QuickSync, Amf, Software }
+
+    static readonly EncoderKind[] EncoderPreference =
+    {
+        EncoderKind.NvEnc,     // NVIDIA
+        EncoderKind.QuickSync, // Intel iGPU
+        EncoderKind.Amf,       // AMD
+        EncoderKind.Software,  // last resort — degraded, matches Parsec's weak spot
+    };
 
     /// The rectangle a normalized coordinate is measured against.
     ///
