@@ -1,0 +1,58 @@
+name: CI
+
+# The board flagged that nothing ran the suites automatically — app (490+),
+# server (480+), desktop, and the Playwright E2E all ran only when someone
+# remembered to. This gates every push and PR on the fast suites + typechecks.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  app:
+    name: app — typecheck + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+
+  server:
+    name: server — typecheck + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+
+  secret-guard:
+    name: no state files / secrets staged
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if a *-state.json (bearer tokens) is tracked
+        run: |
+          if git ls-files | grep -E '(^|/)(belay|tether|test)-state\.json$'; then
+            echo "::error::A *-state.json file holding bearer tokens is tracked — remove it and add to .gitignore"
+            exit 1
+          fi
+          echo "no tracked state files"

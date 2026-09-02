@@ -16,7 +16,8 @@
 // an unknown scope, a missing field, a path that walks out of its folder all
 // mean "ask the phone again", never "allow".
 
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { realpathSync } from 'node:fs';
 
 export type RiskTier = 'read' | 'edit' | 'run' | 'danger';
 export type GrantScope = 'exact-command' | 'exact-file' | 'folder' | 'project-reads';
@@ -72,11 +73,34 @@ export function isDangerousCommand(command: string): boolean {
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
 /** The path field of a tool input, resolved against the session cwd; undefined when absent or malformed. */
+/**
+ * Resolve a path to its real location, following symlinks up to the deepest
+ * ancestor that exists (a not-yet-created Write target still gets its real
+ * parent). Both the target and the cwd fence go through this, so the underDir
+ * comparison is between two canonical paths — a lexical check alone let an
+ * in-project symlink point anywhere (approval-scopes symlink-escape bug).
+ */
+function canonicalize(path: string): string {
+  let dir = resolve(path);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const real = realpathSync.native(dir);
+      return tail.length ? resolve(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return resolve(path); // reached root unresolved
+      tail.push(basename(dir));
+      dir = parent;
+    }
+  }
+}
+
 function inputPath(input: unknown, cwd: string): string | undefined {
   if (typeof input !== 'object' || input === null) return undefined;
   const p = str((input as Record<string, unknown>).file_path) ?? str((input as Record<string, unknown>).path);
   if (!p) return undefined;
-  return isAbsolute(p) ? resolve(p) : resolve(cwd, p);
+  return canonicalize(isAbsolute(p) ? resolve(p) : resolve(cwd, p));
 }
 
 function underDir(target: string, dir: string): boolean {
@@ -85,8 +109,9 @@ function underDir(target: string, dir: string): boolean {
 
 /** A path as the user should read it on a small screen: relative to the project when inside it. */
 function shortPath(path: string, cwd: string): string {
-  if (underDir(path, cwd)) {
-    const rel = relative(cwd, path);
+  const root = canonicalize(cwd);
+  if (underDir(path, root)) {
+    const rel = relative(root, path);
     return rel === '' ? '.' : rel;
   }
   return path;
@@ -108,7 +133,7 @@ export function riskTier(tool: string, input: unknown, cwd: string): RiskTier {
     const p = inputPath(input, cwd);
     // A write whose target cannot be read, or lands outside the project, is
     // the dangerous case whatever the tool name says.
-    if (!p || !underDir(p, resolve(cwd))) return 'danger';
+    if (!p || !underDir(p, canonicalize(cwd))) return 'danger';
     return 'edit';
   }
   if (READ_TOOLS.has(tool)) return 'read';
@@ -137,13 +162,13 @@ export function scopeChoicesFor(tool: string, input: unknown, cwd: string): Scop
 
   const p = inputPath(input, cwd);
   const out: ScopeChoice[] = [];
-  if (p && underDir(p, resolve(cwd))) {
+  if (p && underDir(p, canonicalize(cwd))) {
     out.push({ id: 'exact-file', label: `Always allow ${tool} on ${shortPath(p, cwd)} (this session)` });
     const dir = dirname(p);
     // A folder grant for the project root would be "this tool, anywhere" —
     // the whole-tool whitelist this vocabulary exists to retire — so the
     // folder choice only appears for real subfolders.
-    if (dir !== resolve(cwd) && underDir(dir, resolve(cwd))) {
+    if (dir !== canonicalize(cwd) && underDir(dir, canonicalize(cwd))) {
       out.push({ id: 'folder', label: `Always allow ${tool} anywhere in ${shortPath(dir, cwd)}/ (this session)` });
     }
   }
@@ -182,7 +207,7 @@ export function grantForChoice(
       return p ? { ...base, scope: 'folder', value: dirname(p) } : null;
     }
     case 'project-reads':
-      return { ...base, scope: 'project-reads', value: resolve(cwd) };
+      return { ...base, scope: 'project-reads', value: canonicalize(cwd) };
   }
 }
 

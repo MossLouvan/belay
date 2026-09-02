@@ -13,6 +13,8 @@ import {
   grantForChoice, grantMatches, isDangerousCommand, riskTier, scopeChoicesFor,
 } from '../src/approval-scopes.js';
 import type { ApprovalGrant } from '../src/approval-scopes.js';
+import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const CWD = resolve('/tmp/belay-scope-test/project');
 
@@ -182,4 +184,23 @@ test('the old always:true wire narrows to the first offered choice, never the to
   const g = grantForChoice('Bash', { command: 'npm test' }, choices[0]!.id, CWD, () => 'gid')!;
   assert.equal(g.scope, 'exact-command');
   assert.equal(grantMatches(g, 'Bash', { command: 'rm -rf /' }, CWD), false);
+});
+
+test('a symlink inside the project cannot smuggle a write outside the fence', () => {
+  const root = mkdtempSync(join(tmpdir(), 'belay-scope-'));
+  try {
+    const outside = mkdtempSync(join(tmpdir(), 'belay-outside-'));
+    // A symlink INSIDE the project pointing at an outside directory.
+    const link = join(root, 'escape');
+    symlinkSync(outside, link);
+    // Writing "inside the project" via the link resolves outside -> must be danger,
+    // not a calm 'edit' with a folder grant.
+    const target = join(link, 'stolen.txt');
+    assert.equal(riskTier('Write', { file_path: target }, root), 'danger');
+    // And a genuine in-project write is still 'edit'.
+    assert.equal(riskTier('Write', { file_path: join(root, 'real.txt') }, root), 'edit');
+    rmSync(outside, { recursive: true, force: true });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
