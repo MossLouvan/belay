@@ -20,6 +20,7 @@ import { wantsPairingReset } from './reset-pairing.js';
 import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
 import { createPairGuard } from './pair-guard.js';
+import { createPairReplayCache } from './pair-replay.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
@@ -137,6 +138,10 @@ if (testCodeActive()) {
 }
 
 const pairGuard = createPairGuard();
+// Recovers a lost /pair reply for the SAME requester (see pair-replay.ts): a
+// dropped success can be replayed by an identical retry from the same source,
+// without handing the token to anyone else who saw the on-screen code.
+const pairReplay = createPairReplayCache();
 const tickets = createTicketStore();
 
 /**
@@ -264,7 +269,14 @@ app.post('/pair', async (req, res) => {
     }
   }
 
-  if (!consumeCode(String(code || ''))) {
+  const codeStr = String(code || '');
+  if (!consumeCode(codeStr)) {
+    // A lost reply to a *successful* pair also lands here on retry (the code is
+    // already burned). If this exact code just issued a token TO THIS SAME
+    // SOURCE, replay it rather than punish an idempotent retry — never to a
+    // different device that merely observed the code.
+    const replay = pairReplay.lookup(codeStr, clientId);
+    if (replay) { res.json(replay); return; }
     const outcome = pairGuard.recordFailure(clientId);
     if (outcome.burnCode) {
       // The per-code budget is spent. Burn it rather than let a distributed
@@ -286,7 +298,9 @@ app.post('/pair', async (req, res) => {
   pairGuard.recordSuccess(clientId);
   pairGuard.resetCodeBudget();
   const device = addDevice(cleanDeviceName(deviceName));
-  res.json({ token: device.token, name: getHostName() });
+  const body = { token: device.token, name: getHostName() };
+  pairReplay.remember(codeStr, clientId, body);
+  res.json(body);
 });
 
 // ---- authed routes -------------------------------------------------------
