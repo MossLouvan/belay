@@ -27,7 +27,9 @@ export function ConnectionStatus({ phase, machine, trailing, style, testID }: Co
   return (
     <Row justify="space-between" gap="sm" style={style} testID={testID}>
       <Row gap="xs" style={{ flexShrink: 1 }}>
-        <Dot status={view.status} pulse={view.pulse} size={7} label={view.label} />
+        {/* The visible Label already speaks the state; a label on the Dot would
+            make a screen reader announce it twice. */}
+        <Dot status={view.status} pulse={view.pulse} size={7} />
         <Label style={{ marginBottom: 0 }} numberOfLines={1}>{view.label}</Label>
       </Row>
       {trailing ?? null}
