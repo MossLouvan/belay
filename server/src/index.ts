@@ -32,7 +32,7 @@ import { listDir, readTextFile, ROOTS } from './files.js';
 import { statRawFile } from './files-raw.js';
 import { getStats } from './system.js';
 import { VK, MOD_VK, charToVk } from './keys.js';
-import { printBanner, buildNativeHint } from './banner.js';
+import { printBanner, buildNativeHint, reprintPairingCode } from './banner.js';
 import { notifyBannerLine } from './notify.js';
 import {
   loadAgentState, listSessions, createSession, getSnapshot, deleteSession,
@@ -1014,7 +1014,13 @@ setInterval(() => {
     // A rotated code gets a fresh failure budget; the old code's budget died
     // with it.
     pairGuard.resetCodeBudget();
-    console.log(`  New pairing code: ${c.code}   (enter this in the Belay app)`);
+    // Reprint the QR *and* the code together. Printing only a text line would
+    // leave the boot QR above still encoding the dead code — the stale-QR bug.
+    reprintPairingCode(
+      { hostId: getHostId(), label: getLabel(), platform: getPlatform(), port: PORT },
+      c.code,
+      c.expiresInSec,
+    );
   }
 }, CODE_REFRESH_INTERVAL_MS).unref();
 
