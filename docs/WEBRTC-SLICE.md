@@ -119,3 +119,8 @@ The consensus architecture hangs every cost decision on the real direct-P2P
 ratio, which is unmeasurable until it runs against real users. This slice
 measures latency and the ICE ratio with zero infrastructure, so the rendezvous
 region and TURN PoPs are built only once the numbers justify them.
+
+The cloud rendezvous tier itself — the untrusted introducer, TURN credential
+minting, and the presence/lease model — is now specified and its pure logic
+implemented and tested in `infra/rendezvous/` + `server/src/webrtc/envelope.ts`,
+behind `BELAY_CLOUD_SIGNALING`. See `docs/SCALABILITY.md`.
