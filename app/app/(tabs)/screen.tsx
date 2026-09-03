@@ -100,6 +100,7 @@ import { SENT_NOTICE_MS } from '../../src/screen/record';
 import { useRecording } from '../../src/screen/useRecording';
 import { setOpenSession } from '../../src/agent/attention-store';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
+import { HostAudio } from '../../src/stream/audio-player';
 
 export default function ScreenTab() {
   const { connection } = useConnection();
@@ -116,6 +117,10 @@ export default function ScreenTab() {
   const [typeOpen, setTypeOpen] = useState(false);
   const [mods, setMods] = useState<ModsState>(IDLE_MODS);
   const [showHud, setShowHud] = useState(false);
+  // Host system audio on the phone's speaker. Default OFF: it is opt-in and
+  // rides the BELAY_WEBRTC-gated /ws/audio, so a host without the flag simply
+  // never delivers frames and the toggle is a harmless no-op.
+  const [audioOn, setAudioOn] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showQuality, setShowQuality] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -469,6 +474,10 @@ export default function ScreenTab() {
           entry when this unmounts, so the root layout's style survives. */}
       {fullscreen ? <StatusBar hidden /> : null}
 
+      {/* The host-audio sink (hidden). Gated on `active` too, so leaving the
+          tab or backgrounding stops the socket and the speaker with it. */}
+      <HostAudio enabled={audioOn} connected={active} />
+
       {!fullscreen ? (
         <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
           <Row justify="space-between" gap="sm">
@@ -668,6 +677,14 @@ export default function ScreenTab() {
             selected={showHud}
             accessibilityHint="Toggles the fps, bitrate and ping overlay"
             onPress={() => setShowHud((v) => !v)}
+          />
+          <ListItem
+            testID="toggle-audio"
+            title="Host audio"
+            subtitle={audioOn ? 'Playing on this phone' : 'Off'}
+            selected={audioOn}
+            accessibilityHint="Plays the computer's system audio through this phone's speaker"
+            onPress={() => setAudioOn((v) => !v)}
           />
           <ListItem
             testID="screen-help"
