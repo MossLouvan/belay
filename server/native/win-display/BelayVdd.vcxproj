@@ -27,9 +27,16 @@
     <RootNamespace>BelayVdd</RootNamespace>
     <ProjectName>BelayVdd</ProjectName>
     <TargetName>BelayVdd</TargetName>
-    <WindowsTargetPlatformVersion>$(LatestTargetPlatformVersion)</WindowsTargetPlatformVersion>
   </PropertyGroup>
+  <!--
+    WindowsTargetPlatformVersion must be set AFTER Microsoft.Cpp.Default.props:
+    $(LatestTargetPlatformVersion) is defined by that import, so referencing it
+    in the Globals group above evaluates to empty and the SDK is never resolved.
+  -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup>
+    <WindowsTargetPlatformVersion Condition="'$(WindowsTargetPlatformVersion)' == ''">$(LatestTargetPlatformVersion)</WindowsTargetPlatformVersion>
+  </PropertyGroup>
   <PropertyGroup Label="Configuration">
     <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
     <ConfigurationType>DynamicLibrary</ConfigurationType>
@@ -42,7 +49,8 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
     <EnableInf2cat>true</EnableInf2cat>
-    <Inf2CatWindowsVersionList>10_x64;Server10_x64</Inf2CatWindowsVersionList>
+    <Inf2CatWindowsVersionList Condition="'$(Platform)' == 'x64'">10_x64;Server10_x64</Inf2CatWindowsVersionList>
+    <Inf2CatWindowsVersionList Condition="'$(Platform)' == 'ARM64'">10_ARM64</Inf2CatWindowsVersionList>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>

@@ -69,3 +69,14 @@ server/agent-logs/
 # vendored WebRTC transport build tree (fetched/built by build-libdatachannel.sh, never committed)
 server/native/mac/transport/vendor/libdatachannel/
 server/native/mac/transport/vendor/.build/
+
+# BelayVDD driver build output + throwaway test cert. The handoff doc assumed
+# these were covered; only `dist/` was. MSBuild puts intermediates and the
+# signed package under <platform>/<config>/ next to the vcxproj, and
+# build-driver.ps1 drops a self-signed .cer beside it. None of it is source,
+# and a code-signing cert must never be committed.
+server/native/win-display/x64/
+server/native/win-display/ARM64/
+server/native/win-display/Win32/
+server/native/win-display/*.cer
+server/native/win-display/*.pfx

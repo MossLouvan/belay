@@ -44,7 +44,10 @@ using namespace BelayVdd;
 // is a machine-topology change, same trust class as installing the driver.
 // (SDDL_DEVOBJ_SYS_ALL_ADM_ALL from wdmsec.h, written out so the dependency
 // on that header is not needed in user mode.)
-static const wchar_t BELAYVDD_SDDL[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)";
+// Must be a macro, not a `const wchar_t[]`: DECLARE_CONST_UNICODE_STRING
+// expands its argument into an array initialiser (`const WCHAR x[] = <arg>;`),
+// and C++ cannot initialise an array from another array.
+#define BELAYVDD_SDDL L"D:P(A;;GA;;;SY)(A;;GA;;;BA)"
 
 // ---------------------------------------------------------------------------
 // Validation

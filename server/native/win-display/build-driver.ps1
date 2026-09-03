@@ -35,8 +35,11 @@ $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer
 if (-not (Test-Path $vswhere)) {
     throw 'vswhere.exe not found. Install Visual Studio 2022 with the Windows Driver Kit extension.'
 }
-$msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
-if (-not $msbuild) { throw 'MSBuild not found via vswhere. Is VS2022 installed?' }
+# No -requires filter: the Microsoft.Component.MSBuild component id is not
+# installed on the Visual Studio *Build Tools* SKU (MSBuild is intrinsic
+# there), so requiring it finds nothing on a perfectly good driver box.
+$msbuild = & $vswhere -latest -products * -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+if (-not $msbuild) { throw 'MSBuild not found via vswhere. Is VS2022 (or VS2022 Build Tools) installed?' }
 
 # ---- build ------------------------------------------------------------------
 $proj = Join-Path $here 'BelayVdd.vcxproj'
@@ -78,6 +81,30 @@ if ($TestCertPfx) {
     & $signtool.FullName sign /fd SHA256 /sha1 $cert.Thumbprint /tr http://timestamp.digicert.com /td SHA256 $cat.FullName
 }
 if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE" }
+
+# ---- trust the test certificate --------------------------------------------
+# Test-signing mode relaxes WHICH certificate may sign a driver, but PnP still
+# refuses a package whose signer does not chain to a root the MACHINE trusts.
+# So the throwaway cert has to land in LocalMachine\Root (chain) and
+# LocalMachine\TrustedPublisher (silent install). Both stores need elevation;
+# when we don't have it, print the exact commands rather than failing late at
+# `pnputil` with a signature error that looks like a build problem.
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $TestCertPfx) {
+    $cer = Join-Path $here 'BelayVddTest.cer'
+    Export-Certificate -Cert $cert -FilePath $cer -Force | Out-Null
+    if ($isAdmin) {
+        Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+        Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
+        Write-Host "Test cert trusted in LocalMachine\Root and LocalMachine\TrustedPublisher."
+    } else {
+        Write-Warning "Not elevated - the test cert was NOT added to the machine trust stores."
+        Write-Warning "Run these in an ELEVATED PowerShell before pnputil, or the install will fail:"
+        Write-Warning "  Import-Certificate -FilePath '$cer' -CertStoreLocation Cert:\LocalMachine\Root"
+        Write-Warning "  Import-Certificate -FilePath '$cer' -CertStoreLocation Cert:\LocalMachine\TrustedPublisher"
+    }
+}
 
 $dist = Join-Path $here "dist\$Platform\BelayVdd"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null

@@ -45,13 +45,30 @@ AddReg = BelayVdd_HwAddReg
 [BelayVdd_HwAddReg]
 HKR,, "UpperFilters", %REG_MULTI_SZ%, "IndirectKmd"
 
+; A root-enumerated UMDF2 device still needs a kernel-mode reflector as its
+; function driver: WUDFRd. A null service (AddService=,0x2) leaves the devnode
+; with no function driver, so the UMDF host is never started and the device
+; comes up yellow-banged. This is the pattern the IddCx sample uses.
 [BelayVdd_Install.NT.Services]
-AddService = ,0x00000002 ; null service — UMDF driver, WUDFRd is set up by the framework directive below
+AddService = WUDFRd, 0x000001fa, WUDFRD_ServiceInstall
+
+[WUDFRD_ServiceInstall]
+DisplayName   = %WudfRdDisplayName%
+ServiceType   = 1 ; SERVICE_KERNEL_DRIVER
+StartType     = 3 ; SERVICE_DEMAND_START
+ErrorControl  = 1 ; SERVICE_ERROR_NORMAL
+ServiceBinary = %12%\WUDFRd.sys
+LoadOrderGroup = Base
 
 [BelayVdd_Install.NT.Wdf]
 UmdfService      = BelayVdd, BelayVdd_UmdfInstall
 UmdfServiceOrder = BelayVdd
+; IddCx's kernel-mode companion (IndirectKmd, the UpperFilter above) is a
+; kernel-mode client of this UMDF driver, and it opens the device with a null
+; file object — both policies below are required for IddCx to talk to us.
 UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfFileObjectPolicy       = AllowNullAndUnknownFileObjects
+UmdfFsContextUsePolicy     = CannotUseFsContexts
 UmdfHostProcessSharing = ProcessSharingDisabled
 
 [BelayVdd_UmdfInstall]
@@ -69,4 +86,5 @@ BelayVdd.dll
 ProviderName = "Belay"
 DeviceName   = "Belay Virtual Display Adapter"
 DiskName     = "Belay Virtual Display Driver Installation Disk"
+WudfRdDisplayName = "Windows Driver Foundation - User-mode Driver Framework Reflector"
 REG_MULTI_SZ = 0x00010000

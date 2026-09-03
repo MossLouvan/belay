@@ -235,9 +235,15 @@ static class BelayVirtualDisplay
             info.pszzHardwareIds = HardwareId + "\0\0";
             info.pszzCompatibleIds = null;
             info.pszDeviceDescription = "Belay Virtual Display Adapter";
-            // 2 = SWDeviceCapabilitiesDriverRequired; the driver must bind or
-            // creation fails, which is the failure we want to hear about.
-            info.CapabilityFlags = 2;
+            // SW_DEVICE_CAPABILITIES flags (cfgmgr32.h):
+            //   Removable = 0x1, SilentInstall = 0x2, NoDisplayInUI = 0x4,
+            //   DriverRequired = 0x8.
+            // DriverRequired is 0x8, NOT 0x2 — asking for 0x2 alone requests a
+            // silent install and lets the devnode come up with no driver bound,
+            // so a missing/unsigned BelayVdd.sys would look like success and
+            // then fail later at CreateFile with a confusing "device not found".
+            // Removable lets the device be torn down cleanly on SwDeviceClose.
+            info.CapabilityFlags = 0x1 | 0x2 | 0x8;
 
             IntPtr handle;
             int hr = SwDeviceCreate("BelayVDD", "HTREE\\ROOT\\0", ref info, 0, IntPtr.Zero, callback, IntPtr.Zero, out handle);

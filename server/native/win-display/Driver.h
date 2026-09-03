@@ -105,18 +105,22 @@ private:
     std::unique_ptr<SwapChainProcessor> m_ProcessingThread;
 };
 
-struct IndirectDeviceContextWrapper {
-    IndirectDeviceContext* pContext;
-    void Cleanup() { delete pContext; pContext = nullptr; }
-};
-
 /// True iff the mode satisfies the contract in BelayVddIoctl.h. The gatekeeper
 /// for everything a user-mode caller can inject; used by the IOCTL handler.
 bool IsValidMode(const BELAYVDD_MODE& mode);
 
 } // namespace BelayVdd
 
-WDF_DECLARE_CONTEXT_TYPE(BelayVdd::IndirectDeviceContextWrapper);
+// Deliberately at global scope. WDF_DECLARE_CONTEXT_TYPE token-pastes the type
+// name into the accessor and type-info symbols (WdfObjectGet_<T>, _WDF_<T>_TYPE_INFO),
+// so a namespace-qualified argument expands to an identifier containing "::"
+// and will not compile. The wrapper therefore lives outside namespace BelayVdd.
+struct IndirectDeviceContextWrapper {
+    BelayVdd::IndirectDeviceContext* pContext;
+    void Cleanup() { delete pContext; pContext = nullptr; }
+};
+
+WDF_DECLARE_CONTEXT_TYPE(IndirectDeviceContextWrapper);
 
 extern "C" DRIVER_INITIALIZE DriverEntry;
 
