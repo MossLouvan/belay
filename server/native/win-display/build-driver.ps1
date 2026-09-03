@@ -38,7 +38,22 @@ if (-not (Test-Path $vswhere)) {
 # No -requires filter: the Microsoft.Component.MSBuild component id is not
 # installed on the Visual Studio *Build Tools* SKU (MSBuild is intrinsic
 # there), so requiring it finds nothing on a perfectly good driver box.
-$msbuild = & $vswhere -latest -products * -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+# 64-bit MSBuild, deliberately. The WDK's DPVerifierTask (INF verification)
+# loads InfVerif.dll from a bitness-matched subdirectory, and the WDK ships
+# only x64/arm64 copies - under the 32-bit MSBuild the build dies with
+# "Unable to load DLL 'x86\InfVerif.dll'".
+# -nologo, and filter to lines that are actually a path to MSBuild.exe:
+# vswhere prints a version banner on stdout that otherwise ends up in $msbuild.
+function Find-MSBuild([string]$relative) {
+    & $vswhere -nologo -latest -products * -find $relative |
+        Where-Object { $_ -like '*MSBuild.exe' -and (Test-Path $_) } |
+        Select-Object -First 1
+}
+$msbuild = Find-MSBuild 'MSBuild\**\Binmd64\MSBuild.exe'
+if (-not $msbuild) {
+    $msbuild = Find-MSBuild 'MSBuild\**\Bin\MSBuild.exe'
+    if ($msbuild) { Write-Warning 'Only 32-bit MSBuild found; INF verification may fail to load InfVerif.dll' }
+}
 if (-not $msbuild) { throw 'MSBuild not found via vswhere. Is VS2022 (or VS2022 Build Tools) installed?' }
 
 # ---- build ------------------------------------------------------------------
@@ -52,11 +67,17 @@ if (-not (Test-Path (Join-Path $outDir 'BelayVdd.dll'))) {
 }
 
 # ---- validate the INF -------------------------------------------------------
-# infverif ships with the WDK; /w checks Windows-driver (universal) rules.
-$infverif = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Tools\*\x86\infverif.exe" -ErrorAction SilentlyContinue |
+# infverif ships with the WDK. Use /u (Universal Driver requirements), which is
+# the ruleset matching <DriverTargetPlatform>Universal</DriverTargetPlatform> in
+# BelayVdd.vcxproj. /w is the stricter "Windows Driver" (WCOS) ruleset and is
+# NOT what this package targets - under /w the inbox WUDFRd service reference
+# that every UMDF2 INF needs is reported as error 2084.
+# WDK 10.0.26100 ships infverif under Tools\<ver>\x64 (and arm64) - there is no
+# x86 copy, so globbing only x86 silently skipped INF validation entirely.
+$infverif = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Tools\*\x64\infverif.exe", "${env:ProgramFiles(x86)}\Windows Kits\10\Tools\*\x86\infverif.exe" -ErrorAction SilentlyContinue |
     Sort-Object FullName -Descending | Select-Object -First 1
 if ($infverif) {
-    & $infverif.FullName /v /w (Join-Path $outDir 'BelayVdd.inf')
+    & $infverif.FullName /v /u (Join-Path $outDir 'BelayVdd.inf')
     if ($LASTEXITCODE -ne 0) { throw 'infverif reported problems; fix BelayVdd.inf before signing' }
 } else {
     Write-Warning 'infverif.exe not found; skipping INF validation (install the WDK tools)'
@@ -70,15 +91,21 @@ if (-not $signtool) { throw 'signtool.exe not found; install the Windows SDK sig
 $cat = Get-ChildItem $outDir -Filter '*.cat' | Select-Object -First 1
 if (-not $cat) { throw "no .cat produced (Inf2Cat should have run during the build)" }
 
+# The .vcxproj sets SignMode=Off so MSBuild's own SignTask stays out of the
+# way, which means BOTH the binary and the catalog are signed here. The
+# catalog is what PnP actually validates at install; the embedded signature on
+# the DLL is belt-and-braces.
+$toSign = @((Join-Path $outDir 'BelayVdd.dll'), $cat.FullName) | Where-Object { Test-Path $_ }
+
 if ($TestCertPfx) {
-    & $signtool.FullName sign /fd SHA256 /f $TestCertPfx /tr http://timestamp.digicert.com /td SHA256 $cat.FullName
+    & $signtool.FullName sign /fd SHA256 /f $TestCertPfx /tr http://timestamp.digicert.com /td SHA256 @toSign
 } else {
     $certName = 'BelayVDD Test Cert (DO NOT SHIP)'
     $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq "CN=$certName" | Select-Object -First 1
     if (-not $cert) {
         $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=$certName" -CertStoreLocation Cert:\CurrentUser\My
     }
-    & $signtool.FullName sign /fd SHA256 /sha1 $cert.Thumbprint /tr http://timestamp.digicert.com /td SHA256 $cat.FullName
+    & $signtool.FullName sign /fd SHA256 /sha1 $cert.Thumbprint /tr http://timestamp.digicert.com /td SHA256 @toSign
 }
 if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE" }
 

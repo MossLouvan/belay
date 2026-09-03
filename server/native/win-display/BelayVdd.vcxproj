@@ -44,10 +44,31 @@
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
     <UMDF_VERSION_MAJOR>2</UMDF_VERSION_MAJOR>
     <UMDF_VERSION_MINOR>15</UMDF_VERSION_MINOR>
+    <!--
+      IndirectDisplayDriver is the switch the WDK targets key off to add the
+      IddCx include directory and link IddCxStub.lib
+      (WindowsDriver.UserMode.CX.LateEvaluation.props / .CX.targets). Without
+      it, iddcx.h is not on the include path and the IddCx* symbols do not
+      resolve. IDDCX_VERSION_* selects WHICH versioned header and stub get
+      used; the WDK default is 1.4, so it must be pinned to 1.2 here to match
+      `UmdfExtensions = IddCx0102` in BelayVdd.inf. A driver built against a
+      newer IddCx than the INF declares fails to load at runtime.
+    -->
+    <IndirectDisplayDriver>true</IndirectDisplayDriver>
+    <IDDCX_VERSION_MAJOR>1</IDDCX_VERSION_MAJOR>
+    <IDDCX_VERSION_MINOR>2</IDDCX_VERSION_MINOR>
     <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
+    <!--
+      Signing is build-driver.ps1's job, not MSBuild's: the script picks
+      between a real PFX (-TestCertPfx) and a throwaway self-signed cert, and
+      also has to place that cert in the machine trust stores. Leaving the
+      in-build SignTask enabled makes it fail with "No file digest algorithm
+      specified" and would in any case sign with whatever cert MSBuild guessed.
+    -->
+    <SignMode>Off</SignMode>
     <EnableInf2cat>true</EnableInf2cat>
     <Inf2CatWindowsVersionList Condition="'$(Platform)' == 'x64'">10_x64;Server10_x64</Inf2CatWindowsVersionList>
     <Inf2CatWindowsVersionList Condition="'$(Platform)' == 'ARM64'">10_ARM64</Inf2CatWindowsVersionList>
@@ -62,7 +83,10 @@
       <ControlFlowGuard>Guard</ControlFlowGuard>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>IddCx.lib;dxgi.lib;d3d11.lib;avrt.lib;onecoreuap.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- IddCxStub.lib is added by the WDK targets from IDDCX_LIB_PATH; there
+           is no "IddCx.lib" in the WDK at all, so naming it here just fails
+           the link. -->
+      <AdditionalDependencies>dxgi.lib;d3d11.lib;avrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -72,4 +96,18 @@
     <Inf Include="BelayVdd.inf" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!--
+    The WDK's DriverPackageTarget copies @(FilesToPackage) into the package
+    folder, but nothing in the WDK targets ever adds the project's own binary
+    to that item - a driver project is expected to declare it. Without this the
+    package folder contains only BelayVdd.inf and Inf2Cat fails signability
+    with "belayvdd.dll ... is missing or cannot be decompressed from source
+    media". Declared in a target rather than a top-level ItemGroup so
+    $(TargetPath) is fully resolved by the time it is evaluated.
+  -->
+  <Target Name="BelayVddAddBinaryToPackage" BeforeTargets="GetPackageFiles;DriverPackageTarget">
+    <ItemGroup>
+      <FilesToPackage Include="$(TargetPath)" />
+    </ItemGroup>
+  </Target>
 </Project>

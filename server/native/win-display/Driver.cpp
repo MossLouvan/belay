@@ -44,10 +44,18 @@ using namespace BelayVdd;
 // is a machine-topology change, same trust class as installing the driver.
 // (SDDL_DEVOBJ_SYS_ALL_ADM_ALL from wdmsec.h, written out so the dependency
 // on that header is not needed in user mode.)
-// Must be a macro, not a `const wchar_t[]`: DECLARE_CONST_UNICODE_STRING
-// expands its argument into an array initialiser (`const WCHAR x[] = <arg>;`),
-// and C++ cannot initialise an array from another array.
-#define BELAYVDD_SDDL L"D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+// NOTE: the ACL is applied by the INF, not by this file.
+// WdfDeviceInitAssignSDDLString is a KMDF-only DDI - it does not exist in
+// UMDF2, where a user-mode driver may not set its own device object's
+// security descriptor. The equivalent for UMDF is the "Security" value under
+// the devnode's hardware key, written by BelayVdd.inf's DDInstall.HW section:
+//
+//     HKR,,"Security",,"D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+//
+// Same descriptor, same guarantee (SYSTEM + Administrators, full access, no
+// inheritance), applied by the PnP manager before the device is startable.
+// Keep the two in sync; the string below is the single source of truth for
+// what the INF must say.
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -81,11 +89,9 @@ NTSTATUS BelayVddDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT pDeviceInit)
 {
     NTSTATUS status = STATUS_SUCCESS;
 
-    // Restrict who may open the device BEFORE it exists. This is the whole
-    // ballgame for a control surface that can add screens to the desktop.
-    DECLARE_CONST_UNICODE_STRING(sddl, BELAYVDD_SDDL);
-    status = WdfDeviceInitAssignSDDLString(pDeviceInit, &sddl);
-    if (!NT_SUCCESS(status)) return status;
+    // Device security is set by BelayVdd.inf (HKR "Security" in the .HW
+    // section) - see the note at the top of this file. UMDF2 has no
+    // WdfDeviceInitAssignSDDLString, so there is nothing to do here.
 
     WDF_PNPPOWER_EVENT_CALLBACKS pnpPowerCallbacks;
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnpPowerCallbacks);

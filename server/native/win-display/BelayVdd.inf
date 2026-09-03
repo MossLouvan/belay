@@ -17,13 +17,20 @@ CatalogFile = BelayVdd.cat
 DriverVer   = 01/01/2026,1.0.0.0
 PnpLockdown = 1
 
+; TargetOSVersion decoration (.10.0...17763) is REQUIRED, not cosmetic:
+; this package copies to DIRID 13 (the Driver Store), which infverif rejects
+; on an undecorated models section because such a section would also offer
+; itself to OS versions that predate DIRID 13 support (10.0.16299 for
+; CopyFiles, 10.0.17134 for UMDF). 17763 (Windows 10 1809) is the floor that
+; covers both and is also where IddCx 1.2 - the extension this driver pins in
+; BelayVdd_UmdfInstall - first shipped.
 [Manufacturer]
-%ProviderName% = BelayVdd, NTamd64, NTarm64
+%ProviderName% = BelayVdd, NTamd64.10.0...17763, NTarm64.10.0...17763
 
-[BelayVdd.NTamd64]
+[BelayVdd.NTamd64.10.0...17763]
 %DeviceName% = BelayVdd_Install, Root\BelayVDD
 
-[BelayVdd.NTarm64]
+[BelayVdd.NTarm64.10.0...17763]
 %DeviceName% = BelayVdd_Install, Root\BelayVDD
 
 [SourceDisksFiles]
@@ -44,6 +51,12 @@ AddReg = BelayVdd_HwAddReg
 ; stack; AllowKernelModeClients below exists solely for it.
 [BelayVdd_HwAddReg]
 HKR,, "UpperFilters", %REG_MULTI_SZ%, "IndirectKmd"
+; Device ACL: SYSTEM and Administrators only, protected from inheritance.
+; This is where BelayVDD's control-surface hardening actually lives. UMDF2
+; drivers cannot assign their own SDDL from code (WdfDeviceInitAssignSDDLString
+; is KMDF-only), so the PnP manager applies it from here instead, before the
+; device can be opened. Keep in sync with the note at the top of Driver.cpp.
+HKR,, "Security",, "D:P(A;;GA;;;SY)(A;;GA;;;BA)"
 
 ; A root-enumerated UMDF2 device still needs a kernel-mode reflector as its
 ; function driver: WUDFRd. A null service (AddService=,0x2) leaves the devnode
