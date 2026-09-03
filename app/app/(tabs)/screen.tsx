@@ -450,6 +450,8 @@ export default function ScreenTab() {
         floating={fullscreen}
         onInteract={fullscreen ? dockHide.poke : undefined}
         onOpenClipboard={() => setShowClipboard(true)}
+        qualityLabel={quality.label}
+        onOpenQuality={() => setShowQuality(true)}
       />
     </Column>
   );

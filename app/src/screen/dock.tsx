@@ -110,6 +110,11 @@ export interface ControlDockProps {
   onInteract?: () => void;
   /** Opens the clipboard sync sheet. Optional so the key is purely additive. */
   onOpenClipboard?: () => void;
+  /** Current stream-quality preset label (e.g. "Balanced"), shown on the dock
+   *  key so the resolution is visible and one tap away instead of buried in the
+   *  overflow menu. Optional so the key stays additive. */
+  qualityLabel?: string;
+  onOpenQuality?: () => void;
 }
 
 /**
@@ -138,6 +143,8 @@ export function ControlDock({
   floating = false,
   onInteract,
   onOpenClipboard,
+  qualityLabel,
+  onOpenQuality,
 }: ControlDockProps) {
   const theme = useTheme();
   const wrap = (action: () => void) => () => {
@@ -200,7 +207,18 @@ export function ControlDock({
             onPress={wrap(() => onModeChange('scroll'))}
           />
         </View>
-        <Row gap="none">
+        <Row gap="xs">
+          {qualityLabel && onOpenQuality ? (
+            <DockKey
+              testID="quality-key"
+              label={qualityLabel}
+              accessibilityLabel={`Stream quality: ${qualityLabel}`}
+              accessibilityHint="Change the streamed resolution and frame rate"
+              floating={floating}
+              onPress={wrap(onOpenQuality)}
+            />
+          ) : null}
+          <Row gap="none">
           <DockKey
             testID="zoom-out"
             label="−"
@@ -222,6 +240,7 @@ export function ControlDock({
             floating={floating}
             onPress={wrap(onZoomIn)}
           />
+          </Row>
         </Row>
       </Row>
       <Row justify="space-between" gap="xs">
