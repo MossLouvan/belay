@@ -78,6 +78,20 @@ export function uploadFailureMessage(detail: string): string {
   return `the photos could not be sent — ${detail}`;
 }
 
+/** Where a picture for Claude comes from: the phone's library or camera, or the computer's own display. */
+export type PictureSource = 'library' | 'camera' | 'screen';
+
+/**
+ * One failure voice per source. A screen grab that failed is not a photo
+ * problem — saying "the photos could not be sent" about a screenshot would
+ * send the user hunting in the wrong place.
+ */
+export function failureMessageFor(source: PictureSource, detail: string): string {
+  return source === 'screen'
+    ? `the screen could not be sent — ${detail}`
+    : uploadFailureMessage(detail);
+}
+
 /** What the busy photo control claims to be doing. */
 export function sendingPhotosLabel(count: number): string {
   return count === 1 ? 'Sending the photo to Claude…' : `Sending ${count} photos to Claude…`;

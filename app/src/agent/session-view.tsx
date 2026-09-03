@@ -56,10 +56,10 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     voice.start();
   }, [voice.start]);
 
-  // Photos ride the composer's own draft: whatever is typed becomes the note
-  // in the prompt that references them, so "send a screenshot with a
-  // question" is one gesture, not a mode. The feed showing the prompt land is
-  // the receipt.
+  // Pictures ride the composer's own draft: whatever is typed becomes the
+  // note in the prompt that references them, so "why is this dialog stuck?"
+  // plus the computer's screen — or a photo with a question — is one gesture,
+  // not a mode. The feed showing the prompt land is the receipt.
   const photos = usePhotoSend(id, setNote);
   const sendPhotos = useCallback((source: PhotoSource) => {
     void photos.send(source, inputNow.current.trim()).then((sent) => {
