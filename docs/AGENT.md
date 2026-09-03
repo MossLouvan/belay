@@ -23,8 +23,11 @@ Tailscale — with every action gated on an Allow/Deny tap.
 - Permissions use Claude Code's `--permission-prompt-tool` hook: a tiny
   bundled MCP sidecar (`server/approval-mcp.cjs`) receives every "may I run
   this?" ask, forwards it to the Belay host over loopback, and the host holds
-  it until you tap **Allow**, **Deny**, or **Always <tool>** (always = this
-  session only). No answer within 30 minutes = deny (configurable via
+  it until you tap **Allow**, **Deny**, or one of the scoped **always**
+  options — this exact command, this one file, this tool under a folder, or
+  every read-only use in the project. Each grant is minted from the exact ask
+  on the card and lasts this session only; active grants show as removable
+  chips on the session view. No answer within 30 minutes = deny (configurable via
   `BELAY_APPROVAL_TIMEOUT_MS`; `0` waits forever). The sidecar authenticates
   with a per-process key; the loopback route accepts connections from
   127.0.0.1 only.
@@ -49,8 +52,8 @@ recognition permissions the first time you press it.
   Claude what to do. The feed shows its narration, each tool call as a one-line
   `▸ Tool detail` entry, and a `✓ done · 12s · $0.08` line per turn.
 - **Voice**: hold the mic, talk, release. The transcript lands in the input
-  box so you can check it before sending — speech-to-text runs on your PC, not
-  in anyone's cloud.
+  box so you can check it before sending — speech-to-text runs on the phone
+  itself, not on your PC or in anyone's cloud.
 - **Stop** kills the process mid-turn (the conversation survives; the next
   prompt resumes it). **Remove** on the session list deletes the session entry.
 - The **Terminal** tab has `claude` / `claude -c` quick-launch keys for the
@@ -65,8 +68,9 @@ ones started from a terminal. Belay surfaces them two ways:
   grouped by project, with the first prompt as a preview. Tap one to resume:
   Belay relaunches it with `--resume`, Claude keeps its full memory of the
   conversation, and the phone-approval flow attaches from the first action.
-  The old transcript isn't replayed into the feed — a `resumed session` line
-  marks the join point. If a session is still open in a terminal on the PC,
+  The tail of the old transcript is replayed into the feed so the conversation
+  you are resuming is readable on the phone, with a `resumed session` line
+  marking the join point. If a session is still open in a terminal on the PC,
   close it there before resuming from the phone.
 - **At the PC** — `cd server && npm run sessions` prints the same list in the
   terminal with ready-to-paste `cd <project> && claude --resume <id>` commands.
@@ -198,8 +202,9 @@ already most of the value.
   else; keep the host off the public internet (Tailscale only), as ever.
 - Approvals fail closed: sidecar timeout, host restart, killed session, or an
   unreachable phone all resolve to deny.
-- "Always" allowances are per-tool, per-session, and in-memory only — a
-  restarted session asks again from scratch.
+- "Always" allowances are scoped grants (an exact command, one file, a folder,
+  or project-wide reads — never a whole tool), per-session and in-memory only —
+  a restarted session asks again from scratch.
 - A session runs with your user account's permissions. Deny anything you don't
   recognize; `rm`, `git push --force`, and friends deserve a hard look before
   Allow.
