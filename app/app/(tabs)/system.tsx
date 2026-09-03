@@ -33,6 +33,7 @@ import {
   Txt,
 } from '../../src/ui';
 import { StatCard } from '../../src/system/stat-card';
+import { ActivityChart } from '../../src/system/activity-chart';
 import { BatteryCard, HostCard, statusLine } from '../../src/system/sections';
 import { CardRow } from '../../src/system/card-row';
 import { ChipGlyph, DiskGlyph, MemGlyph } from '../../src/system/glyphs';
@@ -231,6 +232,16 @@ export default function SystemTab() {
           action={{ label: 'Retry', onPress: onRefresh }}
         />
       ) : null}
+
+      {/* Activity chart — the reference's hero panel: CPU history as a filled
+          area, drawn from the rolling series (no charting dependency). */}
+      <Card title="CPU ACTIVITY" style={{ marginTop: theme.space.md }}>
+        <ActivityChart
+          values={series.cpu}
+          label="CPU"
+          current={stats ? stats.cpuPercent : undefined}
+        />
+      </Card>
 
       {/* The stat grid — the reference dashboard's tile row, 2-up on a phone. */}
       <Row wrap gap="sm" align="stretch">
