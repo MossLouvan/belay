@@ -10,6 +10,34 @@ equal weight with the aesthetic. Where they conflict, §11 says which wins and w
 
 ---
 
+## 0. 2026 Premium Redesign — Grok Bot Inspiration
+
+**Context:** September 2026 redesign inspired by Grok Bot's premium dark aesthetic while
+maintaining Belay's existing Ledger design system structure.
+
+**Key visual changes:**
+- **Near-black canvas** (`#0A0A0C`) — premium neutral black, not blue-tinted
+- **Soft glass panels** — translucent surfaces with hairline borders for elevated content
+- **Generous radius** — bumped from 2pt/4pt to 4pt/6pt/8pt/12pt for calmer, rounded chrome
+- **Restrained accent** — blue accent used sparingly (one per screen rule enforced)
+- **High contrast** — crisp white text (`#F5F5F7`) vs muted secondary (`#9B9BA3`)
+- **Softer borders** — ultra-subtle hairlines (`#1F1F23`) for glass-like quality
+
+**New components:**
+- `GlassPanel` — soft translucent surfaces with elevation levels (low/medium/high)
+- Spring-based motion hooks (see §10 Motion)
+
+**What stayed the same:**
+- Ledger design principles (typography hierarchy, mono voice, flat structure)
+- One accent rule, findability doctrine, accessibility requirements
+- Existing component APIs (migration path preserved)
+
+**Inspiration sources:** Grok Bot website UI, Linear, Vercel, Framer — the 2026
+developer-tool SaaS pattern: dark-first, one accent, hierarchy from typography + hairlines,
+motion with meaning.
+
+---
+
 ## 1. Reading the reference
 
 The reference is a designer-portfolio landing page: warm paper-grey ground, an ultra-heavy
@@ -493,18 +521,38 @@ input dock: mono input on `surface`, the accent "RUN" label-button at right. The
 prompt-continuation `>` indicator stays. This screen changes least — it is already the
 closest to the target aesthetic; the work is deleting the card around the output.
 
-**Motion:** small, fast, honest.
+**Motion:** Intentional, spring-based, premium feel (2026 redesign).
 
-- Durations: `fast 120ms` (state flips: selection underline slide, dot pulse step),
-  `base 180ms` (row press, sheet content fade), `slow 240ms` (sheet slide-up). Nothing
-  longer. Easing: standard ease-out; springs are retired (`motion.spring` deleted).
-- Distances: translations max 8pt (list item entrance: 8pt up + fade). Sheets slide from
-  the bottom edge only.
-- Press feedback: opacity 1 → 0.55 on the pressed element. **No scale transforms** —
-  editorial surfaces do not squish. `motion.pressScale` is deleted.
-- The live dot pulses opacity 1 → 0.4, 1.2s loop. The streaming cursor blinks 600ms.
-- `useReducedMotion()`: all translations become pure opacity fades; pulse/blink stop at
-  full opacity; durations halve.
+The new motion system uses physics-based springs for natural, interruptible motion that
+means something — not decorative fades on every element.
+
+**Principles:**
+- **Motion with intent:** Animations signal state changes, pairing success, attention,
+  live status — never for decoration
+- **Spring physics:** Gentle, snappy, or bouncy springs (via Reanimated) for natural,
+  interruptible motion
+- **Morphing transitions:** Shared-layout style transitions between pairing stages
+  (host → code → success) for spatial continuity
+- **Status pulse with meaning:** Live indicators pulse scale + opacity (not generic blink) —
+  only for "LIVE" badges, streaming activity, pairing in progress
+- **Press feedback:** Subtle spring scale (0.96) for interactive elements — feels premium,
+  not squished
+- **Success celebration:** One-time bouncy spring on pairing success, connection established
+- **Reduced motion:** All springs collapse to instant state changes, respecting accessibility
+
+**Implementation hooks (app/src/ui/motion.ts):**
+- `useSpringPress(pressed)` — spring-based scale for press feedback
+- `useMorphTransition(active)` — opacity + scale morph between states
+- `useStatusPulse(active)` — intentional pulse for live indicators
+- `useSuccessCelebration()` — bouncy entrance for success states
+- `useReducedMotion()` — system accessibility check
+
+**What changed from original:**
+- Springs replace ease-out timing curves for more natural feel
+- Scale-based press feedback (not opacity-only) for premium interaction
+- Morphing transitions between states (not slide+fade)
+- Purpose-driven pulse (not constant blink) for status
+- All decorative list-entrance fades removed — motion must earn its presence
 
 ---
 
