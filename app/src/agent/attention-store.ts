@@ -8,25 +8,30 @@
 // *mounted* from. `useSyncExternalStore` gives the same semantics with none
 // of the nesting.
 //
-// Why polling and not a socket: `/ws/agent` is one socket per session and
-// exists for the open session's live feed. The attention surface needs one
-// cheap answer about *all* sessions ("is anything waiting?"), and a 3-second
-// poll of the in-memory session list delivers it with no new server surface
-// and no reconnect machinery. The open session still gets its push feed.
+// Push first, poll as the parachute: the host's /ws/attention socket sends a
+// tiny all-sessions summary the instant anything changes, so a session that
+// flips to waiting shows on the badge in the same breath. The old 3-second
+// poll of /agent/sessions survives only as the fallback while that socket is
+// down — a host restarting, a radio flapping, or a host too old to have the
+// route — and each fallback tick also retries the socket, so the store heals
+// itself back onto the push path. `/ws/agent` remains one-socket-per-open-
+// session for the live feed; this socket is the one cheap answer about *all*
+// sessions.
 //
 // On background notification, honestly: when the app leaves the foreground,
-// iOS suspends this JS and the poll stops — there is no self-hosted way to
-// ping a pocketed phone without real push infrastructure (an APNs-capable
-// relay, a self-hosted ntfy the host POSTs to, or Live Activities). Rather
-// than pretend, the in-app story is made excellent and the host's approval
-// window is long and visible. The remote-push menu lives in the product
-// review; nothing here claims to fire when the app is asleep.
+// iOS suspends this JS and both the socket and the fallback stop — there is
+// no self-hosted way to ping a pocketed phone without real push
+// infrastructure (an APNs-capable relay, a self-hosted ntfy the host POSTs
+// to, or Live Activities). Rather than pretend, the in-app story is made
+// excellent and the host's approval window is long and visible. The
+// remote-push menu lives in the product review; nothing here claims to fire
+// when the app is asleep.
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
-import { api, getConnection } from '../api';
+import { api, getConnection, wsUrl } from '../api';
 import type { AgentSessionMeta } from '../api';
-import { ATTENTION_POLL_MS, ATTENTION_RETRY_MS } from './attention';
+import { ATTENTION_RETRY_MS, applyAttentionPush, parseAttentionMessage } from './attention';
 
 export interface AttentionState {
   /** Latest session list; null until the first successful fetch. */
@@ -67,13 +72,20 @@ export function setOpenSession(id: string | null): void {
  * session and pending-approval banner are all scoped to one host; carrying
  * them across a switch opens `/ws/agent?session=<old-id>` against the new host
  * and POSTs the old host's approvals to the new one. Cleared to the pristine
- * "nothing fetched yet" shape so the next poll repopulates from the new host.
+ * "nothing fetched yet" shape — and the push socket, which is equally bound to
+ * the old host, is torn down and reopened against the new one.
  */
 export function resetAttention(): void {
   setState({ sessions: null, fetchedAt: 0, error: '', openId: null });
+  stopLoops();
+  if (holders > 0 && AppState.currentState === 'active') start();
 }
 
-/** One fetch of the list. Errors land in state instead of throwing. */
+/**
+ * One fetch of the full list. Errors land in state instead of throwing. Kept
+ * public and unchanged: it is the fallback poll's body, the "sync the details
+ * a push could not carry" step, and the manual pull-to-refresh path.
+ */
 export async function refreshAttention(): Promise<void> {
   if (!getConnection()) return;
   try {
@@ -87,57 +99,138 @@ export async function refreshAttention(): Promise<void> {
 /**
  * Answer an approval from anywhere — the banner's Allow/Deny goes through
  * here. The immediate refresh makes the banner clear on the next frame the
- * host confirms, rather than lingering until the poll.
+ * host confirms, rather than lingering until a push or fallback tick.
  */
 export async function answerApproval(sessionId: string, approvalId: string, allow: boolean): Promise<void> {
   await api.agentApprove(sessionId, approvalId, allow);
   await refreshAttention();
 }
 
-// ---- polling lifecycle ------------------------------------------------------
+// ---- socket + fallback lifecycle -------------------------------------------
 
 let holders = 0;
-let timer: ReturnType<typeof setTimeout> | null = null;
+let socket: WebSocket | null = null;
+let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 let appStateSub: { remove: () => void } | null = null;
+// Bumped whenever the lifecycle stops or restarts, so an async socket open
+// (the ticket fetch takes a round trip) that resolves after its world ended
+// discards itself instead of resurrecting a dead loop.
+let generation = 0;
 
-function schedule(delay: number): void {
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    void refreshAttention().then(() => {
-      if (holders > 0 && AppState.currentState === 'active') {
-        schedule(state.error ? ATTENTION_RETRY_MS : ATTENTION_POLL_MS);
-      }
-    });
-  }, delay);
+function running(gen: number): boolean {
+  return gen === generation && holders > 0 && AppState.currentState === 'active';
+}
+
+function closeSocket(): void {
+  if (!socket) return;
+  const s = socket;
+  socket = null;
+  s.onopen = null;
+  s.onmessage = null;
+  s.onerror = null;
+  s.onclose = null;
+  try { s.close(); } catch { /* already closing */ }
+}
+
+function stopLoops(): void {
+  generation += 1;
+  closeSocket();
+  if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+}
+
+/** Fresh generation: fetch once now, then live on the push socket. */
+function start(): void {
+  generation += 1;
+  const gen = generation;
+  void refreshAttention();
+  void openSocket(gen);
 }
 
 /**
- * Ref-counted: every consumer calls this on mount; the first starts the loop,
- * the last teardown stops it. The loop pauses whenever the app leaves the
- * foreground (iOS would suspend the timer anyway; this just makes the pause
- * deliberate and symmetric on every platform) and refreshes immediately on
- * return, so a reopened app never shows a stale badge while a poll ambles up.
+ * While the socket is down: one slow poll tick that also retries the socket,
+ * so degraded mode both stays truthful and keeps trying to stop being
+ * degraded. One timer, never stacked.
+ */
+function scheduleFallback(gen: number): void {
+  if (!running(gen)) return;
+  if (fallbackTimer) clearTimeout(fallbackTimer);
+  fallbackTimer = setTimeout(() => {
+    fallbackTimer = null;
+    if (!running(gen)) return;
+    void refreshAttention();
+    void openSocket(gen);
+  }, ATTENTION_RETRY_MS);
+}
+
+async function openSocket(gen: number): Promise<void> {
+  if (!running(gen) || socket) return;
+  if (!getConnection()) { scheduleFallback(gen); return; }
+
+  let opened: WebSocket;
+  try {
+    opened = new WebSocket(await wsUrl('/ws/attention'));
+  } catch {
+    // No ticket, no route (old host), no network — the fallback poll carries
+    // the surface and keeps retrying this path.
+    scheduleFallback(gen);
+    return;
+  }
+  if (!running(gen)) { try { opened.close(); } catch { /* never opened */ } return; }
+  socket = opened;
+
+  opened.onopen = () => {
+    if (socket !== opened) return;
+    // The push channel is live: cancel the fallback and sync the full rows
+    // once, so titles/expiries are current from the first pushed summary.
+    if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+    void refreshAttention();
+  };
+  opened.onmessage = (event: MessageEvent) => {
+    if (socket !== opened) return;
+    const rows = parseAttentionMessage(String(event.data));
+    if (!rows) return;
+    const { sessions, needsFetch } = applyAttentionPush(state.sessions, rows);
+    if (sessions !== state.sessions && sessions !== null) {
+      setState({ sessions, fetchedAt: Date.now(), error: '' });
+    }
+    if (needsFetch) void refreshAttention();
+  };
+  opened.onerror = () => { /* onclose follows and owns recovery */ };
+  opened.onclose = () => {
+    if (socket !== opened) return;
+    socket = null;
+    scheduleFallback(gen);
+  };
+}
+
+/**
+ * Ref-counted: every consumer calls this on mount; the first starts the
+ * socket, the last teardown stops everything. The whole lifecycle pauses
+ * whenever the app leaves the foreground (iOS would suspend it anyway; this
+ * makes the pause deliberate and symmetric on every platform) and restarts —
+ * immediate fetch, fresh socket — on return, so a reopened app never shows a
+ * stale badge while a reconnect ambles up.
  */
 export function startAttentionPolling(): () => void {
   holders += 1;
   if (holders === 1) {
-    schedule(0);
+    if (AppState.currentState === 'active') start();
     appStateSub = AppState.addEventListener('change', (next) => {
       if (holders === 0) return;
-      if (next === 'active') schedule(0);
-      else if (timer) { clearTimeout(timer); timer = null; }
+      stopLoops();
+      if (next === 'active') start();
     });
   }
   return () => {
     holders -= 1;
     if (holders > 0) return;
-    if (timer) { clearTimeout(timer); timer = null; }
+    stopLoops();
     appStateSub?.remove();
     appStateSub = null;
   };
 }
 
-/** The store as a hook. Mounting any consumer keeps the poll alive. */
+/** The store as a hook. Mounting any consumer keeps the push channel alive. */
 export function useAgentAttention(): AttentionState {
   const snapshot = useSyncExternalStore(subscribeAttention, getAttention, getAttention);
   useEffect(() => startAttentionPolling(), []);

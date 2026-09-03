@@ -197,8 +197,31 @@ function spawnClaude(args: string[], cwd: string, extraEnv: Record<string, strin
 
 // ---- session lifecycle ----------------------------------------------------
 
+// ---- change notifications for the attention push channel -------------------
+//
+// agent-attention.ts fans a per-session summary out to every /ws/attention
+// socket, and needs one signal: "something about some session may have
+// changed". Every state transition in this file funnels through broadcast()
+// (status flips, pending asks, feed events — the flow layer speaks only
+// through FlowIO), so hooking broadcast plus the two paths that change the
+// *set* of sessions covers everything. Listeners are expected to be cheap
+// and to do their own coalescing/diffing; this side just announces.
+
+const changeListeners = new Set<() => void>();
+
+/** Subscribe to "the session list may look different now". Returns unhook. */
+export function onSessionsChanged(fn: () => void): () => void {
+  changeListeners.add(fn);
+  return () => { changeListeners.delete(fn); };
+}
+
+function emitSessionsChanged(): void {
+  for (const fn of changeListeners) { try { fn(); } catch { /* listener's problem */ } }
+}
+
 function broadcast(s: Session, msg: object): void {
   for (const send of s.subscribers) { try { send(msg); } catch { /* subscriber gone */ } }
+  emitSessionsChanged();
 }
 
 function setStatus(s: Session, status: AgentStatus): void {
@@ -413,6 +436,7 @@ function newSession(cwd: string, title?: string, claudeSessionId?: string): Sess
   sessions.set(id, s);
   rememberProject(resolved);
   saveMeta();
+  emitSessionsChanged(); // a new row, before it ever broadcasts anything
   return s;
 }
 
@@ -481,6 +505,7 @@ export function deleteSession(id: string): boolean {
   for (const p of s.approvalQueue) clearTimeout(p.timer);
   sessions.delete(id);
   saveMeta();
+  emitSessionsChanged(); // the row is gone; deletion broadcasts nothing itself
   return true;
 }
 
