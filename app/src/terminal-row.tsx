@@ -22,6 +22,11 @@ export interface TermRowProps {
   cursorColor?: string;
 }
 
+/** The visible character for a cursor cell — blanks become a full-width NBSP. */
+function cellChar(ch: string | undefined): string {
+  return ch === undefined || ch === ' ' ? '\u00A0' : ch;
+}
+
 /** A slice of a line, for painting the cursor cell separately. */
 function sliceLine(line: TermLine, start: number, end?: number): TermLine {
   return { chars: line.chars.slice(start, end), styles: line.styles.slice(start, end) };
@@ -59,7 +64,9 @@ export const TermRow = React.memo(function TermRow({
     return {
       spans: null,
       before: lineToSpans(sliceLine(line, 0, col)),
-      at: line.chars[col] ?? ' ',
+      // NBSP, not a space: a trailing plain space collapses to zero width on
+      // the web renderer, and the cursor block vanishes with it.
+      at: cellChar(line.chars[col]),
       after: lineToSpans(sliceLine(line, col + 1)),
     };
   }, [hasCursor, cursorCol, line]);
