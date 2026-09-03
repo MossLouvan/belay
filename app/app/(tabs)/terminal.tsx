@@ -68,7 +68,7 @@ type ShellMode = 'pty' | 'pipe';
 // --- screen ------------------------------------------------------------------
 
 export default function TerminalTab() {
-  const { connection } = useConnection();
+  const { connection, phase } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   // The keyboard is a state and needs a visible exit (docs/DESIGN.md §11.2).
@@ -443,15 +443,37 @@ export default function TerminalTab() {
     setSession((n) => n + 1);
   }, []);
 
+  // When the app-wide link comes back, a shell that died with it reopens by
+  // itself, so the disconnected banner dismisses without a tap. Edge-triggered
+  // on the phase transition (via refs), never on the terminal's own status —
+  // a shell that fails against a healthy link must not retry in a loop.
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  const prevPhaseRef = useRef(phase);
+  useEffect(() => {
+    const cameBack = prevPhaseRef.current !== 'connected' && phase === 'connected';
+    prevPhaseRef.current = phase;
+    if (!cameBack) return;
+    const current = statusRef.current;
+    if (current === 'closed' || current === 'error') reconnect();
+  }, [phase, reconnect]);
+
   // --- render ----------------------------------------------------------------
 
   const live = status === 'open';
   const blank = term.lines.length <= 1 && (term.lines[0]?.chars.length ?? 0) === 0;
-  const statusLabel =
-    status === 'open' ? (mode === 'pipe' ? 'shell' : mode === 'pty' ? 'pty' : 'ready') :
-    status === 'connecting' ? 'connecting' :
-    status === 'exited' ? 'exited' :
-    status === 'error' ? 'error' : 'closed';
+  // The shell's own fact — pty or piped — spoken only while the shell is
+  // actually open. Connection state is never restated here: the device pill
+  // in the same row is the one voice for the link (one voice per fact), and
+  // shell-level faults get the single banner below.
+  const shellLabel = mode === 'pipe' ? 'shell' : mode === 'pty' ? 'pty' : 'ready';
+  // The shell ending is a shell fact (an `exit`, a crash) and is worth a warn
+  // banner whenever it happens. A dropped/failed socket is only news while the
+  // link itself is healthy — while the link is down or still forming, the
+  // device pill already tells that story and a contradicting "disconnected"
+  // shout would be a second voice for the same fact.
+  const shellDown = status === 'closed' || status === 'error';
+  const showOffline = status === 'exited' || (shellDown && phase === 'connected');
 
   return (
     <KeyboardAvoidingView
@@ -487,15 +509,22 @@ export default function TerminalTab() {
           </Row>
         </Row>
         <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+          {/* One connection voice: the device pill (trailing) owns the link
+              story. The leading slot speaks only while the shell is open —
+              the shell's own fact, which can never contradict the pill. In
+              every other state it stays empty and the pill (or the one
+              banner below) carries the news. Mirrors the Screen tab's
+              header: leading slot for the surface's live fact, device pill
+              trailing (docs/DESIGN.md §10). */}
           <Row gap="xs" style={{ flexShrink: 1 }}>
-            <Dot
-              status={live ? 'good' : status === 'connecting' ? 'warn' : 'bad'}
-              pulse={status === 'connecting' || live}
-              label={statusLabel}
-            />
-            <Txt testID="term-status" variant="label" tone="dim" numberOfLines={1}>
-              {live ? `live · ${statusLabel}` : statusLabel}
-            </Txt>
+            {live ? (
+              <>
+                <Dot status="good" pulse label={`live · ${shellLabel}`} />
+                <Txt testID="term-status" variant="label" tone="dim" numberOfLines={1}>
+                  {`live · ${shellLabel}`}
+                </Txt>
+              </>
+            ) : null}
           </Row>
           <SwitchComputerLink />
         </Row>
@@ -511,11 +540,16 @@ export default function TerminalTab() {
         />
       ) : null}
 
-      {!live && status !== 'connecting' ? (
+      {/* The one shell-fault banner. It never appears while the link itself
+          is down or forming — the device pill is the voice for that — and it
+          dismisses itself: the phase edge above reopens the shell the moment
+          the link returns. Reconnect stays as the manual path for a shell
+          that died against a healthy link. */}
+      {showOffline ? (
         <Banner
           testID="term-offline"
           status={status === 'exited' ? 'warn' : 'bad'}
-          title={status === 'exited' ? 'Shell exited' : 'Disconnected'}
+          title={status === 'exited' ? 'Shell exited' : 'Shell disconnected'}
           message={error || (status === 'exited' ? 'The shell on the computer ended.' : 'The terminal connection to the computer dropped.')}
           action={{ label: 'Reconnect', onPress: reconnect }}
           style={{ marginHorizontal: theme.layout.margin, marginBottom: theme.space.sm }}
