@@ -44,6 +44,23 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
 
+  infra:
+    name: infra/rendezvous — typecheck + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/rendezvous
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: infra/rendezvous/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+
   secret-guard:
     name: no state files / secrets staged
     runs-on: ubuntu-latest
