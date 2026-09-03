@@ -25,7 +25,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { wsUrl } from '../../src/api';
-import { Banner, Button, Dot, IconButton, Row, Rule, SegmentedControl, Txt } from '../../src/ui';
+import { Banner, Button, Dot, IconButton, Row, Rule, Txt } from '../../src/ui';
+import type { GlassStateProps } from '../../src/ui';
 import { useKeyboardShown } from '../../src/ui/keyboard-lift';
 import { useTheme } from '../../src/theme';
 import { ANSI_RAMPS, clearTermState, createTermState, feed } from '../../src/terminal-ansi';
@@ -61,6 +62,8 @@ const PIPE_TAB_NOTICE =
 
 type FontKey = 'sm' | 'md' | 'lg';
 const FONT_SIZES: Readonly<Record<FontKey, number>> = { sm: 11, md: 12.5, lg: 15 };
+const NEXT_FONT: Readonly<Record<FontKey, FontKey>> = { sm: 'md', md: 'lg', lg: 'sm' };
+const FONT_NAMES: Readonly<Record<FontKey, string>> = { sm: 'small', md: 'medium', lg: 'large' };
 
 type Status = 'connecting' | 'open' | 'closed' | 'exited' | 'error';
 type ShellMode = 'pty' | 'pipe';
@@ -465,48 +468,64 @@ export default function TerminalTab() {
   // The shell's own fact — pty or piped — spoken only while the shell is
   // actually open. Connection state is never restated here: the device pill
   // in the same row is the one voice for the link (one voice per fact), and
-  // shell-level faults get the single banner below.
+  // shell-level states live on the glass itself.
   const shellLabel = mode === 'pipe' ? 'shell' : mode === 'pty' ? 'pty' : 'ready';
-  // The shell ending is a shell fact (an `exit`, a crash) and is worth a warn
-  // banner whenever it happens. A dropped/failed socket is only news while the
-  // link itself is healthy — while the link is down or still forming, the
-  // device pill already tells that story and a contradicting "disconnected"
-  // shout would be a second voice for the same fact.
-  const shellDown = status === 'closed' || status === 'error';
-  const showOffline = status === 'exited' || (shellDown && phase === 'connected');
+  // What the machine panel says when the transcript is not the story —
+  // empty, waiting, exited, dropped — in the one shared GlassState anatomy
+  // (docs/DESIGN.md §11.4, "faults live on the glass"). A dropped socket is
+  // only news while the link itself is healthy: while the link is down or
+  // forming, the device pill already tells that story and a contradicting
+  // "disconnected" shout would be a second voice for the same fact.
+  const glass: Omit<GlassStateProps, 'style' | 'testID'> | null = (() => {
+    if (status === 'connecting') {
+      return { status: 'dim', name: 'Connecting', body: 'Opening a shell on the computer…' };
+    }
+    if (status === 'exited') {
+      return {
+        status: 'dim',
+        name: 'Shell exited',
+        body: 'The shell on the computer ended.',
+        action: { label: 'Reconnect', onPress: reconnect },
+      };
+    }
+    if ((status === 'closed' || status === 'error') && phase === 'connected') {
+      return {
+        status: 'bad',
+        name: 'Shell disconnected',
+        body: error || 'The terminal connection to the computer dropped.',
+        action: { label: 'Reconnect', onPress: reconnect },
+      };
+    }
+    if (live && blank) {
+      // The designed READY state: not a fault, an invitation — with a prompt
+      // hint as the proof-of-life line.
+      return { status: 'dim', name: 'Ready', body: 'Commands you run appear here.', proof: '> _' };
+    }
+    return null;
+  })();
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}
     >
-      {/* Standard header anatomy: title, then the label status line — the pty
-          badge died into a plain "· PTY" suffix here (docs/DESIGN.md §10). */}
+      {/* Concise header: title plus the one status line below — nothing
+          restated, no controls but the sanctioned trailing overflow (§11.1),
+          behind which lives the help sheet that writes the key bar down.
+          Text size moved into the key bar (`Aa`) where it belongs. */}
       <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
         <Row justify="space-between" gap="sm">
           <Txt variant="title" heading>
             Terminal
           </Txt>
-          <Row gap="xs">
-            <SegmentedControl
-              testID="term-font"
-              accessibilityLabel="Text size"
-              options={[{ value: 'sm', label: 'S' }, { value: 'md', label: 'M' }, { value: 'lg', label: 'L' }]}
-              value={fontKey}
-              onChange={setFontKey}
-              style={{ width: 108 }}
-            />
-            {/* The overflow glyph in its sanctioned trailing corner (§11.1);
-                behind it lives the help sheet that writes the key bar down. */}
-            <IconButton
-              testID="term-help"
-              accessibilityLabel="Terminal help"
-              variant="plain"
-              onPress={() => setShowHelp(true)}
-            >
-              <Txt variant="label" tone="dim">⋯</Txt>
-            </IconButton>
-          </Row>
+          <IconButton
+            testID="term-help"
+            accessibilityLabel="Terminal help"
+            variant="plain"
+            onPress={() => setShowHelp(true)}
+          >
+            <Txt variant="label" tone="dim">⋯</Txt>
+          </IconButton>
         </Row>
         <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
           {/* One connection voice: the device pill (trailing) owns the link
@@ -540,21 +559,10 @@ export default function TerminalTab() {
         />
       ) : null}
 
-      {/* The one shell-fault banner. It never appears while the link itself
-          is down or forming — the device pill is the voice for that — and it
-          dismisses itself: the phase edge above reopens the shell the moment
-          the link returns. Reconnect stays as the manual path for a shell
-          that died against a healthy link. */}
-      {showOffline ? (
-        <Banner
-          testID="term-offline"
-          status={status === 'exited' ? 'warn' : 'bad'}
-          title={status === 'exited' ? 'Shell exited' : 'Shell disconnected'}
-          message={error || (status === 'exited' ? 'The shell on the computer ended.' : 'The terminal connection to the computer dropped.')}
-          action={{ label: 'Reconnect', onPress: reconnect }}
-          style={{ marginHorizontal: theme.layout.margin, marginBottom: theme.space.sm }}
-        />
-      ) : null}
+      {/* Shell faults (exited, dropped) live ON the glass below via
+          GlassState, not as a coloured card here — the panel is where the
+          shell's state is, and the phase edge above reopens a dropped shell
+          the moment the link returns. */}
 
       {/* The header (or trailing banner) rule doubles as the machine panel's
           top hairline — two parallel rules may never sit adjacent (§6). */}
@@ -568,8 +576,8 @@ export default function TerminalTab() {
         lineHeight={lineHeight}
         padding={OUTPUT_PADDING}
         canvas={canvas}
-        placeholder={status === 'connecting' ? 'Opening a shell…' : 'No output yet.'}
-        blank={blank}
+        glass={glass}
+        cursor={live ? { row: term.row, col: term.col } : null}
         following={following}
         onFollow={follow}
         onRowWidth={onRowWidth}
@@ -586,7 +594,15 @@ export default function TerminalTab() {
         {candidates ? (
           <CandidateRow candidates={candidates} onPick={pickCandidate} onDismiss={() => setCandidates(null)} />
         ) : null}
-        <KeyBar onSend={send} onClear={clearScreen} onHistory={recallHistory} onTab={requestComplete} ptyMode={mode !== 'pipe'} />
+        <KeyBar
+          onSend={send}
+          onClear={clearScreen}
+          onHistory={recallHistory}
+          onTab={requestComplete}
+          ptyMode={mode !== 'pipe'}
+          onFontCycle={() => setFontKey((k) => NEXT_FONT[k])}
+          fontLabel={FONT_NAMES[fontKey]}
+        />
 
         {completing || tabNotice ? (
           <Txt
