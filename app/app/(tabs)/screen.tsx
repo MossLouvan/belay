@@ -563,8 +563,15 @@ export default function ScreenTab() {
       {!fullscreen ? (
         <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
           <Row justify="space-between" gap="sm">
-            <Txt variant="title" heading numberOfLines={1} style={{ flexShrink: 1 }}>
-              {connection?.hostName || 'Screen'}
+            <Txt
+              variant="title"
+              heading
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+              style={{ flexShrink: 1 }}
+            >
+              {(connection?.hostName || 'Screen').replace(/\.local$/i, '')}
             </Txt>
             <IconButton
               testID="screen-menu"

@@ -14,7 +14,7 @@ import { api } from '../api';
 import type { AgentProject, AgentSessionMeta, AgentStatus, DiscoveredSession } from '../api';
 import { useTheme } from '../theme';
 import {
-  Badge, Banner, Button, Caption, Card, Divider, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, TrackLabel, Txt, haptic,
+  Badge, Banner, Button, Caption, Card, Divider, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, StatusBadge, TrackLabel, Txt, haptic,
 } from '../ui';
 import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
@@ -181,14 +181,13 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
       <Txt variant="title" heading>Agent</Txt>
       <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
         <Row gap="xs" style={{ flexShrink: 1 }}>
-          <Dot status={error || pollError ? 'bad' : 'good'} size={7} />
-          {/* The freshness stamp is the visible twin of pull-to-refresh (audit
-              3.3): it proves the rows below are live — the attention store polls
-              while this screen is up — and dates them honestly when they stop
-              being so. */}
-          <Label style={{ marginBottom: 0 }} numberOfLines={1}>
-            {(error || pollError ? 'Host not answering' : 'Host connected') + (fetchedAt ? ` · ${formatAsOf(fetchedAt)}` : '')}
-          </Label>
+          {/* Text-first status (no traffic-light dot): the word carries the
+              state; the freshness stamp rides as a quiet trailing detail. */}
+          <StatusBadge
+            label={error || pollError ? 'Host not answering' : 'Host connected'}
+            variant="subtle"
+            trailing={fetchedAt ? <Micro tone="faint">{formatAsOf(fetchedAt)}</Micro> : undefined}
+          />
         </Row>
         {/* Every other tab's status line ends with the way out to My
             Computers; the tab that drives Claude must say which machine
