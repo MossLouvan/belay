@@ -4,7 +4,7 @@
 // §3.3): errors are `bad`, never orange — if everything urgent were orange,
 // nothing would be. Soft status tints are the only fills allowed behind text.
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 import { Animated, Easing, Platform, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { easing, useTheme } from '../theme';
@@ -110,12 +110,8 @@ export function Dot({
   // renderer reads are new objects/interpolations every change.
   const colorT = useRef(new Animated.Value(1)).current;
   const colors = useRef({ from: paint, to: paint });
-  if (colors.current.to !== paint) {
-    // Rebase the sweep at render time so this very frame starts from the old
-    // colour instead of flashing the new one before the effect runs.
-    colors.current = { from: colors.current.to, to: paint };
-    colorT.setValue(0);
-  }
+  const paintRef = useRef(paint);
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
 
   useEffect(() => {
     const t = dotFillTransition(prevRing.current, ring, theme.motion, reduced);
@@ -133,8 +129,16 @@ export function Dot({
     }).start();
   }, [ring, reduced, fill, theme.motion]);
 
-  useEffect(() => {
-    if (colors.current.from === colors.current.to) return;
+  // Colour change → rebase the crossfade in a PRE-PAINT layout effect (never
+  // during render, which triggers React's "update while rendering" warning).
+  // The forced re-render lets `ink` swap to the interpolation before paint, so
+  // the frame starts from the old colour with no flash.
+  useLayoutEffect(() => {
+    if (paintRef.current === paint) return;
+    colors.current = { from: paintRef.current, to: paint };
+    paintRef.current = paint;
+    colorT.setValue(0);
+    rerender();
     if (reduced) {
       colorT.setValue(1);
       return;
