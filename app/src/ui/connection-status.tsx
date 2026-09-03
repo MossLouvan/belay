@@ -1,19 +1,27 @@
-// A slim, always-honest connection status row: a status Dot beside the one
-// canonical label for the current link state, with room for a trailing action
-// (the way out to My Computers). One source of truth so no two tabs word the
-// same state differently (docs/FRONTEND-REVAMP.md §4.1).
+// A slim, always-honest status row: THE one status dot every tab header
+// carries. A hollow ring while transitioning, a filled disc when steady
+// (REVAMP-SPEC §3.5), one word from the closed vocabulary, and an optional
+// dim detail — with room for a trailing affordance (the switch-computer
+// link). One source of truth so no two tabs word the same state differently
+// (docs/FRONTEND-REVAMP.md §4.1).
 
 import React from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { useTheme } from '../theme';
 import { Dot } from './feedback';
 import { Label } from './text';
 import { Row } from './layout';
-import { describeConnection } from './connection-view';
-import type { ConnectionPhase } from './connection-view';
+import { describeSurface } from './connection-view';
+import type { ConnectionPhase, SurfacePhase } from './connection-view';
 
 export interface ConnectionStatusProps {
   readonly phase: ConnectionPhase;
+  /** The tab's own surface state, merged under the link (link-down wins). */
+  readonly surface?: SurfacePhase;
+  /** A short trailing fact ("42 fps"); shown dim, only while steady. */
+  readonly detail?: string;
+  /** `false` when no computer is paired at all — outranks every phase. */
+  readonly paired?: boolean;
+  /** @deprecated The machine is the switch link's fact now; ignored. */
   readonly machine?: string;
   /** A trailing affordance on the same line, e.g. the switch-computer link. */
   readonly trailing?: React.ReactNode;
@@ -21,16 +29,28 @@ export interface ConnectionStatusProps {
   readonly testID?: string;
 }
 
-export function ConnectionStatus({ phase, machine, trailing, style, testID }: ConnectionStatusProps) {
-  const theme = useTheme();
-  const view = describeConnection(phase, machine);
+export function ConnectionStatus({
+  phase,
+  surface,
+  detail,
+  paired,
+  trailing,
+  style,
+  testID,
+}: ConnectionStatusProps) {
+  const view = describeSurface(phase, surface, { paired, detail });
   return (
     <Row justify="space-between" gap="sm" style={style} testID={testID}>
       <Row gap="xs" style={{ flexShrink: 1 }}>
-        {/* The visible Label already speaks the state; a label on the Dot would
-            make a screen reader announce it twice. */}
-        <Dot status={view.status} pulse={view.pulse} size={7} />
-        <Label style={{ marginBottom: 0 }} numberOfLines={1}>{view.label}</Label>
+        {/* The visible word already speaks the state; a label on the Dot
+            would make a screen reader announce it twice. */}
+        <Dot status={view.status} ring={view.ring} size={7} />
+        <Label style={{ marginBottom: 0 }} numberOfLines={1}>{view.word}</Label>
+        {view.detail ? (
+          <Label tone="faint" style={{ marginBottom: 0 }} numberOfLines={1}>
+            {view.detail}
+          </Label>
+        ) : null}
       </Row>
       {trailing ?? null}
     </Row>

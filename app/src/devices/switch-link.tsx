@@ -27,7 +27,7 @@ import { router } from 'expo-router';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useConnection } from '../connection';
 import { useTheme } from '../theme';
-import { Dot, Row, TrackLabel } from '../ui';
+import { Row, TrackLabel } from '../ui';
 import { connectionSummary } from './summary';
 import { quickSwitch } from './switch-target';
 
@@ -61,9 +61,8 @@ export function SwitchComputerLink({ style }: SwitchComputerLinkProps) {
 
   return (
     <Row gap="xs" style={[{ flexShrink: 1 }, style]}>
-      {/* The dot restates the summary's status for a glance; the label speaks
-          for both, so the dot stays silent to assistive tech. */}
-      <Dot status={summary.status} pulse={summary.pulse} />
+      {/* No dot here — the screen's ONE status dot (ConnectionStatus) speaks
+          the machine's health; this link is a place, not a status. */}
       <TrackLabel
         testID="switch-computer"
         label={summary.text}
