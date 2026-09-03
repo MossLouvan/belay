@@ -17,7 +17,7 @@ function fakeAdapter(overrides = {}) {
     async createOffer() { calls.push('createOffer'); return overrides.offer ?? 'SDP-OFFER'; },
     async createAnswer() { calls.push('createAnswer'); return overrides.answer ?? 'SDP-ANSWER'; },
     async setRemoteDescription(sdp, type) { calls.push(`setRemote:${type}`); if (overrides.remoteThrows) throw new Error('boom'); },
-    async addIceCandidate(c) { calls.push(`ice:${c}`); },
+    async addIceCandidate(c) { calls.push(`ice:${c.candidate}`); },
     send(m) { this.sent.push(m); calls.push(`send:${m.kind}`); },
     teardown(r) { calls.push(`teardown:${r}`); },
   };
@@ -45,8 +45,8 @@ test('buffered ICE is flushed to the peer once the answer applies', async () => 
   const s = new StreamSession('caller', 'sid', a);
   await s.start();
   // Candidates arrive before the answer — must be buffered, not added yet.
-  await s.onSignal({ kind: 'ice', sessionId: 'sid', candidate: 'cand-1' });
-  await s.onSignal({ kind: 'ice', sessionId: 'sid', candidate: 'cand-2' });
+  await s.onSignal({ kind: 'ice', sessionId: 'sid', candidate: 'cand-1', sdpMid: '0', sdpMLineIndex: 0 });
+  await s.onSignal({ kind: 'ice', sessionId: 'sid', candidate: 'cand-2', sdpMid: '0', sdpMLineIndex: 0 });
   assert.ok(!a.calls.some((c) => c.startsWith('ice:')), 'nothing added pre-answer');
   await s.onSignal({ kind: 'answer', sessionId: 'sid', sdp: 'REMOTE-ANSWER' });
   assert.ok(a.calls.includes('ice:cand-1') && a.calls.includes('ice:cand-2'), 'flushed on answer');

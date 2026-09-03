@@ -16,7 +16,7 @@
 
 import { CHANNELS, channelFor, type ChannelId, type ChannelSpec } from './channels.ts';
 import type { PeerAdapter } from './session.ts';
-import type { SignalMessage } from './signaling.ts';
+import type { IceCandidatePayload, SignalMessage } from './signaling.ts';
 
 // ── the minimal structural surface we use from react-native-webrtc ──────────
 // (kept local so this file needs no @types and no installed native module.)
@@ -110,11 +110,25 @@ export function createPeerAdapter(deps: PeerAdapterDeps): PeerAdapter {
     channels.set(spec.id, pc.createDataChannel(spec.id, dataChannelInit(spec)));
   }
 
-  // Local candidates as they gather -> relay to the host over the WS.
+  // Local candidates as they gather -> relay to the host over the WS. We carry
+  // sdpMid/sdpMLineIndex straight off the RTCIceCandidate: the remote peer needs
+  // at least one of them to hand the candidate to addIceCandidate (a bare
+  // candidate string throws TypeError there and is discarded), so stripping them
+  // on send is what breaks trickle ICE on a real device.
   pc.addEventListener('icecandidate', (event) => {
-    const candidate = (event as { candidate?: { candidate?: string } | null }).candidate;
+    const candidate = (
+      event as {
+        candidate?: { candidate?: string; sdpMid?: string | null; sdpMLineIndex?: number | null } | null;
+      }
+    ).candidate;
     if (candidate && candidate.candidate) {
-      deps.send({ kind: 'ice', candidate: candidate.candidate, sessionId });
+      deps.send({
+        kind: 'ice',
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid ?? null,
+        sdpMLineIndex: candidate.sdpMLineIndex ?? null,
+        sessionId,
+      });
     }
     // A null candidate is end-of-gathering; nothing to relay.
   });
@@ -138,8 +152,16 @@ export function createPeerAdapter(deps: PeerAdapterDeps): PeerAdapter {
     async setRemoteDescription(sdp: string, type: 'offer' | 'answer'): Promise<void> {
       await pc.setRemoteDescription({ type, sdp });
     },
-    async addIceCandidate(candidate: string): Promise<void> {
-      await pc.addIceCandidate({ candidate });
+    async addIceCandidate(candidate: IceCandidatePayload): Promise<void> {
+      // Pass sdpMid/sdpMLineIndex through unchanged: addIceCandidate requires an
+      // init dict with at least one of them non-null (the signaling layer has
+      // already rejected frames carrying neither), so we must NOT collapse to a
+      // bare { candidate } here.
+      await pc.addIceCandidate({
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+      });
     },
     send(message: SignalMessage): void {
       deps.send(message);
