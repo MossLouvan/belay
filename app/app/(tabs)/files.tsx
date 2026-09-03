@@ -14,11 +14,13 @@
 // `src/files-*` — expo-router would turn a helper module under `app/` into a
 // fifth tab.
 //
-// Ledger anatomy: title + mono status line + header rule, the roots as label
-// text-tabs (selection is the 2pt underline), the path in the machine's mono
-// voice, and the list as hairline-separated 52pt rows. Reloading is
-// pull-to-refresh plus the "Go to" and root controls; a labelled Retry
-// appears in the banner when a read has failed.
+// Anatomy (Next Terminal reference): title + mono status line + header rule,
+// the roots as ink text-tabs (selection is the 2pt underline), the path in
+// the machine's mono voice, and the listing as a flush Card of
+// hairline-divided 52pt data rows under its sort-header row — the screen's
+// one blue accent is the active sort column. Reloading is pull-to-refresh
+// plus the "Go to" and root controls; a labelled Retry appears in the banner
+// when a read has failed.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Platform, RefreshControl, ScrollView, View } from 'react-native';
@@ -27,7 +29,7 @@ import { useConnection } from '../../src/connection';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { api } from '../../src/api';
 import type { FileEntry } from '../../src/api';
-import { Banner, EmptyState, Input, Label, Row, Rule, Skeleton, TrackLabel, Txt } from '../../src/ui';
+import { Banner, Card, Divider, EmptyState, Input, Label, Row, Rule, Skeleton, TrackLabel, Txt } from '../../src/ui';
 import { useTheme } from '../../src/theme';
 import { crumbsFor, formatAsOf, isDenied, messageOf, parentOf, sortEntries, viewerKindOf } from '../../src/files-format';
 import type { SortKey } from '../../src/files-format';
@@ -317,7 +319,9 @@ export default function FilesTab() {
       >
         {/* Every root carries the resting track (docs/DESIGN.md §11.1): the
             unselected ones must look pressable too, or the strip is
-            indistinguishable from the inert count line two lines up. */}
+            indistinguishable from the inert count line two lines up. The
+            active root is marked in INK — label and track — not accent: this
+            screen spends blue exactly once, on the active sort column. */}
         {roots.map((root) => (
           <TrackLabel
             key={root.path}
@@ -325,6 +329,7 @@ export default function FilesTab() {
             label={root.name}
             accessibilityLabel={`Open ${root.name}`}
             active={path === root.path}
+            inks={{ activeLabel: theme.colors.text, activeTrack: theme.colors.text }}
             onPress={() => openDir(root.path)}
           />
         ))}
@@ -352,8 +357,6 @@ export default function FilesTab() {
         />
       </View>
 
-      <SortHeader sortKey={sortKey} descending={descending} onChange={onSort} />
-
       {error ? (
         <Banner
           testID="files-error"
@@ -369,61 +372,75 @@ export default function FilesTab() {
         />
       ) : null}
 
-      {loading && !refreshing ? (
-        <View style={{ paddingHorizontal: margin }}>
-          {Array.from({ length: SKELETON_ROWS }, (_, i) => (
-            <View key={i}>
-              <Row justify="space-between" gap="sm" style={{ minHeight: theme.layout.rowHeight }}>
-                <Skeleton width={`${45 + ((i * 7) % 35)}%`} height={13} />
-                <Skeleton width="22%" height={11} />
-              </Row>
-              <Rule bleed={margin} />
-            </View>
-          ))}
-        </View>
-      ) : (
-        <FlatList
-          testID="file-list"
-          data={visible}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.path}
-          contentContainerStyle={{ paddingHorizontal: margin, paddingBottom: theme.space.lg, flexGrow: 1 }}
-          // "handled" stays: the default swallows the first tap on every row
-          // while the filter keyboard is up. The interactive dismiss gives the
-          // drag-away exit — tap-outside here navigates into a folder, so the
-          // scroll gesture is the only non-destructive one (§11.2).
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          removeClippedSubviews={Platform.OS !== 'web'}
-          initialNumToRender={16}
-          extraData={selected}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => void pullToRefresh()} tintColor={theme.colors.accent} />
-          }
-          ListEmptyComponent={
-            error ? null : query ? (
-              <EmptyState
-                testID="files-no-match"
-                title="Nothing matches"
-                message={`No item in this folder contains “${query.trim()}”.`}
-                action={{ label: 'Clear the filter', onPress: () => setQuery('') }}
-              />
-            ) : hiddenMode === 'hide' && hiddenN > 0 ? (
-              // Everything here is a dotfile. A bare "empty" would be a lie —
-              // say what is being withheld and hand over the one action that
-              // reveals it.
-              <EmptyState
-                testID="files-all-hidden"
-                title="Only hidden items here"
-                message={`This folder holds ${hiddenN} hidden item${hiddenN === 1 ? '' : 's'} and nothing else.`}
-                action={{ label: 'Show hidden', onPress: toggleHidden }}
-              />
-            ) : (
-              <EmptyState testID="files-empty" title="This folder is empty" message="There is nothing here to open." />
-            )
-          }
-        />
-      )}
+      {/* The listing is the reference's table: one flush Card whose
+          hairline-divided rows carry the data, with the sort header as the
+          card's own column row. */}
+      <Card flush style={{ flex: 1, marginHorizontal: margin, marginBottom: theme.space.md, overflow: 'hidden' }}>
+        <SortHeader sortKey={sortKey} descending={descending} onChange={onSort} />
+        {loading && !refreshing ? (
+          <View style={{ paddingHorizontal: theme.space.md }}>
+            {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+              <View key={i}>
+                <Row justify="space-between" gap="sm" style={{ minHeight: theme.layout.rowHeight }}>
+                  <Skeleton width={`${45 + ((i * 7) % 35)}%`} height={13} />
+                  <Skeleton width="22%" height={11} />
+                </Row>
+                {i < SKELETON_ROWS - 1 ? <Divider inset={-theme.space.md} /> : null}
+              </View>
+            ))}
+          </View>
+        ) : (
+          <FlatList
+            testID="file-list"
+            data={visible}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.path}
+            ItemSeparatorComponent={Divider}
+            contentContainerStyle={{ paddingBottom: theme.space.xs, flexGrow: 1 }}
+            // "handled" stays: the default swallows the first tap on every row
+            // while the filter keyboard is up. The interactive dismiss gives the
+            // drag-away exit — tap-outside here navigates into a folder, so the
+            // scroll gesture is the only non-destructive one (§11.2).
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            removeClippedSubviews={Platform.OS !== 'web'}
+            initialNumToRender={16}
+            extraData={selected}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={() => void pullToRefresh()} tintColor={theme.colors.accent} />
+            }
+            ListEmptyComponent={
+              error ? null : query ? (
+                <EmptyState
+                  testID="files-no-match"
+                  title="Nothing matches"
+                  message={`No item in this folder contains “${query.trim()}”.`}
+                  action={{ label: 'Clear the filter', onPress: () => setQuery('') }}
+                  style={{ paddingHorizontal: theme.space.md }}
+                />
+              ) : hiddenMode === 'hide' && hiddenN > 0 ? (
+                // Everything here is a dotfile. A bare "empty" would be a lie —
+                // say what is being withheld and hand over the one action that
+                // reveals it.
+                <EmptyState
+                  testID="files-all-hidden"
+                  title="Only hidden items here"
+                  message={`This folder holds ${hiddenN} hidden item${hiddenN === 1 ? '' : 's'} and nothing else.`}
+                  action={{ label: 'Show hidden', onPress: toggleHidden }}
+                  style={{ paddingHorizontal: theme.space.md }}
+                />
+              ) : (
+                <EmptyState
+                  testID="files-empty"
+                  title="This folder is empty"
+                  message="There is nothing here to open."
+                  style={{ paddingHorizontal: theme.space.md }}
+                />
+              )
+            }
+          />
+        )}
+      </Card>
 
       {selected ? <InfoCard entry={selected} now={now} onClose={() => setSelected(null)} /> : null}
 

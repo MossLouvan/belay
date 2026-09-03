@@ -5,20 +5,18 @@
 // active column carrying the ▲/▼ caret. The values themselves live inside each
 // row rather than being aligned into columns.
 //
-// Ledger treatment: mono micro-labels on resting tracks — the four columns
-// read as a recognisable sibling of the segmented control, not as inert
-// captions (docs/DESIGN.md §11.1) — with the active column in full ink
-// carrying the ▲/▼ caret and the lit track, and a hairline rule closing the
-// header. The active label is ink rather than accent so the screen's one
-// accented selection stays the root tab (§3.3); the caret plus the
-// accentGraphic track carry the sort state on their own. Name sits at the
-// left margin where the row names align; the value columns gather at the
-// right margin where the row values align.
+// Card treatment: this header is the top row of the tab's flush listing
+// Card — mono micro-labels on resting granite tracks, closed by the card's
+// own hairline divider. The active column is the screen's ONE blue accent
+// (label and track) and carries the ▲/▼ caret; every other column rests
+// dim on `trackRest` (§3.3). Name sits at the card's left padding where the
+// row names align; the value columns gather at the right where the row
+// values align.
 
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Rule, Row, TrackLabel } from '../ui';
+import { Divider, Row, TrackLabel } from '../ui';
 import type { SortKey } from '../files-format';
 import { defaultDescending } from '../files-format';
 
@@ -46,7 +44,6 @@ function Column({
   descending: boolean;
   onChange: SortHeaderProps['onChange'];
 }) {
-  const theme = useTheme();
   return (
     <TrackLabel
       testID={`files-sort-${column.key}`}
@@ -54,7 +51,6 @@ function Column({
       accessibilityLabel={`Sort by ${column.label.toLowerCase()}`}
       accessibilityHint={active ? 'Reverses the current order' : undefined}
       active={active}
-      labelColor={active ? theme.colors.text : undefined}
       onPress={() =>
         // Finder's rule: a repeat tap flips the order, a fresh column
         // starts in the direction people expect of it (see sort.ts).
@@ -67,7 +63,7 @@ function Column({
 export function SortHeader({ sortKey, descending, onChange }: SortHeaderProps) {
   const theme = useTheme();
   return (
-    <View style={{ paddingHorizontal: theme.layout.margin }}>
+    <View style={{ paddingHorizontal: theme.space.md, paddingTop: theme.space.xxs }}>
       <Row justify="space-between" gap="sm">
         <Column column={COLUMNS[0]} active={sortKey === 'name'} descending={descending} onChange={onChange} />
         <Row gap="md">
@@ -82,7 +78,7 @@ export function SortHeader({ sortKey, descending, onChange }: SortHeaderProps) {
           ))}
         </Row>
       </Row>
-      <Rule bleed={theme.layout.margin} />
+      <Divider inset={-theme.space.md} />
     </View>
   );
 }
