@@ -580,7 +580,7 @@ export default function ScreenTab() {
           </Row>
           <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
             <Row gap="xs" style={{ flexShrink: 1 }}>
-              <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting || live} label={PHASE_LABEL[stream.phase]} />
+              <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting} label={PHASE_LABEL[stream.phase]} />
               <Txt testID="fps" variant="label" tone="dim" numberOfLines={1}>
                 {live ? `${PHASE_LABEL[stream.phase]} · ${stream.stats.fps} fps` : PHASE_LABEL[stream.phase]}
               </Txt>
