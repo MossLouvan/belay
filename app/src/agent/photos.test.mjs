@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   PHOTOS,
   base64Bytes,
+  failureMessageFor,
   parseImagesSent,
   planUpload,
   sendingPhotosLabel,
@@ -76,4 +77,16 @@ test('the failure line carries the observed detail', () => {
 test('the busy label counts honestly', () => {
   assert.equal(sendingPhotosLabel(1), 'Sending the photo to Claude…');
   assert.equal(sendingPhotosLabel(3), 'Sending 3 photos to Claude…');
+});
+
+test('the screen failure line names the screen, not photos', () => {
+  assert.equal(
+    failureMessageFor('screen', 'the helper is not running'),
+    'the screen could not be sent — the helper is not running',
+  );
+});
+
+test('library and camera failures keep the photo wording', () => {
+  assert.equal(failureMessageFor('library', 'host said no'), 'the photos could not be sent — host said no');
+  assert.equal(failureMessageFor('camera', 'host said no'), 'the photos could not be sent — host said no');
 });
