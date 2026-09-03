@@ -8,7 +8,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import {
   Connection, checkHost, setConnection as setClientConnection,
-  clearConnection as clearClientConnection,
+  clearConnection as clearClientConnection, setRecoveryHandler,
 } from './api';
 import {
   DeviceStore, SavedDevice, emptyStore, activeDevice as pickActive,
@@ -93,12 +93,20 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
    * milliseconds, and on cellular it fails immediately and the tunnel wins. The
    * winner is recorded so the next attempt tries it first.
    */
-  const connectTo = useCallback(async (device: SavedDevice, from: DeviceStore): Promise<void> => {
+  const connectTo = useCallback(async (
+    device: SavedDevice,
+    from: DeviceStore,
+    opts?: { silent?: boolean },
+  ): Promise<void> => {
     // Seed the latest-store ref from the caller's just-committed store, so the
     // final commit has a correct base even before React flushes the render.
     storeRef.current = from;
     const attempt = ++attemptRef.current;
-    setPhase('connecting');
+    // A silent re-race (recovery after a roam) keeps the screen 'connected'
+    // while it re-resolves in the background — flashing 'connecting' would blank
+    // a stream that is, in fact, still on screen. A normal connect still shows
+    // the spinner.
+    if (!opts?.silent) setPhase('connecting');
 
     if (isUnresolved(device.token)) {
       // The keychain was unreadable when the store loaded (phone locked at a
@@ -234,6 +242,28 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     const device = pickActive(store);
     if (device) await connectTo(device, store);
   }, [store, connectTo]);
+
+  // Silent recovery for the REST/input path. Registered with the api layer,
+  // which calls it when a control request fails at the network layer (a roam
+  // left the pinned address half-open). It re-races the active computer's
+  // addresses and repoints the client — without disturbing the live stream —
+  // so the retried request lands. Coalesced: a burst of failing requests share
+  // one in-flight re-race rather than starting a stampede of them.
+  const revalidatingRef = useRef<Promise<void> | null>(null);
+  const revalidate = useCallback((): Promise<void> => {
+    if (revalidatingRef.current) return revalidatingRef.current;
+    const device = pickActive(storeRef.current);
+    if (!device) return Promise.resolve();
+    const run = connectTo(device, storeRef.current, { silent: true })
+      .finally(() => { revalidatingRef.current = null; });
+    revalidatingRef.current = run;
+    return run;
+  }, [connectTo]);
+
+  useEffect(() => {
+    setRecoveryHandler(revalidate);
+    return () => setRecoveryHandler(null);
+  }, [revalidate]);
 
   const disconnect = useCallback(async () => {
     attemptRef.current += 1; // cancel any in-flight connect before wiping state

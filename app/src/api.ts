@@ -43,9 +43,14 @@ export const REQUEST_TIMEOUT_MS = 10_000;
 
 /** A request the host never answered. Distinct from a host that said no. */
 export class TimeoutError extends Error {
-  constructor(public readonly path: string) {
+  readonly path: string;
+  // Explicit field assignment rather than a parameter property, so this module
+  // stays importable under Node's type-stripping test runner (no api.ts syntax
+  // needs code generation) — that is what lets api-recovery.test.mjs load it.
+  constructor(path: string) {
     super('the computer did not answer in time');
     this.name = 'TimeoutError';
+    this.path = path;
   }
 }
 
@@ -220,26 +225,91 @@ async function failureFor(res: Response, path: string): Promise<Error> {
   return new Error((j as { error?: string }).error || `request failed (${res.status})`);
 }
 
+/**
+ * Silent connection recovery, registered by the ConnectionProvider.
+ *
+ * The live screen socket self-heals — a stall detector reopens it — but every
+ * REST call (crucially all of /input/*) is a one-shot POST to the address that
+ * answered at connect time, with no retry and no re-resolution. When the phone
+ * roams (Wi-Fi→cellular, or Tailscale flipping to a relay) the pooled keep-alive
+ * socket to that address goes half-open: the picture keeps streaming on its
+ * already-open socket while the very next cursor move rides the dead socket to
+ * the deadline and fails. The user's only recourse was a manual reconnect,
+ * which re-races the addresses and forces fresh sockets.
+ *
+ * This handler is exactly that reconnect, run automatically: on a retryable
+ * failure a request calls it (re-race + repoint conn.host, which also discards
+ * the stale pooled socket) and then tries once more, so a roam costs a blip
+ * instead of a dead cursor.
+ */
+let recover: (() => Promise<void>) | null = null;
+
+/** The ConnectionProvider registers its silent re-race here (null on unmount). */
+export function setRecoveryHandler(fn: (() => Promise<void>) | null): void {
+  recover = fn;
+}
+
+/**
+ * A failure worth re-racing the connection for: the host never answered
+ * (timeout) or the socket/network broke (a fetch TypeError). NOT a 401 — a bad
+ * token is terminal, and re-racing would only loop — and not an HTTP error the
+ * host actually returned, which means the host is reachable and answered.
+ */
+function isRetryable(e: unknown): boolean {
+  if (e instanceof UnauthorizedError) return false;
+  if (e instanceof TimeoutError) return true;
+  // A network-layer fetch rejection (connection refused, reset, DNS) surfaces
+  // as a TypeError in React Native / the fetch spec.
+  return e instanceof TypeError;
+}
+
+/**
+ * Run one authed request, and on a retryable network failure heal the
+ * connection and try exactly once more.
+ *
+ * The single retry is intentionally simple. For an idempotent read or a cursor
+ * move a duplicate is harmless; for a click the first attempt failed at the
+ * network layer (it almost never reached the host), so re-issuing it lands the
+ * click the user meant rather than dropping it — the far better trade for a
+ * remote-control app. `recover` is coalesced on the provider side, so a burst
+ * of failing requests triggers a single re-race.
+ */
+async function sendWithRecovery<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (e: unknown) {
+    if (!recover || !isRetryable(e)) throw e;
+    await recover();
+    // One clean retry against the (possibly repointed) host. A second failure
+    // is real — surface it so the UI can show the honest "can't reach" state.
+    return await run();
+  }
+}
+
 async function get<T>(path: string): Promise<T> {
-  if (!conn) throw new Error('not connected');
-  const res = await fetchWithTimeout(conn.host + path, { headers: authHeaders() }, path);
-  if (!res.ok) throw await failureFor(res, path);
-  return (await res.json()) as T;
+  return sendWithRecovery(async () => {
+    if (!conn) throw new Error('not connected');
+    const res = await fetchWithTimeout(conn.host + path, { headers: authHeaders() }, path);
+    if (!res.ok) throw await failureFor(res, path);
+    return (await res.json()) as T;
+  });
 }
 
 async function post<T>(path: string, body: object): Promise<T> {
-  if (!conn) throw new Error('not connected');
-  const res = await fetchWithTimeout(
-    conn.host + path,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(body),
-    },
-    path,
-  );
-  if (!res.ok) throw await failureFor(res, path);
-  return (await res.json().catch(() => ({}))) as T;
+  return sendWithRecovery(async () => {
+    if (!conn) throw new Error('not connected');
+    const res = await fetchWithTimeout(
+      conn.host + path,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(body),
+      },
+      path,
+    );
+    if (!res.ok) throw await failureFor(res, path);
+    return (await res.json().catch(() => ({}))) as T;
+  });
 }
 
 // ---- typed API surface ----
