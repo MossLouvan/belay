@@ -32,6 +32,10 @@ export interface InputProps {
   keyboardType?: KeyboardTypeOptions;
   returnKeyType?: ReturnKeyTypeOptions;
   onSubmitEditing?: () => void;
+  /** What the return key does to focus. 'submit' keeps the keyboard up after
+   *  submitting — for fields sent repeatedly, like the screen tab's type-to-PC
+   *  row. Default is RN's own (single-line fields blur on submit). */
+  submitBehavior?: 'submit' | 'blurAndSubmit' | 'newline';
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
   accessibilityLabel?: string;
@@ -58,6 +62,7 @@ export function Input({
   keyboardType,
   returnKeyType,
   onSubmitEditing,
+  submitBehavior,
   leading,
   trailing,
   accessibilityLabel,
@@ -110,6 +115,7 @@ export function Input({
           keyboardType={keyboardType}
           returnKeyType={returnKeyType}
           onSubmitEditing={onSubmitEditing}
+          submitBehavior={submitBehavior}
           onFocus={onFocus}
           onBlur={onBlur}
           maxFontSizeMultiplier={1.6}

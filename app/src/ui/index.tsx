@@ -45,3 +45,8 @@ export type { HapticTone } from './haptics';
 
 export { useReducedMotion, useToggleAnimation, usePulse } from './motion';
 export type { PressAnimation } from './motion';
+
+export { useKeyboardLift } from './keyboard-lift';
+export type { KeyboardLift } from './keyboard-lift';
+export { keyboardOverlap, keyboardShown } from './keyboard';
+export type { KeyboardFrame } from './keyboard';

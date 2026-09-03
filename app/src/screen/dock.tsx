@@ -207,7 +207,12 @@ export function ControlDock({
             onPress={wrap(() => onModeChange('scroll'))}
           />
         </View>
-        <Row gap="xs">
+        {/* The picture cluster: quality + the zoom stepper, abutting into one
+            continuous strip the way the mode trio does. With a gap of its own,
+            the quality key hung between the two clusters and read as a fourth
+            pointer mode; flush against the zoom keys it reads as what it is —
+            another control over how the picture looks, one tap to the sheet. */}
+        <Row gap="none">
           {qualityLabel && onOpenQuality ? (
             <DockKey
               testID="quality-key"
@@ -218,7 +223,6 @@ export function ControlDock({
               onPress={wrap(onOpenQuality)}
             />
           ) : null}
-          <Row gap="none">
           <DockKey
             testID="zoom-out"
             label="−"
@@ -240,7 +244,6 @@ export function ControlDock({
             floating={floating}
             onPress={wrap(onZoomIn)}
           />
-          </Row>
         </Row>
       </Row>
       <Row justify="space-between" gap="xs">

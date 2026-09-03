@@ -16,7 +16,7 @@
 // expo-router's route context and would register as extra tabs.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, Keyboard, KeyboardAvoidingView, Platform, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Animated, Image, Keyboard, Platform, ScrollView, useWindowDimensions, View } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -38,6 +38,7 @@ import {
   Sheet,
   Txt,
   haptic,
+  useKeyboardLift,
   useReducedMotion,
   useToggleAnimation,
 } from '../../src/ui';
@@ -105,6 +106,13 @@ import { useRecording } from '../../src/screen/useRecording';
 import { setOpenSession } from '../../src/agent/attention-store';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { HostAudio } from '../../src/stream/audio-player';
+
+// Where the open type row lives is a platform constant (so the Input never
+// remounts and drops focus). Only iOS overlays its keyboard on the app — there
+// the row floats and rides the keyboard's top edge. Android's adjustResize
+// shrinks the window above the keyboard and the web has no on-screen keyboard
+// at all, so both keep the row inline in the control column.
+const TYPE_ROW_FLOATS = Platform.OS === 'ios';
 
 export default function ScreenTab() {
   const { connection } = useConnection();
@@ -395,6 +403,11 @@ export default function ScreenTab() {
     setKeysOn((v) => !v);
   }, [fullscreen, dockHide]);
   const toggleFullscreen = useCallback(() => {
+    // The floating type bar is anchored to this layout's bottom edge; the
+    // fullscreen flip moves that edge without a keyboard event to re-measure
+    // against. Dismissing first lets the keyboard-gone effect fold the row
+    // cleanly (the draft survives in `text`); with no keyboard up, a no-op.
+    Keyboard.dismiss();
     setFullscreen((v) => !v);
   }, []);
 
@@ -434,6 +447,34 @@ export default function ScreenTab() {
     setTypeOpen(false);
   }, []);
 
+  // The type row floats over the layout and rides the keyboard's own
+  // animation, instead of a root KeyboardAvoidingView shrinking the page.
+  // Padding the root squished the flex video stage by the keyboard's height
+  // (a violent refit of the live picture) and, in fullscreen, yanked the
+  // absolutely-positioned dock up mid-video — the "Type breaks the UI" bug.
+  // The lift is measured against this root view, so it lands exactly on the
+  // keyboard's top edge whether the tab bar is there (non-fullscreen) or not.
+  const rootRef = useRef<View>(null);
+  const keyboard = useKeyboardLift(rootRef);
+  const typeBarLift = useMemo(() => Animated.multiply(keyboard.lift, -1), [keyboard.lift]);
+
+  // Once the keyboard the field summoned has actually gone (the ×, an app
+  // switch, a hardware keyboard), the floating row has nothing to sit above —
+  // left open it would park on top of the dock. Close it; the draft survives
+  // in `text` for the next open. The ref gates on "a keyboard was seen" so
+  // the row is not closed in the gap between mounting and the show event.
+  const sawKeyboardRef = useRef(false);
+  useEffect(() => {
+    if (keyboard.shown) {
+      sawKeyboardRef.current = true;
+      return;
+    }
+    if (sawKeyboardRef.current) {
+      sawKeyboardRef.current = false;
+      setTypeOpen(false);
+    }
+  }, [keyboard.shown]);
+
   const typeRow = (
     <Row gap="sm">
       <Input
@@ -445,6 +486,7 @@ export default function ScreenTab() {
         accessibilityLabel="Text to type on the host"
         returnKeyType="send"
         onSubmitEditing={sendText}
+        submitBehavior="submit"
         autoFocus
         trailing={
           <IconButton
@@ -474,7 +516,7 @@ export default function ScreenTab() {
           testID="key-bar"
         />
       ) : null}
-      {typeOpen ? typeRow : null}
+      {typeOpen && !TYPE_ROW_FLOATS ? typeRow : null}
       <ControlDock
         mode={mode}
         onModeChange={setMode}
@@ -503,8 +545,10 @@ export default function ScreenTab() {
   );
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    // A plain root: keyboard handling is the floating type bar's job (see
+    // `typeBarLift` above), so the stage and dock never re-flow.
+    <View
+      ref={rootRef}
       style={{
         flex: 1,
         backgroundColor: fullscreen ? theme.colors.machine : theme.colors.bg,
@@ -686,6 +730,32 @@ export default function ScreenTab() {
         </Animated.View>
       )}
 
+      {/* The type-to-PC row, floating on the keyboard's top edge. Absolute so
+          opening it moves NOTHING else: the stage keeps its size (the keyboard
+          simply covers its lower part) and the dock stays where the thumb
+          left it, ready the moment the field is closed. */}
+      {typeOpen && TYPE_ROW_FLOATS ? (
+        <Animated.View
+          testID="type-bar"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            transform: [{ translateY: typeBarLift }],
+            // Opaque page ground normally; the HUD scrim over live video in
+            // fullscreen, matching the floating dock's chrome.
+            backgroundColor: fullscreen ? HUD.scrim : theme.colors.bg,
+            borderTopWidth: theme.layout.hairline,
+            borderTopColor: fullscreen ? HUD.hairline : theme.colors.border,
+            paddingHorizontal: theme.layout.margin,
+            paddingVertical: theme.space.xs,
+          }}
+        >
+          {typeRow}
+        </Animated.View>
+      ) : null}
+
       {/* Gated on `ready`, not just the flag: a stop that failed leaves
           nothing to send, and a sheet promising to send nothing would lie. */}
       <RecordSheet
@@ -849,6 +919,6 @@ export default function ScreenTab() {
           <Button label="Recheck the host" testID="recheck-permissions" variant="secondary" size="sm" onPress={recheck} />
         </ScrollView>
       </Sheet>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
