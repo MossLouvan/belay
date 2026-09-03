@@ -94,6 +94,7 @@ import {
 import { ControlDock } from '../../src/screen/dock';
 import { PanelState } from '../../src/screen/panel-state';
 import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
+import { ClipboardSheet } from '../../src/screen/clipboard-sheet';
 import type { SentInfo } from '../../src/screen/record-parts';
 import { SENT_NOTICE_MS } from '../../src/screen/record';
 import { useRecording } from '../../src/screen/useRecording';
@@ -300,6 +301,8 @@ export default function ScreenTab() {
   // is looking at is what Claude gets.
   const recording = useRecording(active, reportError);
   const [showRecordSheet, setShowRecordSheet] = useState(false);
+  // Clipboard sync lives in its own small sheet; the dock's CLIP key opens it.
+  const [showClipboard, setShowClipboard] = useState(false);
   const recordPhase = recording.status.state;
   const onRecordKey = useCallback(() => {
     if (recordPhase === 'idle') void recording.start(screenIndex);
@@ -446,6 +449,7 @@ export default function ScreenTab() {
         onRecord={onRecordKey}
         floating={fullscreen}
         onInteract={fullscreen ? dockHide.poke : undefined}
+        onOpenClipboard={() => setShowClipboard(true)}
       />
     </Column>
   );
@@ -641,6 +645,8 @@ export default function ScreenTab() {
         onDiscard={() => void recording.discard()}
         onSent={onSent}
       />
+
+      <ClipboardSheet visible={showClipboard} onClose={() => setShowClipboard(false)} />
 
       <Sheet visible={showMenu} onClose={() => setShowMenu(false)} title="Screen options" testID="screen-menu-sheet">
         <Column gap="xxs">

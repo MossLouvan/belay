@@ -410,6 +410,11 @@ export const api = {
   drag: (x1: number, y1: number, x2: number, y2: number, screen?: number) =>
     post('/input/drag', { x1, y1, x2, y2, screen }),
   typeText: (text: string) => post('/input/text', { text }),
+  // Clipboard sync: pull the PC's clipboard text, or push the phone's onto it.
+  // The host caps both directions at 100k UTF-16 units and answers `truncated`
+  // when a pull was cut; over-cap pushes come back as a 413 with the reason.
+  clipboardGet: () => get<{ text: string; truncated?: boolean }>('/clipboard'),
+  clipboardSet: (text: string) => post<{ ok: boolean; length: number }>('/clipboard', { text }),
   key: (key: string, mods: string[] = []) => post('/input/key', { key, mods }),
   devices: () => get<{ devices: PairedDevice[] }>('/devices'),
   /** Re-read this computer's addresses, so a changed IP is learned. */

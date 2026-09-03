@@ -108,6 +108,8 @@ export interface ControlDockProps {
   floating?: boolean;
   /** Fired on every dock interaction — the fullscreen auto-hide's poke. */
   onInteract?: () => void;
+  /** Opens the clipboard sync sheet. Optional so the key is purely additive. */
+  onOpenClipboard?: () => void;
 }
 
 /**
@@ -135,6 +137,7 @@ export function ControlDock({
   onRecord,
   floating = false,
   onInteract,
+  onOpenClipboard,
 }: ControlDockProps) {
   const theme = useTheme();
   const wrap = (action: () => void) => () => {
@@ -265,6 +268,16 @@ export function ControlDock({
           />
         </Row>
         <Row gap="xs">
+          {onOpenClipboard ? (
+            <DockKey
+              testID="clipboard-key"
+              label="Clip"
+              accessibilityLabel="Clipboard sync"
+              accessibilityHint="Pull the computer's clipboard onto this phone, or send this phone's clipboard to it"
+              floating={floating}
+              onPress={wrap(onOpenClipboard)}
+            />
+          ) : null}
           <DockKey
             testID="toggle-type"
             label="Type"

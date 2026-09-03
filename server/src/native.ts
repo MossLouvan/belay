@@ -405,6 +405,22 @@ class NativeHost {
     return this.send({ cmd: 'virtualdisplay', action: 'status' });
   }
 
+  // ---- Clipboard sync ----------------------------------------------------
+  //
+  // Read and write the host's clipboard, so the phone and the PC can trade
+  // text. Arguments are validated in clipboard.ts BEFORE these are called; the
+  // helper validates again on its own boundary (stdin is untrusted there). A
+  // helper built before the clipboard verb answers `unknown command`, which
+  // surfaces as a clean error the route forwards — never a hang.
+
+  clipboardGet(): Promise<{ text?: string; truncated?: boolean }> {
+    return this.send({ cmd: 'clipboard', action: 'get' });
+  }
+
+  clipboardSet(text: string): Promise<{ set?: boolean }> {
+    return this.send({ cmd: 'clipboard', action: 'set', text });
+  }
+
   scroll(dy: number, dx: number) { return this.send({ cmd: 'scroll', dy, dx }); }
   key(vk: number, mods: number[] = []) { return this.send({ cmd: 'key', vk, mods }); }
   text(text: string) { return this.send({ cmd: 'text', text }); }

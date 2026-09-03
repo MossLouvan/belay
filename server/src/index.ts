@@ -29,6 +29,7 @@ import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-param
 import { native } from './native.js';
 import { classifyScreens } from './displays.js';
 import { openableWindows, sanitizeWindows, windowIdOf } from './windows.js';
+import { MAX_CLIPBOARD_UNITS, parseClipboardSet, shapeClipboardGet } from './clipboard.js';
 import { createTerminal } from './terminal.js';
 import { createCompleter, sanitizeCompletionLine } from './terminal-complete.js';
 import { listDir, readTextFile, ROOTS } from './files.js';
@@ -435,6 +436,32 @@ app.get('/files/raw', auth, async (req, res) => {
 app.get('/discover/hosts', auth, async (req, res) => {
   try { res.json(await discoverPeerHosts(PORT, req.socket.remoteAddress)); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ---- Clipboard sync (two-way) ----------------------------------------------
+//
+// GET pulls the host's clipboard text onto the phone; POST pushes the phone's
+// clipboard onto the host. Both go through the native helper, so a platform
+// without one (or a helper built before the clipboard verb) fails with a
+// clear message rather than a hang. Text only — files and images stay where
+// they are.
+
+app.get('/clipboard', auth, async (_req, res) => {
+  try {
+    res.json(shapeClipboardGet(await native.clipboardGet()));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/clipboard', auth, async (req, res) => {
+  const parsed = parseClipboardSet(req.body);
+  if (!parsed.ok) {
+    res.status(parsed.status).json({ error: parsed.error, limit: MAX_CLIPBOARD_UNITS });
+    return;
+  }
+  try {
+    await native.clipboardSet(parsed.text);
+    res.json({ ok: true, length: parsed.text.length });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/screen/info', auth, async (_req, res) => {
