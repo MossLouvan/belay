@@ -199,8 +199,8 @@ export const radius = Object.freeze({
   sm: 4, // key-bar keys only
   /** @deprecated Alias of `sm`. Migrate call sites to xs/sm, then delete. */
   md: 4,
-  /** @deprecated Card radius; the card is dead. Delete after migration. */
-  lg: 0,
+  /** Card radius — revived for the reference's bordered navy cards. */
+  lg: 10,
   /** @deprecated Delete after migration. */
   xl: 0,
   /** @deprecated Pills are banned (docs/DESIGN.md §12). Delete after migration. */
