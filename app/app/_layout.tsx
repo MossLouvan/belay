@@ -2,16 +2,21 @@
 // theme restoration, status-bar style, safe-area context, and the boot gate that
 // keeps the connect screen from flashing before we know whether we are paired.
 
-import React, { useEffect, useState } from 'react';
-import { Platform, View } from 'react-native';
-import { Stack } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, Platform, View } from 'react-native';
+import { Stack, useRootNavigationState, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
+import * as Linking from 'expo-linking';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ConnectionProvider, useConnection } from '../src/connection';
 import { useTheme } from '../src/theme';
 import { restoreThemeMode } from '../src/settings/theme-mode';
 import { LogoMark } from '../src/connect/brand';
+import {
+  AgentLink, parseAgentLink, planAgentLink, sessionKnown, settlePendingOpen,
+} from '../src/agent/deep-link';
+import { getAttention, refreshAttention, setOpenSession } from '../src/agent/attention-store';
 
 /**
  * Longest we will hold the splash waiting for stored state. If the storage read
@@ -30,6 +35,101 @@ function Boot() {
       <LogoMark />
     </View>
   );
+}
+
+/**
+ * Notification deep links: `belay://agent?host=<hostId>&session=<id>`.
+ *
+ * Every host notification carries that URL (docs/AGENT.md "The deep link,
+ * honestly"); this is the app half. The decision logic — what the URL means,
+ * matching computers on their stable host id and never on an address — is pure
+ * and lives in src/agent/deep-link.ts; this component is only the wiring:
+ * listen, defer until the app can act, navigate.
+ *
+ * Both arrival shapes are covered: `getInitialURL` for a cold start (the tap
+ * launched the app) and the `url` event for a warm one (the app was already
+ * running). Either way the link is held in state until the saved computers
+ * have loaded and the navigator is mounted, so a cold-start tap is never lost
+ * to a race with boot.
+ */
+function AgentLinkHandler() {
+  const router = useRouter();
+  // Null until the root navigator has mounted; navigating before that throws.
+  const navReady = useRootNavigationState()?.key != null;
+  const { ready, devices, active, phase, switchTo } = useConnection();
+  /** A parsed link waiting for boot/navigation to be ready to act on it. */
+  const [incoming, setIncoming] = useState<AgentLink | null>(null);
+  /** An open deferred until a host switch settles. */
+  const [pending, setPending] = useState<AgentLink | null>(null);
+
+  /**
+   * Open the session, checking it still exists first. If the host has since
+   * pruned it, land on that host's session list — where its absence is
+   * visible — instead of opening a view of nothing. Runs after the switch's
+   * attention reset (it awaits a network round trip), so the id it sets is
+   * never wiped by the host-change cleanup in the tabs layout.
+   */
+  const openSession = useCallback(async (sessionId: string) => {
+    await refreshAttention();
+    setOpenSession(sessionKnown(getAttention().sessions, sessionId) ? sessionId : null);
+  }, []);
+
+  // Listen from the first render. Anything that is not an agent link (a
+  // pairing QR, an arbitrary URL fired at our scheme) parses to null and is
+  // ignored here — the pairing flow has its own scanner-side handling.
+  useEffect(() => {
+    const handle = (raw: string | null) => {
+      if (!raw) return;
+      const link = parseAgentLink(raw);
+      if (link) setIncoming(link);
+    };
+    const sub = Linking.addEventListener('url', (event) => handle(event.url));
+    Linking.getInitialURL().then(handle).catch(() => undefined);
+    return () => sub.remove();
+  }, []);
+
+  // Act on a link once the stored computers are loaded and navigation works.
+  useEffect(() => {
+    if (!incoming || !ready || !navReady) return;
+    setIncoming(null);
+
+    const plan = planAgentLink(incoming, devices, active?.id ?? null);
+    if (plan.kind === 'host-not-found') {
+      // The computer was unpaired (or was never paired on this phone). Say so
+      // rather than guessing at a different machine's session.
+      Alert.alert(
+        'Computer not paired',
+        'This notification is from a computer that is no longer paired with this phone.',
+      );
+      return;
+    }
+
+    // Land on the Agent tab immediately, so even a slow switch shows the
+    // honest "reaching the computer" state instead of an unrelated screen.
+    router.navigate('/agent');
+    if (plan.kind === 'open' && phase === 'connected') {
+      void openSession(plan.sessionId);
+      return;
+    }
+    // Another computer, or the right one but not currently reachable: switch
+    // (a switch to the already-active computer just re-races its addresses)
+    // and finish the open when the connection settles.
+    setPending(incoming);
+    void switchTo(incoming.hostId);
+  }, [incoming, ready, navReady, devices, active, phase, router, switchTo, openSession]);
+
+  // Settle a deferred open as the switch progresses. 'wait' leaves it for the
+  // next phase change; 'drop' abandons it — the computer proved unreachable
+  // (the tab is already saying so) or the user moved elsewhere meanwhile.
+  useEffect(() => {
+    if (!pending) return;
+    const verdict = settlePendingOpen(pending, active?.id ?? null, phase);
+    if (verdict === 'wait') return;
+    setPending(null);
+    if (verdict === 'open') void openSession(pending.sessionId);
+  }, [pending, active, phase, openSession]);
+
+  return null;
 }
 
 /** Routes, held back until the saved connection has been read. */
@@ -93,6 +193,7 @@ export default function RootLayout() {
         <StatusBar style={theme.isDark ? 'light' : 'dark'} />
         <ConnectionProvider>
           {themeReady || bootTimedOut ? <Routes forced={bootTimedOut} /> : <Boot />}
+          <AgentLinkHandler />
         </ConnectionProvider>
       </SafeAreaProvider>
     </View>
