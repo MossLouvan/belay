@@ -25,7 +25,7 @@ test('mints the exact draft-uberti / coturn REST shape', () => {
   if (!minted.ok) return;
 
   const expectedExpiry = Math.floor(NOW_MS / 1000) + 300;
-  assert.equal(minted.value.username, `${expectedExpiry}:acct1.sess1`);
+  assert.equal(minted.value.username, `${expectedExpiry}:acct1:sess1`);
 
   // Independent recomputation of what coturn does with use-auth-secret:
   // base64(HMAC-SHA1(secret, username)).
@@ -33,6 +33,19 @@ test('mints the exact draft-uberti / coturn REST shape', () => {
   assert.equal(minted.value.credential, independent);
   assert.equal(minted.value.ttlSec, 300);
   assert.equal(minted.value.expiresAtMs, expectedExpiry * 1000);
+});
+
+test('account/session boundary is unambiguous: dotted ids do not collide', () => {
+  // idPattern allows '.', so with a '.' separator these two distinct pairs
+  // minted byte-identical usernames — one account could spend another's quota
+  // and coturn logs mis-attribute the session. The separator must fence them.
+  const left = mintTurnCredential({ accountId: 'a.b', sessionId: 'c' }, SECRET, now);
+  const right = mintTurnCredential({ accountId: 'a', sessionId: 'b.c' }, SECRET, now);
+  assert.equal(left.ok && right.ok, true);
+  if (!left.ok || !right.ok) return;
+  assert.notEqual(left.value.username, right.value.username);
+  // And the distinct usernames yield distinct credentials (HMAC over username).
+  assert.notEqual(left.value.credential, right.value.credential);
 });
 
 test('mint → verify round trip; verify is coturn-equivalent', () => {

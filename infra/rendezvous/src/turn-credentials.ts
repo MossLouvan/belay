@@ -104,9 +104,17 @@ export function mintTurnCredential(
 
   const nowMs = now();
   const expirySec = Math.floor(nowMs / 1000) + ttlSec;
-  // The id charset excludes ':', so the separator is unambiguous by
-  // construction — a hostile accountId cannot smuggle an earlier expiry field.
-  const username = `${expirySec}:${request.accountId}.${request.sessionId}`;
+  // Separator MUST be a byte the id charset (idPattern) cannot contain, or the
+  // account/session boundary is ambiguous and the "one username = one account +
+  // one session" promise (and coturn's per-username quota scoping) breaks.
+  //
+  // ':' is that byte: idPattern is [A-Za-z0-9._-], so neither id can carry a
+  // ':'. The FIRST ':' still fences off the expiry field (verify splits there),
+  // and because neither id contains ':', the remaining two ':'-delimited fields
+  // decode back to exactly one (accountId, sessionId) pair. '.' was WRONG here
+  // because idPattern includes '.', so acct="a.b",sess="c" and acct="a",
+  // sess="b.c" minted byte-identical usernames.
+  const username = `${expirySec}:${request.accountId}:${request.sessionId}`;
   const credential = hmacBase64(algorithm, secret, username);
 
   return {

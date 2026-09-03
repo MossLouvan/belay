@@ -51,6 +51,11 @@ export class Mailbox {
   private readonly bufferedBytes: { host: number; client: number } = { host: 0, client: 0 };
   private boundSessionId: string | null = null;
   private closed = false;
+  // A terminal `bye` was buffered for an absent peer: the session is over for
+  // the sender, but teardown is deferred until this side attaches and drains
+  // the bye (or the idle reaper collects an abandoned mailbox). Retention is
+  // therefore bounded by MAILBOX_LIMITS.idleTtlMs — never unbounded.
+  private pendingByeFor: MailboxSide | null = null;
   private lastActivityMs: number;
 
   constructor(
@@ -87,6 +92,11 @@ export class Mailbox {
     this.buffers[side] = [];
     this.bufferedBytes[side] = 0;
     for (const item of pending) sink.deliver(item.message);
+
+    // If this side was holding a deferred terminal `bye`, it has now been
+    // drained to the peer — complete the teardown that was postponed so the
+    // absent peer could learn the session ended.
+    if (this.pendingByeFor === side) this.close();
     return { ok: true };
   }
 
@@ -104,6 +114,9 @@ export class Mailbox {
    */
   ingest(from: MailboxSide, raw: unknown): ValidationResult {
     if (this.closed) return { ok: false, error: 'mailbox closed' };
+    // A terminal bye is committed but not yet drained: the session is over, so
+    // the sender cannot push further frames through it.
+    if (this.pendingByeFor !== null) return { ok: false, error: 'mailbox closed' };
 
     const result = validateSignal(raw);
     if (!result.ok) return result;
@@ -132,7 +145,17 @@ export class Mailbox {
       this.bufferedBytes[to] += bytes;
     }
 
-    if (result.message.kind === 'bye') this.close();
+    if (result.message.kind === 'bye') {
+      if (sink) {
+        // Peer is present and already received the bye live — tear down now.
+        this.close();
+      } else {
+        // Peer is absent: the bye is buffered. Defer teardown so a peer that
+        // (re)attaches shortly still drains the terminal frame instead of
+        // opening a fresh mailbox that silently lost it. Bounded by the reaper.
+        this.pendingByeFor = to;
+      }
+    }
     return result;
   }
 
@@ -140,6 +163,7 @@ export class Mailbox {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.pendingByeFor = null;
     this.sinks.host = null;
     this.sinks.client = null;
     this.buffers.host = [];

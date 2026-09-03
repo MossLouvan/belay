@@ -19,6 +19,11 @@ services:
       # Public names of THIS PoP's coturn. turns: on 443 is the UDP-blocked-
       # network fallback and needs real TLS certs in ./turn/tls.
       BELAY_TURN_URLS: "${BELAY_TURN_URLS:-turn:turn.belay.example:3478?transport=udp,turns:turn.belay.example:443?transport=tcp}"
+      # CIDR(s) of the TLS-terminating proxy in front (see note below). Required
+      # for correct per-client rate limiting: unset, every connection keys on the
+      # proxy's IP and shares ONE global bucket, so one abusive client throttles
+      # everyone. Comma-separated IPs/CIDRs; trust only proxies you control.
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
     ports:
       - "8790:8790"
     # Terminate public TLS (wss://) in front of this — e.g. Caddy/nginx or the
