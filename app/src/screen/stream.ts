@@ -6,7 +6,9 @@
 // Screen Recording / Accessibility permission flags.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { api, checkHost, getConnection, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
+import { ReattachLink, shouldReattachOnForeground } from '../foreground';
 import { buildConfigMessage, messageOf, numberOf, PERMISSION_PATTERN, QualityPreset, STREAM, VirtualRequest } from './model';
 import { PROBE_INTERVAL_MS, shouldProbeDuringBackoff } from './retry';
 import { bytesToBase64, decodeBinaryFrame, isBinaryFramePayload } from './frame-codec';
@@ -297,6 +299,7 @@ export function useScreenStream(
           if (disposed || probeTimer === undefined || !check.ok) return;
           stopProbe();
           clearTimeout(retryTimer);
+          retryTimer = undefined;
           void open().catch(() => scheduleRetry());
         });
       }, PROBE_INTERVAL_MS);
@@ -311,11 +314,51 @@ export function useScreenStream(
       setPhase('reconnecting');
       const delay = backoffDelayMs(tries);
       retryTimer = setTimeout(() => {
+        retryTimer = undefined;
         stopProbe();
         void open().catch(() => scheduleRetry());
       }, delay);
       if (shouldProbeDuringBackoff(delay)) startProbe();
     };
+
+    // Return-to-foreground reattach (backlog item `auto-reattach-foreground`).
+    // iOS kills the socket while the app is backgrounded, so whatever backoff
+    // wait was pending on return was scheduled for an outage that is stale
+    // news. Abandon the wait, reset the backoff and the outage clock, and race
+    // a fresh `/health` probe + reconnect right now — the same probe-then-open
+    // shape the in-backoff probe uses, so a dead host still costs one cheap
+    // HTTP round trip, not a WebSocket ticket dance.
+    const reattachNow = (): void => {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+      stopProbe();
+      tries = 0;
+      setRetryingSinceMs(null);
+      const host = getConnection()?.host;
+      // No paired host on record: skip the probe, let open() surface the truth.
+      if (!host) { void open().catch(() => scheduleRetry()); return; }
+      void checkHost(host)
+        .then((check) => {
+          if (disposed) return;
+          if (check.ok) { void open().catch(() => scheduleRetry()); return; }
+          // Host still down — re-arm the loop from a fresh, fast backoff.
+          scheduleRetry();
+        })
+        .catch(() => { if (!disposed) scheduleRetry(); });
+    };
+
+    // Fire only when a backoff wait is actually pending: a live socket must
+    // not be torn down, an open()/probe already in flight must not be stacked
+    // on, and a terminal error (unpaired) must stay terminal. The distinction
+    // is pure and unit-tested in ../foreground.ts; this listener only reads
+    // the effect's own state into it.
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      if (disposed) return;
+      const link: ReattachLink =
+        retryTimer !== undefined ? 'waiting' : socketRef.current ? 'live' : 'in-flight';
+      if (!shouldReattachOnForeground(next, link)) return;
+      reattachNow();
+    });
 
     // Async because the upgrade URL now needs a ticket fetched over HTTP first.
     // The `disposed` check is repeated after the await: the effect can be torn
@@ -428,6 +471,7 @@ export function useScreenStream(
 
     return () => {
       disposed = true;
+      appStateSub.remove();
       clearTimeout(retryTimer);
       stopProbe();
       clearInterval(ticker);
