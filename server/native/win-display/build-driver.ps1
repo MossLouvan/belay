@@ -1,0 +1,93 @@
+# build-driver.ps1 — builds and test-signs the BelayVDD indirect display driver.
+#
+# STATUS: WRITTEN-BUT-NOT-RUN. Authored on a machine with no Windows; every
+# step below is the documented WDK flow, not a verified one. Run it on a
+# Windows box with VS2022 + SDK + WDK installed, then follow the install and
+# verification steps in docs/VIRTUAL-DISPLAY.md.
+#
+# What this produces (in .\dist\<arch>\BelayVdd\):
+#   BelayVdd.dll   — the UMDF2 driver
+#   BelayVdd.inf   — install package
+#   BelayVdd.cat   — catalog, TEST-SIGNED ONLY by this script
+#
+# HONESTY REQUIRED: test-signing is for development machines with
+# `bcdedit /set testsigning on`. Shipping to real users requires an EV code
+# signing certificate and Microsoft Hardware Dev Center attestation signing
+# (or full WHQL). This script cannot and does not do that — see the
+# "Signing for release" section of docs/VIRTUAL-DISPLAY.md.
+
+[CmdletBinding()]
+param(
+    [ValidateSet('x64', 'ARM64')]
+    [string]$Platform = 'x64',
+    [ValidateSet('Debug', 'Release')]
+    [string]$Configuration = 'Release',
+    # Path to an existing test certificate (PFX). When omitted, a throwaway
+    # self-signed cert is created in the machine store (dev machines only).
+    [string]$TestCertPfx = ''
+)
+
+$ErrorActionPreference = 'Stop'
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# ---- locate MSBuild (VS2022 with the WDK extension) -------------------------
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+if (-not (Test-Path $vswhere)) {
+    throw 'vswhere.exe not found. Install Visual Studio 2022 with the Windows Driver Kit extension.'
+}
+$msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+if (-not $msbuild) { throw 'MSBuild not found via vswhere. Is VS2022 installed?' }
+
+# ---- build ------------------------------------------------------------------
+$proj = Join-Path $here 'BelayVdd.vcxproj'
+& $msbuild $proj "/p:Configuration=$Configuration" "/p:Platform=$Platform" '/m' '/verbosity:minimal'
+if ($LASTEXITCODE -ne 0) { throw "msbuild failed with exit code $LASTEXITCODE" }
+
+$outDir = Join-Path $here "$Platform\$Configuration\BelayVdd"
+if (-not (Test-Path (Join-Path $outDir 'BelayVdd.dll'))) {
+    throw "build output not found under $outDir - check the msbuild log"
+}
+
+# ---- validate the INF -------------------------------------------------------
+# infverif ships with the WDK; /w checks Windows-driver (universal) rules.
+$infverif = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Tools\*\x86\infverif.exe" -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending | Select-Object -First 1
+if ($infverif) {
+    & $infverif.FullName /v /w (Join-Path $outDir 'BelayVdd.inf')
+    if ($LASTEXITCODE -ne 0) { throw 'infverif reported problems; fix BelayVdd.inf before signing' }
+} else {
+    Write-Warning 'infverif.exe not found; skipping INF validation (install the WDK tools)'
+}
+
+# ---- test-sign the catalog --------------------------------------------------
+$signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending | Select-Object -First 1
+if (-not $signtool) { throw 'signtool.exe not found; install the Windows SDK signing tools' }
+
+$cat = Get-ChildItem $outDir -Filter '*.cat' | Select-Object -First 1
+if (-not $cat) { throw "no .cat produced (Inf2Cat should have run during the build)" }
+
+if ($TestCertPfx) {
+    & $signtool.FullName sign /fd SHA256 /f $TestCertPfx /tr http://timestamp.digicert.com /td SHA256 $cat.FullName
+} else {
+    $certName = 'BelayVDD Test Cert (DO NOT SHIP)'
+    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object Subject -eq "CN=$certName" | Select-Object -First 1
+    if (-not $cert) {
+        $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=$certName" -CertStoreLocation Cert:\CurrentUser\My
+    }
+    & $signtool.FullName sign /fd SHA256 /sha1 $cert.Thumbprint /tr http://timestamp.digicert.com /td SHA256 $cat.FullName
+}
+if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE" }
+
+$dist = Join-Path $here "dist\$Platform\BelayVdd"
+New-Item -ItemType Directory -Force -Path $dist | Out-Null
+Copy-Item (Join-Path $outDir '*') $dist -Recurse -Force
+
+Write-Host ''
+Write-Host "Built and TEST-signed: $dist"
+Write-Host 'Install (dev machine, elevated, testsigning on):'
+Write-Host '  bcdedit /set testsigning on   # then reboot'
+Write-Host "  pnputil /add-driver `"$dist\BelayVdd.inf`" /install"
+Write-Host '  # create the software device (the host does this at runtime too):'
+Write-Host '  # devgen (WDK) or SwDeviceCreate with HWID Root\BelayVDD'
+Write-Host 'Verify, then follow docs/VIRTUAL-DISPLAY.md for the full checklist.'

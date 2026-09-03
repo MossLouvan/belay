@@ -22,6 +22,13 @@ private let captureQualityRange = 1...100
 private let replies = ReplyWriter()
 private let capture = CaptureEngine()
 private let input = InputController()
+private let virtualDisplays = VirtualDisplayManager()
+
+// Mode bounds mirror server/src/virtual-display.ts. Node validates before
+// sending; the helper clamps again because stdin is a boundary of its own.
+private let virtualWidthRange = 640...7680
+private let virtualHeightRange = 480...4320
+private let virtualRefreshRange = 24...240
 
 private func run() {
     // Without this the process is killed outright the moment stdout closes —
@@ -57,6 +64,10 @@ private func run() {
     // leave the desktop stuck in a drag with no way to clear it.
     input.releaseAll()
     capture.stopAll()
+    // Releasing the reference removes the display; a crash would too (the OS
+    // tears it down with the owning process), but exiting cleanly means the
+    // host's desktop is back to normal before Node reports us gone.
+    virtualDisplays.destroy()
 }
 
 private func handle(_ command: Command) throws {
@@ -73,6 +84,7 @@ private func handle(_ command: Command) throws {
     case "windows": replies.ok(id: command.id, ["windows": WindowList.all()])
     case "capturewindow": try handleCaptureWindow(command)
     case "focuswindow": try handleFocusWindow(command)
+    case "virtualdisplay": try handleVirtualDisplay(command)
     case "ping": replies.ok(id: command.id, ["pong": true])
     default:
         throw HostError(.badCommand, "unknown command: \(command.name)", details: ["cmd": command.name])
@@ -237,6 +249,37 @@ private func handleKey(_ command: Command) throws {
 private func handleText(_ command: Command) throws {
     try input.type(try command.string("text") ?? "")
     replies.ok(id: command.id)
+}
+
+/// Driver-backed virtual display management (opt-in; the Node side gates it
+/// behind BELAY_VIRTUAL_DISPLAY and validates first — see
+/// server/src/virtual-display.ts and docs/VIRTUAL-DISPLAY.md).
+///
+/// One command, an `action` verb, three actions:
+///   create  {w, h, hz} → makes (or replaces) the display at exactly that mode
+///   destroy            → removes it (idempotent)
+///   status             → whether one is active, and whether this macOS can
+private func handleVirtualDisplay(_ command: Command) throws {
+    switch try command.string("action") ?? "" {
+    case "create":
+        guard let w = try command.int("w"), let h = try command.int("h") else {
+            throw HostError(.badArgument, "'w' and 'h' are required for create")
+        }
+        guard virtualWidthRange.contains(w), virtualHeightRange.contains(h) else {
+            throw HostError(.badArgument,
+                "virtual display size must be \(virtualWidthRange.lowerBound)x\(virtualHeightRange.lowerBound)..\(virtualWidthRange.upperBound)x\(virtualHeightRange.upperBound)")
+        }
+        let hz = try command.int("hz", default: 60, clampedTo: virtualRefreshRange)
+        let created = try virtualDisplays.create(width: w, height: h, refreshHz: hz)
+        replies.ok(id: command.id, ["display": created.asDictionary])
+    case "destroy":
+        virtualDisplays.destroy()
+        replies.ok(id: command.id, ["destroyed": true])
+    case "status":
+        replies.ok(id: command.id, virtualDisplays.status())
+    case let other:
+        throw HostError(.badArgument, "unknown virtualdisplay action: \(other)")
+    }
 }
 
 // MARK: - Argument helpers

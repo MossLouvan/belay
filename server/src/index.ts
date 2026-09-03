@@ -52,6 +52,11 @@ import { registerAgentApprovalRoutes } from './agent-routes.js';
 import { registerImageRoutes } from './image-routes.js';
 import { productEnv } from './env.js';
 import { webrtcEnabled } from './webrtc/flag.js';
+import {
+  virtualDisplayEnabled,
+  parseVirtualDisplayRequest,
+  VIRTUAL_DISPLAY_DISABLED_ERROR,
+} from './virtual-display.js';
 import { SignalingBridge } from './webrtc/bridge.js';
 
 const PORT = Number(productEnv('PORT') || 8787);
@@ -437,6 +442,65 @@ app.get('/screen/info', auth, async (_req, res) => {
   // appear, and this way correcting it needs no native rebuild. See displays.ts.
   try { res.json(classifyScreens(await native.info())); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ---- Virtual display driver (opt-in, BELAY_VIRTUAL_DISPLAY) ---------------
+//
+// Create/destroy a driver-backed display at the client's exact resolution and
+// refresh, so the host renders what the client can actually show — the
+// Parsec-style headless / resolution-match enabler. Routes are registered
+// unconditionally so a client always gets a *reason* rather than a bare 404,
+// but with the flag off nothing past the refusal runs and the native helper
+// is never asked. Backend status and build steps: docs/VIRTUAL-DISPLAY.md.
+//
+// Auth on every verb: creating a display changes the host's desktop topology,
+// so it is exactly as privileged as capture and input.
+
+app.get('/screen/virtual-display', auth, async (_req, res) => {
+  if (!virtualDisplayEnabled()) {
+    res.status(403).json({ error: VIRTUAL_DISPLAY_DISABLED_ERROR });
+    return;
+  }
+  try {
+    const reply = await native.virtualDisplayStatus();
+    res.json({ enabled: true, active: reply?.active === true, display: reply?.display ?? null });
+  } catch (e: any) {
+    // A helper without the backend says `unknown command`; surface it as
+    // "this host cannot", the same shape /windows uses on macOS.
+    res.status(501).json({ error: `this host cannot manage virtual displays: ${e.message}` });
+  }
+});
+
+app.post('/screen/virtual-display', auth, async (req, res) => {
+  if (!virtualDisplayEnabled()) {
+    res.status(403).json({ error: VIRTUAL_DISPLAY_DISABLED_ERROR });
+    return;
+  }
+  const parsed = parseVirtualDisplayRequest(req.body);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  const { width, height, refreshHz } = parsed.request;
+  try {
+    const reply = await native.virtualDisplayCreate(width, height, refreshHz);
+    res.json({ ok: true, display: reply?.display ?? null });
+  } catch (e: any) {
+    res.status(501).json({ error: `virtual display create failed: ${e.message}` });
+  }
+});
+
+app.delete('/screen/virtual-display', auth, async (_req, res) => {
+  if (!virtualDisplayEnabled()) {
+    res.status(403).json({ error: VIRTUAL_DISPLAY_DISABLED_ERROR });
+    return;
+  }
+  try {
+    const reply = await native.virtualDisplayDestroy();
+    res.json({ ok: true, destroyed: reply?.destroyed !== false });
+  } catch (e: any) {
+    res.status(501).json({ error: `virtual display destroy failed: ${e.message}` });
+  }
 });
 
 // Seamless windows: the host's individual windows, each streamable into a

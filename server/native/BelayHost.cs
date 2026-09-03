@@ -198,6 +198,11 @@ static class BelayHost
                     case "focuswindow": DoFocusWindow(stdout, idObj, c); break;
                     case "ping": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "pong", true } }); break;
                     case "webrtc": DoWebrtc(stdout, idObj, c); break;
+                    // Virtual display driver (opt-in; Node gates it behind
+                    // BELAY_VIRTUAL_DISPLAY). Needs the BelayVDD driver from
+                    // native/win-display/ installed — without it the handler
+                    // throws a message that says so. See docs/VIRTUAL-DISPLAY.md.
+                    case "virtualdisplay": Reply(stdout, BelayVirtualDisplay.Handle(idObj, c)); break;
                     default: Err(stdout, idObj, "unknown command: " + cmd); break;
                 }
             }

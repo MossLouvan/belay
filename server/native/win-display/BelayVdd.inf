@@ -1,0 +1,72 @@
+; BelayVdd.inf — install package for the BelayVDD indirect display driver.
+;
+; STATUS: WRITTEN-BUT-NOT-COMPILED / NOT INSTALLED. Validate with
+;   infverif.exe /v /w BelayVdd.inf   (ships with the WDK)
+; and follow docs/VIRTUAL-DISPLAY.md before first install.
+;
+; Identity is Belay's own: HWID Root\BelayVDD, our class GUID usage per the
+; standard Display class, our provider string. Nothing collides with the
+; Microsoft sample (Root\IddSampleDriver), SudoVDA, or VirtualDrivers VDD.
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Display
+ClassGuid   = {4d36e968-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = BelayVdd.cat
+DriverVer   = 01/01/2026,1.0.0.0
+PnpLockdown = 1
+
+[Manufacturer]
+%ProviderName% = BelayVdd, NTamd64, NTarm64
+
+[BelayVdd.NTamd64]
+%DeviceName% = BelayVdd_Install, Root\BelayVDD
+
+[BelayVdd.NTarm64]
+%DeviceName% = BelayVdd_Install, Root\BelayVDD
+
+[SourceDisksFiles]
+BelayVdd.dll = 1
+
+[SourceDisksNames]
+1 = %DiskName%
+
+; ========== UMDF2 + IddCx wiring ==========
+
+[BelayVdd_Install.NT]
+CopyFiles = UMDriverCopy
+
+[BelayVdd_Install.NT.hw]
+AddReg = BelayVdd_HwAddReg
+
+; IndirectKmd is IddCx's kernel-mode companion and must sit above the UMDF
+; stack; AllowKernelModeClients below exists solely for it.
+[BelayVdd_HwAddReg]
+HKR,, "UpperFilters", %REG_MULTI_SZ%, "IndirectKmd"
+
+[BelayVdd_Install.NT.Services]
+AddService = ,0x00000002 ; null service — UMDF driver, WUDFRd is set up by the framework directive below
+
+[BelayVdd_Install.NT.Wdf]
+UmdfService      = BelayVdd, BelayVdd_UmdfInstall
+UmdfServiceOrder = BelayVdd
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfHostProcessSharing = ProcessSharingDisabled
+
+[BelayVdd_UmdfInstall]
+UmdfLibraryVersion = 2.15.0
+ServiceBinary      = %13%\BelayVdd.dll
+UmdfExtensions     = IddCx0102
+
+[DestinationDirs]
+UMDriverCopy = 13 ; Driver Store
+
+[UMDriverCopy]
+BelayVdd.dll
+
+[Strings]
+ProviderName = "Belay"
+DeviceName   = "Belay Virtual Display Adapter"
+DiskName     = "Belay Virtual Display Driver Installation Disk"
+REG_MULTI_SZ = 0x00010000
