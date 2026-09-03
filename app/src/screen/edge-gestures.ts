@@ -92,21 +92,25 @@ export function detectEdgeGesture(
 
 /**
  * Map an edge gesture to an action ID (KeySpec id from model.ts).
- * Returns null if the gesture doesn't map to any action.
+ * Returns null if the gesture doesn't map to any action, or if the action
+ * is not supported on the current host OS.
  * 
  * Current mappings:
- * - 2-finger swipe down from top-left/top-right/top → Notification Center
+ * - 2-finger swipe down from top edge → Action Center (Windows only)
+ * 
+ * @param result The detected edge gesture
+ * @param isMac Whether the host is macOS (vs Windows)
  */
-export function edgeGestureToAction(result: EdgeGestureResult): string | null {
+export function edgeGestureToAction(result: EdgeGestureResult, isMac: boolean): string | null {
   if (!result) return null;
   
   const { zone, direction } = result;
   
-  // 2-finger swipe from top edge (any part) inward → Notification Center
-  // This matches macOS behavior where swiping from the top-right (or configurable
-  // edge) with two fingers reveals Notification Center.
+  // 2-finger swipe from top edge inward → Action Center (Windows only).
+  // macOS has no default Notification Center hotkey — users must configure
+  // their own shortcut in System Settings → Keyboard if they want this.
   if ((zone === 'top-left' || zone === 'top-right' || zone === 'top') && direction === 'down') {
-    return 'NotifyCenter';
+    return isMac ? null : 'NotifyCenter';
   }
   
   // Future: Add more edge gesture mappings here as needed

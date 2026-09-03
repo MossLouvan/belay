@@ -20,7 +20,7 @@ export const SWIPE_ACTION_ID: Record<SwipeDirection, string> = Object.freeze({
   left: 'DeskNext',
   right: 'DeskPrev',
   up: 'Overview',
-  down: 'ShowDesktop',
+  down: 'AppExpose',
 });
 
 /** The slice of GESTURE the detector reads. Structural, so GESTURE fits. */

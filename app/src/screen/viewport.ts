@@ -479,7 +479,7 @@ export function useViewport(options: ViewportOptions): Viewport {
           const edgeResult = detectEdgeGesture(g.edgeStartX, g.edgeStartY, dx, dy, w, h, edgeTuning);
           
           if (edgeResult) {
-            const actionId = edgeGestureToAction(edgeResult);
+            const actionId = edgeGestureToAction(edgeResult, isMacRef.current);
             if (actionId) {
               g.kind = 'consumed';
               haptic('medium');

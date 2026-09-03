@@ -195,18 +195,14 @@ export const KEYS: readonly KeySpec[] = Object.freeze([
   { id: 'DeskNext', label: 'Desk →', key: 'right', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Next desktop' },
   { id: 'Overview', label: 'Views', key: 'tab', mods: ['win'], macKey: 'up', macMods: ['rawctrl'], action: 'See every window and desktop' },
 
-  // Notification center gestures. Triggered by 2-finger edge gestures on the
-  // remote screen. On Windows: Win+A opens Action Center. On macOS: there's no
-  // direct keyboard shortcut, so we send ⌃⌘up which triggers the gesture to
-  // reveal Notification Center from Control Center (available in macOS 11+).
-  // Note: macOS gesture behavior may vary by OS version and trackpad settings.
-  { id: 'NotifyCenter', label: 'Notify', key: 'a', mods: ['win'], macKey: 'up', macMods: ['rawctrl', 'cmd'], action: 'Open notification center' },
+  // 3-finger down: App Exposé on Mac (shows windows of current app), unbound
+  // on Windows (Win+D is destructive toggle). Triggered by 3-finger swipe down.
+  { id: 'AppExpose', label: 'App Windows', macKey: 'down', macMods: ['rawctrl'], action: 'Show windows of current app' },
 
-  // Desktop switching (3-finger down gesture): show desktop or minimize all.
-  // Windows: Win+D shows desktop (toggle). macOS: Mission Control's App Exposé
-  // (⌃↓) shows windows of the current app, or F11 shows desktop. Using F11
-  // for consistency with showing desktop behavior.
-  { id: 'ShowDesktop', label: 'Desktop', key: 'd', mods: ['win'], macKey: 'f11', macMods: [], action: 'Show desktop' },
+  // 2-finger edge gesture: Notification Center / Action Center. Triggered by
+  // 2-finger swipe down from top edge. Windows only — macOS has no default
+  // hotkey for NC (user must configure one in System Settings).
+  { id: 'NotifyCenter', label: 'Notify', key: 'a', mods: ['win'], action: 'Open action center' },
 ]);
 
 /** Modifiers to send for a key, honouring the macOS variant when relevant. */

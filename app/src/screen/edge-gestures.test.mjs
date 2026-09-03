@@ -89,27 +89,30 @@ test('non-edge touches never produce edge gestures', () => {
 
 // --- action mapping ---------------------------------------------------------
 
-test('edgeGestureToAction maps top edge downward swipe to notification center', () => {
+test('edgeGestureToAction maps top edge downward swipe to Action Center (Windows only)', () => {
   const gesture = { zone: 'top', direction: 'down' };
-  assert.equal(edgeGestureToAction(gesture), 'NotifyCenter');
+  assert.equal(edgeGestureToAction(gesture, false), 'NotifyCenter', 'Windows gets Action Center');
+  assert.equal(edgeGestureToAction(gesture, true), null, 'macOS has no default NC hotkey');
 });
 
-test('edgeGestureToAction maps top-left corner downward swipe to notification center', () => {
+test('edgeGestureToAction maps top-left corner downward swipe to Action Center (Windows only)', () => {
   const gesture = { zone: 'top-left', direction: 'down' };
-  assert.equal(edgeGestureToAction(gesture), 'NotifyCenter');
+  assert.equal(edgeGestureToAction(gesture, false), 'NotifyCenter');
+  assert.equal(edgeGestureToAction(gesture, true), null);
 });
 
-test('edgeGestureToAction maps top-right corner downward swipe to notification center', () => {
+test('edgeGestureToAction maps top-right corner downward swipe to Action Center (Windows only)', () => {
   const gesture = { zone: 'top-right', direction: 'down' };
-  assert.equal(edgeGestureToAction(gesture), 'NotifyCenter');
+  assert.equal(edgeGestureToAction(gesture, false), 'NotifyCenter');
+  assert.equal(edgeGestureToAction(gesture, true), null);
 });
 
 test('edgeGestureToAction returns null for unmapped gestures', () => {
   // Upward from top edge - not mapped
-  assert.equal(edgeGestureToAction({ zone: 'top', direction: 'up' }), null);
+  assert.equal(edgeGestureToAction({ zone: 'top', direction: 'up' }, false), null);
   
   // From left edge - not mapped yet
-  assert.equal(edgeGestureToAction({ zone: 'left', direction: 'right' }), null);
+  assert.equal(edgeGestureToAction({ zone: 'left', direction: 'right' }, false), null);
 });
 
 // --- keyboard chord resolution ----------------------------------------------
@@ -120,28 +123,29 @@ const actionChord = (actionId, mac) => {
   return { key: keyFor(spec, mac), mods: modsFor(spec, mac) };
 };
 
-test('NotifyCenter maps to Win+A on Windows', () => {
+test('NotifyCenter maps to Win+A on Windows, has no Mac chord', () => {
   const chord = actionChord('NotifyCenter', false);
   assert.equal(chord.key, 'a');
   assert.deepEqual(chord.mods, ['win']);
-});
-
-test('NotifyCenter maps to Ctrl+Cmd+Up on macOS', () => {
-  const chord = actionChord('NotifyCenter', true);
-  assert.equal(chord.key, 'up');
-  assert.deepEqual(chord.mods, ['rawctrl', 'cmd']);
-});
-
-test('ShowDesktop maps correctly on both platforms', () => {
-  // Windows: Win+D
-  const winChord = actionChord('ShowDesktop', false);
-  assert.equal(winChord.key, 'd');
-  assert.deepEqual(winChord.mods, ['win']);
   
-  // macOS: F11
-  const macChord = actionChord('ShowDesktop', true);
-  assert.equal(macChord.key, 'f11');
-  assert.deepEqual(macChord.mods, []);
+  // macOS has no default NC hotkey — KeySpec has no macKey/macMods
+  const spec = KEYS.find((key) => key.id === 'NotifyCenter');
+  assert.ok(spec);
+  assert.equal(spec.macKey, undefined);
+  assert.equal(spec.macMods, undefined);
+});
+
+test('AppExpose maps correctly: macOS only, no Windows binding', () => {
+  // macOS: rawctrl+down (App Exposé)
+  const macChord = actionChord('AppExpose', true);
+  assert.equal(macChord.key, 'down');
+  assert.deepEqual(macChord.mods, ['rawctrl']);
+  
+  // Windows: no binding (Win+D is destructive)
+  const spec = KEYS.find((key) => key.id === 'AppExpose');
+  assert.ok(spec);
+  assert.equal(spec.key, undefined, 'AppExpose has no Windows key');
+  assert.equal(spec.mods, undefined);
 });
 
 // --- integration with swipe detection --------------------------------------

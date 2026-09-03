@@ -899,9 +899,9 @@ export default function ScreenTab() {
           <Txt variant="bodyStrong">Multi-finger gestures</Txt>
           <Caption>
             Swipe three fingers left or right to switch desktops, three up for Mission Control / Task View, or three down
-            to show the desktop. Two-finger swipe from the top edge opens Notification Center (macOS) or Action Center
-            (Windows). These match your computer's native trackpad gestures — the Desk keys on the key bar's last page
-            do the same by touch.
+            to show windows of the current app (macOS only). On Windows, two-finger swipe from the top edge opens Action
+            Center. These match your computer's native trackpad gestures — the Desk keys on the key bar's last page do
+            the same by touch.
           </Caption>
           <Txt variant="bodyStrong">Key bar pages</Txt>
           <Caption>

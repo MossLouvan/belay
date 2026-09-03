@@ -20,26 +20,30 @@ All gestures work in any pointer mode (Touch, Scroll, or Trackpad) and are activ
 | 3-finger swipe left | Switch to next Space/desktop (⌃→) | Switch to next virtual desktop (Win+Ctrl+→) |
 | 3-finger swipe right | Switch to previous Space/desktop (⌃←) | Switch to previous virtual desktop (Win+Ctrl+←) |
 | 3-finger swipe up | Mission Control (⌃↑) | Task View (Win+Tab) |
-| 3-finger swipe down | Show Desktop (F11) | Show Desktop (Win+D) |
+| 3-finger swipe down | App Exposé — show windows of current app (⌃↓) | *Unbound* — Win+D is destructive |
 
 **Behavior notes:**
 - The content moves with your fingers: swiping left shows the desktop on the right
 - Requires crossing a 48px threshold to commit
 - Once committed, the gesture fires exactly once (no double-triggers)
 - Diagonal swipes wait until one axis is decisively ahead before committing
+- 3-finger down on Windows is deliberately unbound because Win+D is a destructive toggle
 
 ### Two-Finger Edge Swipes
 
 | Gesture | macOS Action | Windows Action |
 |---------|--------------|----------------|
-| 2-finger swipe down from top edge | Notification Center (⌃⌘↑)* | Action Center (Win+A) |
+| 2-finger swipe down from top edge | *Unsupported* — no default hotkey† | Action Center (Win+A) |
 
 **Edge detection:**
 - Gesture must start within 60px of the screen edge
 - Corner detection uses an 80px threshold for more precise targeting
 - Requires 40px of travel to commit
 
-*Note: macOS Notification Center keyboard shortcuts vary by OS version and user configuration. The implemented shortcut (⌃⌘↑) works on macOS 11+ with default settings. Some Macs may require different shortcuts depending on system preferences.
+†**macOS Notification Center:** macOS has no default keyboard shortcut for Notification Center. Users who want this gesture can:
+1. Configure a custom shortcut in **System Settings → Keyboard → Keyboard Shortcuts → Mission Control**
+2. Bind it to the same action Belay would send (if we shipped a Mac version of this gesture)
+3. The gesture is currently Windows-only to avoid shipping a non-functional default
 
 ## How It Works
 
@@ -114,8 +118,8 @@ Users learn about gestures through:
 - **Both**: Gestures should feel natural and responsive, matching trackpad behavior
 
 ### Known Limitations
-1. **macOS Notification Center**: The keyboard shortcut for Notification Center varies by OS version and user settings. The default implementation may not work on all Macs.
-2. **Windows Show Desktop**: Win+D toggles rather than momentarily revealing (App Exposé equivalent doesn't exist on Windows)
+1. **macOS Notification Center**: Not supported — macOS has no default keyboard shortcut for Notification Center. Users must configure their own shortcut if they want this functionality.
+2. **Windows 3-finger down**: Deliberately unbound — Win+D is a destructive toggle (shows desktop by minimizing all windows), not a transient reveal like macOS App Exposé. Shipping this would be surprising and potentially destructive.
 3. **React Native multi-touch**: Some phones may report limited touch point data; gesture detection gracefully degrades
 
 ## Future Enhancements
