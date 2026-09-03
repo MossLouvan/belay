@@ -3,7 +3,7 @@
 // keeps the connect screen from flashing before we know whether we are paired.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, View } from 'react-native';
+import { Alert, LogBox, Platform, View } from 'react-native';
 import { Stack, useRootNavigationState, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
@@ -17,6 +17,12 @@ import {
   AgentLink, parseAgentLink, planAgentLink, sessionKnown, settlePendingOpen,
 } from '../src/agent/deep-link';
 import { getAttention, refreshAttention, setOpenSession } from '../src/agent/attention-store';
+
+// The app intentionally registers two URI schemes (belay + the load-bearing
+// `tether` compat scheme), so expo-router notes that it picked one prefix. That
+// notice is expected config, not a defect — silence it so the dev LogBox stays
+// clean. (No blanket suppression; this matches only that one message.)
+LogBox.ignoreLogs([/multiple possible URI schemes/i]);
 
 /**
  * Longest we will hold the splash waiting for stored state. If the storage read
