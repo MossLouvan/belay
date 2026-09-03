@@ -8,9 +8,11 @@ import React, { useState } from 'react';
 import { View } from 'react-native';
 import type { AgentEvent } from '../api';
 import { useTheme } from '../theme';
-import { Micro, TrackLabel, Txt } from '../ui';
+import { Micro, Row, TrackLabel, Txt } from '../ui';
 import { resultSummary } from './model';
 import { resultToggleLabel, resultTruncated, truncationNote } from './feed-model';
+import { CopyLabel } from './copy-label';
+import { showMessageCopy } from './copy-model';
 
 // What a tool call came back with, collapsed to one tracked toggle by
 // default: a wall of raw output would drown the narration, but "what did
@@ -55,7 +57,16 @@ function ToolResult({ result }: { result: AgentEvent }) {
           }}
         >
           <Txt variant="monoSmall" tone="dim" selectable>{result.text}</Txt>
-          {resultTruncated(result) ? <Micro>{truncationNote(result)}</Micro> : null}
+          <Row justify="space-between" gap="sm">
+            {/* Selection handles across a wall of mono output are a fight;
+                the block's own Copy lifts the whole thing in one tap. */}
+            <CopyLabel
+              testID="feed-copy-output"
+              text={result.text}
+              accessibilityLabel="Copy this tool output"
+            />
+            {resultTruncated(result) ? <Micro>{truncationNote(result)}</Micro> : null}
+          </Row>
         </View>
       ) : null}
     </View>
@@ -75,22 +86,46 @@ export function EventRow({ event, result }: { event: AgentEvent; result?: AgentE
           gap: theme.space.xxs,
         }}
       >
-        <Micro tone="dim">You</Micro>
+        <Row justify="space-between" gap="sm">
+          <Micro tone="dim">You</Micro>
+          {/* A prompt is the message most often re-sent elsewhere, so the
+              whole block is one tap away, not a selection-handle fight. */}
+          {showMessageCopy(event) ? (
+            <CopyLabel testID="feed-copy-prompt" text={event.text ?? ''} accessibilityLabel="Copy this prompt" />
+          ) : null}
+        </Row>
         <Txt selectable>{event.text}</Txt>
       </View>
     );
   }
   if (event.kind === 'text') {
+    // Short lines lean on selection alone; long or multi-line prose earns a
+    // quiet Copy for the "give me the whole answer" gesture.
+    if (!showMessageCopy(event)) {
+      return (
+        <Txt selectable style={{ maxWidth: '95%' }}>
+          {event.text}
+        </Txt>
+      );
+    }
     return (
-      <Txt selectable style={{ maxWidth: '95%' }}>
-        {event.text}
-      </Txt>
+      <View style={{ gap: theme.space.xxs }}>
+        <Txt selectable style={{ maxWidth: '95%' }}>
+          {event.text}
+        </Txt>
+        <CopyLabel
+          testID="feed-copy-message"
+          text={event.text ?? ''}
+          accessibilityLabel="Copy this message"
+          style={{ alignSelf: 'flex-start' }}
+        />
+      </View>
     );
   }
   if (event.kind === 'tool') {
     return (
       <View style={{ gap: theme.space.xxs }}>
-        <Txt variant="monoSmall" tone="dim" numberOfLines={2}>
+        <Txt variant="monoSmall" tone="dim" numberOfLines={2} selectable>
           <Txt variant="monoSmall" tone="accent">{`▸ ${event.tool ?? 'tool'}`}</Txt>
           {event.detail ? `  ${event.detail}` : ''}
         </Txt>
@@ -110,16 +145,16 @@ export function EventRow({ event, result }: { event: AgentEvent; result?: AgentE
   if (event.kind === 'result') {
     return (
       <View style={{ gap: 2 }}>
-        <Txt variant="monoSmall" tone={event.ok ? 'good' : 'bad'}>{resultSummary(event)}</Txt>
-        {!event.ok && event.text ? <Txt variant="caption" tone="dim">{event.text}</Txt> : null}
+        <Txt variant="monoSmall" tone={event.ok ? 'good' : 'bad'} selectable>{resultSummary(event)}</Txt>
+        {!event.ok && event.text ? <Txt variant="caption" tone="dim" selectable>{event.text}</Txt> : null}
       </View>
     );
   }
   if (event.kind === 'error') {
-    return <Txt variant="caption" tone="bad">{event.text}</Txt>;
+    return <Txt variant="caption" tone="bad" selectable>{event.text}</Txt>;
   }
   return (
-    <Txt variant="caption" tone="faint">
+    <Txt variant="caption" tone="faint" selectable>
       {event.text}
     </Txt>
   );
