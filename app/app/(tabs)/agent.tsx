@@ -8,7 +8,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { useTheme } from '../../src/theme';
-import { ConnectionStatus, EmptyState, Rule, Txt } from '../../src/ui';
+import { Card, ConnectionStatus, EmptyState, Rule, Txt } from '../../src/ui';
 import { setOpenSession, useAgentAttention } from '../../src/agent/attention-store';
 import { SessionList } from '../../src/agent/session-list';
 import { SessionView } from '../../src/agent/session-view';
@@ -41,7 +41,9 @@ function NotConnected() {
         />
       </View>
       <Rule style={{ marginTop: theme.space.md }} />
-      <View style={{ paddingHorizontal: margin }}>
+      {/* The empty tab's one message sits in a bordered card, like every
+          other grouped surface after the Next Terminal sweep. */}
+      <Card style={{ marginHorizontal: margin, marginTop: theme.space.lg }}>
         {connecting ? (
           <EmptyState
             testID="agent-connecting"
@@ -60,7 +62,7 @@ function NotConnected() {
             action={{ label: 'Pick a computer', onPress: () => router.navigate('/devices') }}
           />
         )}
-      </View>
+      </Card>
     </View>
   );
 }

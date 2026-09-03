@@ -1,23 +1,24 @@
 // The Agent tab's home: Belay's own sessions, the "On this PC" list of Claude
 // Code sessions found on disk to resume, and the project picker for a new one.
 //
-// Ledger anatomy (docs/DESIGN.md §7.3): the sessions are three-line rows with
-// a status-dot column so the list scans as a table, hairline-separated, with
-// the section's actions as label buttons on the marker line. Loading renders
-// the same rows as skeleton bars at the text positions, so nothing reflows
-// when data lands.
+// Structure (Next Terminal sweep): a small stat strip — RUNNING / WAITING /
+// SPEND as thin-bordered stat cards — then each list as hairline-divided rows
+// inside a flush Card, like the reference's "Latest Sessions" table. Colour is
+// rationed: blue only for the active/primary, a small amber dot for a session
+// waiting on you, everything else navy and ink. Dots are steady — a hollow
+// ring while running, a filled disc otherwise — never a pulse.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { api } from '../api';
-import type { AgentProject, AgentSessionMeta, DiscoveredSession } from '../api';
+import type { AgentProject, AgentSessionMeta, AgentStatus, DiscoveredSession } from '../api';
 import { useTheme } from '../theme';
 import {
-  Badge, Banner, Button, Caption, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, TrackLabel, Txt, haptic,
+  Badge, Banner, Button, Caption, Card, Divider, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, TrackLabel, Txt, haptic,
 } from '../ui';
 import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
-import { ago, groupDiscovered, statusLabel, statusTone } from './model';
+import { ago, groupDiscovered, statusLabel } from './model';
 import { askSummary, countdown } from './attention';
 import { getAttention, refreshAttention, useAgentAttention } from './attention-store';
 import { combineLedgers, foldCosts, ledgerLine } from './cost-ledger';
@@ -165,7 +166,9 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   const unavailable = availability?.available === false;
   const groups = groupDiscovered(discovered);
   const margin = theme.layout.margin;
-  // The running total across every session — the list's own ledger row.
+  const running = sessions?.filter((s) => s.status === 'running').length ?? 0;
+  const waiting = sessions?.filter((s) => s.status === 'waiting').length ?? 0;
+  // The running total across every session — the strip's SPEND stat.
   const totalLine = ledgerLine(combineLedgers((sessions ?? []).map((s) => ledgers[s.id]).filter((l): l is CostLedger => l !== undefined)));
 
   return (
@@ -208,9 +211,34 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
         />
       ) : null}
 
+      {sessions !== null && sessions.length > 0 ? (
+        // The stat strip: the fleet at a glance, in the reference's stat-card
+        // idiom. A blue ring only while something is actually running; a small
+        // amber disc only while something waits on you.
+        <Row gap="sm" align="stretch" style={{ marginBottom: theme.space.lg }}>
+          <Card padding="sm" title="Running" testID="agent-stat-running" style={{ flex: 1 }}>
+            <Row gap="xs">
+              {running > 0 ? <Dot status="accent" ring size={7} /> : null}
+              <Txt variant="subheading">{String(running)}</Txt>
+            </Row>
+          </Card>
+          <Card padding="sm" title="Waiting" testID="agent-stat-waiting" style={{ flex: 1 }}>
+            <Row gap="xs">
+              {waiting > 0 ? <Dot status="warn" size={7} /> : null}
+              <Txt variant="subheading">{String(waiting)}</Txt>
+            </Row>
+          </Card>
+          <Card padding="sm" title="Spend" testID="agent-spend-total" style={{ flex: 1.6 }}>
+            {/* The summed ledger, in the mono ledger voice. */}
+            <Txt variant="monoSmall" tone={totalLine ? 'dim' : 'faint'} numberOfLines={1} style={{ paddingVertical: 2 }}>
+              {totalLine || '—'}
+            </Txt>
+          </Card>
+        </Row>
+      ) : null}
+
       <Section
         label="Sessions"
-        bleed={margin}
         rule={false}
         trailing={
           <TrackLabel
@@ -222,58 +250,59 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
           />
         }
       >
-        <Rule bleed={margin} />
-
         {sessions === null && !error ? (
-          <View>
+          <Card flush>
             {Array.from({ length: 3 }, (_, i) => (
-              <View key={i} style={{ paddingVertical: theme.space.sm, gap: theme.space.xs }}>
-                <Skeleton width={`${34 + i * 8}%`} height={11} />
-                <Skeleton width={`${58 + i * 10}%`} height={15} />
-                <Skeleton width="30%" height={10} />
+              <View key={i}>
+                {i > 0 ? <Divider /> : null}
+                <View style={{ paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, gap: theme.space.xs }}>
+                  <Skeleton width={`${44 + i * 10}%`} height={15} />
+                  <Skeleton width={`${58 + i * 8}%`} height={10} />
+                </View>
               </View>
             ))}
-          </View>
+          </Card>
         ) : null}
 
         {sessions?.length === 0 && !unavailable ? (
-          <EmptyState
-            testID="agent-empty"
-            title="No sessions yet"
-            message="Start one in a project folder and tell Claude what to build — you approve every action from here."
-            action={{ label: 'New session', onPress: () => setPicking(true) }}
-          />
+          <Card>
+            <EmptyState
+              testID="agent-empty"
+              title="No sessions yet"
+              message="Start one in a project folder and tell Claude what to build — you approve every action from here."
+              action={{ label: 'New session', onPress: () => setPicking(true) }}
+            />
+          </Card>
         ) : null}
 
-        {sessions?.map((s) => (
-          <SessionRow key={s.id} session={s} ledger={ledgers[s.id]} now={now} onOpen={onOpen} onRemove={remove} />
-        ))}
-
-        {totalLine ? (
-          // The section's ledger footer (docs/DESIGN.md §1): label-left,
-          // mono value-right — what all the sessions above cost, summed.
-          <Row testID="agent-spend-total" justify="space-between" gap="sm" style={{ paddingVertical: theme.space.sm }}>
-            <Label style={{ marginBottom: 0 }}>Spend</Label>
-            <Txt variant="monoSmall" tone="dim">{totalLine}</Txt>
-          </Row>
+        {sessions !== null && sessions.length > 0 ? (
+          <Card flush testID="agent-sessions">
+            {sessions.map((s, i) => (
+              <View key={s.id}>
+                {i > 0 ? <Divider /> : null}
+                <SessionRow session={s} ledger={ledgers[s.id]} now={now} onOpen={onOpen} onRemove={remove} />
+              </View>
+            ))}
+          </Card>
         ) : null}
       </Section>
 
       {groups.length > 0 ? (
-        <Section label="On this PC" bleed={margin} rule={false} style={{ marginTop: theme.space.xl }}>
-          <Caption style={{ marginBottom: theme.space.xs }}>
-            Past Claude Code sessions found on the computer — tap to resume with full context. If one is still open in a terminal there, close it first.
+        <Section label="On this PC" rule={false} style={{ marginTop: theme.space.xl }}>
+          <Caption style={{ marginBottom: theme.space.sm }}>
+            Past Claude Code sessions on the computer — tap to resume with full context.
           </Caption>
-          <Rule bleed={margin} />
-          {groups.map((g) => (
-            <View key={g.cwd}>
-              <Row gap="xs" style={{ minHeight: theme.space.xl, marginTop: theme.space.xs }}>
-                <Label style={{ marginBottom: 0 }}>{g.name}</Label>
-                <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flexShrink: 1 }}>{g.cwd}</Txt>
-              </Row>
-              {g.sessions.map((d) => (
-                <View key={d.claudeSessionId}>
+          <Card flush>
+            {groups.map((g, gi) => (
+              <View key={g.cwd}>
+                {gi > 0 ? <Divider /> : null}
+                <Row gap="xs" style={{ paddingHorizontal: theme.space.md, paddingTop: theme.space.sm, paddingBottom: theme.space.xxs }}>
+                  <Label style={{ marginBottom: 0 }}>{g.name}</Label>
+                  <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flexShrink: 1 }}>{g.cwd}</Txt>
+                </Row>
+                {g.sessions.map((d) => (
                   <Pressable
+                    key={d.claudeSessionId}
                     testID={`agent-resume-${d.claudeSessionId}`}
                     accessibilityRole="button"
                     accessibilityLabel={`Resume ${d.preview || 'untitled session'}`}
@@ -282,7 +311,7 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
                     style={({ pressed }) => ({
                       minHeight: theme.layout.minTouch,
                       justifyContent: 'center',
-                      gap: 2,
+                      paddingHorizontal: theme.space.md,
                       paddingVertical: theme.space.xs,
                       opacity: pressed || attaching === d.claudeSessionId ? theme.motion.pressOpacity : 1,
                     })}
@@ -294,11 +323,11 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
                       <Micro>{ago(d.mtime, now)}</Micro>
                     </Row>
                   </Pressable>
-                  <Rule bleed={margin} />
-                </View>
-              ))}
-            </View>
-          ))}
+                ))}
+                <View style={{ height: theme.space.xs }} />
+              </View>
+            ))}
+          </Card>
         </Section>
       ) : null}
     </ScrollView>
@@ -306,9 +335,20 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
 }
 
 /**
- * One session, three lines: status word and project on the marker line, the
- * task in prose, then the mono footnote. The remove control rides trailing —
- * × is one of the universal five and this is its conventional position.
+ * The row's status mark (REVAMP-SPEC §3.5): a hollow blue ring only while the
+ * turn is running (blue = active, and only then), a small amber disc while it
+ * waits on you, muted otherwise. Steady shapes — no pulse.
+ */
+const rowDot = (s: AgentStatus): { status: 'accent' | 'warn' | 'bad' | 'neutral'; ring: boolean } =>
+  s === 'running'
+    ? { status: 'accent', ring: true }
+    : { status: s === 'waiting' ? 'warn' : s === 'error' ? 'bad' : 'neutral', ring: false };
+
+/**
+ * One session, one table row: dot + title with the trailing status word, then
+ * the mono footnote (cwd left, spend right), then — only when it is asking —
+ * the amber "needs you" line with the auto-deny countdown. The remove control
+ * rides trailing; × is one of the universal five.
  */
 function SessionRow({
   session: s,
@@ -324,66 +364,64 @@ function SessionRow({
   onRemove: (id: string) => void;
 }) {
   const theme = useTheme();
-  const tone = statusTone(s.status);
+  const dot = rowDot(s.status);
   const spend = ledger ? ledgerLine(ledger) : '';
+  const idle = s.status === 'idle';
   return (
-    <View testID={`agent-session-${s.id}`}>
-      <Row gap="sm" align="flex-start">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Open ${s.title}, ${statusLabel(s.status)}`}
-          onPress={() => {
-            haptic('light');
-            onOpen(s.id);
-          }}
-          style={({ pressed }) => ({
-            flex: 1,
-            gap: theme.space.xxs,
-            paddingVertical: theme.space.sm,
-            minHeight: theme.layout.rowHeight,
-            opacity: pressed ? theme.motion.pressOpacity : 1,
-          })}
-        >
+    <Row testID={`agent-session-${s.id}`} gap="xs" align="flex-start" style={{ paddingLeft: theme.space.md }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${s.title}, ${statusLabel(s.status)}`}
+        onPress={() => {
+          haptic('light');
+          onOpen(s.id);
+        }}
+        style={({ pressed }) => ({
+          flex: 1,
+          gap: theme.space.xxs,
+          paddingVertical: theme.space.sm,
+          minHeight: theme.layout.rowHeight,
+          justifyContent: 'center',
+          opacity: pressed ? theme.motion.pressOpacity : 1,
+        })}
+      >
+        <Row gap="xs">
+          <Dot status={dot.status} ring={dot.ring} size={7} />
+          <Txt variant="subheading" numberOfLines={1} style={{ flex: 1 }}>{s.title}</Txt>
+          {/* One trailing fact: what it is doing, or — when idle — when it last did. */}
+          <Micro tone={idle ? 'faint' : s.status === 'waiting' ? 'warn' : s.status === 'error' ? 'bad' : 'accent'}>
+            {idle ? ago(s.lastUsed, now) : statusLabel(s.status)}
+          </Micro>
+        </Row>
+        <Row justify="space-between" gap="sm">
+          <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flexShrink: 1 }}>{s.cwd}</Txt>
+          {/* What this session has cost — value-right, like every ledger figure. */}
+          {spend ? <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{spend}</Txt> : null}
+        </Row>
+        {s.pending ? (
+          // What it wants and how long before the host gives up — so a list
+          // of several sessions leaves no doubt about which one is asking.
           <Row justify="space-between" gap="sm">
-            <Row gap="xs">
-              <Dot status={s.status === 'idle' ? 'neutral' : tone} pulse={s.status === 'running'} size={7} />
-              <Txt variant="label" tone={s.status === 'idle' ? 'dim' : tone}>{statusLabel(s.status)}</Txt>
-            </Row>
-            <Micro tone="dim">{ago(s.lastUsed, now)}</Micro>
+            <Txt variant="monoSmall" tone="warn" numberOfLines={1} style={{ flexShrink: 1 }}>
+              {askSummary(s.pending.tool, s.pending.detail)}
+            </Txt>
+            {s.pending.expiresAt ? (
+              <Micro tone="dim">{`auto-denies in ${countdown(s.pending.expiresAt, now)}`}</Micro>
+            ) : null}
           </Row>
-          <Txt variant="subheading" numberOfLines={1}>{s.title}</Txt>
-          <Row justify="space-between" gap="sm">
-            <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flexShrink: 1 }}>{s.cwd}</Txt>
-            {/* What this session has cost, on the mono footnote line it
-                belongs to — value-right, like every ledger figure. */}
-            {spend ? <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{spend}</Txt> : null}
-          </Row>
-          {s.pending ? (
-            // What it wants and how long before the host gives up — so a list
-            // of several sessions leaves no doubt about which one is asking.
-            <Row justify="space-between" gap="sm">
-              <Txt variant="monoSmall" tone="accent" numberOfLines={1} style={{ flexShrink: 1 }}>
-                {askSummary(s.pending.tool, s.pending.detail)}
-              </Txt>
-              {s.pending.expiresAt ? (
-                <Micro tone="dim">{`auto-denies in ${countdown(s.pending.expiresAt, now)}`}</Micro>
-              ) : null}
-            </Row>
-          ) : null}
-        </Pressable>
-        <IconButton
-          testID={`agent-del-${s.id}`}
-          accessibilityLabel={`Remove ${s.title}`}
-          accessibilityHint="Forgets this session in Belay; the transcript stays on the PC"
-          variant="plain"
-          hapticTone={null}
-          onPress={() => onRemove(s.id)}
-        >
-          <Txt variant="subheading" tone="faint">×</Txt>
-        </IconButton>
-      </Row>
-      <Rule bleed={theme.layout.margin} />
-    </View>
+        ) : null}
+      </Pressable>
+      <IconButton
+        testID={`agent-del-${s.id}`}
+        accessibilityLabel={`Remove ${s.title}`}
+        accessibilityHint="Forgets this session in Belay; the transcript stays on the PC"
+        variant="plain"
+        hapticTone={null}
+        onPress={() => onRemove(s.id)}
+      >
+        <Txt variant="subheading" tone="faint">×</Txt>
+      </IconButton>
+    </Row>
   );
 }
 
@@ -482,18 +520,20 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
 
       <View style={{ marginTop: theme.space.lg }}>
         {projects === null ? (
-          <View>
+          <Card flush>
             {Array.from({ length: 4 }, (_, i) => (
-              <View key={i} style={{ paddingVertical: theme.space.sm, gap: theme.space.xs }}>
-                <Skeleton width={`${40 + i * 10}%`} height={15} />
-                <Skeleton width="75%" height={11} />
+              <View key={i}>
+                {i > 0 ? <Divider /> : null}
+                <View style={{ paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, gap: theme.space.xs }}>
+                  <Skeleton width={`${40 + i * 10}%`} height={15} />
+                  <Skeleton width="75%" height={11} />
+                </View>
               </View>
             ))}
-          </View>
+          </Card>
         ) : projects.length > 0 ? (
           <Section
             label="Projects found"
-            bleed={margin}
             rule={false}
             trailing={
               <TrackLabel
@@ -504,35 +544,37 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
               />
             }
           >
-            <Rule bleed={margin} />
-            {projects.map((p) => (
-              <View key={p.path}>
-                <Pressable
-                  testID={`agent-proj-${p.name}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Start a session in ${p.name}`}
-                  disabled={busy !== null}
-                  onPress={() => {
-                    haptic('light');
-                    void create(p.path);
-                  }}
-                  style={({ pressed }) => ({
-                    minHeight: theme.layout.rowHeight,
-                    justifyContent: 'center',
-                    gap: 2,
-                    paddingVertical: theme.space.xs,
-                    opacity: pressed || busy === p.path ? theme.motion.pressOpacity : 1,
-                  })}
-                >
-                  <Row justify="space-between" gap="sm">
-                    <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</Txt>
-                    {p.recent ? <Badge label="recent" status="accent" /> : null}
-                  </Row>
-                  <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{p.path}</Txt>
-                </Pressable>
-                <Rule bleed={margin} />
-              </View>
-            ))}
+            <Card flush>
+              {projects.map((p, i) => (
+                <View key={p.path}>
+                  {i > 0 ? <Divider /> : null}
+                  <Pressable
+                    testID={`agent-proj-${p.name}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Start a session in ${p.name}`}
+                    disabled={busy !== null}
+                    onPress={() => {
+                      haptic('light');
+                      void create(p.path);
+                    }}
+                    style={({ pressed }) => ({
+                      minHeight: theme.layout.rowHeight,
+                      justifyContent: 'center',
+                      gap: 2,
+                      paddingHorizontal: theme.space.md,
+                      paddingVertical: theme.space.xs,
+                      opacity: pressed || busy === p.path ? theme.motion.pressOpacity : 1,
+                    })}
+                  >
+                    <Row justify="space-between" gap="sm">
+                      <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</Txt>
+                      {p.recent ? <Badge label="recent" status="accent" /> : null}
+                    </Row>
+                    <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{p.path}</Txt>
+                  </Pressable>
+                </View>
+              ))}
+            </Card>
           </Section>
         ) : (
           <View style={{ gap: theme.space.sm }}>
