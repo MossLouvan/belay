@@ -43,8 +43,8 @@ export type { SheetProps } from './sheet';
 export { haptic, setHapticsEnabled, areHapticsEnabled } from './haptics';
 export type { HapticTone } from './haptics';
 
-export { useReducedMotion, useToggleAnimation, usePulse } from './motion';
-export type { PressAnimation } from './motion';
+export { useReducedMotion, useToggleAnimation, useEntrance, usePulse } from './motion';
+export type { PressAnimation, EntranceStyle } from './motion';
 
 export { useKeyboardLift } from './keyboard-lift';
 export type { KeyboardLift } from './keyboard-lift';
