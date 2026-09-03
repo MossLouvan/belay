@@ -13,6 +13,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -25,6 +26,7 @@ import { useConnection } from '../../src/connection';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { wsUrl } from '../../src/api';
 import { Banner, Button, Dot, IconButton, Row, Rule, SegmentedControl, Txt } from '../../src/ui';
+import { useKeyboardShown } from '../../src/ui/keyboard-lift';
 import { useTheme } from '../../src/theme';
 import { ANSI_RAMPS, clearTermState, createTermState, feed } from '../../src/terminal-ansi';
 import type { TermLine, TermOptions, TermState } from '../../src/terminal-ansi';
@@ -69,6 +71,12 @@ export default function TerminalTab() {
   const { connection } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  // The keyboard is a state and needs a visible exit (docs/DESIGN.md §11.2).
+  // The key bar's `⌄ hide` key exists but lives at the end of a horizontally
+  // scrolling row, and the transcript's drag-to-dismiss is invisible — so the
+  // field itself carries a trailing dismiss while the keyboard is up, the
+  // same idiom as the Screen tab's TYPE row.
+  const keyboardUp = useKeyboardShown();
 
   const [term, setTerm] = useState<TermState>(createTermState);
   const [status, setStatus] = useState<Status>('connecting');
@@ -562,34 +570,53 @@ export default function TerminalTab() {
               screen belongs to TYPE alone: it is the field's default action,
               and RUN stands beside it in ink (docs/DESIGN.md §10). */}
           <Txt variant="mono" tone="dim" style={{ fontSize: 16 }}>›</Txt>
-          <TextInput
-            testID="term-input"
-            value={input}
-            onChangeText={onChangeInput}
-            placeholder={live ? 'Type into the shell…' : 'Not connected'}
-            placeholderTextColor={theme.colors.textFaint}
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="off"
-            spellCheck={false}
-            returnKeyType="send"
-            blurOnSubmit={false}
-            onSubmitEditing={typeInput}
-            accessibilityLabel="Shell input"
-            maxFontSizeMultiplier={1.4}
-            style={{
-              flex: 1,
-              backgroundColor: theme.colors.surface,
-              borderRadius: theme.radius.xs,
-              borderWidth: theme.layout.hairline,
-              borderColor: theme.colors.border,
-              color: theme.colors.text,
-              fontFamily: theme.font.mono,
-              paddingHorizontal: theme.space.md,
-              minHeight: theme.layout.minTouch,
-              fontSize: 14,
-            }}
-          />
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <TextInput
+              testID="term-input"
+              value={input}
+              onChangeText={onChangeInput}
+              placeholder={live ? 'Type into the shell…' : 'Not connected'}
+              placeholderTextColor={theme.colors.textFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="off"
+              spellCheck={false}
+              returnKeyType="send"
+              submitBehavior="submit"
+              onSubmitEditing={typeInput}
+              accessibilityLabel="Shell input"
+              maxFontSizeMultiplier={1.4}
+              style={{
+                backgroundColor: theme.colors.surface,
+                borderRadius: theme.radius.xs,
+                borderWidth: theme.layout.hairline,
+                borderColor: theme.colors.border,
+                color: theme.colors.text,
+                fontFamily: theme.font.mono,
+                paddingLeft: theme.space.md,
+                // Clears the trailing dismiss so long input scrolls under the
+                // field's edge, not under the glyph.
+                paddingRight: keyboardUp ? theme.layout.minTouch : theme.space.md,
+                minHeight: theme.layout.minTouch,
+                fontSize: 14,
+              }}
+            />
+            {/* The field's own way out of the keyboard, in the trailing spot
+                the Screen tab's TYPE row uses. Return can't do it — it TYPEs
+                the line and deliberately keeps focus for the next one. */}
+            {keyboardUp ? (
+              <View style={{ position: 'absolute', right: 0, top: 0, bottom: 0, justifyContent: 'center' }}>
+                <IconButton
+                  testID="term-hide-keyboard"
+                  accessibilityLabel="Hide the keyboard"
+                  variant="plain"
+                  onPress={() => Keyboard.dismiss()}
+                >
+                  <Txt variant="label" tone="dim">⌄</Txt>
+                </IconButton>
+              </View>
+            ) : null}
+          </View>
           <Button
             testID="term-type"
             label="Type"
