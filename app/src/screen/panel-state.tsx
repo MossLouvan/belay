@@ -16,7 +16,7 @@ import React, { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { getTheme, useTheme } from '../theme';
 import { Micro, Txt, haptic } from '../ui';
-import { backoffDelayMs } from './stream';
+import { retryPhrase } from './retry';
 import type { Phase } from './stream';
 
 /** The two verbs a stateless panel can offer (docs/DESIGN.md §11.3). */
@@ -30,9 +30,9 @@ export interface PanelCopy {
   readonly body: string;
   readonly action?: PanelAction;
   readonly actionLabel?: string;
-  /** Show the live retry countdown driven by the stream's backoff. */
+  /** Show the live outage clock ("Still trying · 9m") under the body. */
   readonly countdown: boolean;
-  /** Static proof-of-life line when there is no countdown to show. */
+  /** Static proof-of-life line when there is no outage clock to show. */
   readonly proof?: string;
 }
 
@@ -101,29 +101,26 @@ export function panelCopyFor(
 }
 
 /**
- * "RETRYING IN 4S · ATTEMPT 2" — the proof the app is alive. The deadline is
- * re-derived from the same backoff formula the socket actually uses, so the
- * countdown and the reconnect agree by construction rather than by luck.
+ * "STILL TRYING · 9M" — the proof the app is alive. The old line here counted
+ * backoff attempts ("RETRYING IN 4S · ATTEMPT 86"), which reads as an app
+ * confessing it has blind-retried for ten minutes; the honest, useful fact is
+ * how long the outage has lasted. The stream now probes `/health` between
+ * backoff ticks and reconnects the instant the host answers, so there is no
+ * countdown worth showing either — the phrasing lives in ./retry.ts where the
+ * node tests hold it to its word.
  */
-function RetryCountdown({ attempt }: { attempt: number }) {
+function OutageClock({ sinceMs }: { sinceMs: number | null }) {
   const ink = getTheme('dark').colors;
-  const [deadline, setDeadline] = useState(() => Date.now() + backoffDelayMs(attempt));
   const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    setDeadline(Date.now() + backoffDelayMs(attempt));
-  }, [attempt]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  const remaining = Math.ceil((deadline - now) / 1000);
-  const text = remaining > 0 ? `Retrying in ${remaining}s · attempt ${attempt}` : 'Retrying now…';
   return (
     <Micro testID="panel-countdown" style={{ color: ink.onMachineDim }}>
-      {text}
+      {retryPhrase(now, sinceMs ?? now)}
     </Micro>
   );
 }
@@ -131,7 +128,8 @@ function RetryCountdown({ attempt }: { attempt: number }) {
 export interface PanelStateProps {
   connected: boolean;
   phase: Phase;
-  attempt: number;
+  /** When the current outage began (`StreamState.retryingSinceMs`). */
+  retryingSinceMs: number | null;
   streamError: string | null;
   captureBlocked: boolean;
   captureKnown: boolean;
@@ -149,7 +147,7 @@ export interface PanelStateProps {
 export function PanelState({
   connected,
   phase,
-  attempt,
+  retryingSinceMs,
   streamError,
   captureBlocked,
   captureKnown,
@@ -210,7 +208,7 @@ export function PanelState({
           </Pressable>
         ) : null}
         {copy.countdown ? (
-          <RetryCountdown attempt={attempt} />
+          <OutageClock sinceMs={retryingSinceMs} />
         ) : copy.proof ? (
           <Micro style={{ color: ink.onMachineDim }}>{copy.proof}</Micro>
         ) : null}

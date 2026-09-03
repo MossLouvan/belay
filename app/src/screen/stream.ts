@@ -6,8 +6,9 @@
 // Screen Recording / Accessibility permission flags.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
+import { api, checkHost, getConnection, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
 import { buildConfigMessage, messageOf, numberOf, PERMISSION_PATTERN, QualityPreset, STREAM, VirtualRequest } from './model';
+import { PROBE_INTERVAL_MS, shouldProbeDuringBackoff } from './retry';
 
 export type Phase = 'idle' | 'connecting' | 'live' | 'stalled' | 'reconnecting' | 'error';
 
@@ -89,7 +90,13 @@ export interface StreamState {
   readonly frameUri: string | null;
   readonly stats: StreamStats;
   readonly error: string | null;
-  readonly attempt: number;
+  /**
+   * When the current outage began (epoch ms), or null while the picture is
+   * healthy. The panel phrases this as elapsed time ("Still trying · 9m") —
+   * an attempt counter is an implementation confession, not a fact a user
+   * can act on.
+   */
+  readonly retryingSinceMs: number | null;
   readonly retry: () => void;
 }
 
@@ -117,11 +124,7 @@ const newCounters = (): FrameCounters => ({
 
 const SOCKET_OPEN = 1;
 
-/**
- * Delay before reconnect attempt N (1-based). Exported because the panel's
- * "RETRYING IN 4S" countdown must agree with the socket's actual schedule —
- * one formula, two readers.
- */
+/** Delay before reconnect attempt N (1-based). */
 export const backoffDelayMs = (attempt: number): number =>
   Math.min(STREAM.backoffMaxMs, STREAM.backoffBaseMs * 2 ** Math.max(0, attempt - 1));
 
@@ -163,7 +166,7 @@ export function useScreenStream(
   const [frameUri, setFrameUri] = useState<string | null>(null);
   const [stats, setStats] = useState<StreamStats>(EMPTY_STATS);
   const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  const [retryingSinceMs, setRetryingSinceMs] = useState<number | null>(null);
   const [generation, setGeneration] = useState(0);
 
   const socketRef = useRef<WebSocket | null>(null);
@@ -192,11 +195,11 @@ export function useScreenStream(
   useEffect(() => {
     if (!active) {
       // The previous run's cleanup has already closed the socket and cleared
-      // both timers. Clearing the attempt counter and the last fault as well
+      // every timer. Clearing the outage clock and the last fault as well
       // means a refocus starts from a clean "connecting", never mid-backoff and
       // never showing a stale error banner for a socket that no longer exists.
       setPhase('idle');
-      setAttempt(0);
+      setRetryingSinceMs(null);
       setError(null);
       counters.current = newCounters();
       setStats(EMPTY_STATS);
@@ -205,6 +208,8 @@ export function useScreenStream(
 
     let disposed = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let probeTimer: ReturnType<typeof setInterval> | undefined;
+    let probeInFlight = false;
     // Local to this effect run, so every resume restarts the backoff at zero.
     let tries = 0;
 
@@ -221,8 +226,9 @@ export function useScreenStream(
       setFrameUri(`data:image/jpeg;base64,${frame.data}`);
       // Reset the backoff only once a real frame arrives — not on socket open,
       // which an accept-then-immediately-close host also triggers, pinning the
-      // retry at the 1s floor forever.
-      if (tries !== 0) { tries = 0; setAttempt(0); }
+      // retry at the 1s floor forever. The outage clock stops for the same
+      // reason: only a picture proves the outage is over.
+      if (tries !== 0) { tries = 0; setRetryingSinceMs(null); }
       // Functional updates so a steady stream of identical values bails out of
       // re-rendering rather than churning at the frame rate.
       setPhase((prev) => (prev === 'live' ? prev : 'live'));
@@ -240,12 +246,50 @@ export function useScreenStream(
       onFrame(msg.frame);
     };
 
+    const stopProbe = (): void => {
+      if (probeTimer === undefined) return;
+      clearInterval(probeTimer);
+      probeTimer = undefined;
+    };
+
+    // While a long backoff wait is pending, shadow it with a cheap `/health`
+    // probe so the stream reconnects the instant the host answers — a Mac
+    // waking from sleep should not sit out the rest of a 15s tick. A probe
+    // failure changes nothing: the backoff timer is still armed and remains
+    // the plan of record.
+    const startProbe = (): void => {
+      if (probeTimer !== undefined) return;
+      probeTimer = setInterval(() => {
+        if (probeInFlight) return;
+        const host = getConnection()?.host;
+        if (!host) return;
+        probeInFlight = true;
+        void checkHost(host).then((check) => {
+          probeInFlight = false;
+          // `probeTimer === undefined` means this probe was stopped (retry
+          // fired, or teardown) while the request was in flight — its answer
+          // no longer speaks for anyone.
+          if (disposed || probeTimer === undefined || !check.ok) return;
+          stopProbe();
+          clearTimeout(retryTimer);
+          void open().catch(() => scheduleRetry());
+        });
+      }, PROBE_INTERVAL_MS);
+    };
+
     const scheduleRetry = (): void => {
       if (disposed) return;
       tries += 1;
-      setAttempt(tries);
+      // The outage clock starts at the FIRST failure and keeps running across
+      // every retry until a frame arrives; later failures are the same outage.
+      if (tries === 1) setRetryingSinceMs(Date.now());
       setPhase('reconnecting');
-      retryTimer = setTimeout(() => void open().catch(() => scheduleRetry()), backoffDelayMs(tries));
+      const delay = backoffDelayMs(tries);
+      retryTimer = setTimeout(() => {
+        stopProbe();
+        void open().catch(() => scheduleRetry());
+      }, delay);
+      if (shouldProbeDuringBackoff(delay)) startProbe();
     };
 
     // Async because the upgrade URL now needs a ticket fetched over HTTP first.
@@ -354,6 +398,7 @@ export function useScreenStream(
     return () => {
       disposed = true;
       clearTimeout(retryTimer);
+      stopProbe();
       clearInterval(ticker);
       const socket = socketRef.current;
       socketRef.current = null;
@@ -368,11 +413,11 @@ export function useScreenStream(
 
   const retry = useCallback(() => {
     setError(null);
-    setAttempt(0);
+    setRetryingSinceMs(null);
     setGeneration((g) => g + 1);
   }, []);
 
-  return { phase, frameUri, stats, error, attempt, retry };
+  return { phase, frameUri, stats, error, retryingSinceMs, retry };
 }
 
 // --- host facts -------------------------------------------------------------
