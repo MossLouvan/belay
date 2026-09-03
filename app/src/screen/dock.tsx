@@ -89,8 +89,6 @@ export interface ControlDockProps {
   armed: PendingButton;
   onToggleRight: () => void;
   onToggleDouble: () => void;
-  keysOn: boolean;
-  onToggleKeys: () => void;
   typeOpen: boolean;
   onToggleType: () => void;
   screens: readonly MonitorChoice[];
@@ -123,8 +121,6 @@ export function ControlDock({
   armed,
   onToggleRight,
   onToggleDouble,
-  keysOn,
-  onToggleKeys,
   typeOpen,
   onToggleType,
   screens,
@@ -269,14 +265,6 @@ export function ControlDock({
           />
         </Row>
         <Row gap="xs">
-          <DockKey
-            testID="toggle-keys"
-            label="Keys"
-            accessibilityLabel={keysOn ? 'Hide the key bar' : 'Show the key bar'}
-            active={keysOn}
-            floating={floating}
-            onPress={wrap(onToggleKeys)}
-          />
           <DockKey
             testID="toggle-type"
             label="Type"

@@ -98,7 +98,7 @@ test.describe('Belay', () => {
 
     // The key bar is hidden until the keyboard button reveals it.
     await expect(page.getByTestId('key-Esc')).toHaveCount(0);
-    await page.getByTestId('toggle-keys').click();
+    await page.getByTestId('stage-keys').click();
     await expect(page.getByTestId('key-Esc')).toBeVisible();
 
     // Page-1 keys each post to the host.
@@ -110,7 +110,7 @@ test.describe('Belay', () => {
     await page.getByTestId('key-Esc').click();
 
     // Hiding the key bar removes it again.
-    await page.getByTestId('toggle-keys').click();
+    await page.getByTestId('stage-keys').click();
     await expect(page.getByTestId('key-Esc')).toHaveCount(0);
 
     // Text send lives behind the "Aa" toggle.

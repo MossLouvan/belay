@@ -432,8 +432,6 @@ export default function ScreenTab() {
         armed={button}
         onToggleRight={() => setButton((b) => (b === 'right' ? 'none' : 'right'))}
         onToggleDouble={() => setButton((b) => (b === 'double' ? 'none' : 'double'))}
-        keysOn={keysOn}
-        onToggleKeys={() => setKeysOn((v) => !v)}
         typeOpen={typeOpen}
         onToggleType={() => setTypeOpen((v) => !v)}
         screens={screens}
