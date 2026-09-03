@@ -2,6 +2,8 @@
 // arrows, a breadcrumb path bar with copy, a Go-to-Folder sheet for pasted
 // paths, sortable Name/Kind/Size/Date columns with folders leading, and a
 // per-row ⋯ (long-press as the shortcut) that surfaces an entry's details.
+// Dotfiles are hidden by default behind a persisted "Show hidden" toggle
+// (src/files/hidden.ts), with the count line stating what is withheld.
 // Read-only by design —
 // a phone file manager that can't clobber anything on the PC, and the host
 // exposes no write route at all.
@@ -38,6 +40,9 @@ import { PathBar } from '../../src/files/path-bar';
 import { GoToSheet } from '../../src/files/go-to-sheet';
 import { SortHeader } from '../../src/files/sort-header';
 import { InfoCard } from '../../src/files/info-card';
+import { hiddenCount, toggledHiddenMode, withoutHidden } from '../../src/files/hidden';
+import type { HiddenMode } from '../../src/files/hidden';
+import { loadHiddenMode, persistHiddenMode } from '../../src/files/hidden-store';
 
 // --- constants ---------------------------------------------------------------
 
@@ -68,6 +73,7 @@ export default function FilesTab() {
   const [selected, setSelected] = useState<FileEntry | null>(null);
   const [history, setHistory] = useState<NavHistory>(emptyHistory);
   const [gotoOpen, setGotoOpen] = useState(false);
+  const [hiddenMode, setHiddenMode] = useState<HiddenMode>('hide');
   const [now, setNow] = useState(() => Date.now());
 
   const cancelled = useRef(false);
@@ -77,6 +83,23 @@ export default function FilesTab() {
     return () => {
       cancelled.current = true;
     };
+  }, []);
+
+  // The show-hidden choice outlives the session (hidden-store.ts): someone
+  // who works in dotfiles works in them every launch, and re-hiding on each
+  // open would make the toggle feel broken.
+  useEffect(() => {
+    void loadHiddenMode().then((mode) => {
+      if (!cancelled.current) setHiddenMode(mode);
+    });
+  }, []);
+
+  const toggleHidden = useCallback(() => {
+    setHiddenMode((mode) => {
+      const next = toggledHiddenMode(mode);
+      void persistHiddenMode(next);
+      return next;
+    });
   }, []);
 
   /**
@@ -206,12 +229,14 @@ export default function FilesTab() {
   const parent = useMemo(() => parentOf(path), [path]);
 
   const visible = useMemo(() => {
+    const shown = hiddenMode === 'hide' ? withoutHidden(entries) : entries;
     const needle = query.trim().toLowerCase();
-    const filtered = needle ? entries.filter((e) => e.name.toLowerCase().includes(needle)) : entries;
+    const filtered = needle ? shown.filter((e) => e.name.toLowerCase().includes(needle)) : shown;
     return sortEntries(filtered, sortKey, descending);
-  }, [descending, entries, query, sortKey]);
+  }, [descending, entries, hiddenMode, query, sortKey]);
 
   const folderCount = useMemo(() => visible.filter((e) => e.dir).length, [visible]);
+  const hiddenN = useMemo(() => hiddenCount(entries), [entries]);
   const renderItem = useCallback(
     ({ item }: { item: FileEntry }) => (
       <FileRow
@@ -238,17 +263,29 @@ export default function FilesTab() {
           <Txt variant="title" heading>
             Files
           </Txt>
-          {/* Quiet tracked label, not accent: this screen's one accented
-              selection is the active root, and a rarely-used verb must not
-              dilute it (docs/DESIGN.md §3.3). The resting track says tappable. */}
-          <TrackLabel
-            testID="files-goto"
-            label="Go to…"
-            accessibilityLabel="Go to a folder path"
-            accessibilityHint="Type or paste an absolute path"
-            onPress={() => setGotoOpen(true)}
-            hitSlop={theme.layout.hitSlop}
-          />
+          {/* Quiet tracked labels, not accent: this screen's one accented
+              selection is the active root, and these occasional verbs must not
+              dilute it (docs/DESIGN.md §3.3). The resting track says tappable.
+              The hidden toggle states the *action*, so its label flips with
+              the mode; the count line below carries the "· N hidden" receipt. */}
+          <Row gap="lg" align="flex-end">
+            <TrackLabel
+              testID="files-hidden-toggle"
+              label={hiddenMode === 'hide' ? 'Show hidden' : 'Hide hidden'}
+              accessibilityLabel={hiddenMode === 'hide' ? 'Show hidden files' : 'Hide hidden files'}
+              accessibilityHint="Files whose names start with a dot"
+              onPress={toggleHidden}
+              hitSlop={theme.layout.hitSlop}
+            />
+            <TrackLabel
+              testID="files-goto"
+              label="Go to…"
+              accessibilityLabel="Go to a folder path"
+              accessibilityHint="Type or paste an absolute path"
+              onPress={() => setGotoOpen(true)}
+              hitSlop={theme.layout.hitSlop}
+            />
+          </Row>
         </Row>
         {/* The freshness stamp lives up here in the fixed header — visible
             before the need arises, proving the listing's age and implying
@@ -257,6 +294,10 @@ export default function FilesTab() {
           <Label numberOfLines={1} style={{ marginBottom: 0, flexShrink: 1 }}>
             {[
               `${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`,
+              // The count line owns the honesty: while dotfiles are filtered
+              // out, it says how many, so a "missing" file is one glance from
+              // its explanation — and the toggle sits right beside the number.
+              hiddenMode === 'hide' && hiddenN > 0 ? `${hiddenN} hidden` : '',
               formatAsOf(now),
             ]
               .filter(Boolean)
@@ -366,6 +407,16 @@ export default function FilesTab() {
                 title="Nothing matches"
                 message={`No item in this folder contains “${query.trim()}”.`}
                 action={{ label: 'Clear the filter', onPress: () => setQuery('') }}
+              />
+            ) : hiddenMode === 'hide' && hiddenN > 0 ? (
+              // Everything here is a dotfile. A bare "empty" would be a lie —
+              // say what is being withheld and hand over the one action that
+              // reveals it.
+              <EmptyState
+                testID="files-all-hidden"
+                title="Only hidden items here"
+                message={`This folder holds ${hiddenN} hidden item${hiddenN === 1 ? '' : 's'} and nothing else.`}
+                action={{ label: 'Show hidden', onPress: toggleHidden }}
               />
             ) : (
               <EmptyState testID="files-empty" title="This folder is empty" message="There is nothing here to open." />
