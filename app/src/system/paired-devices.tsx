@@ -3,25 +3,26 @@
 // scenario revocation exists for: a phone that is lost is not the phone you
 // are holding, and the computer may be a train ride away.
 //
-// The row button is a quiet ghost (the devices screen's Forget follows the
-// same shape); the danger lives in the confirmation sheet, where the
-// consequence is spelled out *before* the red button — and revoking the very
-// phone in your hand is its own, distinctly-worded event, because it ends
-// with this phone logged out.
+// Sweep form: a flush bordered card of hairline-divided rows, like the
+// reference's "Latest Sessions" table. The row button is a quiet ghost (the
+// devices screen's Forget follows the same shape); the danger lives in the
+// confirmation sheet, where the consequence is spelled out *before* the red
+// button — and revoking the very phone in your hand is its own, distinctly
+// worded event, because it ends with this phone logged out.
 
 import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
 import { api, UnauthorizedError } from '../api';
-import { Button, Caption, Column, LedgerRow, Row, Section, Sheet, Txt } from '../ui';
+import { Button, Caption, Card, Column, Row, Sheet, Txt } from '../ui';
 import { fmtAgo } from './format';
+import { CardRow } from './card-row';
 import { canRevoke, isSelfDevice, revocationCopy } from './devices-model';
 import type { PairedDevice } from './devices-model';
 
 export interface DevicesSectionProps {
   readonly devices: readonly PairedDevice[];
   readonly now: number;
-  readonly bleed?: number;
   /** The full token this phone authenticates with — identifies "this phone" among the rows. */
   readonly ownToken?: string;
   /** Reload the list after a successful revoke of some *other* device. */
@@ -30,7 +31,7 @@ export interface DevicesSectionProps {
   readonly onSelfRevoked: () => void;
 }
 
-export function DevicesSection({ devices, now, bleed = 0, ownToken, onChanged, onSelfRevoked }: DevicesSectionProps) {
+export function DevicesSection({ devices, now, ownToken, onChanged, onSelfRevoked }: DevicesSectionProps) {
   const theme = useTheme();
   const [pending, setPending] = useState<PairedDevice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -67,17 +68,14 @@ export function DevicesSection({ devices, now, bleed = 0, ownToken, onChanged, o
   if (devices.length === 0) return null;
 
   return (
-    <Section testID="devices-card" label="Paired devices" bleed={bleed}>
+    <Card testID="devices-card" flush title="Paired devices">
       {devices.map((device, index) => {
         const self = isSelfDevice(device, ownToken);
         return (
-          <LedgerRow
+          <CardRow
             key={`${device.tokenPrefix}-${device.createdAt}-${index}`}
             label={self ? `${device.name} · this phone` : device.name}
-            // The section draws the closing hairline; a rule under the last
-            // row would double it within 8pt (docs/DESIGN.md §6).
-            rule={index < devices.length - 1}
-            bleed={bleed}
+            divider={index < devices.length - 1}
           >
             <Row gap="sm" style={{ flexShrink: 1 }}>
               <Txt variant="mono" tone="dim" numberOfLines={1} style={{ flexShrink: 1 }}>
@@ -95,18 +93,20 @@ export function DevicesSection({ devices, now, bleed = 0, ownToken, onChanged, o
                 />
               ) : null}
             </Row>
-          </LedgerRow>
+          </CardRow>
         );
       })}
       {error ? (
-        <Caption style={{ marginTop: theme.space.xs, color: theme.colors.bad }}>
+        <Caption
+          style={{
+            paddingHorizontal: theme.space.md,
+            paddingBottom: theme.space.sm,
+            color: theme.colors.bad,
+          }}
+        >
           {`Couldn’t revoke: ${error}`}
         </Caption>
-      ) : (
-        <Caption style={{ marginTop: theme.space.xs }}>
-          Revoking cuts a device’s access to this computer immediately, live screen and terminal included.
-        </Caption>
-      )}
+      ) : null}
 
       <Sheet
         visible={pending !== null}
@@ -132,6 +132,6 @@ export function DevicesSection({ devices, now, bleed = 0, ownToken, onChanged, o
           </Row>
         </Column>
       </Sheet>
-    </Section>
+    </Card>
   );
 }
