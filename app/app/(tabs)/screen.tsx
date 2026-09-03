@@ -671,7 +671,7 @@ export default function ScreenTab() {
             testID="panel-state"
             connected={Boolean(connection)}
             phase={stream.phase}
-            attempt={stream.attempt}
+            retryingSinceMs={stream.retryingSinceMs}
             streamError={stream.error}
             captureBlocked={permissions.captureBlocked}
             captureKnown={permissions.known}
