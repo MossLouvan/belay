@@ -233,6 +233,14 @@ export function useScreenStream(active: boolean, quality: QualityPreset, screen?
     // would leak one that nothing ever closes.
     async function open(): Promise<void> {
       if (disposed) return;
+      // Disarm the stall detector for the new socket. `lastFrameAt` is a ref
+      // that survives reconnects, so without this the ticker sees the previous
+      // socket's last-frame timestamp (already older than stallAfterMs after a
+      // sleep/relay hiccup) and closes the fresh socket before its first frame
+      // — reconnecting forever on any link where handshake + first frame > 1s.
+      // The `lastFrameAt > 0` guard keeps the check disabled until a real frame
+      // re-arms it.
+      counters.current.lastFrameAt = 0;
       setPhase(tries === 0 ? 'connecting' : 'reconnecting');
       const preset = qualityRef.current;
       const screenIndex = screenRef.current;

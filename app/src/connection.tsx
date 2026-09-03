@@ -16,6 +16,7 @@ import {
   orderAddresses, adoptRealId, findDevice,
 } from './devices/model';
 import { checkHostIdentity } from './devices/identity';
+import { isUnresolved } from './devices/token-resolve';
 import { loadStore, saveStore } from './devices/storage';
 import { raceAddresses } from './devices/race';
 
@@ -98,6 +99,20 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     storeRef.current = from;
     const attempt = ++attemptRef.current;
     setPhase('connecting');
+
+    if (isUnresolved(device.token)) {
+      // The keychain was unreadable when the store loaded (phone locked at a
+      // protected-data launch), so this device still carries the marker, not a
+      // real token. /health needs no auth and would answer, painting a
+      // 'connected' computer whose every authed call then 401s — surfaced later
+      // as the misleading "no longer paired". Treat it as unreachable now; the
+      // next cold launch re-reads the keychain and resolves the token.
+      setConn(null);
+      clearClientConnection();
+      setActiveUrl(null);
+      setPhase('unreachable');
+      return;
+    }
 
     const ordered = orderAddresses(device.addresses, device.lastKnownGoodUrl);
     const winner = await raceAddresses(ordered, async (url, signal) => {
@@ -186,8 +201,15 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
   }, [store, commit, connectTo]);
 
   const forget = useCallback(async (id: string) => {
-    attemptRef.current += 1; // cancel any in-flight connect to the forgotten device
     const wasActive = store.activeId === id;
+    // Only cancel an in-flight connect when we're forgetting the computer that
+    // connect is actually talking to. Bumping the counter unconditionally also
+    // cancels an in-flight connect to the *active* machine when a different,
+    // non-active computer is forgotten — that connect then fails its own
+    // attempt guard and returns without ever setting a phase, wedging the app
+    // at 'connecting' forever (auto-reconnect waits out 'connecting', so it
+    // never recovers either).
+    if (wasActive) attemptRef.current += 1;
     const next = removeDevice(store, id);
     await commit(next);
 

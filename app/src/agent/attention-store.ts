@@ -61,6 +61,18 @@ export function setOpenSession(id: string | null): void {
   if (state.openId !== id) setState({ openId: id });
 }
 
+/**
+ * Drop everything tied to a specific host — call it the instant the active
+ * computer changes. The store is module-level and its session ids, open
+ * session and pending-approval banner are all scoped to one host; carrying
+ * them across a switch opens `/ws/agent?session=<old-id>` against the new host
+ * and POSTs the old host's approvals to the new one. Cleared to the pristine
+ * "nothing fetched yet" shape so the next poll repopulates from the new host.
+ */
+export function resetAttention(): void {
+  setState({ sessions: null, fetchedAt: 0, error: '', openId: null });
+}
+
 /** One fetch of the list. Errors land in state instead of throwing. */
 export async function refreshAttention(): Promise<void> {
   if (!getConnection()) return;

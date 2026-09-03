@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { font, useTheme } from '../../src/theme';
 import { waitingSessions } from '../../src/agent/attention';
-import { useAgentAttention } from '../../src/agent/attention-store';
+import { useAgentAttention, resetAttention } from '../../src/agent/attention-store';
 import { NeedsYouBanner } from '../../src/agent/needs-you-banner';
 
 type TabName = 'screen' | 'agent' | 'terminal' | 'files' | 'system';
@@ -206,6 +206,21 @@ export default function TabsLayout() {
   // whole app; the count drives the Agent tab badge and the banner below.
   const { sessions } = useAgentAttention();
   const waitingCount = waitingSessions(sessions ?? []).length;
+
+  // The attention store is module-level and its sessions/openId/approvals are
+  // scoped to one host. When the active computer changes, wipe them so a
+  // quick-switch can't leave the old host's session open (a dead
+  // `/ws/agent?session=<old-id>` against the new host) or POST its pending
+  // approval to the wrong machine. Keyed on host, so a plain reconnect to the
+  // same computer keeps the open session.
+  const host = connection?.host ?? null;
+  const prevHostRef = React.useRef<string | null>(host);
+  React.useEffect(() => {
+    if (prevHostRef.current !== host) {
+      if (prevHostRef.current !== null) resetAttention();
+      prevHostRef.current = host;
+    }
+  }, [host]);
 
   // Guard: never show the tabs without a live connection. Where to send the
   // user depends on why there isn't one — with no computers saved they need the
