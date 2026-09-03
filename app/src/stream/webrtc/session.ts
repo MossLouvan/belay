@@ -21,7 +21,7 @@ import { LatencyWindow, type FrameTiming } from './latency.ts';
 import {
   begin, close, connectionStateChanged, initialState, isTerminal,
   localDescription, receive,
-  type SignalEffect, type SignalMessage, type SignalRole, type SignalState, type Transition,
+  type IceCandidatePayload, type SignalEffect, type SignalMessage, type SignalRole, type SignalState, type Transition,
 } from './signaling.ts';
 
 /** Where the ABR controller starts before it has any link feedback. A
@@ -35,7 +35,7 @@ export interface PeerAdapter {
   createOffer(): Promise<string>;
   createAnswer(): Promise<string>;
   setRemoteDescription(sdp: string, type: 'offer' | 'answer'): Promise<void>;
-  addIceCandidate(candidate: string): Promise<void>;
+  addIceCandidate(candidate: IceCandidatePayload): Promise<void>;
   send(message: SignalMessage): void;
   teardown(reason: string): void;
   /** Apply an adaptive-bitrate setpoint to the video encoder (VideoToolbox /

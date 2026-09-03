@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 import { createPeerAdapter, dataChannelInit, mapConnectionState } from './peer-adapter.ts';
 import { CHANNELS } from './channels.ts';
+import { initialState, receive } from './signaling.ts';
 
 /** A structural RTCPeerConnection stand-in that records every call and lets a
  *  test fire its events. */
@@ -25,7 +26,21 @@ function fakePeerConnection() {
     async createAnswer() { this.calls.push('createAnswer'); return { type: 'answer', sdp: 'ANSWER-SDP' }; },
     async setLocalDescription(d) { this.calls.push(`setLocal:${d.type}`); },
     async setRemoteDescription(d) { this.calls.push(`setRemote:${d.type}:${d.sdp}`); },
-    async addIceCandidate(c) { this.calls.push(`addIce:${c.candidate}`); },
+    // Enforce the real react-native-webrtc / browser contract: addIceCandidate's
+    // init dict must carry at least one of sdpMid / sdpMLineIndex non-null, or the
+    // native call throws TypeError and the candidate is discarded. The old fake
+    // accepted anything, which is exactly why the "bare candidate" bug slipped
+    // through — this stand-in now rejects it the way a real peer would.
+    async addIceCandidate(c) {
+      const hasMid = c.sdpMid !== undefined && c.sdpMid !== null;
+      const hasIndex = c.sdpMLineIndex !== undefined && c.sdpMLineIndex !== null;
+      if (!hasMid && !hasIndex) {
+        throw new TypeError('addIceCandidate requires at least one of sdpMid / sdpMLineIndex');
+      }
+      this.iceInits = this.iceInits ?? [];
+      this.iceInits.push(c);
+      this.calls.push(`addIce:${c.candidate}:${c.sdpMid}:${c.sdpMLineIndex}`);
+    },
     createDataChannel(label, init) {
       const ch = { label, init, sent: [], closed: false, send(d) { this.sent.push(d); }, close() { this.closed = true; } };
       channels.push(ch);
@@ -89,17 +104,41 @@ test('createOffer sets the local description and returns the sdp string', async 
 test('setRemoteDescription and addIceCandidate map to single pc calls', async () => {
   const { pc, adapter } = setup();
   await adapter.setRemoteDescription('REMOTE', 'answer');
-  await adapter.addIceCandidate('candidate:1 1 udp 1 1.2.3.4 5 typ host');
+  await adapter.addIceCandidate({ candidate: 'candidate:1 1 udp 1 1.2.3.4 5 typ host', sdpMid: '0', sdpMLineIndex: 0 });
   assert.ok(pc.calls.includes('setRemote:answer:REMOTE'));
-  assert.ok(pc.calls.includes('addIce:candidate:1 1 udp 1 1.2.3.4 5 typ host'));
+  // The init dict reaches the peer connection whole — sdpMid/sdpMLineIndex must
+  // survive, not be collapsed to a bare { candidate }.
+  assert.deepEqual(pc.iceInits[0], {
+    candidate: 'candidate:1 1 udp 1 1.2.3.4 5 typ host',
+    sdpMid: '0',
+    sdpMLineIndex: 0,
+  });
 });
 
-test('local ICE candidates are relayed over the signaling transport', () => {
+test('addIceCandidate that carries neither sdpMid nor sdpMLineIndex is rejected by the peer', async () => {
+  const { adapter } = setup();
+  // The adapter forwards what the signaling layer already validated; the fake pc
+  // now enforces the same rule a real one does, so a null/null init throws.
+  await assert.rejects(
+    () => adapter.addIceCandidate({ candidate: 'candidate:bare', sdpMid: null, sdpMLineIndex: null }),
+    TypeError,
+  );
+});
+
+test('local ICE candidates are relayed with sdpMid/sdpMLineIndex intact', () => {
   const { pc, sent } = setup();
-  pc.fire('icecandidate', { candidate: { candidate: 'candidate:local' } });
+  pc.fire('icecandidate', { candidate: { candidate: 'candidate:local', sdpMid: 'audio', sdpMLineIndex: 1 } });
   pc.fire('icecandidate', { candidate: null }); // end-of-gathering: relayed as nothing
   assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0], { kind: 'ice', candidate: 'candidate:local', sessionId: 'sid' });
+  // WHY these two fields ride along: the remote peer cannot call addIceCandidate
+  // without at least one of them; stripping them here is the bug this guards.
+  assert.deepEqual(sent[0], {
+    kind: 'ice',
+    candidate: 'candidate:local',
+    sdpMid: 'audio',
+    sdpMLineIndex: 1,
+    sessionId: 'sid',
+  });
 });
 
 test('connection-state changes are mapped and reported to the controller', () => {
@@ -143,6 +182,29 @@ test('sendOn serializes onto the named channel', () => {
   adapter.sendOn('cursor', 'move', { x: 1, y: 2 });
   assert.deepEqual(JSON.parse(byLabel.input.sent[0]), { kind: 'key', payload: { vk: 65 } });
   assert.deepEqual(JSON.parse(byLabel.cursor.sent[0]), { kind: 'move', payload: { x: 1, y: 2 } });
+});
+
+test('a candidate round-trips send -> wire -> receive -> addIceCandidate with mid/index intact', async () => {
+  // The caller's adapter emits a local candidate; that exact wire message is fed
+  // through the signaling machine on the callee, whose add-ice effect is applied
+  // to the callee's peer connection. This is the whole path the bug broke: if
+  // sdpMid/sdpMLineIndex were dropped anywhere, the callee's (now strict) fake pc
+  // would throw instead of recording the candidate.
+  const caller = setup();
+  caller.pc.fire('icecandidate', { candidate: { candidate: 'candidate:xyz', sdpMid: '0', sdpMLineIndex: 0 } });
+  const wire = caller.sent[0];
+  assert.equal(wire.kind, 'ice');
+
+  // Callee: drive it to a live phase so the candidate is added, not buffered.
+  const callee = setup();
+  let state = initialState('callee', wire.sessionId);
+  state = receive(state, { kind: 'offer', sdp: 'REMOTE-OFFER', sessionId: wire.sessionId }).state;
+  const t = receive(state, wire);
+  const addIce = t.effects.find((e) => e.do === 'add-ice');
+  assert.ok(addIce, 'a live candidate produces an add-ice effect');
+
+  await callee.adapter.addIceCandidate(addIce.candidate);
+  assert.deepEqual(callee.pc.iceInits[0], { candidate: 'candidate:xyz', sdpMid: '0', sdpMLineIndex: 0 });
 });
 
 test('teardown closes every channel and the peer connection', () => {
