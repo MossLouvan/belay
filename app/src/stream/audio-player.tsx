@@ -192,8 +192,7 @@ export function HostAudio({ enabled, connected }: HostAudioProps) {
       // and are intentionally ignored here.
       onMessage={() => {}}
       // Fully hidden and inert: 1x1, transparent, no touches.
-      pointerEvents="none"
-      style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
+      style={{ pointerEvents: 'none', position: 'absolute', width: 1, height: 1, opacity: 0 }}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     />

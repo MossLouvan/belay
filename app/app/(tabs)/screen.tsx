@@ -625,8 +625,8 @@ export default function ScreenTab() {
               the only touch target, so locationX/Y stay in stage coordinates
               on both native and web regardless of the zoom transform. */}
           <Animated.View
-            pointerEvents="none"
             style={{
+              pointerEvents: 'none',
               width: '100%',
               height: '100%',
               transform: [
@@ -688,8 +688,7 @@ export default function ScreenTab() {
         {/* Input errors still matter in fullscreen; they float over the top edge. */}
         {fullscreen ? (
           <View
-            pointerEvents="box-none"
-            style={{ position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0 }}
+            style={{ pointerEvents: 'box-none', position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0 }}
           >
             {/* Recording must stay unmissable in fullscreen too — it floats on
                 the HUD scrim over the top edge, outliving the dock's auto-hide. */}
@@ -714,8 +713,8 @@ export default function ScreenTab() {
         </View>
       ) : (
         <Animated.View
-          pointerEvents={dockShown ? 'box-none' : 'none'}
           style={{
+            pointerEvents: dockShown ? 'box-none' : 'none',
             position: 'absolute',
             left: insets.left + theme.space.sm,
             right: insets.right + theme.space.sm,

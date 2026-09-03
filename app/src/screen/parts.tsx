@@ -553,10 +553,9 @@ export function StreamHud({ stats, pingMs, quality, zoom }: StreamHudProps) {
   return (
     <View
       testID="hud"
-      pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={{
+      style={{ pointerEvents: 'none',
         position: 'absolute',
         top: theme.space.xs,
         left: theme.space.xs,
@@ -588,8 +587,7 @@ export function Crosshair({ x, y, color }: { x: Animated.Value; y: Animated.Valu
   const arm: ViewStyle = { position: 'absolute', backgroundColor: color, borderRadius: 1 };
   return (
     <Animated.View
-      pointerEvents="none"
-      style={{
+      style={{ pointerEvents: 'none',
         position: 'absolute',
         top: -11,
         left: -11,

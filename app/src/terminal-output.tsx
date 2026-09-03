@@ -113,8 +113,7 @@ export function TerminalOutput({
         importantForAccessibility="no-hide-descendants"
         allowFontScaling={false}
         onLayout={onProbeWidth}
-        pointerEvents="none"
-        style={{
+        style={{ pointerEvents: 'none',
           position: 'absolute',
           top: 0,
           left: 0,

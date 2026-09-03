@@ -60,10 +60,9 @@ export function Contours({ onGlass = false, style }: ContoursProps) {
 
   return (
     <View
-      pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.ground, style]}
+      style={[ { pointerEvents: 'none' },styles.ground, style]}
     >
       {rings.map((ring, i) => (
         <View

@@ -168,8 +168,7 @@ export function Input({
         <Animated.View
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          pointerEvents="none"
-          style={{
+          style={{ pointerEvents: 'none',
             position: 'absolute',
             left: 0,
             right: 0,
