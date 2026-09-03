@@ -28,6 +28,14 @@ import type { ValidSignal } from './webrtc/relay.js';
  *  validates the phone's — no path skips it. */
 export type WebrtcSignalListener = (signal: unknown) => void;
 
+/** An audio frame pushed FROM the helper while system-audio capture is running
+ *  (`audiostart`). Like webrtc signaling this is push, not request/reply: the
+ *  helper emits one line per 20 ms frame as capture produces it. The payload is
+ *  passed through UN-validated; the consumer (audio-routes.ts) runs it through
+ *  `validateHelperAudioFrame` on the same boundary the webrtc bridge validates
+ *  signaling — no path skips it. */
+export type AudioFrameListener = (frame: unknown) => void;
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const NATIVE_DIR = join(__dirname, '..', 'native');
 
@@ -173,6 +181,9 @@ class NativeHost {
    *  reconnect. */
   private webrtcListeners = new Set<WebrtcSignalListener>();
 
+  /** Subscribers to audio frames the helper pushes while capture runs. */
+  private audioListeners = new Set<AudioFrameListener>();
+
   available(): boolean {
     return TARGET !== null && existsSync(TARGET.path);
   }
@@ -247,6 +258,12 @@ class NativeHost {
         // answer / ICE candidate / bye, on its way to the phone via the bridge.
         if (msg.type === 'webrtc') {
           this.dispatchWebrtcSignal(msg.signal);
+          return;
+        }
+        // A pushed audio frame (not an id-matched reply): one 20 ms encoded
+        // frame of system audio, on its way to the phone via audio-routes.ts.
+        if (msg.type === 'audio') {
+          this.dispatchAudioFrame(msg);
           return;
         }
         const id = msg.id;
@@ -391,6 +408,48 @@ class NativeHost {
   onWebrtcSignal(listener: WebrtcSignalListener): () => void {
     this.webrtcListeners.add(listener);
     return () => { this.webrtcListeners.delete(listener); };
+  }
+
+  // ---- System audio capture (opt-in, behind BELAY_WEBRTC) ----------------
+  //
+  // Driverless loopback on both platforms: ScreenCaptureKit `capturesAudio` on
+  // macOS (rides the existing Screen & System Audio Recording grant — no
+  // kernel driver, no BlackHole), WASAPI loopback on Windows. The helper owns
+  // the capture and pushes `type:'audio'` frames; these verbs only start and
+  // stop it. A helper built before the audio verbs answers `unknown command`,
+  // which surfaces as a clean error — exactly like the seamless-window verbs
+  // on macOS — so the routes degrade rather than hang.
+
+  /** Start system-audio capture on the helper. */
+  audioStart(): Promise<{ ok?: boolean; codec?: string; sampleRate?: number; channels?: number }> {
+    return this.send({ cmd: 'audiostart' });
+  }
+
+  /** Stop system-audio capture. Safe to call when not capturing. */
+  audioStop(): Promise<{ ok?: boolean }> {
+    return this.send({ cmd: 'audiostop' });
+  }
+
+  /** Whether the helper is capturing, and with what parameters. */
+  audioStatus(): Promise<{ ok?: boolean; capturing?: boolean; codec?: string }> {
+    return this.send({ cmd: 'audiostatus' });
+  }
+
+  /** Subscribe to pushed audio frames. Returns an unsubscribe fn so a closing
+   *  audio socket detaches cleanly rather than leaking one listener per
+   *  session. */
+  onAudioFrame(listener: AudioFrameListener): () => void {
+    this.audioListeners.add(listener);
+    return () => { this.audioListeners.delete(listener); };
+  }
+
+  private dispatchAudioFrame(frame: unknown): void {
+    for (const listener of this.audioListeners) {
+      // One listener throwing must not stop the others or crash the read loop.
+      try { listener(frame); } catch (e) {
+        console.error('[native] audio listener failed:', e instanceof Error ? e.message : String(e));
+      }
+    }
   }
 
   private dispatchWebrtcSignal(signal: unknown): void {

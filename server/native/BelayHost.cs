@@ -11,6 +11,7 @@
 // compiled binary the user builds locally does not go through that path.
 //
 // Commands: info | capture | move | down | up | click | scroll | key | text | ping
+//           audiostart | audiostop | audiostatus  (WASAPI loopback, BelayHostAudio.cs)
 
 using System;
 using System.Collections.Generic;
@@ -198,6 +199,11 @@ static class BelayHost
                     case "focuswindow": DoFocusWindow(stdout, idObj, c); break;
                     case "ping": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "pong", true } }); break;
                     case "webrtc": DoWebrtc(stdout, idObj, c); break;
+                    // Driverless system-audio loopback (WASAPI). WRITTEN-BUT-
+                    // NOT-COMPILED — see BelayHostAudio.cs and docs/AUDIO.md.
+                    case "audiostart": BelayHostAudio.Start(stdout, idObj); break;
+                    case "audiostop": BelayHostAudio.Stop(stdout, idObj); break;
+                    case "audiostatus": BelayHostAudio.Status(stdout, idObj); break;
                     default: Err(stdout, idObj, "unknown command: " + cmd); break;
                 }
             }
@@ -480,13 +486,31 @@ static class BelayHost
         Ok(w, id);
     }
 
-    static void Ok(TextWriter w, object id) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", true } }); }
-    static void Err(TextWriter w, object id, string msg) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", false }, { "error", msg } }); }
+    internal static void Ok(TextWriter w, object id) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", true } }); }
+    internal static void Err(TextWriter w, object id, string msg) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", false }, { "error", msg } }); }
 
-    static void Reply(TextWriter w, Dictionary<string, object> obj)
+    // One lock for everything that reaches stdout: command replies from the
+    // main loop and pushed audio lines from the capture thread must never
+    // interleave mid-line (the macOS ReplyWriter holds the same invariant).
+    internal static readonly object StdoutLock = new object();
+
+    internal static void Reply(TextWriter w, Dictionary<string, object> obj)
     {
-        w.WriteLine(J.Serialize(obj));
-        w.Flush();
+        lock (StdoutLock)
+        {
+            w.WriteLine(J.Serialize(obj));
+            w.Flush();
+        }
+    }
+
+    /// A pushed line that answers no command — audio frames (type:"audio").
+    internal static void Push(Dictionary<string, object> obj)
+    {
+        lock (StdoutLock)
+        {
+            Console.Out.WriteLine(J.Serialize(obj));
+            Console.Out.Flush();
+        }
     }
 
     static object Get(Dictionary<string, object> d, string k) { object v; return d.TryGetValue(k, out v) ? v : null; }

@@ -142,6 +142,14 @@ final class ReplyWriter {
         write(merge(["id": 0, "ok": true, "ready": true], extra))
     }
 
+    /// A pushed line that is NOT a reply to any command — audio frames
+    /// (`type:"audio"`) and, later, webrtc signaling (`type:"webrtc"`). The
+    /// caller includes the `type` field; the lock below is what lets a capture
+    /// thread push while the command loop replies without interleaving.
+    func push(_ payload: [String: Any]) {
+        write(payload)
+    }
+
     private func merge(_ base: [String: Any], _ extra: [String: Any]) -> [String: Any] {
         extra.reduce(into: base) { result, pair in result[pair.key] = pair.value }
     }
