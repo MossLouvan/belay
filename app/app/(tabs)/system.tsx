@@ -2,11 +2,11 @@
 // rolling history, a selectable poll rate, and honest behaviour when the host
 // stops answering. Also the place where this device forgets the computer.
 //
-// Ledger form (docs/DESIGN.md §7.1): one continuous ledger. Meters up top,
-// flat facts as label-left/value-right rows, controls as labelled sections —
-// no cards, no badges. The refresh icon died with them: the header's live
-// "UPDATED 2S AGO" line plus pull-to-refresh replace it, and a labelled Retry
-// appears only when polling has actually failed (§11.1).
+// Reference form (Next Terminal sweep): the meters are bordered navy stat
+// cards in a responsive 2-up grid — small uppercase label, quiet trailing
+// glyph, big numeral, thin blue gauge — and every list is hairline-divided
+// rows inside a flush card. Header stays title + one status line; a labelled
+// Retry appears only when polling has actually failed.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
@@ -21,18 +21,21 @@ import {
   Banner,
   Button,
   Caption,
+  Card,
   Column,
+  Divider,
   Dot,
-  LedgerRow,
+  Label,
   Row,
   Rule,
-  Section,
   SegmentedControl,
   Sheet,
   Txt,
 } from '../../src/ui';
-import { StatSection } from '../../src/system/stat-section';
-import { BatterySection, HostLedger, statusLine } from '../../src/system/sections';
+import { StatCard } from '../../src/system/stat-card';
+import { BatteryCard, HostCard, statusLine } from '../../src/system/sections';
+import { CardRow } from '../../src/system/card-row';
+import { ChipGlyph, DiskGlyph, MemGlyph } from '../../src/system/glyphs';
 import { DevicesSection } from '../../src/system/paired-devices';
 import { parseDevices } from '../../src/system/devices-model';
 import type { PairedDevice } from '../../src/system/devices-model';
@@ -62,6 +65,9 @@ const MAX_BACKOFF_MS = 15000;
 const MAX_FAILURE_STEPS = 4;
 /** How often the "updated Ns ago" line re-renders. */
 const CLOCK_MS = 1000;
+
+/** Two cards per row wherever the screen fits them, one below on narrow. */
+const STAT_CARD_STYLE = { flexGrow: 1, flexBasis: '46%' } as const;
 
 const message = (e: unknown): string =>
   e instanceof Error ? e.message : 'Could not read system stats from the host.';
@@ -226,83 +232,92 @@ export default function SystemTab() {
         />
       ) : null}
 
-      <StatSection
-        label="CPU"
-        percent={stats ? stats.cpuPercent : null}
-        detail={stats ? `${stats.cpuModel} · ${stats.cpuCount} cores` : undefined}
-        history={series.cpu}
-        bleed={margin}
-        testID="stat-cpu"
-      />
-      <StatSection
-        label="Memory"
-        percent={stats ? stats.memPercent : null}
-        detail={stats ? `${fmtBytes(stats.memUsed)} of ${fmtBytes(stats.memTotal)} in use` : undefined}
-        history={series.mem}
-        bleed={margin}
-        testID="stat-memory"
-      />
-      <StatSection
-        label="Disk"
-        percent={stats ? stats.diskPercent : null}
-        // A host that cannot query its own drive reports zeros. Rendering that
-        // as "0% used, 0 B free" would read as a real, alarming measurement.
-        unavailable={Boolean(stats && stats.diskTotal <= 0)}
-        detail={
-          stats
-            ? stats.diskTotal > 0
-              ? `${fmtBytes(stats.diskFree)} free of ${fmtBytes(stats.diskTotal)}`
-              : 'This host does not report drive usage'
-            : undefined
-        }
-        bleed={margin}
-        testID="stat-disk"
-      />
-
-      {stats?.battery ? <BatterySection battery={stats.battery} bleed={margin} /> : null}
-
-      {/* The flat facts sit rule-to-rule as one ledger, so no gap between rows. */}
-      <View>
-        <HostLedger stats={stats} bleed={margin} />
-      </View>
-
-      <Section label="Update rate" bleed={margin}>
-        <SegmentedControl
-          options={RATE_OPTIONS}
-          value={rate}
-          onChange={setRate}
-          accessibilityLabel="Update rate"
-          testID="poll-rate"
+      {/* The stat grid — the reference dashboard's tile row, 2-up on a phone. */}
+      <Row wrap gap="sm" align="stretch">
+        <StatCard
+          label="CPU"
+          percent={stats ? stats.cpuPercent : null}
+          detail={stats ? `${stats.cpuCount} cores` : undefined}
+          history={series.cpu}
+          glyph={<ChipGlyph />}
+          style={STAT_CARD_STYLE}
+          testID="stat-cpu"
         />
-      </Section>
+        <StatCard
+          label="Memory"
+          percent={stats ? stats.memPercent : null}
+          detail={stats ? `${fmtBytes(stats.memUsed)} / ${fmtBytes(stats.memTotal)}` : undefined}
+          history={series.mem}
+          glyph={<MemGlyph />}
+          style={STAT_CARD_STYLE}
+          testID="stat-memory"
+        />
+        <StatCard
+          label="Disk"
+          percent={stats ? stats.diskPercent : null}
+          // A host that cannot query its own drive reports zeros. Rendering
+          // that as "0% used, 0 B free" would read as a real, alarming
+          // measurement.
+          unavailable={Boolean(stats && stats.diskTotal <= 0)}
+          detail={
+            stats
+              ? stats.diskTotal > 0
+                ? `${fmtBytes(stats.diskFree)} free`
+                : 'Not reported by this host'
+              : undefined
+          }
+          glyph={<DiskGlyph />}
+          style={STAT_CARD_STYLE}
+          testID="stat-disk"
+        />
+        {stats?.battery ? <BatteryCard battery={stats.battery} style={STAT_CARD_STYLE} /> : null}
+      </Row>
 
-      <Section label="Appearance" bleed={margin}>
-        <ThemeToggle testID="theme-toggle" />
-      </Section>
+      <HostCard stats={stats} />
 
       <DevicesSection
         devices={devices}
         now={clock}
-        bleed={margin}
         ownToken={connection?.token}
         onChanged={() => void loadDevices()}
         onSelfRevoked={() => void onSelfRevoked()}
       />
 
-      <Section label="Connection" rule={false}>
-        <LedgerRow label="Address:" value={connection?.host ?? '—'} valueTone="dim" bleed={margin} />
-        <Button
-          testID="disconnect"
-          label="Forget this computer"
-          variant="danger"
-          onPress={() => setConfirmForget(true)}
-          fullWidth
-          style={{ marginTop: theme.space.sm }}
-        />
-        <Caption style={{ marginTop: theme.space.sm }}>
-          Forgets the saved token on this phone. The computer keeps running; pair again any time with a new code.
-        </Caption>
-      </Section>
+      <Card title="Preferences">
+        <Column gap="sm">
+          <View style={{ gap: theme.space.xs }}>
+            <Label>Update rate</Label>
+            <SegmentedControl
+              options={RATE_OPTIONS}
+              value={rate}
+              onChange={setRate}
+              accessibilityLabel="Update rate"
+              testID="poll-rate"
+            />
+          </View>
+          <Divider />
+          <View style={{ gap: theme.space.xs }}>
+            <Label>Appearance</Label>
+            <ThemeToggle testID="theme-toggle" />
+          </View>
+        </Column>
+      </Card>
+
+      <Card flush title="Connection" testID="connection-card">
+        <CardRow label="Address" value={connection?.host ?? '—'} valueTone="dim" divider={false} />
+        <View style={{ paddingHorizontal: theme.space.md, paddingBottom: theme.space.md }}>
+          <Button
+            testID="disconnect"
+            label="Forget this computer"
+            variant="danger"
+            onPress={() => setConfirmForget(true)}
+            fullWidth
+          />
+          <Caption style={{ marginTop: theme.space.sm }}>
+            Forgets the saved token on this phone. The computer keeps running; pair again any time with a new code.
+          </Caption>
+        </View>
+      </Card>
 
       <Sheet
         visible={confirmForget}
