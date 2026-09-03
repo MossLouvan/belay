@@ -105,7 +105,7 @@ function ScanPrompt({ onPress }: { onPress: () => void }) {
   const theme = useTheme();
   return (
     <View style={{ gap: theme.space.sm }}>
-      <Caption tone="dim">
+      <Caption>
         The host agent prints a QR code when it starts. Scanning it fills in everything.
       </Caption>
       <Button label="Scan code" variant="secondary" fullWidth onPress={onPress} testID="scan-btn" />
