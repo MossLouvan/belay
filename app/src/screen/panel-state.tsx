@@ -97,7 +97,6 @@ export function panelCopyFor(
     severity: 'dim',
     body: `Opening the screen stream from ${hostName}…`,
     countdown: false,
-    proof: 'Waiting for the first frame',
   };
 }
 
