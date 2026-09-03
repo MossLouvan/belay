@@ -31,6 +31,38 @@ export interface KeyboardLift {
   readonly shown: boolean;
 }
 
+/**
+ * Subscribes to the platform's keyboard frame events. One iOS event covers
+ * show, hide AND frame changes (undock, QuickType row); Android only has the
+ * did-show/hide pair. Returns the unsubscribe.
+ */
+function subscribeToKeyboardFrames(onFrame: (event: KeyboardEvent) => void): () => void {
+  const subscriptions =
+    Platform.OS === 'ios'
+      ? [Keyboard.addListener('keyboardWillChangeFrame', onFrame)]
+      : [Keyboard.addListener('keyboardDidShow', onFrame), Keyboard.addListener('keyboardDidHide', onFrame)];
+  return () => subscriptions.forEach((subscription) => subscription.remove());
+}
+
+/**
+ * Just the boolean: is a software keyboard on screen right now? For surfaces
+ * that only need to show or hide a dismiss affordance (docs/DESIGN.md §11.2 —
+ * every keyboard needs a visible exit) without floating anything, so the full
+ * measured lift would be waste. Hardware keyboards report no frame and count
+ * as hidden, which is right — there is nothing to dismiss.
+ */
+export function useKeyboardShown(): boolean {
+  const [shown, setShown] = useState(false);
+  useEffect(
+    () =>
+      subscribeToKeyboardFrames((event) =>
+        setShown(keyboardShown(event?.endCoordinates, Dimensions.get('window').height))
+      ),
+    []
+  );
+  return shown;
+}
+
 export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
   const lift = useRef(new Animated.Value(0)).current;
   const [shown, setShown] = useState(false);
@@ -73,13 +105,7 @@ export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
       node.measureInWindow((_x, y, _w, h) => settle(keyboardOverlap(y + h, end.screenY), event));
     };
 
-    // One iOS event covers show, hide AND frame changes (undock, QuickType
-    // row); Android only has the did-show/hide pair.
-    const subscriptions =
-      Platform.OS === 'ios'
-        ? [Keyboard.addListener('keyboardWillChangeFrame', onFrame)]
-        : [Keyboard.addListener('keyboardDidShow', onFrame), Keyboard.addListener('keyboardDidHide', onFrame)];
-    return () => subscriptions.forEach((subscription) => subscription.remove());
+    return subscribeToKeyboardFrames(onFrame);
   }, [anchor, lift]);
 
   return { lift, shown };
