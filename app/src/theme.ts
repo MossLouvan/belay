@@ -148,61 +148,57 @@ export const lightPalette: Palette = Object.freeze({
   shadow: '#000000',
 });
 
-/** Dark — "ink". Warm near-black, not blue-black; the accent survives untamed. */
+/** Dark — "ink". Premium near-black with soft glass surfaces and restrained accent. */
 export const darkPalette: Palette = Object.freeze({
-  bg: '#0B0E14',            // deep navy-black page ground (the reference)
-  surface: '#11151E',        // CARDS + inputs, subtly lifted off the ground
-  surfaceAlt: '#171C27',     // recessed rows/keys/pressed
-  border: '#1E2632',         // the clean card hairline border (signature)
-  borderStrong: '#2C3546',
-  text: '#E6EAF2',           // near-white
-  textDim: '#8B95A7',        // muted blue-grey labels (reference "Client IP")
-  textFaint: '#5E6675',
-  accent: '#3B82F6',         // electric blue, text-safe on navy
-  accentGraphic: '#2E7CF6',  // marks / fills / charts
-  accentDim: 'rgba(59, 130, 246, 0.30)',
-  sheet: '#141A24',
-  trackRest: '#2A3340',      // muted resting track
-  accentPress: '#2563EB',
-  machineLine: 'rgba(230, 234, 242, 0.08)',
-  contour: 'rgba(230, 234, 242, 0.05)',
-  good: '#3DDC97',
-  warn: '#F7B32B',
-  bad: '#FF6B6B',
-  black: '#06080D',
-  machine: '#06080D',        // terminal/stream glass — deeper than the page
-  onMachine: '#E6EAF2',
-  onMachineDim: '#8B95A7',
+  bg: '#0A0A0C',            // premium near-black canvas, neutral (not blue-tinted)
+  surface: '#141418',        // soft glass panels, minimal lift for premium feel
+  surfaceAlt: '#1A1A1E',     // recessed rows/keys/pressed — subtle depth
+  border: '#1F1F23',         // hairline borders — whisper-quiet, glass-like
+  borderStrong: '#2A2A30',   // emphasis borders — still restrained
+  text: '#F5F5F7',           // crisp white, high contrast for readability
+  textDim: '#9B9BA3',        // muted secondary text, neutral grey
+  textFaint: '#67676E',      // tertiary text, quiet but legible
+  accent: '#3B82F6',         // electric blue — the one chromatic accent (restrained)
+  accentGraphic: '#5B9CF8',  // lighter blue for marks/graphics
+  accentDim: 'rgba(59, 130, 246, 0.25)',  // muted accent track
+  sheet: '#101014',          // modals/sheets — one step darker than bg for depth
+  trackRest: '#2E2E34',      // neutral resting track (not accent-tinted)
+  accentPress: '#2563EB',    // darker blue for pressed state
+  machineLine: 'rgba(255, 255, 255, 0.06)',  // ultra-subtle machine panel rules
+  contour: 'rgba(255, 255, 255, 0.03)',      // barely-there topographic garnish
+  good: '#3DDC97',           // success green — kept from original
+  warn: '#F7B32B',           // warning amber
+  bad: '#FF6B6B',            // error red
+  black: '#000000',          // true black for machine glass
+  machine: '#000000',        // terminal/video — true black, not lifted
+  onMachine: '#F5F5F7',      // white on machine glass
+  onMachineDim: '#9B9BA3',   // muted on machine
   onAccent: '#FFFFFF',       // white on blue
-  onDanger: '#FFFFFF',
-  accentSoft: 'rgba(46, 124, 246, 0.16)',  // active-row / selected fill
-  goodSoft: 'rgba(61, 220, 151, 0.14)',
-  warnSoft: 'rgba(247, 179, 43, 0.14)',
-  badSoft: 'rgba(255, 107, 107, 0.14)',
-  onAccentSoft: '#7FB0FF',
+  onDanger: '#FFFFFF',       // white on red
+  accentSoft: 'rgba(59, 130, 246, 0.12)',    // soft accent fill — more subtle
+  goodSoft: 'rgba(61, 220, 151, 0.12)',
+  warnSoft: 'rgba(247, 179, 43, 0.12)',
+  badSoft: 'rgba(255, 107, 107, 0.12)',
+  onAccentSoft: '#7FB0FF',   // text on soft accent
   onGoodSoft: '#3DDC97',
   onWarnSoft: '#F7B32B',
   onBadSoft: '#FF6B6B',
-  overlay: 'rgba(0, 0, 0, 0.65)',
+  overlay: 'rgba(0, 0, 0, 0.75)',  // deeper overlay for modals
   focus: '#3B82F6',
-  skeleton: '#171C27',
+  skeleton: '#1A1A1E',
   shadow: '#000000',
 });
 
 /**
- * Square corners are the system: 2pt standard, 4pt only on key-bar keys.
- * The larger steps are deprecated aliases so unmigrated screens compile —
- * their values collapse to what the design allows, not what the name implies.
+ * Rounded, calm chrome inspired by premium SaaS UIs. More generous than the
+ * original system but still restrained — no extreme rounding.
  */
 export const radius = Object.freeze({
-  xs: 2, // standard: inputs, buttons, soft-fill bands
-  sm: 4, // key-bar keys only
-  /** @deprecated Alias of `sm`. Migrate call sites to xs/sm, then delete. */
-  md: 4,
-  /** Card radius — revived for the reference's bordered navy cards. */
-  lg: 10,
-  /** @deprecated Delete after migration. */
-  xl: 0,
+  xs: 4,  // standard: inputs, buttons, soft-fill bands — bumped from 2
+  sm: 6,  // interactive elements, key-bar keys
+  md: 8,  // cards, panels — now a real value
+  lg: 12, // larger panels, sheets — premium feel
+  xl: 16, // hero elements when needed
   /** @deprecated Pills are banned (docs/DESIGN.md §12). Delete after migration. */
   pill: 999,
 });

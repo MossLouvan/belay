@@ -1,13 +1,15 @@
-// Step two: trade the 6-digit code for a token.
+// Step two: trade the 6-digit code for a token — redesigned with premium
+// glass aesthetic.
 //
-// The reachable computer reads as a ledger — name, address, capability —
-// closed by a rule, and the code entry sits under its own micro-label. The
-// accent belongs to "Pair", the step's one primary action.
+// Premium changes:
+// - Glass panels for host info card
+// - Better visual hierarchy and spacing
+// - Cleaner presentation of capabilities
 
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Badge, Button, Caption, Card, Dot, Label, Row, Txt } from '../ui';
+import { Badge, Button, Caption, GlassPanel, Dot, Label, Row, Txt } from '../ui';
 import { StatusNotice } from '../devices/notice';
 import { CodeInput } from './code-input';
 import type { Diagnosis } from './diagnose';
@@ -68,10 +70,10 @@ export function PairStep({
   const complete = code.length === CODE_LENGTH;
 
   return (
-    <View testID="pair-step">
-      {/* The reachable computer as a clean bordered card — name, address,
-          capability — the reference's stat-card anatomy. */}
-      <Card>
+    <View testID="pair-step" style={{ gap: theme.space.lg }}>
+      {/* The reachable computer as a premium glass panel — name, address,
+          capability — refined with better spacing. */}
+      <GlassPanel elevation="medium">
         <Row justify="space-between" align="flex-start" gap="sm">
           <View style={{ flex: 1, gap: theme.space.xxs }}>
             <Row gap="xs">
@@ -86,9 +88,9 @@ export function PairStep({
           </View>
           <Badge label={host.native ? 'Screen + input' : 'Terminal only'} status={host.native ? 'good' : 'warn'} />
         </Row>
-      </Card>
+      </GlassPanel>
 
-      <View style={{ marginTop: theme.space.lg }}>
+      <View>
         <Label>Pairing code</Label>
         <Caption style={{ marginBottom: theme.space.sm }}>
           {codeUnlikely
