@@ -306,6 +306,8 @@ private func handleVirtualDisplay(_ command: Command) throws {
     case let other:
         throw HostError(.badArgument, "unknown virtualdisplay action: \(other)")
     }
+}
+
 // MARK: - System audio (driverless loopback — see AudioCapture.swift)
 
 /// Start pushing 20 ms system-audio frames as `type:"audio"` lines. Rides the
