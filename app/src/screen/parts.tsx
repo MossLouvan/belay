@@ -184,23 +184,24 @@ export function StageButton({ glyph, label, onPress, accessibilityLabel, active 
       onPress={() => { haptic('light'); onPress(); }}
       style={({ pressed }) => [
         {
-          minWidth: theme.layout.minTouch,
+          // De-boxed (REVAMP-SPEC §5.6): a low, quiet inline strip on the HUD
+          // scrim — no border crate on the picture. Glyph + label sit on one
+          // row; the active state is carried by the accent, not a frame.
           minHeight: theme.layout.minTouch,
-          paddingHorizontal: theme.space.xxs,
+          flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
+          paddingHorizontal: theme.space.sm,
           gap: theme.space.xxs,
           borderRadius: theme.radius.xs,
           backgroundColor: HUD.scrim,
-          borderWidth: theme.layout.hairline,
-          borderColor: active ? getTheme('dark').colors.accent : HUD.hairline,
-          opacity: pressed ? 0.85 : 1,
+          opacity: pressed ? 0.7 : 1,
         },
         style,
       ]}
     >
       {glyph}
-      <Micro style={{ color: active ? getTheme('dark').colors.accent : HUD.inkDim }}>{label}</Micro>
+      <Micro style={{ color: active ? getTheme('dark').colors.accent : HUD.ink }}>{label}</Micro>
     </Pressable>
   );
 }
