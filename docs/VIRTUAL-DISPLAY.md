@@ -25,12 +25,32 @@ byte-for-byte what it was.
 | `/screen/virtual-display` routes (GET/POST/DELETE) | Implemented, behind the flag |
 | `native.ts` `virtualdisplay` verbs | Implemented (degrades to a clean error on old helpers) |
 | macOS `VirtualDisplay.swift` (CGVirtualDisplay) | **Implemented, compiled and runtime-verified** on this machine: created 1280x720@60 and 1920x1080@120 displays, observed them in the OS display list as "Belay Virtual Display", destroyed them, observed removal |
-| Windows driver `server/native/win-display/` | **WRITTEN BUT NOT COMPILED** — no Windows/WDK in the authoring environment; never built, installed or run |
-| Windows host side `BelayHostVirtualDisplay.cs` | **WRITTEN BUT NOT COMPILED** — same reason |
+| Windows driver `server/native/win-display/` | **COMPILES, PACKAGES AND TEST-SIGNS** on Windows 11 with VS2022 Build Tools + WDK 10.0.26100: produces `BelayVdd.dll` + `.inf` + `.cat`, passes `infverif /u`, and `pnputil /add-driver /install` accepts the package. **NOT YET LOADED OR RUN** — see "Secure Boot" below |
+| Windows host side `BelayHostVirtualDisplay.cs` | **COMPILES AND RUNS.** With the driver installed but not startable, `virtualdisplay status` correctly returns `supported:false` with a pointer to this doc — the degradation path is verified. `create` / `destroy` are still unexercised |
 | Driver signing / WHQL / attestation | **Not done, cannot be done from here** — see "Signing for release" |
 
-Nothing in this feature is claimed to work on Windows until the runbook
-below has been executed on real hardware.
+The driver builds and installs. It has still never *loaded*, so nothing about
+its runtime behaviour — monitor arrival, mode commit, swap-chain drain,
+teardown — is verified yet.
+
+### Secure Boot blocks the last step
+
+A test-signed driver cannot load while Secure Boot is enabled:
+`bcdedit /set testsigning on` is refused with *"The value is protected by
+Secure Boot policy and cannot be modified or deleted."* Secure Boot must be
+turned off in UEFI firmware setup first.
+
+**If BitLocker protects the system volume, suspend it before changing Secure
+Boot**, or the next boot will demand the 48-digit recovery key:
+
+```powershell
+# elevated; resumes automatically after the next two boots
+manage-bde -protectors -disable C: -RebootCount 2
+```
+
+Then: reboot into UEFI setup, disable Secure Boot, boot, and run
+`bcdedit /set testsigning on` (elevated) followed by one more reboot. A
+"Test Mode" watermark on the desktop confirms it took.
 
 ## Fork-vs-build decision and license survey
 
