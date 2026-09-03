@@ -6,7 +6,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { askSummary, countdown, expiryUrgent, waitingSessions } from './attention.ts';
+import {
+  applyAttentionPush, askSummary, countdown, expiryUrgent, parseAttentionMessage, waitingSessions,
+} from './attention.ts';
 
 const meta = (over = {}) => ({
   id: 'a', title: 't', cwd: '/x', status: 'idle', lastUsed: 0, createdAt: 0, ...over,
@@ -60,4 +62,85 @@ test('askSummary joins tool and detail and trims long ones', () => {
   const long = askSummary('Bash', 'x'.repeat(200));
   assert.equal(long.length, 80);
   assert.ok(long.endsWith('…'));
+});
+
+// ---- push channel: parse + merge -------------------------------------------
+
+test('parseAttentionMessage accepts only a well-formed attention envelope', () => {
+  const ok = parseAttentionMessage(JSON.stringify({
+    type: 'attention',
+    sessions: [{ id: 'a', status: 'waiting', pending: 2 }, { id: 'b', status: 'idle', pending: 0 }],
+  }));
+  assert.deepEqual(ok, [
+    { id: 'a', status: 'waiting', pending: 2 },
+    { id: 'b', status: 'idle', pending: 0 },
+  ]);
+  assert.equal(parseAttentionMessage('not json'), null);
+  assert.equal(parseAttentionMessage('42'), null);
+  assert.equal(parseAttentionMessage(JSON.stringify({ type: 'status', status: 'idle' })), null);
+  assert.equal(parseAttentionMessage(JSON.stringify({ type: 'attention', sessions: 'x' })), null);
+  assert.equal(parseAttentionMessage(JSON.stringify({ type: 'attention', sessions: [{ id: 7, status: 'idle' }] })), null);
+});
+
+test('parseAttentionMessage defaults a missing or garbage pending count to 0', () => {
+  const rows = parseAttentionMessage(JSON.stringify({
+    type: 'attention',
+    sessions: [{ id: 'a', status: 'running' }, { id: 'b', status: 'waiting', pending: -3 }],
+  }));
+  assert.deepEqual(rows, [
+    { id: 'a', status: 'running', pending: 0 },
+    { id: 'b', status: 'waiting', pending: 0 },
+  ]);
+});
+
+test('applyAttentionPush flips statuses in place without waiting for a fetch', () => {
+  const before = [meta({ id: 'a', status: 'idle' }), meta({ id: 'b', status: 'running' })];
+  const { sessions, needsFetch } = applyAttentionPush(before, [
+    { id: 'a', status: 'running', pending: 0 },
+    { id: 'b', status: 'idle', pending: 0 },
+  ]);
+  assert.deepEqual(sessions.map((s) => [s.id, s.status]), [['a', 'running'], ['b', 'idle']]);
+  assert.equal(needsFetch, false);
+  // Immutable: the input rows are untouched.
+  assert.equal(before[0].status, 'idle');
+});
+
+test('applyAttentionPush keeps identity for untouched rows', () => {
+  const before = [meta({ id: 'a', status: 'idle' }), meta({ id: 'b', status: 'running' })];
+  const { sessions } = applyAttentionPush(before, [
+    { id: 'a', status: 'idle', pending: 0 },
+    { id: 'b', status: 'waiting', pending: 0 },
+  ]);
+  assert.equal(sessions[0], before[0]);
+  assert.notEqual(sessions[1], before[1]);
+});
+
+test('applyAttentionPush clears a stored pending ask the moment its count hits 0', () => {
+  const before = [meta({ id: 'a', status: 'waiting', pending: { id: 'p', tool: 'Bash', detail: 'x' } })];
+  const { sessions, needsFetch } = applyAttentionPush(before, [{ id: 'a', status: 'running', pending: 0 }]);
+  assert.equal(sessions[0].pending, null);
+  assert.equal(sessions[0].status, 'running');
+  assert.equal(needsFetch, false);
+});
+
+test('applyAttentionPush asks for a fetch when a pending ask needs details it does not have', () => {
+  const before = [meta({ id: 'a', status: 'running' })];
+  const { sessions, needsFetch } = applyAttentionPush(before, [{ id: 'a', status: 'waiting', pending: 1 }]);
+  // Status flips now; the tool/detail/expiry arrive with the fetch.
+  assert.equal(sessions[0].status, 'waiting');
+  assert.equal(needsFetch, true);
+});
+
+test('applyAttentionPush asks for a fetch when sessions appear or disappear', () => {
+  const before = [meta({ id: 'a' })];
+  assert.equal(applyAttentionPush(before, [
+    { id: 'a', status: 'idle', pending: 0 }, { id: 'new', status: 'running', pending: 0 },
+  ]).needsFetch, true);
+  assert.equal(applyAttentionPush(before, []).needsFetch, true);
+});
+
+test('applyAttentionPush before any fetch leaves the store null and asks for one', () => {
+  const { sessions, needsFetch } = applyAttentionPush(null, [{ id: 'a', status: 'waiting', pending: 1 }]);
+  assert.equal(sessions, null);
+  assert.equal(needsFetch, true);
 });

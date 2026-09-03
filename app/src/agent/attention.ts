@@ -3,17 +3,15 @@
 // No React and no react-native, so `attention.test.mjs` runs it in plain Node —
 // same contract as model.ts.
 
-import type { AgentSessionMeta } from '../api';
+import type { AgentSessionMeta, AgentStatus } from '../api';
 
 /**
- * How often the app re-reads the session list while it is on screen. Three
- * seconds is the compromise between "the badge lies" and hammering a host
- * that is also busy encoding video: the list endpoint is a single in-memory
- * map walk, so this is cheap on both ends.
+ * While the /ws/attention socket is down (host restarting, radio flapping, a
+ * host too old to have the route), the store falls back to polling the list —
+ * and each fallback tick also retries the socket. Ten seconds, not the old
+ * three: the poll is now the degraded path, not the product, and a dead link
+ * should not be hammered.
  */
-export const ATTENTION_POLL_MS = 3000;
-
-/** Poll cadence once a fetch has failed — no point retrying a dead link hard. */
 export const ATTENTION_RETRY_MS = 10000;
 
 /**
@@ -57,4 +55,80 @@ export function expiryUrgent(expiresAt: number | undefined, now: number): boolea
 export function askSummary(tool: string, detail: string, max = 80): string {
   const joined = detail ? `${tool}  ${detail}` : tool;
   return joined.length > max ? joined.slice(0, max - 1) + '…' : joined;
+}
+
+// ---- the push channel's wire and merge --------------------------------------
+//
+// /ws/attention pushes `{ type: 'attention', sessions: [{ id, status,
+// pending }] }` whenever any session's summary changes — pending is a count
+// (the ask on the card plus the queue behind it), never the ask itself. The
+// two functions below are the whole client protocol: validate the frame,
+// then fold it into the last full fetch. Pure so the store stays a thin
+// lifecycle wrapper and the tests run in plain Node.
+
+/** One pushed row: everything the host says about a session, summarised. */
+export interface AttentionPushRow {
+  readonly id: string;
+  readonly status: AgentStatus;
+  /** How many approvals wait on this session right now. */
+  readonly pending: number;
+}
+
+/**
+ * Parse one socket frame. Anything that is not a well-formed attention
+ * envelope — other message types, truncated JSON, rows missing their id —
+ * is null, never a throw and never a half-parsed list: the wire is external
+ * input and a hostile or newer host must degrade to "ignored", not garbage
+ * state. A missing or negative pending count reads as 0.
+ */
+export function parseAttentionMessage(raw: string): readonly AttentionPushRow[] | null {
+  let msg: unknown;
+  try { msg = JSON.parse(raw); } catch { return null; }
+  if (typeof msg !== 'object' || msg === null) return null;
+  const { type, sessions } = msg as { type?: unknown; sessions?: unknown };
+  if (type !== 'attention' || !Array.isArray(sessions)) return null;
+  const rows: AttentionPushRow[] = [];
+  for (const r of sessions as { id?: unknown; status?: unknown; pending?: unknown }[]) {
+    if (typeof r?.id !== 'string' || typeof r?.status !== 'string') return null;
+    rows.push({
+      id: r.id,
+      status: r.status as AgentStatus,
+      pending: typeof r.pending === 'number' && r.pending > 0 ? r.pending : 0,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Fold a push into the last fetched list. Statuses flip immediately and a
+ * pending ask whose count hit zero clears immediately — the badge and banner
+ * must not wait on a round trip to tell the truth they already know. What a
+ * push *cannot* say — a brand-new session's title, a fresh ask's tool and
+ * expiry — comes back as `needsFetch: true`, the store's cue to run one
+ * refreshAttention. Never mutates its inputs; unchanged rows keep identity
+ * so React re-renders only what moved.
+ */
+export function applyAttentionPush(
+  sessions: readonly AgentSessionMeta[] | null,
+  rows: readonly AttentionPushRow[],
+): { readonly sessions: readonly AgentSessionMeta[] | null; readonly needsFetch: boolean } {
+  if (sessions === null) return { sessions: null, needsFetch: true };
+
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const known = new Set(sessions.map((s) => s.id));
+  const idsDiffer = rows.length !== sessions.length || rows.some((r) => !known.has(r.id));
+  // Any live ask means details (tool, detail, expiry) may be missing or stale
+  // here; asks are rare and pushes only fire on change, so one fetch is cheap.
+  const needsFetch = idsDiffer || rows.some((r) => r.pending > 0);
+
+  const merged = sessions.map((s) => {
+    const row = byId.get(s.id);
+    if (!row) return s;
+    const status = row.status;
+    const clearPending = row.pending === 0 && s.pending != null;
+    if (status === s.status && !clearPending) return s;
+    return { ...s, status, ...(clearPending ? { pending: null } : {}) };
+  });
+  const changed = merged.some((s, i) => s !== sessions[i]);
+  return { sessions: changed ? merged : sessions, needsFetch };
 }

@@ -51,6 +51,7 @@ import { discoverPeerHosts } from './discover-hosts.js';
 import { registerRecordingRoutes } from './recording-routes.js';
 import { handleHandoff } from './handoff.js';
 import { registerAgentApprovalRoutes } from './agent-routes.js';
+import { handleAttention } from './agent-attention.js';
 import { registerImageRoutes } from './image-routes.js';
 import { handleAudioSocket, registerAudioRoutes } from './audio-routes.js';
 import { productEnv } from './env.js';
@@ -849,7 +850,7 @@ heartbeat.unref?.();
 // redeemed — so a half-finished signaling path can never be reached, let alone
 // regress the shipping JPEG-over-WebSocket transport, unless it is deliberately
 // enabled. JPEG (/ws/screen) stays the default and the fallback.
-const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent']);
+const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention']);
 if (webrtcEnabled()) { WS_ROUTES.add('/ws/webrtc'); WS_ROUTES.add('/ws/audio'); }
 
 server.on('upgrade', (req, socket, head) => {
@@ -911,6 +912,9 @@ server.on('upgrade', (req, socket, head) => {
     });
   } else if (url.pathname === '/ws/agent') {
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAgent(ws, url); });
+  } else if (url.pathname === '/ws/attention') {
+    // Push channel for the app's badge/banner/list — agent-attention.ts.
+    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAttention(ws); });
   } else if (url.pathname === '/ws/webrtc') {
     // Only reachable when BELAY_WEBRTC is on (WS_ROUTES gate above). Signaling
     // relay only — Node never sees media.
