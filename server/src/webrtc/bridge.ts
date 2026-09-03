@@ -76,6 +76,15 @@ export class SignalingBridge {
 
     const { sessionId } = result.message;
     if (this.boundSessionId === null) {
+      // Only the client — the authenticated phone that opened this socket — may
+      // establish the binding. A host push is broadcast to every /ws/webrtc
+      // bridge; if an as-yet-unbound bridge were allowed to adopt the first
+      // host frame it saw, it would bind to (and then forward) another
+      // session's answer/ICE. The client always speaks first (it is the ICE
+      // caller), so a host frame before that is simply not ours to route.
+      if (from === 'host') {
+        return { ok: false, error: 'host signal before the session is bound' };
+      }
       this.boundSessionId = sessionId;
     } else if (sessionId !== this.boundSessionId) {
       return { ok: false, error: `stale session '${sessionId}' (bridge is bound to '${this.boundSessionId}')` };

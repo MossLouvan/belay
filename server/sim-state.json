@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hostId": "75fb9d50-606b-41dc-a084-a54834d21817",
+  "hostName": "Mosss-MacBook-Air.local",
+  "label": "Mosss-MacBook-Air.local",
+  "devices": [
+    {
+      "token": "2a5a07f93eae9059d1bb75a51dfaca0379c94a198d7354d0c01237d04ce9185e",
+      "name": "Sim",
+      "createdAt": 1788398726135,
+      "lastSeen": 1788398726135
+    },
+    {
+      "token": "cb82cd3d36c4fc2e1edcccc92ef889ea9c07029a4f53d7af28368336ff006030",
+      "name": "Sim",
+      "createdAt": 1788398771896,
+      "lastSeen": 1788398771896
+    }
+  ]
+}

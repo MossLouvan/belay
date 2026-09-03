@@ -591,6 +591,12 @@ app.post('/input/move', auth, async (req, res) => {
 app.post('/input/scroll', auth, async (req, res) => {
   try {
     const { dy = 0, dx = 0 } = req.body || {};
+    // Validate like /input/drag: a non-finite or non-number delta reaching the
+    // Windows helper overflows `(int)Math.Round(...)` into an absurd wheel
+    // event. A clean 400 beats an unbounded scroll.
+    if (![dy, dx].every((n) => typeof n === 'number' && Number.isFinite(n))) {
+      res.status(400).json({ error: 'scroll needs finite dy,dx' }); return;
+    }
     await native.scroll(dy, dx);
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -944,6 +950,18 @@ function handleWebrtc(ws: WebSocket, url: URL) {
   // The helper pushes its local answer/ICE/bye back asynchronously as ICE
   // gathers; relay each through the bridge (validated) toward the phone.
   const detach = native.onWebrtcSignal((sig) => {
+    // Helper pushes are fanned out to EVERY /ws/webrtc bridge, so each bridge
+    // must take only the frames for the session it is bound to. Until the phone
+    // has sent its offer this bridge owns no session and takes no host frames —
+    // that, plus the client-only binding in SignalingBridge, stops one socket's
+    // bridge from adopting another session's SDP/ICE (which would leak the
+    // remote's cert fingerprint to the wrong device).
+    const bound = bridge.sessionId;
+    if (!bound) return;
+    const sigSession = typeof (sig as { sessionId?: unknown }).sessionId === 'string'
+      ? (sig as { sessionId: string }).sessionId
+      : null;
+    if (sigSession !== bound) return;
     const result = bridge.ingest('host', sig);
     if (!result.ok) console.warn('[webrtc] dropped a helper signal:', result.error);
   });
@@ -1108,9 +1126,19 @@ function handleScreen(ws: WebSocket, url: URL) {
   void loop().catch((e: unknown) => console.error('[screen] stream loop failed:', messageOf(e)));
 }
 
+// A terminal dimension the PTY will accept: a positive integer in a sane range.
+// Without this a negative or gigantic `cols`/`rows` flows straight to node-pty,
+// which throws — and the terminal then silently degrades to a raw piped shell
+// with no TTY semantics and no error the client can see.
+function clampTermDim(raw: string | number | null, fallback: number): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(n, 1000);
+}
+
 async function handleTerminal(ws: WebSocket, url: URL) {
-  const cols = Number(url.searchParams.get('cols')) || 80;
-  const rows = Number(url.searchParams.get('rows')) || 24;
+  const cols = clampTermDim(url.searchParams.get('cols'), 80);
+  const rows = clampTermDim(url.searchParams.get('rows'), 24);
 
   // Closed-during-startup guard. `createTerminal` awaits a dynamic import of
   // node-pty and then a process spawn — tens of milliseconds during which the
@@ -1175,7 +1203,7 @@ async function handleTerminal(ws: WebSocket, url: URL) {
       const msg = JSON.parse(raw.toString());
       if (msg.type === 'data') completer.write(msg.data);
       else if (msg.type === 'resize') {
-        const next = { cols: Number(msg.cols) || size.cols, rows: Number(msg.rows) || size.rows };
+        const next = { cols: clampTermDim(msg.cols, size.cols), rows: clampTermDim(msg.rows, size.rows) };
         size = next;
         term.resize(next.cols, next.rows);
       } else if (msg.type === 'complete') {

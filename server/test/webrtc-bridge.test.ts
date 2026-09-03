@@ -101,3 +101,28 @@ test('the host peer is validated on the same boundary as the client', () => {
   assert.equal(r.ok, false);
   assert.equal(toClient.length, 0);
 });
+
+test('an unbound bridge refuses a host frame — only the client may bind it', () => {
+  // Regression: helper pushes are broadcast to every /ws/webrtc bridge. An
+  // unbound bridge (client has not sent its offer yet) that adopted the first
+  // host frame it saw would bind to — and forward — another session's answer/
+  // ICE, leaking the remote's SDP to the wrong device. The client is the ICE
+  // caller and always speaks first, so a host frame here is never ours.
+  const { bridge, toClient, toHost } = harness(); // unbound
+  const r = bridge.ingest('host', answer('someone-elses-session'));
+  assert.equal(r.ok, false);
+  assert.match(r.ok ? '' : r.error, /before the session is bound/);
+  assert.equal(bridge.sessionId, null); // stayed unbound
+  assert.equal(toClient.length, 0);
+  assert.equal(toHost.length, 0);
+});
+
+test('once the client binds it, host frames for that session flow again', () => {
+  const { bridge, toClient } = harness(); // unbound
+  bridge.ingest('client', offer('mine'));
+  assert.equal(bridge.sessionId, 'mine');
+  const a = bridge.ingest('host', answer('mine'));
+  assert.equal(a.ok, true);
+  assert.equal(toClient.length, 1);
+  assert.equal(toClient[0].kind, 'answer');
+});

@@ -122,9 +122,19 @@ static class Native
 
     // Unicode scan-code injection bypasses keyboard-layout translation, so
     // accented characters and emoji arrive exactly as sent.
+    // Mirror of macOS InputController.maxTextUnits (Input.swift): one command
+    // types at most a page of text. Node's REST path already rejects longer
+    // strings, but the WebRTC input data channel (RouteChannelInput) reaches
+    // TypeText without that check, so the cap has to live here too — otherwise a
+    // paired device could flood unbounded synthetic keystrokes and force a
+    // `t.Length * 2` allocation. Clamp rather than throw: this is a defensive
+    // backstop, and the sanctioned callers never exceed it.
+    const int MaxTextUnits = 4096;
+
     public static void TypeText(string t)
     {
         if (string.IsNullOrEmpty(t)) return;
+        if (t.Length > MaxTextUnits) t = t.Substring(0, MaxTextUnits);
         var i = new INPUT[t.Length * 2];
         for (int c = 0; c < t.Length; c++)
         {
