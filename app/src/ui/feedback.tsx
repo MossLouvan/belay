@@ -7,12 +7,15 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Platform, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { useTheme } from '../theme';
+import { easing, useTheme } from '../theme';
 import type { Palette } from '../theme';
 import { Button } from './button';
+import { dotFillTransition, stripHorizontalInsets } from './feedback-shape';
+import type { LooseStyle } from './feedback-shape';
 import { Column } from './layout';
-import { usePulse, useReducedMotion } from './motion';
+import { useReducedMotion } from './motion';
 import { Label, Txt } from './text';
+import { TrackLabel } from './track-label';
 
 export type Status = 'neutral' | 'good' | 'warn' | 'bad' | 'accent';
 
@@ -63,27 +66,91 @@ const statusOnFill = (status: Status, c: Palette): string => {
 };
 
 /**
- * Status dot. Legacy signature took a required `color`; both that and the new
- * `status` shorthand work. Decorative by default — pass `label` when the dot is
- * the only carrier of the state. An `accent` dot draws in `accentGraphic`: a
- * dot is a ≥3pt non-text mark, exactly what that role exists for.
+ * Status mark — a filled disc or a hollow ring (REVAMP-SPEC §3.5, §5.2).
+ *
+ * State is SHAPE + colour, never motion: `ring` renders a hollow 2pt ring in
+ * the status colour meaning "transitioning" (connecting/reconnecting); without
+ * it the mark is a filled disc meaning "steady" (live/offline/fault). The one
+ * sanctioned animation is the ring→fill moment: the inner disc fades in over
+ * `motion.fast` (120ms) and the colour crossfades over the same beat — that
+ * single fill IS the "we connected" motion. Nothing here ever pulses.
+ *
+ * Legacy signature took a required `color`; both that and the newer `status`
+ * shorthand work. Decorative by default — pass `label` when the dot is the
+ * only carrier of the state. An `accent` dot draws in `accentGraphic`: a dot
+ * is a ≥3pt non-text mark, exactly what that role exists for.
  */
 export function Dot({
   color,
   status = 'neutral',
   size = 9,
-  pulse,
+  ring = false,
   label,
 }: {
   color?: string;
   status?: Status;
   size?: number;
-  pulse?: boolean;
+  /** Hollow ring = transitioning; filled disc = steady (§5.2). */
+  ring?: boolean;
   label?: string;
+  /** @deprecated Pulsing is banned (§3.5). Accepted for old callers, ignored. */
+  pulse?: boolean;
 }) {
   const theme = useTheme();
-  const fill = color ?? (status === 'accent' ? theme.colors.accentGraphic : statusColor(status, theme.colors));
-  const opacity = usePulse(Boolean(pulse), theme.motion.pulse);
+  const reduced = useReducedMotion();
+  const paint = color ?? (status === 'accent' ? theme.colors.accentGraphic : statusColor(status, theme.colors));
+
+  // The inner disc's opacity: 0 while a ring, 1 while steady. Seeded to the
+  // first shape so a dot mounts already-correct, with no entrance animation.
+  const fill = useRef(new Animated.Value(ring ? 0 : 1)).current;
+  const prevRing = useRef(ring);
+
+  // Colour crossfade (§3.5): 0→1 sweeps from the previous colour to the new
+  // one. Both refs are Animated plumbing, not React state — the values the
+  // renderer reads are new objects/interpolations every change.
+  const colorT = useRef(new Animated.Value(1)).current;
+  const colors = useRef({ from: paint, to: paint });
+  if (colors.current.to !== paint) {
+    // Rebase the sweep at render time so this very frame starts from the old
+    // colour instead of flashing the new one before the effect runs.
+    colors.current = { from: colors.current.to, to: paint };
+    colorT.setValue(0);
+  }
+
+  useEffect(() => {
+    const t = dotFillTransition(prevRing.current, ring, theme.motion, reduced);
+    prevRing.current = ring;
+    if (t.duration === 0) {
+      fill.setValue(t.toValue);
+      return;
+    }
+    // Colour animation shares this node's driver, so both stay on the JS side.
+    Animated.timing(fill, {
+      toValue: t.toValue,
+      duration: t.duration,
+      easing: easing.standard,
+      useNativeDriver: false,
+    }).start();
+  }, [ring, reduced, fill, theme.motion]);
+
+  useEffect(() => {
+    if (colors.current.from === colors.current.to) return;
+    if (reduced) {
+      colorT.setValue(1);
+      return;
+    }
+    Animated.timing(colorT, {
+      toValue: 1,
+      duration: theme.motion.fast,
+      easing: easing.standard,
+      useNativeDriver: false,
+    }).start();
+  }, [paint, reduced, colorT, theme.motion.fast]);
+
+  const ink =
+    colors.current.from === colors.current.to
+      ? colors.current.to
+      : colorT.interpolate({ inputRange: [0, 1], outputRange: [colors.current.from, colors.current.to] });
 
   return (
     <View
@@ -92,13 +159,32 @@ export function Dot({
       accessibilityElementsHidden={!label}
       style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}
     >
+      {/* The rim: a 2pt stroke that is the whole mark while transitioning and
+          a seamless edge of the disc once filled — same colour, no seam. */}
       <Animated.View
         style={{
-          width: size,
-          height: size,
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
           borderRadius: size / 2,
-          backgroundColor: fill,
-          opacity,
+          borderWidth: theme.layout.ruleEmphasis,
+          borderColor: ink,
+        }}
+      />
+      {/* The disc: hidden while a ring; fades in once, over motion.fast, when
+          the state goes steady — the entire connect celebration (§3.5). */}
+      <Animated.View
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          borderRadius: size / 2,
+          backgroundColor: ink,
+          opacity: fill,
         }}
       />
     </View>
@@ -182,9 +268,15 @@ export function Badge({
 }
 
 /**
- * Inline banner for errors and notices. Announced to screen readers, so it is
- * suitable for surfacing connection failures. The leading 2pt rule is the
- * emphasis weight in the status colour — a rule, not a border box.
+ * Advisory band (REVAMP-SPEC §5.8). Full-bleed — margin-to-margin, radius 0,
+ * a hairline above AND below — a band OF the page, never a card floating on
+ * it. The 2pt status-coloured left rule is the anchor mark (§3.4): the one
+ * vertical emphasis rule sanctioned outside ledger cells. Announced to screen
+ * readers, so it is suitable for surfacing degraded-but-working states.
+ *
+ * Banners are for advisories; faults belong on the machine glass (§5.5).
+ * Caller-supplied horizontal margins are stripped (see `feedback-shape.ts`)
+ * so legacy `marginHorizontal` styles cannot re-inset the band into a card.
  */
 export function Banner({
   message,
@@ -202,8 +294,8 @@ export function Banner({
   testID?: string;
 }) {
   const theme = useTheme();
-  // The rule sits on the host surface, not on the fill, so it keeps the solid
-  // status colour. The title sits on the fill, so it uses the on-fill role.
+  // The anchor rule keeps the solid status colour; the title sits on the soft
+  // fill, so it uses the composited-safe on-fill role.
   const rule = statusColor(status, theme.colors);
   const onFill = statusOnFill(status, theme.colors);
 
@@ -215,13 +307,26 @@ export function Banner({
       style={[
         {
           backgroundColor: statusFill(status, theme.colors),
-          borderRadius: theme.radius.xs,
+          // A band, not a box (§5.8): square corners, page-edge to page-edge,
+          // held by hairlines above and below like any other ledger rule.
+          borderRadius: 0,
+          borderTopWidth: theme.layout.hairline,
+          borderBottomWidth: theme.layout.hairline,
+          borderTopColor: theme.colors.border,
+          borderBottomColor: theme.colors.border,
+          // The anchor rule on the page's left edge.
           borderLeftWidth: theme.layout.ruleEmphasis,
           borderLeftColor: rule,
-          padding: theme.space.sm,
+          // Content stays on the 20pt page grid; the anchor rule eats into
+          // the left gutter so text aligns with everything else on the page.
+          paddingLeft: theme.layout.margin - theme.layout.ruleEmphasis,
+          paddingRight: theme.layout.margin,
+          paddingVertical: theme.space.sm,
           gap: theme.space.xs,
         },
-        style,
+        // Full-bleed is non-negotiable: horizontal insets from callers are
+        // dropped (legacy `marginHorizontal` — per-tab cleanup pending).
+        stripHorizontalInsets(style as LooseStyle) as ViewStyle,
       ]}
     >
       {title ? (
@@ -234,7 +339,17 @@ export function Banner({
       <Txt variant="body" tone="dim">
         {message}
       </Txt>
-      {action ? <Button label={action.label} onPress={action.onPress} variant="subtle" size="sm" /> : null}
+      {/* The action is a tracked text button, not a soft Button — fills
+          within fills die (§5.8). Inks: on-fill label, solid status track. */}
+      {action ? (
+        <TrackLabel
+          label={action.label}
+          onPress={action.onPress}
+          labelColor={onFill}
+          trackColor={rule}
+          style={{ alignSelf: 'flex-start' }}
+        />
+      ) : null}
     </View>
   );
 }
