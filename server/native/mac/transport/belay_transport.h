@@ -11,9 +11,11 @@
  * └──────────────────────────────────────────────────────────────────────────┘
  *
  * Design: the native helper is the WebRTC peer (the ICE callee). It owns the
- * rtc::PeerConnection, one SRTP video track whose RTP source is the encoder's
- * NAL sink (VideoEncoder.swift -> belay_transport_send_frame), and the three
- * data channels from app/src/stream/webrtc/channels.ts (input/cursor/control).
+ * rtc::PeerConnection and one SRTP video track whose RTP source is the encoder's
+ * NAL sink (VideoEncoder.swift -> belay_transport_send_frame). The three data
+ * channels from app/src/stream/webrtc/channels.ts (input/cursor/control) are
+ * created by the PHONE (the offerer, createPeerAdapter) and received here via
+ * onDataChannel — the callee never creates its own.
  *
  * Node never sees media: SDP/ICE cross the C ABI as strings, are handed to Node
  * over the existing stdio protocol (native.ts webrtc verbs), and Node relays
@@ -67,7 +69,8 @@ typedef struct {
 
 typedef enum { BELAY_CODEC_H264 = 0, BELAY_CODEC_HEVC = 1 } belay_codec;
 
-/* Create the peer (the callee): sets up the video track + three data channels.
+/* Create the peer (the callee): sets up the video track and receives the
+ * phone-created data channels.
  * Returns NULL on failure. `ice_servers_json` may be NULL for LAN-only. */
 belay_transport *belay_transport_create(belay_codec codec,
                                         const char *ice_servers_json,

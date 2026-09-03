@@ -22,6 +22,11 @@ private let captureQualityRange = 1...100
 private let replies = ReplyWriter()
 private let capture = CaptureEngine()
 private let input = InputController()
+#if BELAY_WEBRTC_BUILD
+// HARDWARE-GATED: only exists in a BELAY_WEBRTC_BUILD=1 build (build-mac.sh);
+// the shipping helper compiles none of the WebRTC sources.
+private let webrtc = WebRTCVerb(replies: replies, capture: capture, input: input)
+#endif
 
 private func run() {
     // Without this the process is killed outright the moment stdout closes —
@@ -56,6 +61,9 @@ private func run() {
     // physically pressed — a phone that disconnects mid-drag would otherwise
     // leave the desktop stuck in a drag with no way to clear it.
     input.releaseAll()
+    #if BELAY_WEBRTC_BUILD
+    webrtc.stop() // close the peer + encoder before the capture streams they feed
+    #endif
     capture.stopAll()
 }
 
@@ -74,6 +82,17 @@ private func handle(_ command: Command) throws {
     case "capturewindow": try handleCaptureWindow(command)
     case "focuswindow": try handleFocusWindow(command)
     case "ping": replies.ok(id: command.id, ["pong": true])
+    case "webrtc":
+        #if BELAY_WEBRTC_BUILD
+        try webrtc.handle(command)
+        #else
+        // A clean, explicit refusal (not a hang): Node's /ws/webrtc bridge sees
+        // the error reply and the phone stays on the JPEG path.
+        throw HostError(.badCommand,
+            "webrtc transport is not built into this helper "
+            + "(rebuild with BELAY_WEBRTC_BUILD=1 — see docs/WEBRTC-SLICE.md); JPEG stays the transport",
+            details: ["cmd": command.name])
+        #endif
     default:
         throw HostError(.badCommand, "unknown command: \(command.name)", details: ["cmd": command.name])
     }
