@@ -35,9 +35,9 @@ test('a committed horizontal swipe reports where the fingers went', () => {
   assert.equal(detectSwipe(T, T / GESTURE.swipeAxisRatio, GESTURE), 'right', 'a modest slope is still horizontal');
 });
 
-test('three fingers up is the overview; down is deliberately unbound', () => {
+test('three fingers up is the overview, down shows desktop', () => {
   assert.equal(detectSwipe(0, -T, GESTURE), 'up');
-  assert.equal(detectSwipe(0, T * 3, GESTURE), null);
+  assert.equal(detectSwipe(0, T, GESTURE), 'down');
 });
 
 test('a sloppy diagonal commits to no axis and never fires two actions', () => {
@@ -85,12 +85,14 @@ test('macOS chords use LITERAL Control, dodging the ctrl→cmd remap', () => {
   assert.deepEqual(swipeChord('left', true), { key: 'right', mods: ['rawctrl'] });
   assert.deepEqual(swipeChord('right', true), { key: 'left', mods: ['rawctrl'] });
   assert.deepEqual(swipeChord('up', true), { key: 'up', mods: ['rawctrl'] });
+  assert.deepEqual(swipeChord('down', true), { key: 'f11', mods: [] });
 });
 
 test('Windows chords are the virtual-desktop and Task View bindings', () => {
   assert.deepEqual(swipeChord('left', false), { key: 'right', mods: ['win', 'ctrl'] });
   assert.deepEqual(swipeChord('right', false), { key: 'left', mods: ['win', 'ctrl'] });
   assert.deepEqual(swipeChord('up', false), { key: 'tab', mods: ['win'] });
+  assert.deepEqual(swipeChord('down', false), { key: 'd', mods: ['win'] });
 });
 
 test('swiping left travels to the NEXT desktop — content moves with the fingers', () => {

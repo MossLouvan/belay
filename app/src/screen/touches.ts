@@ -27,6 +27,8 @@ export type GestureKind =
   | 'scroll'
   /** One finger sending the wheel — scroll mode's drag. */
   | 'wheel'
+  /** Two-finger edge gesture (e.g., notification center). */
+  | 'edgeGesture'
   | 'consumed';
 
 export interface GestureRecord {
@@ -71,6 +73,13 @@ export interface GestureRecord {
   touchB: number | null;
   touchC: number | null;
   longPress: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Whether a 2-finger gesture started from a screen edge. Used to detect
+   * edge swipes for Notification Center and similar OS-level gestures.
+   */
+  edgeStartX: number;
+  edgeStartY: number;
+  isEdgeGesture: boolean;
 }
 
 export const newGesture = (): GestureRecord => ({
@@ -95,6 +104,9 @@ export const newGesture = (): GestureRecord => ({
   touchB: null,
   touchC: null,
   longPress: undefined,
+  edgeStartX: 0,
+  edgeStartY: 0,
+  isEdgeGesture: false,
 });
 
 export interface Origin {

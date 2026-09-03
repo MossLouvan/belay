@@ -100,6 +100,10 @@ export const GESTURE = Object.freeze({
   trackpadGain: 0.85,
   /** Frame budget assumed for the momentum decay, in ms. */
   frameMs: 16,
+  /** Edge detection thresholds for 2-finger gestures (Notification Center, etc). */
+  edgeThresholdPx: 60,
+  cornerThresholdPx: 80,
+  edgeSwipeThresholdPx: 40,
 });
 
 export interface KeySpec {
@@ -190,6 +194,19 @@ export const KEYS: readonly KeySpec[] = Object.freeze([
   { id: 'DeskPrev', label: 'Desk ←', key: 'left', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Previous desktop' },
   { id: 'DeskNext', label: 'Desk →', key: 'right', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Next desktop' },
   { id: 'Overview', label: 'Views', key: 'tab', mods: ['win'], macKey: 'up', macMods: ['rawctrl'], action: 'See every window and desktop' },
+
+  // Notification center gestures. Triggered by 2-finger edge gestures on the
+  // remote screen. On Windows: Win+A opens Action Center. On macOS: there's no
+  // direct keyboard shortcut, so we send ⌃⌘up which triggers the gesture to
+  // reveal Notification Center from Control Center (available in macOS 11+).
+  // Note: macOS gesture behavior may vary by OS version and trackpad settings.
+  { id: 'NotifyCenter', label: 'Notify', key: 'a', mods: ['win'], macKey: 'up', macMods: ['rawctrl', 'cmd'], action: 'Open notification center' },
+
+  // Desktop switching (3-finger down gesture): show desktop or minimize all.
+  // Windows: Win+D shows desktop (toggle). macOS: Mission Control's App Exposé
+  // (⌃↓) shows windows of the current app, or F11 shows desktop. Using F11
+  // for consistency with showing desktop behavior.
+  { id: 'ShowDesktop', label: 'Desktop', key: 'd', mods: ['win'], macKey: 'f11', macMods: [], action: 'Show desktop' },
 ]);
 
 /** Modifiers to send for a key, honouring the macOS variant when relevant. */
