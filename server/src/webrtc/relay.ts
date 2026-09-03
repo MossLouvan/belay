@@ -16,6 +16,11 @@
 export const SIGNAL_LIMITS = Object.freeze({
   maxSdpBytes: 64 * 1024,
   maxCandidateBytes: 1024,
+  /** An m-line media id ("audio"/"video"/"0"…) — a handful of bytes; capped
+   *  well above any real value so a hostile frame can't smuggle bulk here. */
+  maxSdpMidBytes: 64,
+  /** m-line index: a session has at most a few media sections. */
+  maxSdpMLineIndex: 128,
   maxReasonBytes: 256,
   maxSessionIdBytes: 128,
   /** Optional end-to-end seal (envelope.ts) for signaling that crosses the
@@ -31,6 +36,11 @@ export interface ValidSignal {
   readonly sessionId: string;
   readonly sdp?: string;
   readonly candidate?: string;
+  /** ICE identification: the receiver needs at least one of these to satisfy
+   *  RTCPeerConnection.addIceCandidate's init-dict rule, so the relay must
+   *  carry them through rather than strip them. */
+  readonly sdpMid?: string | null;
+  readonly sdpMLineIndex?: number | null;
   readonly reason?: string;
   /** End-to-end authenticity seal — verified by envelope.ts on the cloud
    *  path, absent and unused on the LAN path. */
@@ -79,7 +89,18 @@ export function validateSignal(input: unknown): ValidationResult {
     case 'ice': {
       if (typeof msg.candidate !== 'string' || msg.candidate.length === 0) return fail('ice missing candidate');
       if (byteLen(msg.candidate) > SIGNAL_LIMITS.maxCandidateBytes) return fail('candidate too large');
-      return ok({ kind, sessionId, candidate: msg.candidate, seal });
+      // Carry the ICE identification through. Either may be null (WebRTC allows
+      // one absent), but the two are all that lets the far peer add the
+      // candidate — dropping them here silently broke trickle ICE end to end.
+      const sdpMid = typeof msg.sdpMid === 'string' ? msg.sdpMid : null;
+      if (typeof msg.sdpMid === 'string' && byteLen(msg.sdpMid) > SIGNAL_LIMITS.maxSdpMidBytes) {
+        return fail('sdpMid too large');
+      }
+      const sdpMLineIndex = typeof msg.sdpMLineIndex === 'number' && Number.isInteger(msg.sdpMLineIndex)
+        && msg.sdpMLineIndex >= 0 && msg.sdpMLineIndex <= SIGNAL_LIMITS.maxSdpMLineIndex
+        ? msg.sdpMLineIndex
+        : null;
+      return ok({ kind, sessionId, candidate: msg.candidate, sdpMid, sdpMLineIndex, seal });
     }
     case 'bye': {
       const reason = typeof msg.reason === 'string' ? truncateBytes(msg.reason, SIGNAL_LIMITS.maxReasonBytes) : '';

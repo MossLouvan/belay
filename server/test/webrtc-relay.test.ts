@@ -75,3 +75,24 @@ test('the webrtc path is OFF by default and only on for explicit truthy flags', 
   // legacy fallback honoured
   assert.equal(webrtcEnabled({ TETHER_WEBRTC: '1' }), true);
 });
+
+test('ice carries sdpMid / sdpMLineIndex through the relay (trickle ICE end to end)', () => {
+  const r = validateSignal({ kind: 'ice', sessionId: 'a', candidate: 'candidate:1 1 udp 1 1.2.3.4 5 typ host', sdpMid: 'audio', sdpMLineIndex: 0 });
+  assert.equal(r.ok, true);
+  assert.equal(r.ok && r.message.sdpMid, 'audio');
+  assert.equal(r.ok && r.message.sdpMLineIndex, 0);
+});
+
+test('a bare candidate normalizes to null mid/index (the far peer still gets one path)', () => {
+  const r = validateSignal({ kind: 'ice', sessionId: 'a', candidate: 'candidate:x' });
+  assert.equal(r.ok, true);
+  assert.equal(r.ok && r.message.sdpMid, null);
+  assert.equal(r.ok && r.message.sdpMLineIndex, null);
+});
+
+test('a garbage sdpMLineIndex is coerced to null, not forwarded raw', () => {
+  const r = validateSignal({ kind: 'ice', sessionId: 'a', candidate: 'candidate:x', sdpMLineIndex: -5, sdpMid: 42 });
+  assert.equal(r.ok, true);
+  assert.equal(r.ok && r.message.sdpMLineIndex, null); // negative rejected
+  assert.equal(r.ok && r.message.sdpMid, null);        // non-string rejected
+});

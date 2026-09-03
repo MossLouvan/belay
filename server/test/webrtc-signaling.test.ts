@@ -33,7 +33,7 @@ function makeAdapter(side: RelaySide, loop: Loopback, tag: string): FakeAdapter 
     async createOffer() { calls.push('createOffer'); return `OFFER-${tag}`; },
     async createAnswer() { calls.push('createAnswer'); return `ANSWER-${tag}`; },
     async setRemoteDescription(_sdp, type) { calls.push(`setRemote:${type}`); },
-    async addIceCandidate(c) { calls.push(`addIce:${c}`); },
+    async addIceCandidate(c) { calls.push(`addIce:${c.candidate}`); },
     send(message) { calls.push(`send:${message.kind}`); loop.fromController(side, message); },
     teardown(reason) { calls.push(`teardown:${reason}`); },
   };
@@ -77,7 +77,10 @@ class Loopback {
 
   /** Simulate a locally-gathered ICE candidate the device layer forwards. */
   emitLocalCandidate(side: RelaySide, candidate: string): void {
-    this.bridge.ingest(side, { kind: 'ice', sessionId: SID, candidate });
+    // Real gathered candidates always carry an sdpMid / sdpMLineIndex, and the
+    // app-side coerce now requires at least one (addIceCandidate's init-dict
+    // rule), so the loopback supplies them too.
+    this.bridge.ingest(side, { kind: 'ice', sessionId: SID, candidate, sdpMid: '0', sdpMLineIndex: 0 });
   }
 
   async pump(): Promise<void> {
