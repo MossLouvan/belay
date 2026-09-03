@@ -16,7 +16,7 @@
 // expo-router's route context and would register as extra tabs.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, Keyboard, Platform, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Animated, Image, Keyboard, PixelRatio, Platform, ScrollView, useWindowDimensions, View } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -28,7 +28,7 @@ import {
   Button,
   Caption,
   Column,
-  Dot,
+  ConnectionStatus,
   IconButton,
   Input,
   ListItem,
@@ -65,7 +65,6 @@ import type { KeySpec, QualityId, Size } from '../../src/screen/model';
 import {
   aspectOf,
   isMacHost,
-  PHASE_LABEL,
   readPermissions,
   useHostFacts,
   useScreenStream,
@@ -93,7 +92,6 @@ import {
   KeyBar,
   NoticeArea,
   StageButton,
-  statusColorFor,
   StreamHud,
 } from '../../src/screen/parts';
 import { ControlDock } from '../../src/screen/dock';
@@ -106,6 +104,7 @@ import { useRecording } from '../../src/screen/useRecording';
 import { setOpenSession } from '../../src/agent/attention-store';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { HostAudio } from '../../src/stream/audio-player';
+import { tabBarStyleFor } from './_layout';
 
 // Where the open type row lives is a platform constant (so the Input never
 // remounts and drops focus). Only iOS overlays its keyboard on the app — there
@@ -115,7 +114,7 @@ import { HostAudio } from '../../src/stream/audio-player';
 const TYPE_ROW_FLOATS = Platform.OS === 'ios';
 
 export default function ScreenTab() {
-  const { connection } = useConnection();
+  const { connection, phase: linkPhase } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
@@ -220,16 +219,16 @@ export default function ScreenTab() {
 
   // Immersive fullscreen hides the tab bar for the whole navigator, so both
   // exits — the corner press AND unmount (navigating away however it happens)
-  // — must put it back or every other tab loses its navigation.
+  // — must put it back or every other tab loses its navigation. "Back" means
+  // the layout's full bar style: a route-level `tabBarStyle` replaces the
+  // navigator's wholesale, so `undefined` here left the default white bar.
   useEffect(() => {
-    navigation.setOptions({ tabBarStyle: fullscreen ? { display: 'none' } : undefined });
-  }, [navigation, fullscreen]);
-  useEffect(
-    () => () => {
-      navigation.setOptions({ tabBarStyle: undefined });
-    },
-    [navigation]
-  );
+    const restored = tabBarStyleFor(theme, insets.bottom, PixelRatio.getFontScale());
+    navigation.setOptions({ tabBarStyle: fullscreen ? { display: 'none' } : restored });
+    return () => {
+      navigation.setOptions({ tabBarStyle: restored });
+    };
+  }, [navigation, fullscreen, theme, insets.bottom]);
 
   // In fullscreen the floating dock hides after 4s untouched; while the text
   // field is open it stays put (the keyboard is up — hiding under the user's
@@ -432,8 +431,6 @@ export default function ScreenTab() {
     </View>
   );
 
-  const live = stream.phase === 'live';
-  const connecting = stream.phase === 'connecting' || stream.phase === 'reconnecting';
   const showPanelState = permissions.captureBlocked || !stream.frameUri;
 
   const noticeArea = <NoticeArea permissions={permissions} actionError={actionError} onHelp={() => setShowHelp(true)} />;
@@ -578,15 +575,15 @@ export default function ScreenTab() {
               <DotsGlyph color={theme.colors.textDim} />
             </IconButton>
           </Row>
-          <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
-            <Row gap="xs" style={{ flexShrink: 1 }}>
-              <Dot color={statusColorFor(stream.phase, theme)} pulse={connecting} label={PHASE_LABEL[stream.phase]} />
-              <Txt testID="fps" variant="label" tone="dim" numberOfLines={1}>
-                {live ? `${PHASE_LABEL[stream.phase]} · ${stream.stats.fps} fps` : PHASE_LABEL[stream.phase]}
-              </Txt>
-            </Row>
-            <SwitchComputerLink />
-          </Row>
+          {/* The one status line (§8): the shared link words, with the way
+              out trailing. Stream detail lives on the glass and in the HUD —
+              the header never restates it. */}
+          <ConnectionStatus
+            testID="screen-connection"
+            phase={linkPhase}
+            trailing={<SwitchComputerLink />}
+            style={{ marginTop: theme.space.xxs }}
+          />
         </View>
       ) : null}
 

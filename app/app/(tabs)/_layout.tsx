@@ -4,8 +4,9 @@
 // not a floating chrome slab — and each item is a 1.5pt-outline glyph over a
 // wide-tracked mono micro-label. Icons stay (they beat the reference's
 // text-only nav on discoverability), but they are strokes in the label's own
-// colour, never filled blobs (docs/DESIGN.md §11.1); selection is carried by
-// the accent tint alone, so nothing pulses, slides or squishes down here.
+// colour, never filled blobs (docs/DESIGN.md §11.1); selection is the accent
+// tint plus a steady 2pt underline track beneath the glyph, so nothing
+// pulses, slides or squishes down here — scenes crossfade, the bar holds.
 //
 // Icons stay hand-drawn from Views: @expo/vector-icons is not a dependency of
 // this app, and adding an icon font purely for five glyphs would cost a
@@ -18,6 +19,7 @@ import { Redirect, Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { font, useTheme } from '../../src/theme';
+import type { Theme } from '../../src/theme';
 import { waitingSessions } from '../../src/agent/attention';
 import { useAgentAttention, resetAttention } from '../../src/agent/attention-store';
 import { NeedsYouBanner } from '../../src/agent/needs-you-banner';
@@ -28,6 +30,10 @@ type TabName = 'screen' | 'agent' | 'terminal' | 'files' | 'system';
 const STROKE = 1.5;
 
 const GLYPH_BOX: ViewStyle = { alignItems: 'center', justifyContent: 'center', width: 24, height: 24 };
+
+/** The steady selection mark: a 2pt accent track under the active glyph. */
+const TRACK_WIDTH = 20;
+const TRACK_HEIGHT = 2;
 
 /** Monitor outline with a stand. */
 function ScreenGlyph({ color }: GlyphProps) {
@@ -139,8 +145,10 @@ const GLYPHS: Record<TabName, (props: GlyphProps) => React.JSX.Element> = {
   system: SystemGlyph,
 };
 
-/** Static glyph slot — selection is colour, not animation or a filled pill. */
-function TabIcon({ name, color }: { name: TabName; color: ColorValue }) {
+/** Static glyph slot — selection is colour plus the underline track, never
+ *  animation or a filled pill. The track is always laid out (transparent at
+ *  rest) so selecting a tab moves nothing. */
+function TabIcon({ name, color, focused }: { name: TabName; color: ColorValue; focused: boolean }) {
   const Glyph = GLYPHS[name];
   return (
     // Hidden from assistive tech: the tab's own label already names it, and the
@@ -152,6 +160,16 @@ function TabIcon({ name, color }: { name: TabName; color: ColorValue }) {
       style={{ width: TAB_ICON_WIDTH, height: TAB_ICON_HEIGHT, alignItems: 'center', justifyContent: 'center' }}
     >
       <Glyph color={color} />
+      <View
+        style={{
+          position: 'absolute',
+          bottom: 2,
+          width: TRACK_WIDTH,
+          height: TRACK_HEIGHT,
+          borderRadius: TRACK_HEIGHT / 2,
+          backgroundColor: focused ? color : 'transparent',
+        }}
+      />
     </View>
   );
 }
@@ -185,6 +203,31 @@ function tabItemHeight(fontScale: number): number {
 
 function tabBarContentHeight(fontScale: number): number {
   return tabItemHeight(fontScale) + TAB_BAR_PAD_TOP + TAB_BAR_PAD_BOTTOM;
+}
+
+/**
+ * The complete bar style — the navy page surface with its hairline top rule,
+ * sized from the scaled contents plus the home-indicator inset.
+ *
+ * Exported for screen.tsx's fullscreen toggle: a route-level `tabBarStyle`
+ * replaces the navigator's wholesale, so restoring with `undefined` after
+ * fullscreen left react-navigation's default white bar. The Screen tab must
+ * hand back this exact style instead.
+ */
+export function tabBarStyleFor(theme: Theme, bottomInset: number, fontScale: number): ViewStyle {
+  return {
+    // The bar sits on the page itself — one surface, a hairline rule,
+    // no shadow slab floating over the content.
+    backgroundColor: theme.colors.bg,
+    borderTopColor: theme.colors.border,
+    borderTopWidth: theme.layout.hairline,
+    // Sized from the icon and the scaled label, so nothing is clipped at
+    // any text size. The home-indicator inset is added on top rather than
+    // eating into that content box.
+    height: tabBarContentHeight(fontScale) + bottomInset,
+    paddingTop: TAB_BAR_PAD_TOP,
+    paddingBottom: TAB_BAR_PAD_BOTTOM + bottomInset,
+  };
 }
 
 const TABS: readonly { readonly name: TabName; readonly title: string }[] = [
@@ -234,24 +277,14 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        // Tab switches crossfade; the bar itself holds perfectly still.
+        animation: 'fade',
         // Selection = the accent; rest state = the micro-label's usual textDim.
         tabBarActiveTintColor: theme.colors.accent,
         tabBarInactiveTintColor: theme.colors.textDim,
         // The label is redundant next to the icon for screen readers.
         tabBarAccessibilityLabel: undefined,
-        tabBarStyle: {
-          // The bar sits on the page itself — one surface, a hairline rule,
-          // no shadow slab floating over the content.
-          backgroundColor: theme.colors.bg,
-          borderTopColor: theme.colors.border,
-          borderTopWidth: theme.layout.hairline,
-          // Sized from the icon and the scaled label, so nothing is clipped at
-          // any text size. The home-indicator inset is added on top rather than
-          // eating into that content box.
-          height: contentHeight + insets.bottom,
-          paddingTop: TAB_BAR_PAD_TOP,
-          paddingBottom: TAB_BAR_PAD_BOTTOM + insets.bottom,
-        },
+        tabBarStyle: tabBarStyleFor(theme, insets.bottom, fontScale),
         // Sized to its contents, with the default vertical padding removed so the
         // label keeps its full line box instead of being shrunk and clipped.
         tabBarItemStyle: { height: itemHeight, paddingTop: 0, paddingBottom: 0 },
@@ -274,17 +307,20 @@ export default function TabsLayout() {
           name={name}
           options={{
             title,
-            tabBarIcon: ({ color }) => <TabIcon name={name} color={color} />,
+            tabBarIcon: ({ color, focused }) => <TabIcon name={name} color={color} focused={focused} />,
             // The one tab allowed a badge: sessions blocked on an approval.
             // Accent, not red — it means "decide", not "broken".
             ...(name === 'agent' && waitingCount > 0
               ? {
                   tabBarBadge: waitingCount,
+                  // A small SQUARE count chip (radius 2) — the reference's
+                  // geometry, not the platform pill.
                   tabBarBadgeStyle: {
                     backgroundColor: theme.colors.accent,
                     color: theme.colors.onAccent,
                     fontFamily: font.mono,
                     fontSize: 10,
+                    borderRadius: 2,
                   },
                 }
               : null),

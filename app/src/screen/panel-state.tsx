@@ -7,15 +7,15 @@
 // accent action that can actually succeed from here, and a proof-of-life line
 // so a waiting screen never reads as a crashed one.
 //
-// Everything here renders ON the true-dark machine surface, in both themes, so
-// text and marks take their colours from the ink (dark) palette rather than
-// `useTheme()` — the light palette's accent and status colours are tuned for
-// paper and fall under WCAG AA on near-black.
+// The anatomy itself is the shared `GlassState` component (src/ui), which
+// Screen and Terminal both render, so every empty, waiting and fault state in
+// the app is centred and worded the same way. This file only decides WHAT the
+// Screen panel says (`panelCopyFor`) and owns the live outage clock.
 
 import React, { useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
-import { getTheme, useTheme } from '../theme';
-import { Micro, Txt, haptic } from '../ui';
+import { View } from 'react-native';
+import { getTheme } from '../theme';
+import { GlassState, Micro } from '../ui';
 import { retryPhrase } from './retry';
 import type { Phase } from './stream';
 
@@ -140,9 +140,9 @@ export interface PanelStateProps {
 }
 
 /**
- * The guidance surface filling the empty machine panel — content centred
- * inside it, the one sanctioned centring (docs/DESIGN.md §11.5). Sits over the
- * stage, so it must stay interactive: its own presses are the way forward.
+ * The guidance surface filling the empty machine panel — the shared GlassState
+ * anatomy over the dark stage, positioned to cover it (the stage has nothing
+ * to click while there is no picture). Its own presses are the way forward.
  */
 export function PanelState({
   connected,
@@ -156,63 +156,22 @@ export function PanelState({
   onHelp,
   testID,
 }: PanelStateProps) {
-  const theme = useTheme();
-  const ink = getTheme('dark').colors;
   const copy = panelCopyFor(connected, phase, streamError, captureBlocked, captureKnown, hostName);
-  const onAction = copy.action === 'help' ? onHelp : onRetry;
 
   return (
-    <View
-      testID={testID}
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: theme.space.lg,
-      }}
-    >
-      <View style={{ maxWidth: 360, alignItems: 'center', gap: theme.space.sm }}>
-        <Txt variant="label" color={copy.severity === 'bad' ? ink.bad : ink.onMachineDim} align="center">
-          {copy.name}
-        </Txt>
-        <Txt variant="body" color={ink.onMachine} align="center">
-          {copy.body}
-        </Txt>
-        {copy.action ? (
-          <Pressable
-            testID="panel-action"
-            accessibilityRole="button"
-            accessibilityLabel={copy.actionLabel}
-            onPress={() => {
-              haptic('medium');
-              onAction();
-            }}
-            style={({ pressed }) => ({
-              minHeight: theme.layout.minTouch,
-              paddingHorizontal: theme.space.lg,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: theme.radius.xs,
-              backgroundColor: ink.accent,
-              marginTop: theme.space.xxs,
-              opacity: pressed ? theme.motion.pressOpacity : 1,
-            })}
-          >
-            <Txt variant="label" color={ink.onAccent}>
-              {copy.actionLabel}
-            </Txt>
-          </Pressable>
-        ) : null}
-        {copy.countdown ? (
-          <OutageClock sinceMs={retryingSinceMs} />
-        ) : copy.proof ? (
-          <Micro style={{ color: ink.onMachineDim }}>{copy.proof}</Micro>
-        ) : null}
-      </View>
+    <View testID={testID} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+      <GlassState
+        status={copy.severity}
+        name={copy.name}
+        body={copy.body}
+        action={
+          copy.action && copy.actionLabel
+            ? { label: copy.actionLabel, onPress: copy.action === 'help' ? onHelp : onRetry }
+            : undefined
+        }
+        proof={copy.proof}
+        proofSlot={copy.countdown ? <OutageClock sinceMs={retryingSinceMs} /> : undefined}
+      />
     </View>
   );
 }
