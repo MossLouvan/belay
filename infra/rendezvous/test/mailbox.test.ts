@@ -130,6 +130,58 @@ test('bye is terminal: forwarded, then the mailbox refuses everything', () => {
   assert.equal(box.attach('client', collector()).ok, false);
 });
 
+test('bye buffered for an absent peer is delivered when it attaches shortly after', () => {
+  // The sending side ends the session while its peer is briefly detached (a
+  // blip, or the peer simply hasn't attached yet). The terminal bye must still
+  // reach the peer when it (re)attaches — losing it leaves the sender believing
+  // the session ended cleanly while the peer never learns it is over.
+  const now = { t: 1_000_000 };
+  const registry = createMailboxRegistry(() => now.t);
+  const opened = registry.open(ID);
+  assert.equal(opened.ok, true);
+  if (!opened.ok) return;
+  const box = opened.mailbox;
+
+  // Only the client is attached; host is absent.
+  box.attach('client', collector());
+  assert.equal(box.ingest('client', { kind: 'bye', sessionId: 's1', reason: 'done' }).ok, true);
+
+  // Re-opening the same id must return the SAME mailbox (not a fresh one that
+  // dropped the bye) so the returning host can drain the terminal frame.
+  const reopened = registry.open(ID);
+  assert.equal(reopened.ok && reopened.mailbox === box, true);
+
+  const host = collector();
+  assert.equal(box.attach('host', host).ok, true);
+  assert.equal(host.got.length, 1);
+  assert.equal(host.got[0].kind, 'bye');
+
+  // Once the terminal frame is drained the mailbox tears down (bounded — no
+  // lingering retention) and the registry drops it.
+  assert.equal(box.isClosed, true);
+  assert.equal(registry.size(), 0);
+});
+
+test('a mailbox awaiting bye drain still refuses further frames and is reaped if abandoned', () => {
+  const now = { t: 1_000_000 };
+  const registry = createMailboxRegistry(() => now.t);
+  const opened = registry.open('mbox-abandoned01');
+  assert.equal(opened.ok, true);
+  if (!opened.ok) return;
+  const box = opened.mailbox;
+
+  box.attach('client', collector());
+  assert.equal(box.ingest('client', { kind: 'bye', sessionId: 's1', reason: 'done' }).ok, true);
+  // The session is over: the sender cannot smuggle more frames through.
+  assert.equal(box.ingest('client', { kind: 'offer', sessionId: 's1', sdp: 'v=0' }).ok, false);
+
+  // If the peer never returns, retention is bounded by the idle reaper.
+  now.t += MAILBOX_LIMITS.idleTtlMs + 1000;
+  registry.reap();
+  assert.equal(box.isClosed, true);
+  assert.equal(registry.size(), 0);
+});
+
 test('registry: same id → same mailbox; closed mailboxes are replaced', () => {
   const registry = createMailboxRegistry(() => 1_000_000);
   const a = registry.open(ID);

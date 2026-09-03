@@ -16,6 +16,7 @@ import { createServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import { loadConfig } from './config.js';
+import { parseTrustedProxies, deriveClientIp } from './client-ip.js';
 import { createLeaseTable } from './lease.js';
 import { createMailboxRegistry, type Mailbox, type MailboxSide } from './mailbox.js';
 import { createRateLimiter } from './rate-limit.js';
@@ -36,6 +37,12 @@ if (!configResult.ok) {
   process.exit(1);
 }
 const config = configResult.config;
+
+// Rate-limit keying trusts X-Forwarded-For ONLY from these proxies. Unset =>
+// trust nobody => key on the raw socket peer (see client-ip.ts). Set this to
+// the CIDR(s) of the TLS-terminating proxy the deploy puts in front, or every
+// client shares one global bucket behind it.
+const trustedProxies = parseTrustedProxies(process.env.TRUSTED_PROXIES);
 
 const leases = createLeaseTable();
 const mailboxes = createMailboxRegistry();
@@ -63,7 +70,7 @@ interface ConnectionState {
 }
 
 wss.on('connection', (ws: WebSocket, req) => {
-  const ip = req.socket.remoteAddress ?? 'unknown';
+  const ip = deriveClientIp(req.socket.remoteAddress, req.headers['x-forwarded-for'], trustedProxies);
   const state: ConnectionState = { mailbox: null, side: null };
 
   ws.on('message', (data, isBinary) => {
