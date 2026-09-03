@@ -25,6 +25,10 @@ interface VariantStyle {
   readonly border: string;
   /** Disabled state keeps its own fill so a dimmed solid never fakes depth. */
   readonly disabledBackground?: string;
+  /** Solid fills darken under load instead of ghosting (REVAMP-SPEC §5.10):
+   *  when set, press feedback is this fill at full opacity — the rope taking
+   *  weight — and the opacity dip is suppressed for the variant. */
+  readonly pressedBackground?: string;
 }
 
 const variantStyle = (variant: ButtonVariant, c: Palette): VariantStyle => {
@@ -32,7 +36,15 @@ const variantStyle = (variant: ButtonVariant, c: Palette): VariantStyle => {
     // The one solid accent fill the system allows; disabled drops to the
     // accentDim track tint rather than a translucent whole-button fade, so a
     // disabled primary still reads as "the primary, currently unavailable".
-    primary: { background: c.accent, foreground: c.onAccent, border: 'transparent', disabledBackground: c.accentDim },
+    // Pressed, the fill deepens to `accentPress` (REVAMP-SPEC §5.10: "fills
+    // darken under load") — a solid never turns translucent mid-press.
+    primary: {
+      background: c.accent,
+      foreground: c.onAccent,
+      border: 'transparent',
+      disabledBackground: c.accentDim,
+      pressedBackground: c.accentPress,
+    },
     danger: { background: c.bad, foreground: c.onDanger, border: 'transparent' },
     // Hairline-outlined in ink — the strongest non-accent button.
     secondary: { background: 'transparent', foreground: c.text, border: c.borderStrong },
@@ -58,9 +70,12 @@ interface SizeStyle {
 // Font size does not vary with button size: every button label is the 11pt
 // tracked mono micro-label, and `label` never exceeds 11pt (docs/DESIGN.md
 // §4.3). Bigger buttons buy presence with height, not louder type.
+//
+// Height discipline per REVAMP-SPEC §5.10: sm 36 / md 44. The 44pt touch
+// target survives via hitSlop on any size shorter than `layout.minTouch`.
 const SIZES: Readonly<Record<ButtonSize, SizeStyle>> = {
-  sm: { minHeight: 44, paddingHorizontal: 14, gap: 6 },
-  md: { minHeight: 48, paddingHorizontal: 18, gap: 8 },
+  sm: { minHeight: 36, paddingHorizontal: 14, gap: 6 },
+  md: { minHeight: 44, paddingHorizontal: 18, gap: 8 },
   lg: { minHeight: 56, paddingHorizontal: 22, gap: 10 },
 };
 
@@ -131,9 +146,17 @@ export function Button({
       accessibilityState={{ disabled: inactive, busy: loading }}
       disabled={inactive}
       onPress={handlePress}
+      // sm buttons stand 36pt tall (REVAMP-SPEC §5.10); hitSlop restores the
+      // 44pt touch target this file's header promises.
+      hitSlop={s.minHeight < theme.layout.minTouch ? theme.layout.hitSlop : undefined}
       style={({ pressed }) => [
         {
-          backgroundColor: inactive && v.disabledBackground ? v.disabledBackground : v.background,
+          backgroundColor:
+            inactive && v.disabledBackground
+              ? v.disabledBackground
+              : pressed && v.pressedBackground
+                ? v.pressedBackground
+                : v.background,
           borderColor: v.border,
           borderWidth: v.border === 'transparent' ? 0 : theme.layout.hairline,
           borderRadius: theme.radius.xs,
@@ -144,7 +167,15 @@ export function Button({
           alignItems: 'center',
           justifyContent: 'center',
           gap: s.gap,
-          opacity: inactive && !v.disabledBackground ? 0.45 : pressed ? theme.motion.pressOpacity : 1,
+          // Opacity ghosting is for text/label/ghost speech only; a variant
+          // with a pressed fill darkens instead of fading (REVAMP-SPEC §5.10:
+          // solid fills darken under load, they never go translucent).
+          opacity:
+            inactive && !v.disabledBackground
+              ? 0.45
+              : pressed && !v.pressedBackground
+                ? theme.motion.pressOpacity
+                : 1,
         },
         fullWidth && { alignSelf: 'stretch' },
         style,
@@ -157,9 +188,10 @@ export function Button({
           <>
             {icon ? <View accessibilityElementsHidden>{icon}</View> : null}
             {variant === 'ghost' ? (
-              // The track rule's mark: accentDim at rest, lighting to the
-              // graphic accent under the pressing finger. Under the label
-              // only, not the padded box — this is a tracked word, not a rule.
+              // The track rule's mark — the rope: slack granite `trackRest`
+              // at rest, taking load (`accentGraphic`) under the pressing
+              // finger (REVAMP-SPEC §6.3, §3.5). Under the label only, not
+              // the padded box — this is a tracked word, not a rule.
               <View style={{ alignItems: 'center' }}>
                 <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={labelStyle}>
                   {label}
@@ -170,7 +202,7 @@ export function Button({
                     alignSelf: 'stretch',
                     height: theme.layout.ruleEmphasis,
                     marginTop: theme.space.xxs,
-                    backgroundColor: pressed ? theme.colors.accentGraphic : theme.colors.accentDim,
+                    backgroundColor: pressed ? theme.colors.accentGraphic : theme.colors.trackRest,
                   }}
                 />
               </View>

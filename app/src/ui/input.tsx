@@ -4,12 +4,20 @@
 // The input is one of only four filled rectangles the Ledger system allows
 // (docs/DESIGN.md §2.1) — a `surface` lift with a hairline border and 2pt
 // corners, so it reads as a slot cut into the page rather than a floating pill.
+//
+// Signature detail (REVAMP-SPEC §5.10): on focus the hairline swaps to the
+// `focus` colour and a 2pt `accentGraphic` track — the rope — grows along the
+// bottom edge under the caret, tensioning in over `motion.fast`.
 
-import React, { useCallback, useState } from 'react';
-import { TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, Platform, TextInput, View } from 'react-native';
 import type { KeyboardTypeOptions, ReturnKeyTypeOptions, StyleProp, ViewStyle } from 'react-native';
-import { useTheme } from '../theme';
+import { easing, useTheme } from '../theme';
+import { useReducedMotion } from './motion';
 import { Label, Txt } from './text';
+
+// react-native-web does not meaningfully support the native driver.
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 
 export interface InputProps {
   value: string;
@@ -71,11 +79,32 @@ export function Input({
   style,
 }: InputProps) {
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
   const [focused, setFocused] = useState(false);
   const onFocus = useCallback(() => setFocused(true), []);
   const onBlur = useCallback(() => setFocused(false), []);
 
+  // The focus rope (REVAMP-SPEC §5.10): 0 → 1 drives both the horizontal
+  // growth (scaleX, tensioning out from under the caret) and the fade of the
+  // 2pt bottom track. One value, `motion.fast`, `easing.standard` — the same
+  // "track ignition" vocabulary as every other rope in the app (§3.5).
+  // Reduced motion: translations/growth become fades (§3.5), so the scale is
+  // pinned at 1 and only the crossfade remains.
+  const rope = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const animation = Animated.timing(rope, {
+      toValue: focused ? 1 : 0,
+      duration: reducedMotion ? theme.motion.fast / 2 : theme.motion.fast,
+      easing: easing.standard,
+      useNativeDriver: USE_NATIVE_DRIVER,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [focused, reducedMotion, rope, theme.motion.fast]);
+
   const invalid = Boolean(error);
+  // Focus swaps the hairline to `focus`; the rope carries the emphasis weight.
+  // Error keeps its 2pt promotion — a fault is structural, not a caret state.
   const borderColor = invalid ? theme.colors.bad : focused ? theme.colors.focus : theme.colors.border;
 
   return (
@@ -91,9 +120,10 @@ export function Input({
           paddingVertical: multiline ? theme.space.sm : 0,
           backgroundColor: theme.colors.surface,
           borderRadius: theme.radius.xs,
-          // Focus and error promote the hairline to the 2pt emphasis weight —
-          // the same two-weight rule discipline as everywhere else (§6).
-          borderWidth: focused || invalid ? theme.layout.ruleEmphasis : theme.layout.hairline,
+          // Error promotes the hairline to the 2pt emphasis weight; focus
+          // stays a hairline (recoloured to `focus`) because the rope below
+          // now carries the 2pt emphasis (REVAMP-SPEC §5.10).
+          borderWidth: invalid ? theme.layout.ruleEmphasis : theme.layout.hairline,
           borderColor,
           opacity: editable ? 1 : 0.55,
         }}
@@ -132,6 +162,24 @@ export function Input({
           }}
         />
         {trailing ? <View>{trailing}</View> : null}
+        {/* The focus rope: a 2pt accentGraphic track along the bottom edge,
+            grown over motion.fast on focus (REVAMP-SPEC §5.10). Decorative —
+            focus state is already announced by the field itself. */}
+        <Animated.View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: theme.layout.ruleEmphasis,
+            backgroundColor: theme.colors.accentGraphic,
+            opacity: rope,
+            transform: [{ scaleX: reducedMotion ? 1 : rope }],
+          }}
+        />
       </View>
       {error ? (
         <Txt variant="caption" tone="bad" style={{ marginTop: theme.space.xs }} accessibilityLabel={`Error: ${error}`}>
