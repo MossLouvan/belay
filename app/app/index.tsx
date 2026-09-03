@@ -100,20 +100,6 @@ async function firstReachable(urls: readonly string[]): Promise<string | null> {
   return winner?.url ?? null;
 }
 
-/** Offers the scanner from the manual-entry screen. */
-function ScanPrompt({ onPress }: { onPress: () => void }) {
-  const theme = useTheme();
-  return (
-    <View style={{ gap: theme.space.sm }}>
-      <Caption>
-        The host agent prints a QR code when it starts. Scanning it fills in everything.
-      </Caption>
-      <Button label="Scan code" variant="secondary" fullWidth onPress={onPress} testID="scan-btn" />
-      <Rule bleed={theme.layout.margin} />
-    </View>
-  );
-}
-
 export default function Connect() {
   const { ready, connection, addDevice, devices, phase } = useConnection();
   const insets = useSafeAreaInsets();
@@ -492,13 +478,13 @@ export default function Connect() {
               showResolution={touched && hostText.trim().length > 0}
               busy={busy}
               onSubmit={doCheck}
+              onScan={() => setStage('scan')}
               error={hostError}
               recent={recent}
               onPickRecent={onPickRecent}
               onForgetRecent={onForgetRecent}
             />
             <Rule bleed={theme.layout.margin} />
-            <ScanPrompt onPress={() => setStage('scan')} />
             <SetupSteps />
             <AwayFromHomeNote />
             {adding && router.canGoBack() ? (

@@ -7,7 +7,8 @@
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Badge, Banner, Button, Caption, Dot, Label, Row, Rule, Txt } from '../ui';
+import { Badge, Button, Caption, Card, Dot, Label, Row, Txt } from '../ui';
+import { StatusNotice } from '../devices/notice';
 import { CodeInput } from './code-input';
 import type { Diagnosis } from './diagnose';
 import { prettyHost } from './host-input';
@@ -50,7 +51,7 @@ function CapabilityNote({ native }: { native: boolean }) {
   const theme = useTheme();
   if (native) return null;
   return (
-    <Banner
+    <StatusNotice
       testID="native-warning"
       status="warn"
       title="Screen control is unavailable on this computer"
@@ -68,21 +69,24 @@ export function PairStep({
 
   return (
     <View testID="pair-step">
-      <Row justify="space-between" align="flex-start" gap="sm">
-        <View style={{ flex: 1, gap: theme.space.xxs }}>
-          <Row gap="xs">
-            <Dot status="good" pulse label="Host reachable" />
-            <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>
-              {host.name}
+      {/* The reachable computer as a clean bordered card — name, address,
+          capability — the reference's stat-card anatomy. */}
+      <Card>
+        <Row justify="space-between" align="flex-start" gap="sm">
+          <View style={{ flex: 1, gap: theme.space.xxs }}>
+            <Row gap="xs">
+              <Dot status="good" label="Host reachable" />
+              <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>
+                {host.name}
+              </Txt>
+            </Row>
+            <Txt variant="monoSmall" tone="faint" numberOfLines={1}>
+              {prettyHost(host.url)}
             </Txt>
-          </Row>
-          <Txt variant="monoSmall" tone="faint" numberOfLines={1}>
-            {prettyHost(host.url)}
-          </Txt>
-        </View>
-        <Badge label={host.native ? 'Screen + input' : 'Terminal only'} status={host.native ? 'good' : 'warn'} />
-      </Row>
-      <Rule bleed={theme.layout.margin} style={{ marginTop: theme.space.sm }} />
+          </View>
+          <Badge label={host.native ? 'Screen + input' : 'Terminal only'} status={host.native ? 'good' : 'warn'} />
+        </Row>
+      </Card>
 
       <View style={{ marginTop: theme.space.lg }}>
         <Label>Pairing code</Label>
@@ -119,7 +123,7 @@ export function PairStep({
       <CapabilityNote native={host.native} />
 
       {error ? (
-        <Banner testID="error" title={error.title} message={error.message} status="bad" style={{ marginTop: theme.space.md }} />
+        <StatusNotice testID="error" title={error.title} message={error.message} status="bad" style={{ marginTop: theme.space.md }} />
       ) : null}
 
       <Button
