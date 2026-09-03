@@ -1,14 +1,13 @@
-// A slim, always-honest status row: THE one status dot every tab header
-// carries. A hollow ring while transitioning, a filled disc when steady
-// (REVAMP-SPEC §3.5), one word from the closed vocabulary, and an optional
-// dim detail — with room for a trailing affordance (the switch-computer
-// link). One source of truth so no two tabs word the same state differently
-// (docs/FRONTEND-REVAMP.md §4.1).
+// A slim, always-honest status row: THE one status badge every tab header
+// carries. Text-first with subtle pill — no green/red dots (2026 premium
+// redesign). One word from the closed vocabulary, and an optional dim detail —
+// with room for a trailing affordance (the switch-computer link). One source
+// of truth so no two tabs word the same state differently.
 
 import React from 'react';
 import { View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { Dot } from './feedback';
+import { StatusBadge, TransitionRing } from './status-badge';
 import { Label } from './text';
 import { Row } from './layout';
 import { describeSurface } from './connection-view';
@@ -43,17 +42,23 @@ export function ConnectionStatus({
   return (
     <Row justify="space-between" gap="sm" style={style} testID={testID}>
       <Row gap="xs" style={{ flexShrink: 1, minWidth: 0 }}>
-        {/* The visible word already speaks the state; a label on the Dot
-            would make a screen reader announce it twice. */}
-        <Dot status={view.status} ring={view.ring} size={7} />
-        {/* The state word is the load-bearing fact — never let it truncate. */}
-        <Label style={{ marginBottom: 0, flexShrink: 0 }} numberOfLines={1}>{view.word}</Label>
-        {view.detail ? (
-          // Detail is the first thing to give way on a narrow row.
-          <Label tone="faint" style={{ marginBottom: 0, flexShrink: 1, minWidth: 0 }} numberOfLines={1}>
-            {view.detail}
-          </Label>
-        ) : null}
+        {/* Text-first status badge — no color-coded dots (premium redesign) */}
+        <StatusBadge
+          label={view.word}
+          variant="subtle"
+          trailing={
+            <>
+              {/* Show transition ring for opening/reconnecting states */}
+              {view.ring ? <TransitionRing /> : null}
+              {/* Detail rides along when steady (not while transitioning) */}
+              {view.detail ? (
+                <Label tone="faint" style={{ marginBottom: 0, marginLeft: 4 }}>
+                  {view.detail}
+                </Label>
+              ) : null}
+            </>
+          }
+        />
       </Row>
       {/* The machine link (a place, not a status) yields the row to the status
           and truncates its own name rather than pushing the word off screen. */}

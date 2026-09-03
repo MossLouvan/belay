@@ -15,8 +15,8 @@ import { Pressable, View } from 'react-native';
 import { router } from 'expo-router';
 
 import {
-  Screen, Row, Heading, Label, Caption, Txt, Button, IconButton, Card, Dot,
-  EmptyState, LedgerRow, Rule, Sheet, TrackLabel, haptic,
+  Screen, Row, Heading, Label, Caption, Txt, Button, IconButton, Card,
+  EmptyState, LedgerRow, Rule, Sheet, TrackLabel, haptic, StatusBadge,
 } from '../src/ui';
 import { StatusNotice } from '../src/devices/notice';
 import { useTheme } from '../src/theme';
@@ -35,10 +35,10 @@ function platformLabel(device: SavedDevice): string {
   return 'Computer';
 }
 
-function statusFor(state: Reachability | undefined): 'good' | 'bad' | 'neutral' {
-  if (state === 'online') return 'good';
-  if (state === 'offline') return 'bad';
-  return 'neutral';
+function statusLabel(state: Reachability | undefined): string | null {
+  if (state === 'online') return 'Online';
+  if (state === 'offline') return 'Offline';
+  return null; // checking state
 }
 
 function statusText(state: Reachability | undefined, isActive: boolean): string {
@@ -101,13 +101,13 @@ function DeviceCard({
             opacity: disabled ? 0.45 : pressed ? theme.motion.pressOpacity : 1,
           })}
         >
-          <Row gap="sm">
-            <Dot status={statusFor(state)} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Txt variant="subheading" numberOfLines={1}>{device.label}</Txt>
-              <Txt variant="caption" tone="dim" numberOfLines={1}>{subtitle}</Txt>
-            </View>
-          </Row>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Row gap="xs" align="center">
+              <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>{device.label}</Txt>
+              {statusLabel(state) ? <StatusBadge label={statusLabel(state)!} variant="quiet" /> : null}
+            </Row>
+            <Txt variant="caption" tone="dim" numberOfLines={1}>{subtitle}</Txt>
+          </View>
         </Pressable>
         <TrackLabel
           label="Forget"

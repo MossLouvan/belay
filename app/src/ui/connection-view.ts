@@ -51,14 +51,14 @@ export interface SurfaceView {
 const view = (ring: boolean, status: Status, word: string, detail?: string): SurfaceView =>
   detail === undefined ? { ring, status, word } : { ring, status, word, detail };
 
-/** How each surface word renders once the link is up. */
+/** How each surface word renders once the link is up. Premium 2026: text-first, no dots. */
 const SURFACE_VIEWS: Record<SurfacePhase, SurfaceView> = {
-  live: view(false, 'good', 'LIVE'),
-  opening: view(true, 'accent', 'OPENING'),
-  reconnecting: view(true, 'warn', 'RECONNECTING'),
-  offline: view(false, 'bad', 'OFFLINE'),
+  live: view(false, 'good', 'Connected'),
+  opening: view(true, 'accent', 'Connecting'),
+  reconnecting: view(true, 'warn', 'Reconnecting'),
+  offline: view(false, 'bad', 'Offline'),
   // An ended shell is a fact, not a fault — warn, so it reads calm.
-  ended: view(false, 'warn', 'SHELL ENDED'),
+  ended: view(false, 'warn', 'Shell ended'),
 };
 
 /**
@@ -81,12 +81,12 @@ export function describeSurface(
   surfacePhase?: SurfacePhase,
   extras?: SurfaceExtras,
 ): SurfaceView {
-  if (extras?.paired === false) return view(false, 'neutral', 'NOT PAIRED', extras.detail);
+  if (extras?.paired === false) return view(false, 'neutral', 'Not paired', extras.detail);
 
-  if (connPhase === 'idle') return view(false, 'neutral', 'OFFLINE', extras?.detail);
+  if (connPhase === 'idle') return view(false, 'neutral', 'Offline', extras?.detail);
 
   if (connPhase === 'unreachable') {
-    return view(false, 'bad', 'OFFLINE', extras?.detail ?? 'asleep or off');
+    return view(false, 'bad', 'Offline', extras?.detail ?? 'asleep or off');
   }
 
   if (connPhase === 'connecting') {

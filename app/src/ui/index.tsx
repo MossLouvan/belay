@@ -55,6 +55,9 @@ export type { PressAnimation, EntranceStyle } from './motion';
 export { GlassPanel, PillCTA } from './glass';
 export type { GlassPanelProps, PillCTAProps } from './glass';
 
+export { StatusBadge, TransitionRing } from './status-badge';
+export type { StatusBadgeProps, StatusBadgeVariant } from './status-badge';
+
 export { useKeyboardLift } from './keyboard-lift';
 export type { KeyboardLift } from './keyboard-lift';
 export { keyboardOverlap, keyboardShown } from './keyboard';

@@ -9,7 +9,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Badge, Button, Caption, GlassPanel, Dot, Label, Row, Txt } from '../ui';
+import { Badge, Button, Caption, GlassPanel, StatusBadge, Label, Row, Txt } from '../ui';
 import { StatusNotice } from '../devices/notice';
 import { CodeInput } from './code-input';
 import type { Diagnosis } from './diagnose';
@@ -75,9 +75,9 @@ export function PairStep({
           capability — refined with better spacing. */}
       <GlassPanel elevation="medium">
         <Row justify="space-between" align="flex-start" gap="sm">
-          <View style={{ flex: 1, gap: theme.space.xxs }}>
-            <Row gap="xs">
-              <Dot status="good" label="Host reachable" />
+          <View style={{ flex: 1, gap: theme.space.xs }}>
+            <Row gap="xs" align="center">
+              <StatusBadge label="Reachable" variant="default" />
               <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>
                 {host.name}
               </Txt>
