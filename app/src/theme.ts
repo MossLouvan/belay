@@ -109,89 +109,84 @@ export interface Palette {
 
 /** Light — "paper". Warm grey ground, near-black ink, burnt-orange accent. */
 export const lightPalette: Palette = Object.freeze({
-  bg: '#EAE8E4',
-  surface: '#F2F1EE', // inputs only
-  surfaceAlt: '#E1DED9', // recessed: keys, tracks, pressed rows
-  border: '#C8C4BD', // hairlines (non-text)
-  borderStrong: '#8F8A82', // emphasis rules only where ink 2pt is too loud
-  text: '#161513', // >= 13.60:1
-  textDim: '#4F4B45', // >= 6.45:1
-  textFaint: '#615C55', // >= 4.94:1
-  accent: '#B03700', // >= 4.61:1 (text-safe burnt orange)
-  // Darkened from the spec's #E84A00, which passes 3:1 against bg (3.17) but
-  // falls to 2.89 against surfaceAlt — and surfaceAlt is exactly where these
-  // marks sit (the meter fill lives ON the surfaceAlt track). The spec's own
-  // worst-case rule wins over its quoted hex; #DE4400 is the nearest vivid
-  // orange that clears 3:1 on all three backdrops.
-  accentGraphic: '#DE4400', // >= 3.17:1 worst-case — non-text marks only (WCAG 1.4.11)
-  accentDim: 'rgba(176, 55, 0, 0.28)', // disabled fills only now (track role moved to trackRest)
-  sheet: '#F4F3F0', // raised slab, one step off bg
-  trackRest: '#B3AEA5', // the rope at rest — granite, not orange
-  accentPress: '#8F2D00', // primary fill under press
-  machineLine: 'rgba(236, 234, 230, 0.10)', // hairline on glass
-  contour: 'rgba(22, 21, 19, 0.045)', // topo garnish, decorative
-  good: '#0B6040', // >= 5.67:1
-  warn: '#754C04', // >= 5.06:1
-  bad: '#A82028', // >= 5.39:1
-  black: '#0C0B0A', // alias of machine (legacy name)
-  machine: '#0C0B0A',
-  onMachine: '#ECEAE6', // 16.37:1 on machine
-  onMachineDim: '#A9A49C', // 7.94:1 on machine
-  onAccent: '#FFFFFF', // 5.9:1 on accent
-  onDanger: '#FFFFFF', // 5.6:1 on bad
-  accentSoft: 'rgba(176, 55, 0, 0.10)',
-  goodSoft: 'rgba(11, 96, 64, 0.10)',
-  warnSoft: 'rgba(117, 76, 4, 0.10)',
-  badSoft: 'rgba(168, 32, 40, 0.10)',
-  onAccentSoft: '#9A3000', // >= 4.85:1 composited over surfaceAlt
-  onGoodSoft: '#095538', // >= 5.66:1
-  onWarnSoft: '#6D4603', // >= 5.36:1
-  onBadSoft: '#961E25', // >= 5.33:1
-  overlay: 'rgba(22, 21, 19, 0.40)',
-  focus: '#B03700',
-  skeleton: '#DBD8D2',
-  shadow: '#000000', // dead — see the Palette note
+  bg: '#F6F8FB',            // clean off-white page
+  surface: '#FFFFFF',        // CARDS + inputs (bordered)
+  surfaceAlt: '#EEF1F6',     // recessed rows/keys/pressed
+  border: '#E2E6ED',         // the card hairline border (signature clean-card look)
+  borderStrong: '#C2C9D6',
+  text: '#0F1728',
+  textDim: '#5A6473',
+  textFaint: '#8A93A3',
+  accent: '#1D6FE0',         // electric blue, text-safe on light
+  accentGraphic: '#2E7CF6',  // marks / fills / charts
+  accentDim: 'rgba(29, 111, 224, 0.28)',
+  sheet: '#FFFFFF',
+  trackRest: '#D3D9E2',      // muted resting track
+  accentPress: '#155ABF',
+  machineLine: 'rgba(230, 234, 242, 0.10)',
+  contour: 'rgba(15, 23, 40, 0.04)',
+  good: '#0B7A55',
+  warn: '#8A5A00',
+  bad: '#C4342E',
+  black: '#06080D',
+  machine: '#06080D',        // terminal/stream glass stays deep-dark in both themes
+  onMachine: '#E6EAF2',
+  onMachineDim: '#8B95A7',
+  onAccent: '#FFFFFF',
+  onDanger: '#FFFFFF',
+  accentSoft: 'rgba(46, 124, 246, 0.10)',  // active-row / selected fill
+  goodSoft: 'rgba(11, 122, 85, 0.10)',
+  warnSoft: 'rgba(138, 90, 0, 0.10)',
+  badSoft: 'rgba(196, 52, 46, 0.10)',
+  onAccentSoft: '#1A63C9',
+  onGoodSoft: '#0A6B4A',
+  onWarnSoft: '#7A5000',
+  onBadSoft: '#B12F29',
+  overlay: 'rgba(15, 23, 40, 0.40)',
+  focus: '#1D6FE0',
+  skeleton: '#E8EBF0',
+  shadow: '#000000',
 });
 
 /** Dark — "ink". Warm near-black, not blue-black; the accent survives untamed. */
 export const darkPalette: Palette = Object.freeze({
-  bg: '#121110',
-  surface: '#1A1917',
-  surfaceAlt: '#232120',
-  border: '#2E2C29',
-  borderStrong: '#4A4741',
-  text: '#ECEAE6', // >= 13.34:1
-  textDim: '#A9A49C', // >= 6.47:1
-  textFaint: '#928D84', // >= 4.86:1
-  accent: '#FF5C1A', // >= 5.19:1
-  accentGraphic: '#FF4D00', // >= 4.82:1 (non-text marks)
-  accentDim: 'rgba(255, 92, 26, 0.30)', // disabled fills only now
-  sheet: '#1C1B19', // raised slab
-  trackRest: '#403D38', // the rope at rest — basalt
-  accentPress: '#E04300', // primary fill under press
-  machineLine: 'rgba(236, 234, 230, 0.10)', // hairline on glass
-  contour: 'rgba(236, 234, 230, 0.045)', // topo garnish
-  good: '#3DDC97', // >= 9.07:1 (kept from the previous palette, known-good)
-  warn: '#F7B32B', // >= 8.73:1 (kept)
-  bad: '#FF7A70', // >= 6.31:1 (lifted from #FF6B6B)
-  black: '#0C0B0A',
-  machine: '#0C0B0A',
-  onMachine: '#ECEAE6', // 16.37:1
-  onMachineDim: '#A9A49C', // 7.94:1
-  onAccent: '#121110', // 6.1:1 on accent
-  onDanger: '#121110', // 6.9:1
-  accentSoft: 'rgba(255, 92, 26, 0.14)',
+  bg: '#0B0E14',            // deep navy-black page ground (the reference)
+  surface: '#11151E',        // CARDS + inputs, subtly lifted off the ground
+  surfaceAlt: '#171C27',     // recessed rows/keys/pressed
+  border: '#1E2632',         // the clean card hairline border (signature)
+  borderStrong: '#2C3546',
+  text: '#E6EAF2',           // near-white
+  textDim: '#8B95A7',        // muted blue-grey labels (reference "Client IP")
+  textFaint: '#5E6675',
+  accent: '#3B82F6',         // electric blue, text-safe on navy
+  accentGraphic: '#2E7CF6',  // marks / fills / charts
+  accentDim: 'rgba(59, 130, 246, 0.30)',
+  sheet: '#141A24',
+  trackRest: '#2A3340',      // muted resting track
+  accentPress: '#2563EB',
+  machineLine: 'rgba(230, 234, 242, 0.08)',
+  contour: 'rgba(230, 234, 242, 0.05)',
+  good: '#3DDC97',
+  warn: '#F7B32B',
+  bad: '#FF6B6B',
+  black: '#06080D',
+  machine: '#06080D',        // terminal/stream glass — deeper than the page
+  onMachine: '#E6EAF2',
+  onMachineDim: '#8B95A7',
+  onAccent: '#FFFFFF',       // white on blue
+  onDanger: '#FFFFFF',
+  accentSoft: 'rgba(46, 124, 246, 0.16)',  // active-row / selected fill
   goodSoft: 'rgba(61, 220, 151, 0.14)',
   warnSoft: 'rgba(247, 179, 43, 0.14)',
-  badSoft: 'rgba(255, 122, 112, 0.14)',
-  onAccentSoft: '#FF7A3D', // >= 5.17:1 composited over surfaceAlt
-  onGoodSoft: '#3DDC97', // >= 6.77:1
-  onWarnSoft: '#F7B32B', // >= 6.51:1
-  onBadSoft: '#FF7A70', // >= 5.13:1
-  overlay: 'rgba(0, 0, 0, 0.60)',
-  focus: '#FF5C1A',
-  skeleton: '#262421',
-  shadow: '#000000', // dead — see the Palette note
+  badSoft: 'rgba(255, 107, 107, 0.14)',
+  onAccentSoft: '#7FB0FF',
+  onGoodSoft: '#3DDC97',
+  onWarnSoft: '#F7B32B',
+  onBadSoft: '#FF6B6B',
+  overlay: 'rgba(0, 0, 0, 0.65)',
+  focus: '#3B82F6',
+  skeleton: '#171C27',
+  shadow: '#000000',
 });
 
 /**
