@@ -207,7 +207,7 @@ export function useEntrance(): EntranceStyle {
  * return <Animated.View style={[styles.button, pressStyle]}>...</Animated.View>
  * ```
  */
-export function useSpringPress(pressed: boolean): { transform: [{ scale: number }] } {
+export function useSpringPress(pressed: boolean) {
   const reduced = useReducedMotion();
   const scale = useSharedValue(1);
 
@@ -219,11 +219,9 @@ export function useSpringPress(pressed: boolean): { transform: [{ scale: number 
     scale.value = withSpring(pressed ? 0.96 : 1, SPRING_CONFIGS.snappy);
   }, [pressed, reduced, scale]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
+  return useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
-
-  return animatedStyle;
 }
 
 /**
@@ -232,7 +230,7 @@ export function useSpringPress(pressed: boolean): { transform: [{ scale: number 
  * 
  * Returns opacity and scale for smooth state morphing.
  */
-export function useMorphTransition(active: boolean): { opacity: number; transform: [{ scale: number }] } {
+export function useMorphTransition(active: boolean) {
   const reduced = useReducedMotion();
   const opacity = useSharedValue(active ? 1 : 0);
   const scale = useSharedValue(active ? 1 : 0.92);
@@ -247,12 +245,10 @@ export function useMorphTransition(active: boolean): { opacity: number; transfor
     scale.value = withSpring(active ? 1 : 0.92, SPRING_CONFIGS.gentle);
   }, [active, reduced, opacity, scale]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
+  return useAnimatedStyle(() => ({
     opacity: opacity.value,
     transform: [{ scale: scale.value }],
   }));
-
-  return animatedStyle;
 }
 
 /**
@@ -261,7 +257,7 @@ export function useMorphTransition(active: boolean): { opacity: number; transfor
  * 
  * Pulses with meaning: grows slightly + fades, spring-based.
  */
-export function useStatusPulse(active: boolean): { opacity: number; transform: [{ scale: number }] } {
+export function useStatusPulse(active: boolean) {
   const reduced = useReducedMotion();
   const opacity = useSharedValue(1);
   const scale = useSharedValue(1);
@@ -288,19 +284,17 @@ export function useStatusPulse(active: boolean): { opacity: number; transform: [
     return () => clearInterval(interval);
   }, [active, reduced, opacity, scale]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
+  return useAnimatedStyle(() => ({
     opacity: opacity.value,
     transform: [{ scale: scale.value }],
   }));
-
-  return animatedStyle;
 }
 
 /**
  * Success celebration animation — bouncy spring for pairing success, 
  * connection established, etc. One-time animation on mount.
  */
-export function useSuccessCelebration(): { opacity: number; transform: [{ scale: number }, { translateY: number }] } {
+export function useSuccessCelebration() {
   const reduced = useReducedMotion();
   const opacity = useSharedValue(0);
   const scale = useSharedValue(0.8);
@@ -320,10 +314,8 @@ export function useSuccessCelebration(): { opacity: number; transform: [{ scale:
     translateY.value = withSpring(0, SPRING_CONFIGS.bouncy);
   }, [reduced, opacity, scale, translateY]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
+  return useAnimatedStyle(() => ({
     opacity: opacity.value,
     transform: [{ scale: scale.value }, { translateY: translateY.value }],
   }));
-
-  return animatedStyle;
 }
