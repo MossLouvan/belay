@@ -19,10 +19,16 @@ import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
 import { ago, groupDiscovered, statusLabel, statusTone } from './model';
 import { askSummary, countdown } from './attention';
-import { refreshAttention, useAgentAttention } from './attention-store';
+import { getAttention, refreshAttention, useAgentAttention } from './attention-store';
+import { combineLedgers, foldCosts, ledgerLine } from './cost-ledger';
+import type { CostLedger } from './cost-ledger';
 import { NewProjectSheet } from './new-project-sheet';
 
 const messageOf = (e: unknown, fallback: string): string => (e instanceof Error ? e.message : fallback);
+
+/** When this changes, some session finished or appeared and its spend moved. */
+const ledgerSigOf = (metas: readonly AgentSessionMeta[]): string =>
+  metas.map((m) => `${m.id}:${m.status}`).join('|');
 
 interface Availability {
   readonly available: boolean;
@@ -45,7 +51,9 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  const [ledgers, setLedgers] = useState<Readonly<Record<string, CostLedger>>>({});
   const live = useRef(true);
+  const ledgerSig = useRef('');
 
   useEffect(() => {
     live.current = true;
@@ -53,6 +61,33 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
       live.current = false;
     };
   }, []);
+
+  // Per-session spend, folded on the phone from each session's stored events
+  // (the list endpoint carries no costs and the host is left alone). A
+  // session whose snapshot won't load keeps its row and simply shows no
+  // spend — cost is a nicety, never a reason to lose the list.
+  const loadLedgers = useCallback(async (metas: readonly AgentSessionMeta[]) => {
+    ledgerSig.current = ledgerSigOf(metas);
+    const entries = await Promise.all(
+      metas.map(async (m): Promise<readonly [string, CostLedger] | null> => {
+        try {
+          const snap = await api.agentSnapshot(m.id);
+          return [m.id, foldCosts(snap.events)] as const;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    if (!live.current) return;
+    setLedgers(Object.fromEntries(entries.filter((e): e is readonly [string, CostLedger] => e !== null)));
+  }, []);
+
+  // Refetch when the set of sessions changes or one stops running — that is
+  // exactly when a turn has finished and the totals have moved. The signature
+  // check keeps the 3-second attention poll from re-downloading snapshots.
+  useEffect(() => {
+    if (sessions && ledgerSigOf(sessions) !== ledgerSig.current) void loadLedgers(sessions);
+  }, [sessions, loadLedgers]);
 
   const refresh = useCallback(async () => {
     try {
@@ -87,8 +122,11 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   const pullToRefresh = useCallback(async () => {
     setRefreshing(true);
     await refresh();
+    // A deliberate pull re-pulls the money too, even when no status changed —
+    // a turn can finish and re-idle between polls without moving the signature.
+    await loadLedgers(getAttention().sessions ?? []);
     if (live.current) setRefreshing(false);
-  }, [refresh]);
+  }, [refresh, loadLedgers]);
 
   // Resume a session Claude Code already has on disk: attach it to Belay
   // (with the approval flow) and open it.
@@ -127,6 +165,8 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   const unavailable = availability?.available === false;
   const groups = groupDiscovered(discovered);
   const margin = theme.layout.margin;
+  // The running total across every session — the list's own ledger row.
+  const totalLine = ledgerLine(combineLedgers((sessions ?? []).map((s) => ledgers[s.id]).filter((l): l is CostLedger => l !== undefined)));
 
   return (
     <ScrollView
@@ -206,8 +246,17 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
         ) : null}
 
         {sessions?.map((s) => (
-          <SessionRow key={s.id} session={s} now={now} onOpen={onOpen} onRemove={remove} />
+          <SessionRow key={s.id} session={s} ledger={ledgers[s.id]} now={now} onOpen={onOpen} onRemove={remove} />
         ))}
+
+        {totalLine ? (
+          // The section's ledger footer (docs/DESIGN.md §1): label-left,
+          // mono value-right — what all the sessions above cost, summed.
+          <Row testID="agent-spend-total" justify="space-between" gap="sm" style={{ paddingVertical: theme.space.sm }}>
+            <Label style={{ marginBottom: 0 }}>Spend</Label>
+            <Txt variant="monoSmall" tone="dim">{totalLine}</Txt>
+          </Row>
+        ) : null}
       </Section>
 
       {groups.length > 0 ? (
@@ -263,17 +312,20 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
  */
 function SessionRow({
   session: s,
+  ledger,
   now,
   onOpen,
   onRemove,
 }: {
   session: AgentSessionMeta;
+  ledger: CostLedger | undefined;
   now: number;
   onOpen: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
   const theme = useTheme();
   const tone = statusTone(s.status);
+  const spend = ledger ? ledgerLine(ledger) : '';
   return (
     <View testID={`agent-session-${s.id}`}>
       <Row gap="sm" align="flex-start">
@@ -300,7 +352,12 @@ function SessionRow({
             <Micro tone="dim">{ago(s.lastUsed, now)}</Micro>
           </Row>
           <Txt variant="subheading" numberOfLines={1}>{s.title}</Txt>
-          <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{s.cwd}</Txt>
+          <Row justify="space-between" gap="sm">
+            <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flexShrink: 1 }}>{s.cwd}</Txt>
+            {/* What this session has cost, on the mono footnote line it
+                belongs to — value-right, like every ledger figure. */}
+            {spend ? <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{spend}</Txt> : null}
+          </Row>
           {s.pending ? (
             // What it wants and how long before the host gives up — so a list
             // of several sessions leaves no doubt about which one is asking.
