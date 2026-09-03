@@ -23,6 +23,12 @@ export type { TrackLabelProps } from './track-label';
 export { trackInks, DISABLED_TRACK_OPACITY } from './track';
 export type { TrackInkSet, TrackInks, TrackState } from './track';
 
+export { Contours } from './contours';
+export type { ContoursProps } from './contours';
+
+export { GlassState } from './glass-state';
+export type { GlassStateProps, GlassStateAction, GlassStatus } from './glass-state';
+
 export { Dot, Meter, Badge, Banner, Toast, EmptyState, Skeleton } from './feedback';
 export type { Status } from './feedback';
 
