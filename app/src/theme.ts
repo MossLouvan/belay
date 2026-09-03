@@ -15,7 +15,7 @@
 // `useTheme()` and read `theme.colors` instead.
 
 import { useCallback, useSyncExternalStore } from 'react';
-import { Appearance, Platform, StyleSheet } from 'react-native';
+import { Appearance, Easing, Platform, StyleSheet } from 'react-native';
 import type { TextStyle } from 'react-native';
 
 export type ColorScheme = 'light' | 'dark';
@@ -41,6 +41,21 @@ export interface Palette {
    * accent — the segmented-underline track and disabled primary buttons.
    */
   readonly accentDim: string;
+  /** The raised sheet/modal slab — one perceptible step off `bg` so a modal
+   *  reads as material, not the page folding over itself. */
+  readonly sheet: string;
+  /** THE ROPE AT REST. Neutral granite track under interactive labels/keys —
+   *  replaces `accentDim` in that role so the dock isn't an orange wall.
+   *  Loaded (selected/armed/pressed) tracks use `accentGraphic`. */
+  readonly trackRest: string;
+  /** Solid primary-button fill while pressed — fills darken under load. */
+  readonly accentPress: string;
+  /** Hairlines ON the machine glass (HUD separators, terminal gutter); paper
+   *  `border` never touches the dark surface. */
+  readonly machineLine: string;
+  /** Topographic garnish ink — decorative only, never carries meaning, always
+   *  hidden from accessibility. */
+  readonly contour: string;
   readonly good: string;
   readonly warn: string;
   readonly bad: string;
@@ -109,7 +124,12 @@ export const lightPalette: Palette = Object.freeze({
   // worst-case rule wins over its quoted hex; #DE4400 is the nearest vivid
   // orange that clears 3:1 on all three backdrops.
   accentGraphic: '#DE4400', // >= 3.17:1 worst-case — non-text marks only (WCAG 1.4.11)
-  accentDim: 'rgba(176, 55, 0, 0.28)', // tracks/disabled fills, non-text
+  accentDim: 'rgba(176, 55, 0, 0.28)', // disabled fills only now (track role moved to trackRest)
+  sheet: '#F4F3F0', // raised slab, one step off bg
+  trackRest: '#B3AEA5', // the rope at rest — granite, not orange
+  accentPress: '#8F2D00', // primary fill under press
+  machineLine: 'rgba(236, 234, 230, 0.10)', // hairline on glass
+  contour: 'rgba(22, 21, 19, 0.045)', // topo garnish, decorative
   good: '#0B6040', // >= 5.67:1
   warn: '#754C04', // >= 5.06:1
   bad: '#A82028', // >= 5.39:1
@@ -145,7 +165,12 @@ export const darkPalette: Palette = Object.freeze({
   textFaint: '#928D84', // >= 4.86:1
   accent: '#FF5C1A', // >= 5.19:1
   accentGraphic: '#FF4D00', // >= 4.82:1 (non-text marks)
-  accentDim: 'rgba(255, 92, 26, 0.30)',
+  accentDim: 'rgba(255, 92, 26, 0.30)', // disabled fills only now
+  sheet: '#1C1B19', // raised slab
+  trackRest: '#403D38', // the rope at rest — basalt
+  accentPress: '#E04300', // primary fill under press
+  machineLine: 'rgba(236, 234, 230, 0.10)', // hairline on glass
+  contour: 'rgba(236, 234, 230, 0.045)', // topo garnish
   good: '#3DDC97', // >= 9.07:1 (kept from the previous palette, known-good)
   warn: '#F7B32B', // >= 8.73:1 (kept)
   bad: '#FF7A70', // >= 6.31:1 (lifted from #FF6B6B)
@@ -228,10 +253,10 @@ export const type = Object.freeze({
   caption: { fontSize: 13, lineHeight: 17, fontWeight: '400' },
   // Hero stats ("39%"). Tabular numerals so live values do not jitter.
   numeral: { fontSize: 34, lineHeight: 38, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
-  label: { fontFamily: font.mono, fontSize: 11, lineHeight: 14, fontWeight: '400', letterSpacing: 1.5, textTransform: 'uppercase' },
-  micro: { fontFamily: font.mono, fontSize: 10, lineHeight: 13, fontWeight: '400', letterSpacing: 1.2, textTransform: 'uppercase' },
-  mono: { fontFamily: font.mono, fontSize: 13, lineHeight: 19 },
-  monoSmall: { fontFamily: font.mono, fontSize: 11, lineHeight: 16 },
+  label: { fontFamily: font.mono, fontSize: 11, lineHeight: 14, fontWeight: '400', letterSpacing: 1.5, textTransform: 'uppercase', fontVariant: ['tabular-nums'] },
+  micro: { fontFamily: font.mono, fontSize: 10, lineHeight: 13, fontWeight: '400', letterSpacing: 1.2, textTransform: 'uppercase', fontVariant: ['tabular-nums'] },
+  mono: { fontFamily: font.mono, fontSize: 13, lineHeight: 19, fontVariant: ['tabular-nums'] },
+  monoSmall: { fontFamily: font.mono, fontSize: 11, lineHeight: 16, fontVariant: ['tabular-nums'] },
 }) satisfies Readonly<Record<string, TextStyle>>;
 
 export type TypeVariant = keyof typeof type;
@@ -273,16 +298,29 @@ export const motion = Object.freeze({
   slow: 240, // sheet slide; nothing may exceed this
   /** Press feedback is opacity, not scale — editorial surfaces do not squish. */
   pressOpacity: 0.55,
-  /** Live-dot pulse loop duration. */
-  pulse: 1200,
-  /** Streaming-cursor blink. */
-  blink: 600,
+  /** The one sanctioned hero animation: the clip-in rope draw on connect. */
+  draw: 400,
+  /** @deprecated Pulsing is banned (founder directive). Pinned to 0 so
+   *  `usePulse` degrades to a steady value — status is shape (ring→fill) +
+   *  colour, never a blink. */
+  pulse: 0,
+  /** @deprecated Blinking is banned. The streaming cursor is a steady block. */
+  blink: 0,
   /** @deprecated Scale-transform presses are banned; pinned to 1 so legacy
    * animations still run but no longer move anything. Use `pressOpacity`. */
   pressScale: 1,
   /** @deprecated Springs are retired (ease-out only). Kept, values unchanged,
    * so unmigrated call sites compile; new code uses timing + the durations. */
   spring: Object.freeze({ damping: 18, stiffness: 240, mass: 0.6 }),
+});
+
+/** The two curves the whole app moves on. Entrances/fades/slides use
+ *  `standard`; exits (sheet down, HUD hide) use `exit`; clocks/progress use
+ *  `linear`. One easing vocabulary keeps motion feeling like one product. */
+export const easing = Object.freeze({
+  standard: Easing.bezier(0.2, 0, 0, 1),
+  exit: Easing.bezier(0.3, 0, 0.8, 0.15),
+  linear: Easing.linear,
 });
 
 /** @deprecated The design is flat; kept only so unmigrated screens compile. */

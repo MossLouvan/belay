@@ -91,32 +91,13 @@ export function useToggleAnimation(active: boolean, duration: number = motion.ba
 }
 
 /**
- * A looping 1 → `low` → 1 opacity for live activity: the pulsing live dot
- * (motion.pulse) and the streaming cursor (motion.blink). Under reduced motion
- * it holds full opacity — a frozen half-faded dot would read as a dead state.
+ * Retired (Alpine Ledger revamp — founder directive "nothing pulses"). Once a
+ * looping opacity for the live dot / streaming cursor; now a no-op that always
+ * holds full opacity, so every legacy `pulse` call site renders a steady mark
+ * instead of a blink. State is now shape (ring→fill) + colour, and waiting is
+ * proven by a ticking clock, never by motion. The signature is kept so callers
+ * compile until they're migrated off it; the params are ignored.
  */
-export function usePulse(active: boolean, period: number = motion.pulse, low: number = 0.4): Animated.Value {
-  const reduced = useReducedMotion();
-  const value = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    if (!active || reduced) {
-      value.setValue(1);
-      return;
-    }
-    const half = period / 2;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(value, { toValue: low, duration: half, useNativeDriver: USE_NATIVE_DRIVER }),
-        Animated.timing(value, { toValue: 1, duration: half, useNativeDriver: USE_NATIVE_DRIVER }),
-      ])
-    );
-    loop.start();
-    return () => {
-      loop.stop();
-      value.setValue(1);
-    };
-  }, [active, reduced, period, low, value]);
-
-  return value;
+export function usePulse(_active?: boolean, _period?: number, _low?: number): Animated.Value {
+  return useRef(new Animated.Value(1)).current;
 }
