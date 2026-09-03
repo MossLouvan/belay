@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  flowAnswer, flowCancelQueued, flowDropQueued, flowInterrupt, flowPrompt,
+  flowAnswer, flowCancelQueued, flowDenyAll, flowDropQueued, flowExpire, flowInterrupt, flowPrompt,
   flowRequestApproval, flowTurnDone,
   flowRevokeGrant,
 } from '../src/agent-flow.js';
@@ -35,7 +35,7 @@ interface Harness {
 function harness(status: FlowSession['status'] = 'idle'): Harness {
   const h: Harness = {
     feed: [], wire: [], delivered: [], interrupts: 0, pings: [],
-    s: { id: 'sess', cwd: CWD, status, pending: undefined, queued: undefined, grants: [] },
+    s: { id: 'sess', cwd: CWD, status, pending: undefined, approvalQueue: [], queued: undefined, grants: [] },
     io: undefined as unknown as FlowIO,
   };
   h.io = {
@@ -231,13 +231,149 @@ test('revoking a grant re-arms the ask', async () => {
   flowAnswer(h.s, h.io, h.s.pending!.id, false);
 });
 
-test('a second concurrent ask fails closed instead of queueing', async () => {
+// ---- the approval queue -----------------------------------------------------
+// Claude Code's parallel tool use makes two simultaneous asks routine. The
+// second must wait its turn — visibly, with its own clock — never be denied
+// for the crime of arriving second.
+
+test('a second concurrent ask queues FIFO behind the first, visibly and with its own ping', async () => {
   const h = harness('idle');
   const first = flowRequestApproval(h.s, h.io, 'Bash', { command: 'ls' }, 0, () => {});
-  const second = await flowRequestApproval(h.s, h.io, 'Bash', { command: 'pwd' }, 0, () => {});
-  assert.equal(second.allow, false);
+  const second = flowRequestApproval(h.s, h.io, 'Bash', { command: 'pwd' }, 0, () => {});
+  assert.equal(h.s.pending?.detail, 'ls', 'the first ask stays on deck');
+  assert.equal(h.s.approvalQueue.length, 1);
+  assert.equal(h.s.approvalQueue[0]!.detail, 'pwd');
+  assert.equal(h.pings.length, 2, 'each raised ask notifies — a queued ask can still time out unseen');
+  const waiting = lastWire(h, 'approvals-waiting');
+  assert.equal(waiting.waiting, 1, 'the phone hears how many are stacked');
+  assert.deepEqual(waiting.tools, ['Bash']);
+  assert.ok(h.feed.some((e) => e.kind === 'info' && e.text?.includes('also waiting')), 'the queue is visible in the feed');
+
+  // Answering the first promotes the second — the phone gets a fresh card.
+  flowAnswer(h.s, h.io, h.s.pending!.id, true);
+  assert.equal((await first).allow, true);
+  assert.equal(h.s.pending?.detail, 'pwd');
+  assert.equal(h.s.status, 'waiting', 'still waiting: the next ask is on deck');
+  assert.equal(lastWire(h, 'permission').request.detail, 'pwd');
+  assert.equal(lastWire(h, 'approvals-waiting').waiting, 0);
+
+  flowAnswer(h.s, h.io, h.s.pending!.id, false);
+  assert.equal((await second).allow, false);
+  assert.equal(h.s.status, 'running');
+  assert.ok(lastWire(h, 'permission-clear'), 'only an empty queue clears the card');
+});
+
+test('three asks resolve strictly in arrival order', async () => {
+  const h = harness('idle');
+  const verdicts = [
+    flowRequestApproval(h.s, h.io, 'Bash', { command: 'a' }, 0, () => {}),
+    flowRequestApproval(h.s, h.io, 'Bash', { command: 'b' }, 0, () => {}),
+    flowRequestApproval(h.s, h.io, 'Bash', { command: 'c' }, 0, () => {}),
+  ];
+  const answered: string[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    answered.push(h.s.pending!.detail);
+    flowAnswer(h.s, h.io, h.s.pending!.id, true);
+  }
+  assert.deepEqual(answered, ['a', 'b', 'c']);
+  for (const v of verdicts) assert.equal((await v).allow, true);
+  assert.equal(h.s.pending, undefined);
+  assert.equal(h.s.status, 'running');
+});
+
+test('a queued ask can be answered by id without disturbing the head', async () => {
+  const h = harness('idle');
+  const first = flowRequestApproval(h.s, h.io, 'Bash', { command: 'ls' }, 0, () => {});
+  const second = flowRequestApproval(h.s, h.io, 'Bash', { command: 'pwd' }, 0, () => {});
+  const queuedId = h.s.approvalQueue[0]!.id;
+  assert.equal(flowAnswer(h.s, h.io, queuedId, false), true);
+  assert.equal((await second).allow, false);
+  assert.equal(h.s.pending?.detail, 'ls', 'the head ask is untouched');
+  assert.equal(h.s.status, 'waiting');
+  assert.equal(h.s.approvalQueue.length, 0);
+  assert.equal(lastWire(h, 'approvals-waiting').waiting, 0);
   flowAnswer(h.s, h.io, h.s.pending!.id, false);
   await first;
+});
+
+test('an unknown approval id still answers nothing', () => {
+  const h = harness('idle');
+  void flowRequestApproval(h.s, h.io, 'Bash', { command: 'ls' }, 0, () => {});
+  assert.equal(flowAnswer(h.s, h.io, 'not-a-real-id', true), false);
+  flowAnswer(h.s, h.io, h.s.pending!.id, false);
+});
+
+test('each queued ask fails closed on its own clock; the head is unaffected', async () => {
+  const h = harness('idle');
+  const first = flowRequestApproval(h.s, h.io, 'Bash', { command: 'ls' }, 0, () => {});
+  const second = flowRequestApproval(h.s, h.io, 'Bash', { command: 'pwd' }, 0, () => {});
+  const queuedId = h.s.approvalQueue[0]!.id;
+
+  flowExpire(h.s, h.io, queuedId, 60_000);
+  const v2 = await second;
+  assert.equal(v2.allow, false, 'a queued ask that runs out of clock is denied — fail closed');
+  assert.match(v2.message!, /absence, not refusal/);
+  assert.equal(h.s.pending?.detail, 'ls', 'the head ask keeps waiting');
+  assert.equal(h.s.status, 'waiting');
+  assert.equal(h.pings.filter((p) => p.kind === 'expired').length, 1);
+  assert.ok(h.feed.some((e) => e.kind === 'error' && e.text?.includes('nobody answered')));
+
+  flowAnswer(h.s, h.io, h.s.pending!.id, false);
+  await first;
+});
+
+test('when the head expires the next ask is promoted, still waiting', async () => {
+  const h = harness('idle');
+  const first = flowRequestApproval(h.s, h.io, 'Bash', { command: 'ls' }, 0, () => {});
+  const second = flowRequestApproval(h.s, h.io, 'Bash', { command: 'pwd' }, 0, () => {});
+  flowExpire(h.s, h.io, h.s.pending!.id, 60_000);
+  assert.equal((await first).allow, false);
+  assert.equal(h.s.pending?.detail, 'pwd');
+  assert.equal(h.s.status, 'waiting', 'the session is not "running" while an ask still waits');
+  assert.equal(lastWire(h, 'permission').request.detail, 'pwd');
+  flowAnswer(h.s, h.io, h.s.pending!.id, false);
+  await second;
+});
+
+test('a grant minted on the head auto-allows the queued duplicate at promotion — visibly', async () => {
+  const h = harness('idle');
+  const first = flowRequestApproval(h.s, h.io, 'Bash', { command: 'npm test' }, 0, () => {});
+  const second = flowRequestApproval(h.s, h.io, 'Bash', { command: 'npm test' }, 0, () => {});
+  flowAnswer(h.s, h.io, h.s.pending!.id, true, { choiceId: 'exact-command' });
+  assert.equal((await first).allow, true);
+  assert.equal((await second).allow, true, 'the duplicate rides the grant its twin just minted');
+  assert.equal(h.s.pending, undefined);
+  assert.equal(h.s.status, 'running');
+  assert.ok(h.feed.some((e) => e.kind === 'info' && e.text?.startsWith('allowed without asking')));
+  assert.ok(lastWire(h, 'permission-clear'));
+});
+
+test('interrupt while waiting denies the whole stack and steers with the message', async () => {
+  const h = harness('idle');
+  const first = flowRequestApproval(h.s, h.io, 'Bash', { command: 'ls' }, 0, () => {});
+  const second = flowRequestApproval(h.s, h.io, 'Bash', { command: 'pwd' }, 0, () => {});
+  assert.equal(flowInterrupt(h.s, h.io, 'do something else'), 'steered');
+  const [v1, v2] = [await first, await second];
+  assert.equal(v1.allow, false);
+  assert.equal(v2.allow, false);
+  assert.ok(v2.message?.includes('do something else'), 'the steer reaches every blocked tool call');
+  assert.equal(h.s.pending, undefined);
+  assert.equal(h.s.approvalQueue.length, 0);
+  assert.equal(h.s.status, 'running');
+  assert.equal(lastWire(h, 'approvals-waiting').waiting, 0);
+});
+
+test('flowDenyAll fails the whole stack closed — the stop/exit path', async () => {
+  const h = harness('idle');
+  const first = flowRequestApproval(h.s, h.io, 'Bash', { command: 'ls' }, 0, () => {});
+  const second = flowRequestApproval(h.s, h.io, 'Bash', { command: 'pwd' }, 0, () => {});
+  assert.equal(flowDenyAll(h.s, h.io, 'session process exited'), true);
+  assert.equal((await first).allow, false);
+  assert.equal((await second).message, 'session process exited');
+  assert.equal(h.s.pending, undefined);
+  assert.equal(h.s.approvalQueue.length, 0);
+  assert.ok(lastWire(h, 'permission-clear'));
+  assert.equal(flowDenyAll(h.s, h.io, 'nothing left'), false);
 });
 
 test('an Edit ask carries a diff-ready preview; a Write says when it replaces a file', async () => {
