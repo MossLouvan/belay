@@ -6,6 +6,52 @@ the app on a phone; wherever a judgement rests only on reading code rather than 
 render, I say so. The visual redesign (Swiss/editorial) is assumed to ship, so nothing here
 is about colours, spacing, or card styling. The Files media-viewer work is assumed to ship too.*
 
+> **Status update (2026-09-03).** This review is kept as written, but the tree has moved past
+> it — most of its top-10 has since landed. Read the findings below as a snapshot of
+> 2026-08-31, not as the current state:
+>
+> - **F1 / ideas 1–2 (attention + notifications): largely landed.** In-app: an attention
+>   store polls session status every 3 s and drives an Agent tab badge and a cross-tab
+>   "needs you" banner (`app/src/agent/attention-store.ts`, `app/app/(tabs)/_layout.tsx`,
+>   `app/src/agent/needs-you-banner.tsx`). Backgrounded phone: the host POSTs to a
+>   configurable webhook, ntfy first-class (`server/src/notify.ts`, docs/AGENT.md). The
+>   approval timeout is now 30 minutes by default, configurable via
+>   `BELAY_APPROVAL_TIMEOUT_MS` (`server/src/agent.ts`) — the "5 minutes" cited below is
+>   stale. Still open: the `belay://agent?…` deep link has no handler in the app, and the
+>   3 s poll is not yet a push socket.
+> - **F2 / idea 5 (pairing dead end): fixed** via `npm start -- --reset-pairing`, which
+>   reopens pairing without discarding the host identity (`server/src/reset-pairing.ts`),
+>   and the app's code step now explains the situation instead of asking for digits that
+>   don't exist (`app/src/connect/no-code-step.tsx`, `app/src/connect/dead-end.ts`). The
+>   invite-from-a-paired-device route (G1-iii) was not built.
+> - **F3 / idea 4 (tool results): fixed** — `tool-result` events flow to the phone and fold
+>   under their tool lines (`server/src/agent-events.ts`, `app/src/agent/feed-model.ts`).
+> - **F4 / ideas 3 and 10 (approval card): fixed** — Edits render as real diffs, Writes show
+>   content (`app/src/agent/approval-card.tsx`, `server/src/approval-preview.ts`), and
+>   "Always &lt;tool&gt;" is replaced by scoped grants with risk tiers and revocable chips
+>   (`server/src/approval-scopes.ts`, `app/src/agent/grant-list.tsx`).
+> - **F5 (stale session list): addressed** by the same 3 s attention poll (statuses are near-
+>   live, not yet pushed).
+> - **F6 / idea 8 (amnesiac resume): fixed** — the tail of the Claude-side transcript is
+>   replayed into the feed on resume (`server/src/agent.ts` `attachSession`,
+>   `server/src/transcript.ts`).
+> - **F7 / idea 6 (what changed): fixed** — `GET /agent/sessions/:id/changes`
+>   (`server/src/index.ts`, `server/src/changes.ts`) with a phone diff viewer
+>   (`app/src/changes/`).
+> - **F8 / idea 7 (busy sessions): fixed** — prompts sent mid-turn are queued, cancellable,
+>   and an interrupt path exists (`app/src/agent/session.ts`, `server/src/agent-flow.ts`).
+> - **F9 / G7 (dictation docs): resolved by removal** — the `/dictate` route and host-side
+>   whisper path are gone; voice is on-phone hold-to-talk on the Agent tab
+>   (`app/src/agent/mic.tsx`).
+> - **F10 (revoke): fixed** — device revocation is wired into the System tab
+>   (`app/src/system/paired-devices.tsx`).
+> - **Idea 9 (connection chrome): partially landed** — a shared connection-status row with a
+>   switch-computer link exists (`app/src/ui/connection-status.tsx`,
+>   `app/src/devices/switch-link.tsx`), rendered per tab rather than as one global strip.
+>
+> Findings not listed above (e.g. F11 first-run landing, F14 dotfiles, F15 cross-tab glue,
+> F16 screenshots) have not been re-audited here; treat them as possibly stale too.
+
 ---
 
 ## 1. Verdict

@@ -6,7 +6,7 @@
 app/                 Expo / React Native, one codebase for iOS and web
   app/               expo-router routes
     index.tsx        connect + pair
-    (tabs)/          screen · terminal · files · system
+    (tabs)/          screen · agent · terminal · files · system
   src/               api client, connection context, theme, UI kit
 
 server/              Node host agent (TypeScript) — runs on macOS and Windows
@@ -14,6 +14,8 @@ server/              Node host agent (TypeScript) — runs on macOS and Windows
   src/banner.ts      boot output, incl. the macOS permission reminder
   src/native.ts      manages the compiled helper subprocess
   src/terminal.ts    pty (node-pty) or piped-shell sessions
+  src/agent.ts       Claude Code sessions driven from the phone — with
+                     agent-flow/agent-events/agent-routes; see AGENT.md
   src/files.ts       confined file browser
   src/projects.ts    project creation — the only write path; confined to the same roots as files.ts
   src/system.ts      live stats (composes cpu/disk/osinfo)
@@ -46,6 +48,8 @@ tests/               Playwright suite driving the web build
   rectangle and title, which is the only way a client learns the window moved,
   resized or was renamed. See [SEAMLESS-WINDOWS.md](SEAMLESS-WINDOWS.md).
 - **WebSocket `/ws/terminal`** for the shell: bytes in both directions.
+- **WebSocket `/ws/agent`** for Claude Code sessions: prompts and answers up,
+  feed events and approval asks down. See [AGENT.md](AGENT.md).
 
 Both clients — the phone app and the desktop client — speak this same API.
 Nothing on the host is desktop-specific.
@@ -149,10 +153,11 @@ the host's resolution.
 
 ## Roadmap
 
-- WebRTC hardware-encoded path for true 60fps video (NVENC on Windows,
-  VideoToolbox on macOS).
-- Two-finger scroll and pinch on the screen surface.
-- Optional clipboard sync.
+- WebRTC hardware-encoded path for true 60fps video — in progress: the
+  server-side slice (signaling, packetization, relay under `server/src/webrtc/`)
+  and the macOS VideoToolbox encoder (`server/native/mac/encode/`) are written,
+  but the phone client does not yet mount a real `RTCPeerConnection`, and the
+  native path is unverified on hardware. See [WEBRTC-SLICE.md](WEBRTC-SLICE.md).
 - Seamless windows follow the host's window *position* as well as its size, for
   users who want the two desktops laid out alike.
 - Window-event hooks (WinEvent / AX notifications) so the window list updates
