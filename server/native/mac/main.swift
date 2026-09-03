@@ -150,15 +150,33 @@ private func handleCapture(_ command: Command) throws {
     let width = try command.int("w", default: defaultCaptureWidth, clampedTo: captureWidthRange)
     let quality = try command.int("q", default: defaultCaptureQuality, clampedTo: captureQualityRange)
     let wantsVirtual = try command.bool("virtual")
+    let wantsVirtualDisplay = try command.bool("virtualdisplay")
 
-    // `virtual` (the whole desktop) still wins when asked for; otherwise the
-    // `screen` index selects one display, falling back to the primary. Same
-    // precedence as the Windows helper's DoCapture.
+    // Precedence: the driver-backed virtual display (the client's exact
+    // resolution, aspect-matched, no letterbox) wins when asked for; then
+    // `virtual` (the whole desktop union); otherwise the `screen` index selects
+    // one physical display, falling back to the primary. The physical paths are
+    // byte-for-byte what they were — this only adds a new highest-priority case.
     let screen = try command.int("screen")
     let all = try Displays.active()
-    let selected = try Displays.at(screen, in: all) ?? Displays.primary()
-    let targets = wantsVirtual ? all : [selected]
-    let bounds = wantsVirtual ? Displays.virtualBounds(all) : selected.bounds
+    let targets: [DisplayGeometry]
+    let bounds: CGRect
+    if wantsVirtualDisplay {
+        // The Node side only sets this after a successful create, but the
+        // display can still vanish (helper restart, API drift); a clear error
+        // lets the stream fall back rather than capturing the wrong screen.
+        guard let vid = virtualDisplays.activeDisplayID() else {
+            throw HostError(.capture,
+                "no virtual display is active; create one before capturing it")
+        }
+        let geo = Displays.geometry(of: vid)
+        targets = [geo]
+        bounds = geo.bounds
+    } else {
+        let selected = try Displays.at(screen, in: all) ?? Displays.primary()
+        targets = wantsVirtual ? all : [selected]
+        bounds = wantsVirtual ? Displays.virtualBounds(all) : selected.bounds
+    }
 
     let tiles = try capture.frames(for: targets)
     let composited = try ImageOutput.composite(

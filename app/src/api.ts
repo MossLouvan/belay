@@ -360,6 +360,19 @@ export interface ScreenInfo {
   permissions?: HostPermissions;
 }
 
+/**
+ * What GET /screen/virtual-display reports. The phone gates its true-resolution
+ * picker on `available`: the BELAY_VIRTUAL_DISPLAY flag is on AND the host's
+ * native backend actually exists (macOS with the private API). `active` is
+ * whether one is up right now. A host with the flag off answers 403, which
+ * `virtualDisplayStatus` maps to all-false — the option simply does not appear.
+ */
+export interface VirtualDisplayStatus {
+  enabled: boolean;
+  available: boolean;
+  active: boolean;
+}
+
 export interface FileEntry { name: string; path: string; dir: boolean; size: number; mtime: number; }
 
 /**
@@ -470,6 +483,21 @@ export const api = {
     return { uri: `${conn.host}/files/raw?path=${encodeURIComponent(path)}`, headers: authHeaders() };
   },
   screenInfo: () => get<ScreenInfo>('/screen/info'),
+  /**
+   * Probe whether this host can render at a true, phone-chosen resolution.
+   *
+   * Failures (403 when the flag is off, or an unreachable host) map to
+   * all-false rather than throwing: "can I offer this option?" has a safe
+   * answer of "no", and a probe is the wrong place to surface a network error
+   * the streaming socket will report far more usefully.
+   */
+  virtualDisplayStatus: async (): Promise<VirtualDisplayStatus> => {
+    try {
+      return await get<VirtualDisplayStatus>('/screen/virtual-display');
+    } catch {
+      return { enabled: false, available: false, active: false };
+    }
+  },
   // `screen` is the monitor the coordinates are normalized against (an index
   // from ScreenInfo.screens). Left undefined it is dropped by JSON.stringify,
   // so old hosts see the exact requests they always did (primary monitor).

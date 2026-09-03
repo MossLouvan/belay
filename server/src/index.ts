@@ -57,7 +57,11 @@ import { webrtcEnabled } from './webrtc/flag.js';
 import {
   virtualDisplayEnabled,
   parseVirtualDisplayRequest,
+  resolveVirtualRequest,
+  sameRequest,
+  selectCaptureMode,
   VIRTUAL_DISPLAY_DISABLED_ERROR,
+  type VirtualDisplayRequest,
 } from './virtual-display.js';
 import { SignalingBridge } from './webrtc/bridge.js';
 
@@ -491,7 +495,15 @@ app.get('/screen/virtual-display', auth, async (_req, res) => {
   }
   try {
     const reply = await native.virtualDisplayStatus();
-    res.json({ enabled: true, active: reply?.active === true, display: reply?.display ?? null });
+    // `available` = the flag is on AND the native backend actually exists on
+    // this host (macOS with the private API present). It is what the phone gates
+    // its "true resolution" option on; `active` is whether one is up right now.
+    res.json({
+      enabled: true,
+      available: reply?.supported === true,
+      active: reply?.active === true,
+      display: reply?.display ?? null,
+    });
   } catch (e: any) {
     // A helper without the backend says `unknown command`; surface it as
     // "this host cannot", the same shape /windows uses on macOS.
@@ -1088,20 +1100,83 @@ function handleScreen(ws: WebSocket, url: URL) {
     screen: url.searchParams.get('screen'),
   });
 
+  // ---- True-resolution (virtual display) lifecycle --------------------------
+  //
+  // The phone drives this over the `config` message: an object requests a
+  // driver-backed display at an exact resolution, `null` returns to the
+  // physical screen. Creating/destroying a display is an async side effect, so
+  // it lives OUTSIDE the render loop — the loop only ever reads `virtualUp`,
+  // the flag that says a display this stream created is live right now. When
+  // it is, capture targets that display (aspect-matched, no letterbox);
+  // otherwise nothing changed and the shipping downscale path runs untouched.
+  const featureOn = virtualDisplayEnabled();
+  let desired: VirtualDisplayRequest | null = null; // what the phone last asked for
+  let activeReq: VirtualDisplayRequest | null = null; // what is actually up
+  let virtualUp = false;
+  // Serialize reconciles so two quick config messages cannot interleave a
+  // create with a destroy and leak a display or capture a dead one.
+  let reconciling: Promise<void> = Promise.resolve();
+
+  const reconcileVirtual = (): void => {
+    reconciling = reconciling.then(async () => {
+      if (sameRequest(desired, activeReq)) return; // nothing to do
+      // Tear down whatever is up before creating the next mode (or when going
+      // back to physical). Destroy is idempotent, so this is always safe.
+      if (virtualUp) {
+        try { await native.virtualDisplayDestroy(); } catch { /* best effort */ }
+        virtualUp = false;
+      }
+      activeReq = null;
+      if (desired && featureOn) {
+        try {
+          await native.virtualDisplayCreate(desired.width, desired.height, desired.refreshHz);
+          virtualUp = true;
+          activeReq = desired;
+        } catch (e: unknown) {
+          // Graceful fallback: the host cannot make this display (old macOS,
+          // Windows without the driver, helper too old). Keep streaming the
+          // physical screen and tell the phone why, once, so it can revert the
+          // picker rather than silently believing it changed resolution.
+          if (alive && ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              error: `virtual display unavailable, streaming the physical screen instead: ${messageOf(e)}`,
+            }));
+          }
+        }
+      }
+    }).catch(() => { /* a reconcile never rejects the chain */ });
+  };
+
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
-      if (msg?.type === 'config') params = resolveStreamParams(msg, params);
+      if (msg?.type !== 'config') return;
+      params = resolveStreamParams(msg, params);
+      const next = resolveVirtualRequest(msg, desired);
+      if (!sameRequest(next, desired)) { desired = next; reconcileVirtual(); }
     } catch { /* ignore malformed control messages */ }
   });
-  ws.on('close', () => { alive = false; });
-  ws.on('error', () => { alive = false; });
+  const teardown = () => {
+    alive = false;
+    // Free the virtual display on disconnect: a display that outlived the phone
+    // that asked for it would rearrange the host owner's desktop for nobody.
+    if (virtualUp || desired) { desired = null; reconcileVirtual(); }
+  };
+  ws.on('close', teardown);
+  ws.on('error', teardown);
 
   const loop = async () => {
     while (alive && ws.readyState === ws.OPEN) {
       const started = Date.now();
       try {
-        const frame = await native.capture(params.width, params.quality, false, params.screen);
+        // `selectCaptureMode` is the fallback gate: it only ever returns a
+        // virtual mode while a display is genuinely up, so a create still in
+        // flight or one that failed cleanly streams the physical screen.
+        const mode = selectCaptureMode(activeReq, virtualUp);
+        const frame = await native.capture(
+          params.width, params.quality, false, params.screen, mode.virtual !== null,
+        );
         if (!alive) break;
         // Backpressure: ws.send() returns immediately and buffers, so without
         // this check a link slower than the capture rate grows the send buffer
