@@ -23,12 +23,18 @@
 import type { Express, RequestHandler } from 'express';
 import type { WebSocket } from 'ws';
 
+import { AudioCaptureController } from './audio-capture.js';
 import { encodeAudioWireFrame, shouldDropAudioFrame, validateHelperAudioFrame } from './audio.js';
 import { messageOf } from './errors.js';
 import { native } from './native.js';
 
-/** Sockets currently streaming audio; drives the capture refcount. */
-const audioSockets = new Set<WebSocket>();
+/** Serialized capture lifecycle. Every audio socket acquires/releases a hold;
+ *  the controller starts on the first hold, stops on the last, retries a failed
+ *  start for later waiters, and never lets start/stop interleave (audio-capture.ts). */
+const capture = new AudioCaptureController({
+  start: () => native.audioStart(),
+  stop: () => native.audioStop(),
+});
 
 export function registerAudioRoutes(app: Express, auth: RequestHandler): void {
   app.post('/audio/start', auth, async (_req, res) => {
@@ -43,6 +49,14 @@ export function registerAudioRoutes(app: Express, auth: RequestHandler): void {
   });
 
   app.post('/audio/stop', auth, async (_req, res) => {
+    // Refuse to stop capture while WS listeners still depend on it — a bare
+    // REST stop used to cut their audio with no restart. With no listeners this
+    // reconciles toward stopped and forwards to the helper for good measure.
+    const outcome = await capture.requestExternalStop();
+    if (!outcome.stopped) {
+      res.status(409).json({ error: `refusing to stop: ${outcome.listeners} active audio listener(s)`, listeners: outcome.listeners });
+      return;
+    }
     try {
       await native.audioStop();
       res.json({ ok: true });
@@ -54,7 +68,7 @@ export function registerAudioRoutes(app: Express, auth: RequestHandler): void {
   app.get('/audio/status', auth, async (_req, res) => {
     try {
       const reply = await native.audioStatus();
-      res.json({ ok: true, capturing: reply?.capturing === true, codec: reply?.codec, listeners: audioSockets.size });
+      res.json({ ok: true, capturing: reply?.capturing === true, codec: reply?.codec, listeners: capture.listeners });
     } catch (e: unknown) {
       res.status(501).json({ error: messageOf(e) });
     }
@@ -66,8 +80,6 @@ export function registerAudioRoutes(app: Express, auth: RequestHandler): void {
  * index.ts, which only routes `/ws/audio` here when BELAY_WEBRTC is on.
  */
 export function handleAudioSocket(ws: WebSocket): void {
-  audioSockets.add(ws);
-
   let dropped = 0;
   const detach = native.onAudioFrame((raw) => {
     const result = validateHelperAudioFrame(raw);
@@ -84,26 +96,30 @@ export function handleAudioSocket(ws: WebSocket): void {
     try { ws.send(encodeAudioWireFrame(result.frame)); } catch { /* closing */ }
   });
 
-  // First listener in starts capture. If the helper cannot (not built, no
-  // permission, verbs unknown), say so and close — a silent socket would read
-  // as "audio is broken" with no way to see why.
-  if (audioSockets.size === 1) {
-    native.audioStart().catch((e: unknown) => {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'error', error: `audio capture failed to start: ${messageOf(e)}` }));
-        ws.close();
-      }
-    });
-  }
-
-  ws.on('close', () => {
+  // Release exactly once, whether the socket closes normally or we tear it down
+  // after a failed start — a double release would corrupt the refcount.
+  let released = false;
+  const release = (): void => {
+    if (released) return;
+    released = true;
     detach();
-    audioSockets.delete(ws);
     if (dropped > 0) console.warn(`[audio] shed ${dropped} frames to a congested socket`);
-    // Last listener out stops capture so an idle host is not encoding audio
-    // nobody hears. Best-effort: the helper may already be gone.
-    if (audioSockets.size === 0) {
-      void native.audioStop().catch(() => { /* helper gone or never started */ });
+    void capture.release();
+  };
+
+  // Acquire a capture hold. The controller starts capture on the first hold and
+  // RETRIES the start for a later waiter if an earlier one failed — so a second
+  // socket is never stranded on silence by a failed first start. If the start
+  // ultimately fails for us, report it and close: a silent socket would read as
+  // "audio is broken" with no way to see why.
+  capture.acquire().catch((e: unknown) => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'error', error: `audio capture failed to start: ${messageOf(e)}` }));
+      ws.close(); // triggers 'close' → release()
+    } else {
+      release();
     }
   });
+
+  ws.on('close', release);
 }
