@@ -13,6 +13,7 @@ import { RefreshControl, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
+import { ConnectionStatus } from '../../src/ui';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { api } from '../../src/api';
 import type { SystemStats } from '../../src/api';
@@ -74,7 +75,7 @@ const message = (e: unknown): string =>
   e instanceof Error ? e.message : 'Could not read system stats from the host.';
 
 export default function SystemTab() {
-  const { connection, active, forget } = useConnection();
+  const { connection, active, forget, phase } = useConnection();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
 
@@ -207,19 +208,12 @@ export default function SystemTab() {
         <Txt variant="title" heading numberOfLines={1}>
           {title}
         </Txt>
-        <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
-          <Row gap="xs" style={{ flexShrink: 1 }}>
-            <Dot
-              status={stale ? 'bad' : 'accent'}
-              pulse={!stale}
-              label={stale ? 'Host unreachable' : 'Live'}
-            />
-            <Txt variant="label" tone="dim" numberOfLines={1}>
-              {statusLine(stale, lastOkAt, clock)}
-            </Txt>
-          </Row>
-          <SwitchComputerLink />
-        </Row>
+        <ConnectionStatus
+          phase={phase}
+          surface={stale ? 'reconnecting' : 'live'}
+          trailing={<SwitchComputerLink />}
+          style={{ marginTop: theme.space.xxs }}
+        />
         <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
       </View>
 
