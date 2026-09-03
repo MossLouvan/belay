@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 
 import { collectChanges, capDiff, parseStatus, parseNumstat, DIFF_CAP } from '../src/changes.js';
 
@@ -64,7 +65,7 @@ test('a symlink that resolves outside the roots is refused', async () => {
   await assert.rejects(() => collectChanges(link), /outside the allowed folders/);
 });
 
-test('a deny-listed folder inside a root is refused with the same message', async () => {
+test('a deny-listed folder inside a root is refused with the same message', { skip: !existsSync(join(HOME, '.ssh')) }, async () => {
   await assert.rejects(() => collectChanges(join(HOME, '.ssh')), /outside the allowed folders/);
 });
 

@@ -4,6 +4,11 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+
+// These assert macOS zsh resolution; they need a real /bin/zsh, so they run on
+// macOS and skip on a Linux CI runner that has no zsh.
+const HAS_ZSH = existsSync('/bin/zsh');
 
 import { resolveShell, shellEnv, shellCwd, pipeInput } from '../src/terminal.js';
 
@@ -20,13 +25,13 @@ test('windows honours BELAY_SHELL=cmd via ComSpec', () => {
   assert.deepEqual([...spec.args], []);
 });
 
-test('posix uses $SHELL when it is an absolute path that exists', () => {
+test('posix uses $SHELL when it is an absolute path that exists', { skip: !HAS_ZSH }, () => {
   const spec = resolveShell({ SHELL: '/bin/zsh' } as NodeJS.ProcessEnv, 'darwin');
   assert.equal(spec.file, '/bin/zsh');
   assert.deepEqual([...spec.args], ['-l']);
 });
 
-test('posix ignores a $SHELL that is relative or does not exist', () => {
+test('posix ignores a $SHELL that is relative or does not exist', { skip: !HAS_ZSH }, () => {
   assert.equal(resolveShell({ SHELL: 'zsh' } as NodeJS.ProcessEnv, 'darwin').file, '/bin/zsh');
   assert.equal(
     resolveShell({ SHELL: '/nonexistent/shell' } as NodeJS.ProcessEnv, 'darwin').file,
@@ -34,7 +39,7 @@ test('posix ignores a $SHELL that is relative or does not exist', () => {
   );
 });
 
-test('darwin falls back to /bin/zsh when $SHELL is unset', () => {
+test('darwin falls back to /bin/zsh when $SHELL is unset', { skip: !HAS_ZSH }, () => {
   assert.equal(resolveShell({} as NodeJS.ProcessEnv, 'darwin').file, '/bin/zsh');
 });
 
