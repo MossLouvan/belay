@@ -6,6 +6,7 @@
 // (docs/FRONTEND-REVAMP.md §4.1).
 
 import React from 'react';
+import { View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { Dot } from './feedback';
 import { Label } from './text';
@@ -41,18 +42,22 @@ export function ConnectionStatus({
   const view = describeSurface(phase, surface, { paired, detail });
   return (
     <Row justify="space-between" gap="sm" style={style} testID={testID}>
-      <Row gap="xs" style={{ flexShrink: 1 }}>
+      <Row gap="xs" style={{ flexShrink: 1, minWidth: 0 }}>
         {/* The visible word already speaks the state; a label on the Dot
             would make a screen reader announce it twice. */}
         <Dot status={view.status} ring={view.ring} size={7} />
-        <Label style={{ marginBottom: 0 }} numberOfLines={1}>{view.word}</Label>
+        {/* The state word is the load-bearing fact — never let it truncate. */}
+        <Label style={{ marginBottom: 0, flexShrink: 0 }} numberOfLines={1}>{view.word}</Label>
         {view.detail ? (
-          <Label tone="faint" style={{ marginBottom: 0 }} numberOfLines={1}>
+          // Detail is the first thing to give way on a narrow row.
+          <Label tone="faint" style={{ marginBottom: 0, flexShrink: 1, minWidth: 0 }} numberOfLines={1}>
             {view.detail}
           </Label>
         ) : null}
       </Row>
-      {trailing ?? null}
+      {/* The machine link (a place, not a status) yields the row to the status
+          and truncates its own name rather than pushing the word off screen. */}
+      {trailing ? <View style={{ flexShrink: 1, minWidth: 0, maxWidth: '50%' }}>{trailing}</View> : null}
     </Row>
   );
 }

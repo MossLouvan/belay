@@ -447,7 +447,13 @@ export function useThemeMode(): ThemeMode {
 // Appearance is not guaranteed to be functional on every platform/runtime
 // (react-native-web in particular), so both reads are defensive: an unavailable
 // API resolves to the dark default rather than throwing during render.
+// Belay is DARK-FIRST: the product identity is the deep-navy Next Terminal
+// look, so the app commits to dark rather than following the phone's light
+// setting. The full light palette is retained (lightPalette) for a future
+// in-app theme toggle — flip DARK_FIRST to restore system-follow.
+const DARK_FIRST = true;
 const readSystemScheme = (): ColorScheme => {
+  if (DARK_FIRST) return 'dark';
   try {
     return Appearance.getColorScheme() === 'light' ? 'light' : 'dark';
   } catch {
