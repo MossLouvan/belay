@@ -119,22 +119,47 @@ the JPEG path (flag off) is the fallback and must still be fine.
 not kernel). This is what lets the phone pick a resolution and have Windows
 actually render at it (Parsec-style), instead of downscaling.
 
-Prereqs: **Visual Studio 2022** + **Windows Driver Kit (WDK)** extension.
+**Status: the build half of this tier is DONE.** The driver compiles,
+packages, passes `infverif /u` and test-signs; `pnputil /add-driver /install`
+accepts the package. What remains is getting it to *load*, which Secure Boot
+blocks — see below.
+
+Prereqs: **VS2022 or VS2022 Build Tools** (workload `VCTools`), the **Windows
+11 SDK**, the **WDK**, and — easy to miss — the WDK's **Visual Studio
+integration**, which since VS 17.11 is a Visual Studio *component*, not a VSIX
+inside the WDK MSI. Without it MSBuild has no `WindowsUserModeDriver10.0`
+platform toolset and the project will not build at all. Exact commands are in
+`docs/VIRTUAL-DISPLAY.md`.
 
 ```powershell
 cd "$HOME\belay\server\native\win-display"
-# Build + test-sign the driver (creates a throwaway self-signed cert if none given):
+# Build + test-sign the driver (creates a throwaway self-signed cert if none
+# given). Run ELEVATED so it can also place that cert in the machine trust
+# stores — test signing still requires the signer to chain to a trusted root.
 .\build-driver.ps1
 ```
 
-Installing an unsigned/test-signed driver requires **test-signing mode**:
+Installing a test-signed driver requires **test-signing mode**, and
+**test-signing mode requires Secure Boot to be OFF**. With Secure Boot on,
+`bcdedit /set testsigning on` fails with *"The value is protected by Secure
+Boot policy and cannot be modified or deleted."*
+
+If BitLocker protects C:, suspend it first or the firmware change will demand
+the 48-digit recovery key at the next boot:
+
+```powershell
+# Elevated. Auto-resumes after the next two boots.
+manage-bde -protectors -disable C: -RebootCount 2
+```
+
+Then reboot into UEFI setup, turn Secure Boot off, boot, and:
 
 ```powershell
 # Elevated PowerShell. This weakens driver signing enforcement — dev machines
 # only. Requires a reboot; a "Test Mode" watermark appears on the desktop.
 bcdedit /set testsigning on
-# reboot, then install the INF from .\dist\<arch>\BelayVdd\ (right-click Install,
-# or pnputil /add-driver BelayVdd.inf /install), per docs\VIRTUAL-DISPLAY.md.
+# After that reboot, install the package:
+pnputil /add-driver .\dist\x64\BelayVdd\BelayVdd.inf /install
 ```
 
 Then run the host with the feature on:
