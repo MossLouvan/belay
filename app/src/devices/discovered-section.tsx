@@ -17,7 +17,8 @@ import { router } from 'expo-router';
 
 import { api, checkHost, pair } from '../api';
 import type { DiscoverHostsReply, DiscoveredHost } from '../api';
-import { Banner, Button, Caption, Label, ListItem, Micro, Rule, haptic } from '../ui';
+import { Button, Caption, Label, ListItem, Micro, Rule, haptic } from '../ui';
+import { StatusNotice } from './notice';
 import { useTheme } from '../theme';
 import type { SavedDevice } from './model';
 import { buildSavedDevice } from './from-host';
@@ -189,7 +190,7 @@ export function DiscoveredSection({ saved, connected, viaLabel, nonce, onAdd }: 
             }
           />
           {failure[host.id] ? (
-            <Banner
+            <StatusNotice
               status="warn"
               message={failure[host.id].message}
               action={failure[host.id].offerCode

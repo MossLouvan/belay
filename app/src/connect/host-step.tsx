@@ -1,13 +1,15 @@
 // Step one: point the app at the computer.
 //
-// Ledger anatomy rather than a card: the section label marks the step, the
-// address field is the page's one `surface` fill, and the recent computers
-// are hairline-separated rows under their own micro-label.
+// Sweep anatomy (Next Terminal): the address lives in one clean bordered
+// card, a solid-blue CONNECT beside a quiet SCAN below it, and failures come
+// back as a calm bordered notice — not a saturated fill. The recent computers
+// stay hairline-separated rows under their own micro-label.
 
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Badge, Banner, Button, Caption, IconButton, Input, Label, ListItem, Rule, Txt } from '../ui';
+import { Badge, Button, Caption, Card, IconButton, Input, Label, ListItem, Row, Rule, Txt } from '../ui';
+import { StatusNotice } from '../devices/notice';
 import type { Diagnosis } from './diagnose';
 import { isTailscaleAddress, prettyHost } from './host-input';
 import type { HostResolution } from './host-input';
@@ -20,6 +22,8 @@ export interface HostStepProps {
   showResolution: boolean;
   busy: boolean;
   onSubmit: () => void;
+  /** Opens the QR scanner — the second way in, beside Connect. */
+  onScan: () => void;
   error: Diagnosis | null;
   recent: readonly string[];
   onPickRecent: (url: string) => void;
@@ -103,6 +107,7 @@ export function HostStep({
   showResolution,
   busy,
   onSubmit,
+  onScan,
   error,
   recent,
   onPickRecent,
@@ -112,41 +117,53 @@ export function HostStep({
 
   return (
     <View testID="host-step">
-      <Input
-        testID="host-input"
-        label="Computer address"
-        value={value}
-        onChangeText={onChangeText}
-        placeholder="192.168.1.20"
-        mono
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="url"
-        returnKeyType="go"
-        onSubmitEditing={onSubmit}
-        // Locked while a check is in flight, matching the code field in the next
-        // step: editing an address whose result is already on its way only
-        // invites a second, overlapping check.
-        editable={!busy}
-        accessibilityLabel="Computer address"
-        accessibilityHint="The address printed by the host agent on your computer"
-      />
-      {showResolution ? <ResolutionPreview resolution={resolution} /> : (
-        <Caption style={{ marginTop: theme.space.xs }}>Port 8787 is added for you if you leave it off.</Caption>
-      )}
+      <Card>
+        <Input
+          testID="host-input"
+          label="Computer address"
+          value={value}
+          onChangeText={onChangeText}
+          placeholder="192.168.1.20"
+          mono
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          returnKeyType="go"
+          onSubmitEditing={onSubmit}
+          // Locked while a check is in flight, matching the code field in the next
+          // step: editing an address whose result is already on its way only
+          // invites a second, overlapping check.
+          editable={!busy}
+          accessibilityLabel="Computer address"
+          accessibilityHint="The address printed by the host agent on your computer"
+        />
+        {showResolution ? <ResolutionPreview resolution={resolution} /> : (
+          <Caption style={{ marginTop: theme.space.xs }}>Port 8787 is added for you if you leave it off.</Caption>
+        )}
+      </Card>
 
       {error ? (
-        <Banner testID="error" title={error.title} message={error.message} status="bad" style={{ marginTop: theme.space.md }} />
+        <StatusNotice testID="error" title={error.title} message={error.message} status="bad" style={{ marginTop: theme.space.md }} />
       ) : null}
 
-      <Button
-        label="Connect"
-        onPress={onSubmit}
-        loading={busy}
-        testID="check-host"
-        fullWidth
-        style={{ marginTop: theme.space.md }}
-      />
+      <Row gap="sm" style={{ marginTop: theme.space.md }}>
+        <View style={{ flex: 1 }}>
+          <Button
+            label="Connect"
+            onPress={onSubmit}
+            loading={busy}
+            testID="check-host"
+            fullWidth
+          />
+        </View>
+        <Button
+          label="Scan"
+          variant="secondary"
+          onPress={onScan}
+          testID="scan-btn"
+          accessibilityHint="Scans the QR code the host agent prints"
+        />
+      </Row>
 
       <RecentHosts recent={recent} onPick={onPickRecent} onForget={onForgetRecent} />
 
