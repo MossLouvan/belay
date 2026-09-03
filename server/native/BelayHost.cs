@@ -11,6 +11,7 @@
 // compiled binary the user builds locally does not go through that path.
 //
 // Commands: info | capture | move | down | up | click | scroll | key | text | ping
+//           audiostart | audiostop | audiostatus  (WASAPI loopback, BelayHostAudio.cs)
 
 using System;
 using System.Collections.Generic;
@@ -211,6 +212,11 @@ static class BelayHost
                     // native/win-display/ installed — without it the handler
                     // throws a message that says so. See docs/VIRTUAL-DISPLAY.md.
                     case "virtualdisplay": Reply(stdout, BelayVirtualDisplay.Handle(idObj, c)); break;
+                    // Driverless system-audio loopback (WASAPI). WRITTEN-BUT-
+                    // NOT-COMPILED — see BelayHostAudio.cs and docs/AUDIO.md.
+                    case "audiostart": BelayHostAudio.Start(stdout, idObj); break;
+                    case "audiostop": BelayHostAudio.Stop(stdout, idObj); break;
+                    case "audiostatus": BelayHostAudio.Status(stdout, idObj); break;
                     default: Err(stdout, idObj, "unknown command: " + cmd); break;
                 }
             }
@@ -525,20 +531,31 @@ static class BelayHost
         Ok(w, id);
     }
 
-    static void Ok(TextWriter w, object id) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", true } }); }
-    static void Err(TextWriter w, object id, string msg) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", false }, { "error", msg } }); }
+    internal static void Ok(TextWriter w, object id) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", true } }); }
+    internal static void Err(TextWriter w, object id, string msg) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", false }, { "error", msg } }); }
 
-    // One lock so a pushed WebRTC signaling line (library thread) can never
-    // interleave with a stdio reply. Uncontended in the default build, where
-    // the loop is single-threaded — same guarantee as the mac ReplyWriter.
-    static readonly object replyGate = new object();
+    // One lock for everything that reaches stdout: command replies from the
+    // main loop, pushed audio lines from the capture thread, and (under
+    // BELAY_WEBRTC_BUILD) pushed webrtc signaling — none may interleave
+    // mid-line (the macOS ReplyWriter holds the same invariant).
+    internal static readonly object StdoutLock = new object();
 
-    static void Reply(TextWriter w, Dictionary<string, object> obj)
+    internal static void Reply(TextWriter w, Dictionary<string, object> obj)
     {
-        lock (replyGate)
+        lock (StdoutLock)
         {
             w.WriteLine(J.Serialize(obj));
             w.Flush();
+        }
+    }
+
+    /// A pushed line that answers no command — audio frames (type:"audio").
+    internal static void Push(Dictionary<string, object> obj)
+    {
+        lock (StdoutLock)
+        {
+            Console.Out.WriteLine(J.Serialize(obj));
+            Console.Out.Flush();
         }
     }
 

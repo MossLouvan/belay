@@ -317,8 +317,11 @@ uses, and glass-to-glass in the 16–40 ms band is achievable there.
 - **Phone decode.** Older phones decode H.264 in hardware fine but HEVC and
   higher resolutions vary; the SDP negotiation must degrade gracefully.
 
-- **Gaps we are not closing first:** audio, HDR, and 4:4:4 chroma for crisp
-  text — Parsec has all three; the plan above ships 4:2:0 video first.
+- **Gaps we are not closing first:** HDR and 4:4:4 chroma for crisp text —
+  Parsec has both; the plan above ships 4:2:0 video first. Audio now has its
+  own slice: driverless system-audio loopback + a tested packetization/jitter
+  spine, behind the same flag — see `docs/AUDIO.md` for exactly how far it is
+  verified.
 
 **Bottom line:** Parsec-class on the paths that matter most (home LAN, Tailscale
 direct, good Wi-Fi), with an honest and measured degradation on hostile networks

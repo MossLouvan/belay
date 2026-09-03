@@ -34,7 +34,8 @@ export interface RTCIceCandidateInit {
 
 export interface DataChannelLike {
   readonly label: string;
-  send(data: string): void;
+  /** react-native-webrtc accepts strings and binary; audio frames are binary. */
+  send(data: string | Uint8Array): void;
   close(): void;
 }
 
@@ -93,7 +94,7 @@ export function mapConnectionState(
 }
 
 /**
- * Build the adapter. Opens the three data channels from channels.ts, wires the
+ * Build the adapter. Opens the data channels from channels.ts, wires the
  * peer connection's local-ICE and connection-state events back to the
  * controller, and implements every PeerAdapter operation as exactly one
  * RTCPeerConnection call.
@@ -165,6 +166,12 @@ export function createPeerAdapter(deps: PeerAdapterDeps): PeerAdapter {
       // failing safe onto control if the requested channel is somehow absent.
       const target = channels.get(channel) ?? channels.get(channelFor(kind)) ?? channels.get('control');
       target?.send(JSON.stringify({ kind, payload }));
+    },
+    sendBytesOn(channel: ChannelId, bytes: Uint8Array): void {
+      // Binary path for audio wire frames (audio-frames.ts): the frame IS the
+      // message, so nothing is serialized around it. No control fallback here —
+      // late audio on a reliable channel is worse than dropped audio.
+      channels.get(channel)?.send(bytes);
     },
   };
 }

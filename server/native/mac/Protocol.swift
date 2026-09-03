@@ -158,6 +158,12 @@ final class ReplyWriter {
     /// through the same lock as replies so a push can never interleave.
     func push(type: String, _ extra: [String: Any] = [:]) {
         write(merge(["type": type], extra))
+    /// A pushed line that is NOT a reply to any command — audio frames
+    /// (`type:"audio"`) and, later, webrtc signaling (`type:"webrtc"`). The
+    /// caller includes the `type` field; the lock below is what lets a capture
+    /// thread push while the command loop replies without interleaving.
+    func push(_ payload: [String: Any]) {
+        write(payload)
     }
 
     private func merge(_ base: [String: Any], _ extra: [String: Any]) -> [String: Any] {

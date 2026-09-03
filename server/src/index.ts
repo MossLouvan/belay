@@ -50,6 +50,7 @@ import { registerRecordingRoutes } from './recording-routes.js';
 import { handleHandoff } from './handoff.js';
 import { registerAgentApprovalRoutes } from './agent-routes.js';
 import { registerImageRoutes } from './image-routes.js';
+import { handleAudioSocket, registerAudioRoutes } from './audio-routes.js';
 import { productEnv } from './env.js';
 import { webrtcEnabled } from './webrtc/flag.js';
 import {
@@ -761,6 +762,9 @@ app.post('/agent/approval-request', (req, res) => {
 registerRecordingRoutes(app, auth);
 registerAgentApprovalRoutes(app, auth);
 registerImageRoutes(app, auth);
+// Audio control routes exist ONLY behind the flag, exactly like /ws/webrtc:
+// with BELAY_WEBRTC off this feature has no REST or WS surface at all.
+if (webrtcEnabled()) registerAudioRoutes(app, auth);
 
 // ---- server + websockets -------------------------------------------------
 
@@ -800,7 +804,7 @@ heartbeat.unref?.();
 // regress the shipping JPEG-over-WebSocket transport, unless it is deliberately
 // enabled. JPEG (/ws/screen) stays the default and the fallback.
 const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent']);
-if (webrtcEnabled()) WS_ROUTES.add('/ws/webrtc');
+if (webrtcEnabled()) { WS_ROUTES.add('/ws/webrtc'); WS_ROUTES.add('/ws/audio'); }
 
 server.on('upgrade', (req, socket, head) => {
   // Parse first, guarded: a malformed request target (e.g. "///") makes
@@ -865,6 +869,10 @@ server.on('upgrade', (req, socket, head) => {
     // Only reachable when BELAY_WEBRTC is on (WS_ROUTES gate above). Signaling
     // relay only — Node never sees media.
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleWebrtc(ws, url); });
+  } else if (url.pathname === '/ws/audio') {
+    // Only reachable when BELAY_WEBRTC is on (WS_ROUTES gate above). The
+    // interim system-audio transport — binary wire frames, audio-routes.ts.
+    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAudioSocket(ws); });
     }
   } catch (e) {
     // Any unexpected failure during the upgrade must tear the socket down rather

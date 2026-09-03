@@ -43,7 +43,14 @@ test('an unknown event kind fails safe onto the reliable control channel', () =>
   assert.equal(channelFor(''), 'control');
 });
 
-test('only the cursor channel is unreliable', () => {
-  const unreliable = Object.values(CHANNELS).filter(isUnreliable).map((c) => c.id);
-  assert.deepEqual(unreliable, ['cursor']);
+test('only the newest-wins channels — cursor and audio — are unreliable', () => {
+  const unreliable = Object.values(CHANNELS).filter(isUnreliable).map((c) => c.id).sort();
+  assert.deepEqual(unreliable, ['audio', 'cursor']);
+});
+
+test('audio frames ride the unreliable audio channel; the jitter buffer owns loss', () => {
+  assert.equal(channelFor('audioframe'), 'audio');
+  assert.equal(CHANNELS.audio.ordered, false);
+  assert.equal(CHANNELS.audio.maxRetransmits, 0);
+  assert.equal(isUnreliable(CHANNELS.audio), true);
 });

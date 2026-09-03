@@ -6,6 +6,7 @@
 // `id`. The command set is identical across platforms.
 //
 //   info | capture | move | down | up | click | scroll | key | text | ping
+//   audiostart | audiostop | audiostatus  (driverless system-audio loopback)
 //
 // The loop is deliberately single-threaded and synchronous: Node serialises
 // requests anyway, and one command at a time means a frame can never interleave
@@ -35,6 +36,7 @@ private let virtualRefreshRange = 24...240
 // the shipping helper compiles none of the WebRTC sources.
 private let webrtc = WebRTCVerb(replies: replies, capture: capture, input: input)
 #endif
+private let audio = SystemAudioCapture(replies: replies)
 
 private func run() {
     // Without this the process is killed outright the moment stdout closes —
@@ -77,6 +79,7 @@ private func run() {
     // tears it down with the owning process), but exiting cleanly means the
     // host's desktop is back to normal before Node reports us gone.
     virtualDisplays.destroy()
+    audio.stop()
 }
 
 private func handle(_ command: Command) throws {
@@ -94,6 +97,9 @@ private func handle(_ command: Command) throws {
     case "capturewindow": try handleCaptureWindow(command)
     case "focuswindow": try handleFocusWindow(command)
     case "virtualdisplay": try handleVirtualDisplay(command)
+    case "audiostart": try handleAudioStart(command)
+    case "audiostop": audio.stop(); replies.ok(id: command.id)
+    case "audiostatus": handleAudioStatus(command)
     case "ping": replies.ok(id: command.id, ["pong": true])
     case "webrtc":
         #if BELAY_WEBRTC_BUILD
@@ -300,6 +306,24 @@ private func handleVirtualDisplay(_ command: Command) throws {
     case let other:
         throw HostError(.badArgument, "unknown virtualdisplay action: \(other)")
     }
+// MARK: - System audio (driverless loopback — see AudioCapture.swift)
+
+/// Start pushing 20 ms system-audio frames as `type:"audio"` lines. Rides the
+/// same Screen & System Audio Recording grant as capture; idempotent.
+private func handleAudioStart(_ command: Command) throws {
+    try audio.start()
+    replies.ok(id: command.id, [
+        "capturing": true,
+        "codec": "pcm16",
+        "sampleRate": SystemAudioCapture.sampleRate,
+        "channels": SystemAudioCapture.channels,
+    ])
+}
+
+private func handleAudioStatus(_ command: Command) {
+    var payload: [String: Any] = ["capturing": audio.isCapturing, "codec": "pcm16"]
+    if let reason = audio.lastStopReason { payload["stopReason"] = reason }
+    replies.ok(id: command.id, payload)
 }
 
 // MARK: - Argument helpers

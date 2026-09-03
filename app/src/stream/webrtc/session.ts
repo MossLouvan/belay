@@ -44,6 +44,10 @@ export interface PeerAdapter {
   /** Send one input/control event on a specific data channel (the routing that
    *  channels.ts decides). Optional for the same reason. */
   sendOn?(channel: ChannelId, kind: string, payload: unknown): void;
+  /** Send raw bytes on a specific data channel — the audio wire frames of
+   *  audio-frames.ts, which are already a self-describing binary format and
+   *  must not be JSON-wrapped. Optional for the same reason. */
+  sendBytesOn?(channel: ChannelId, bytes: Uint8Array): void;
 }
 
 export interface SessionCallbacks {

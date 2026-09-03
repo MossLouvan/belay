@@ -52,15 +52,26 @@ function setup() {
   return { pc, sent, states, adapter };
 }
 
-test('opens exactly the three channels from channels.ts with the right reliability', () => {
+test('opens exactly the channels from channels.ts with the right reliability', () => {
   const { pc } = setup();
   const byLabel = Object.fromEntries(pc.channels.map((c) => [c.label, c.init]));
-  assert.deepEqual(Object.keys(byLabel).sort(), ['control', 'cursor', 'input']);
-  // cursor is the unreliable, unordered, newest-wins channel.
+  assert.deepEqual(Object.keys(byLabel).sort(), ['audio', 'control', 'cursor', 'input']);
+  // cursor and audio are the unreliable, unordered channels.
   assert.deepEqual(byLabel.cursor, { ordered: false, maxRetransmits: 0 });
+  assert.deepEqual(byLabel.audio, { ordered: false, maxRetransmits: 0 });
   // input and control are fully reliable (no maxRetransmits key).
   assert.deepEqual(byLabel.input, { ordered: true });
   assert.deepEqual(byLabel.control, { ordered: true });
+});
+
+test('sendBytesOn sends raw bytes on the audio channel, no JSON wrapper, no fallback', () => {
+  const { pc, adapter } = setup();
+  const byLabel = Object.fromEntries(pc.channels.map((c) => [c.label, c]));
+  const bytes = new Uint8Array([0xa5, 1, 2, 3]);
+  adapter.sendBytesOn('audio', bytes);
+  assert.equal(byLabel.audio.sent.length, 1);
+  assert.equal(byLabel.audio.sent[0], bytes, 'bytes pass through untouched');
+  assert.equal(byLabel.control.sent.length, 0, 'audio never spills onto control');
 });
 
 test('dataChannelInit reflects each spec faithfully', () => {
