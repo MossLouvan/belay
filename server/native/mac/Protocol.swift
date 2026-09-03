@@ -87,6 +87,16 @@ struct Command {
         return min(max(value, range.lowerBound), range.upperBound)
     }
 
+    /// Optional nested object (used for the webrtc `signal` envelope). Throws
+    /// if present but not an object, for the same fail-fast reason as above.
+    func object(_ key: String) throws -> [String: Any]? {
+        guard let value = present(key) else { return nil }
+        guard let object = value as? [String: Any] else {
+            throw HostError(.badArgument, "'\(key)' must be an object", details: ["field": key])
+        }
+        return object
+    }
+
     func string(_ key: String) throws -> String? {
         guard let value = present(key) else { return nil }
         guard let string = value as? String else {
@@ -140,6 +150,14 @@ final class ReplyWriter {
     /// The startup banner. Node keys off `ready`; the rest is diagnostic.
     func ready(_ extra: [String: Any] = [:]) {
         write(merge(["id": 0, "ok": true, "ready": true], extra))
+    }
+
+    /// A pushed event line, not an id-matched reply. Node's read loop routes
+    /// these by `type` (today: `type:"webrtc"` signaling frames from the
+    /// hardware-gated transport — see native.ts dispatchWebrtcSignal). Goes
+    /// through the same lock as replies so a push can never interleave.
+    func push(type: String, _ extra: [String: Any] = [:]) {
+        write(merge(["type": type], extra))
     }
 
     private func merge(_ base: [String: Any], _ extra: [String: Any]) -> [String: Any] {

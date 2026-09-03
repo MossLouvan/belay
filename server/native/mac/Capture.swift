@@ -67,6 +67,21 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Monotonic (not wall clock) so a clock adjustment cannot fake staleness.
     private var lastFrameUptimeNanos: UInt64 = 0
 
+    #if BELAY_WEBRTC_BUILD
+    /// HARDWARE-GATED push seam (docs/PERFORMANCE-PLAN.md §2): when the WebRTC
+    /// transport is connected, every arriving CVPixelBuffer is pushed straight
+    /// into the encoder instead of waiting to be pulled — this is what turns
+    /// capture from a polled RPC into a push source. Set/cleared under `lock`
+    /// by WebRTCSession; called on the SCStream sample queue.
+    private var encoderSink: ((CVPixelBuffer, Double) -> Void)?
+
+    func setEncoderSink(_ sink: ((CVPixelBuffer, Double) -> Void)?) {
+        lock.lock()
+        encoderSink = sink
+        lock.unlock()
+    }
+    #endif
+
     init(displayID: CGDirectDisplayID) {
         self.displayID = displayID
         self.sampleQueue = DispatchQueue(label: "belay.capture.\(displayID)", qos: .userInitiated)
@@ -170,8 +185,21 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
         let first = !sawFirstFrame
         sawFirstFrame = true
         let signal = frameArrived
+        #if BELAY_WEBRTC_BUILD
+        let sink = encoderSink
+        #endif
         lock.unlock()
         if first { signal.signal() }
+        #if BELAY_WEBRTC_BUILD
+        // Push path: hand the raw pixel buffer to the encoder with the sample's
+        // own presentation timestamp (ms) — the capture stamp latency.ts uses
+        // for glass-to-glass. Runs on the sample queue; the encoder is
+        // thread-safe and VideoToolbox does its own async work.
+        if let sink, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+            let ptsMs = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds * 1000.0
+            sink(pixelBuffer, ptsMs)
+        }
+        #endif
     }
 
     // MARK: - SCStreamDelegate
@@ -284,6 +312,28 @@ final class CaptureEngine {
         streams.values.forEach { $0.stop() }
         streams.removeAll()
     }
+
+    #if BELAY_WEBRTC_BUILD
+    /// HARDWARE-GATED: attach the WebRTC encoder as a push sink on one display's
+    /// stream (starting the stream if needed). Returns the pixel geometry the
+    /// stream captures at, which is what the encoder session must be sized to.
+    /// Mirrors the selection precedence of `frames`: an index picks that entry
+    /// of Displays.active(), absent falls back to the primary.
+    func attachEncoderSink(screen: Int?, sink: @escaping (CVPixelBuffer, Double) -> Void) throws -> DisplayGeometry {
+        try Permissions.require(.screenRecording)
+        let geometry = try Displays.at(screen, in: Displays.active()) ?? Displays.primary()
+        let available = try shareableDisplays()
+        let stream = try ensureStream(for: geometry, available: available)
+        stream.setEncoderSink(sink)
+        return geometry
+    }
+
+    /// Detach any encoder sinks (transport closed / bye). The streams keep
+    /// running for the JPEG pull path — detaching must not black the fallback.
+    func detachEncoderSinks() {
+        streams.values.forEach { $0.setEncoderSink(nil) }
+    }
+    #endif
 
     private static func isStalled(_ stream: DisplayStream) -> Bool {
         guard let age = stream.frameAge else { return false }

@@ -1,30 +1,99 @@
 // belay_transport.cpp — libdatachannel implementation of the C ABI in
 // belay_transport.h.
 //
-// ┌─ STATUS: WRITTEN-BUT-HARDWARE-GATED ────────────────────────────────────┐
-// │ Written to the libdatachannel API shape but NOT compiled or linked. It   │
-// │ needs libdatachannel (+ libjuice/usrsctp/srtp) statically linked into    │
-// │ the helper (build-mac.sh) and a real GPU/phone to exercise (M4/M5). The  │
-// │ RTP packetization details (STAP-A/FU-A for H.264, the HEVC equivalents), │
-// │ the transport-cc feedback plumbing and the exact libdatachannel struct   │
-// │ field names must be reconciled against the linked headers when it is     │
-// │ actually built. Do not treat as working. │
+// ┌─ STATUS: WRITTEN-BUT-NOT-COMPILED (hardware-gated link) ────────────────┐
+// │ Written against the real libdatachannel v0.23.1 headers and verified     │
+// │ with `clang++ -fsyntax-only` against them (see docs/WEBRTC-SLICE.md,     │
+// │ "Verify without hardware"). It has NOT been linked against the static    │
+// │ library or exercised over a network — that needs the vendored            │
+// │ libdatachannel build plus a GPU/phone (milestones M4/M5). Do not treat   │
+// │ as working until the runbook produces a number.                          │
 // └──────────────────────────────────────────────────────────────────────────┘
+//
+// Pipeline shape (the same encode → packetize → SRTP structure Sunshine/
+// Moonlight use, but over libdatachannel's WebRTC stack instead of a custom
+// RTSP/ENet protocol):
+//
+//   VideoEncoder (Annex-B access unit)
+//     └─ belay_transport_send_frame
+//          └─ rtc::H264RtpPacketizer / H265RtpPacketizer  (FU-A/AP fragmenting
+//             at BELAY_MAX_FRAGMENT_SIZE — the same budget as the tested
+//             server/src/webrtc/packetization.ts math)
+//               ├─ rtc::RtcpSrReporter    (sender reports → receiver sync)
+//               ├─ rtc::RtcpNackResponder (retransmit cache — NACK/RTX)
+//               └─ rtc::PliHandler        (PLI → on_keyframe_request →
+//                                          VideoEncoder.requestKeyframe)
+//                    └─ SRTP/DTLS via the rtc::Track
+//
+// Loss/RTT feedback for the ABR does NOT come from this side: congestion.ts
+// runs on the phone (the receiver), which observes loss directly and sends the
+// bitrate setpoint back over the `control` data channel. on_link_feedback in
+// the ABI stays for a future sender-side estimator and is not wired here.
+//
+// Threading: every callback fires on libdatachannel's internal threads. The
+// Swift caller (WebRTCSession.swift) hops to its own serial queue before
+// touching shared state; this file only guards its own pointers with a mutex.
 
 #include "belay_transport.h"
 
+#include <atomic>
+#include <cstring>
 #include <memory>
+#include <mutex>
+#include <sstream>
 #include <string>
+#include <vector>
 
-// The real build links these; guarded so this file at least parses without the
-// dependency present in the tree.
+// The real build links libdatachannel; guarded so this file still parses (and
+// the fallback path still builds) when the vendor tree is absent.
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
 #include <rtc/rtc.hpp>
 #endif
 
+namespace {
+
+// RTP payload budget per packet. Mirrors server/src/webrtc/packetization.ts
+// (DEFAULT_MTU 1200 - RTP_HEADER_BYTES 12) so the tested fragmentation math and
+// the native packetizer agree on packet counts.
+constexpr size_t BELAY_MAX_FRAGMENT_SIZE = 1188;
+constexpr int BELAY_VIDEO_PAYLOAD_TYPE = 96;
+constexpr uint32_t BELAY_VIDEO_SSRC = 0x42454C41; // "BELA"
+
+// Tolerant ICE-server list parse: accepts a JSON array of strings
+// (["stun:host:3478", ...]) or a plain comma/whitespace-separated list. No JSON
+// dependency; anything that does not look like a stun:/turn(s): URI is dropped
+// (input crosses a process boundary — validate, never trust).
+std::vector<std::string> parseIceServers(const char *raw) {
+    std::vector<std::string> out;
+    if (!raw) return out;
+    std::string s(raw);
+    std::string token;
+    auto flush = [&] {
+        if (token.rfind("stun:", 0) == 0 || token.rfind("stuns:", 0) == 0 ||
+            token.rfind("turn:", 0) == 0 || token.rfind("turns:", 0) == 0) {
+            out.push_back(token);
+        }
+        token.clear();
+    };
+    for (char c : s) {
+        if (c == '[' || c == ']' || c == '"' || c == '\'' || c == ',' ||
+            c == ' ' || c == '\n' || c == '\t') {
+            flush();
+        } else {
+            token.push_back(c);
+        }
+    }
+    flush();
+    return out;
+}
+
+} // namespace
+
 struct belay_transport {
     belay_transport_callbacks cb{};
     belay_codec codec{BELAY_CODEC_H264};
+    std::mutex mutex; // guards the pointers below against close() races
+    std::atomic<bool> closed{false};
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
     std::shared_ptr<rtc::PeerConnection> pc;
     std::shared_ptr<rtc::Track> video;
@@ -32,7 +101,7 @@ struct belay_transport {
     std::shared_ptr<rtc::DataChannel> cursor;
     std::shared_ptr<rtc::DataChannel> control;
     std::shared_ptr<rtc::RtpPacketizationConfig> rtpConfig;
-    uint32_t timestamp{0};
+    double basePtsMs{-1.0}; // first frame's capture pts → RTP timestamp origin
 #endif
 };
 
@@ -41,69 +110,125 @@ extern "C" {
 belay_transport *belay_transport_create(belay_codec codec,
                                         const char *ice_servers_json,
                                         belay_transport_callbacks callbacks) {
-    auto *t = new belay_transport();
+    auto *t = new (std::nothrow) belay_transport();
+    if (!t) return nullptr;
     t->cb = callbacks;
     t->codec = codec;
 
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
-    rtc::Configuration config;
-    (void)ice_servers_json; // parse into config.iceServers in the full build
-    // LAN slice: no STUN/TURN. Add reflexive/relay servers here for WAN (M7).
-
-    t->pc = std::make_shared<rtc::PeerConnection>(config);
-
-    // Local SDP (our answer) -> relay to the phone via Node.
-    t->pc->onLocalDescription([t](rtc::Description desc) {
-        if (t->cb.on_local_description)
-            t->cb.on_local_description(t->cb.ctx, desc.typeString().c_str(),
-                                       std::string(desc).c_str());
-    });
-    t->pc->onLocalCandidate([t](rtc::Candidate cand) {
-        if (t->cb.on_local_candidate)
-            t->cb.on_local_candidate(t->cb.ctx, std::string(cand).c_str(),
-                                     cand.mid().c_str());
-    });
-    t->pc->onStateChange([t](rtc::PeerConnection::State state) {
-        if (t->cb.on_state) {
-            std::ostringstream os; os << state;
-            t->cb.on_state(t->cb.ctx, os.str().c_str());
+    try {
+        rtc::Configuration config;
+        for (auto &uri : parseIceServers(ice_servers_json)) {
+            config.iceServers.emplace_back(uri);
         }
-    });
+        // LAN slice default: the list is empty — host candidates only.
 
-    // One H.264/HEVC video track — the encoder's NAL sink is its RTP source.
-    rtc::Description::Video media("video", rtc::Description::Direction::SendOnly);
-    const int payloadType = 96;
-    if (codec == BELAY_CODEC_HEVC) media.addH265Codec(payloadType);
-    else media.addH264Codec(payloadType);
-    t->video = t->pc->addTrack(media);
+        t->pc = std::make_shared<rtc::PeerConnection>(config);
 
-    auto ssrc = static_cast<uint32_t>(42);
-    t->rtpConfig = std::make_shared<rtc::RtpPacketizationConfig>(
-        ssrc, "video", payloadType,
-        codec == BELAY_CODEC_HEVC ? rtc::H265RtpPacketizer::defaultClockRate
-                                  : rtc::H264RtpPacketizer::defaultClockRate);
-    // Attach the matching packetizer + NACK/PLI handlers; PLI -> keyframe request.
-    // (Exact handler wiring reconciled against the linked headers in the build.)
-
-    // The three data channels from channels.ts, each with its reliability.
-    t->input = t->pc->createDataChannel("input");   // reliable, ordered
-    rtc::DataChannelInit cursorInit;
-    cursorInit.reliability.unordered = true;
-    cursorInit.reliability.maxRetransmits = 0;       // unreliable, newest-wins
-    t->cursor = t->pc->createDataChannel("cursor", cursorInit);
-    t->control = t->pc->createDataChannel("control"); // reliable, ordered
-
-    auto bind = [t](std::shared_ptr<rtc::DataChannel> dc, belay_channel ch) {
-        dc->onMessage([t, ch](rtc::message_variant msg) {
-            if (!std::holds_alternative<rtc::binary>(msg) || !t->cb.on_channel_message) return;
-            auto &bin = std::get<rtc::binary>(msg);
-            t->cb.on_channel_message(t->cb.ctx, ch,
-                reinterpret_cast<const uint8_t *>(bin.data()), bin.size());
+        // Local SDP (our answer — the helper is the callee) → relay to the
+        // phone via Node's type:"webrtc" push line.
+        t->pc->onLocalDescription([t](rtc::Description desc) {
+            if (t->closed.load()) return;
+            if (t->cb.on_local_description) {
+                const std::string type = desc.typeString();
+                const std::string sdp = std::string(desc);
+                t->cb.on_local_description(t->cb.ctx, type.c_str(), sdp.c_str());
+            }
         });
-    };
-    bind(t->input, BELAY_CH_INPUT);
-    bind(t->cursor, BELAY_CH_CURSOR);
-    bind(t->control, BELAY_CH_CONTROL);
+        t->pc->onLocalCandidate([t](rtc::Candidate cand) {
+            if (t->closed.load()) return;
+            if (t->cb.on_local_candidate) {
+                const std::string c = std::string(cand);
+                const std::string mid = cand.mid();
+                t->cb.on_local_candidate(t->cb.ctx, c.c_str(), mid.c_str());
+            }
+        });
+        t->pc->onStateChange([t](rtc::PeerConnection::State state) {
+            if (t->closed.load()) return;
+            if (t->cb.on_state) {
+                std::ostringstream os;
+                os << state; // "connected" / "failed" / "closed" / ...
+                const std::string s = os.str();
+                t->cb.on_state(t->cb.ctx, s.c_str());
+            }
+        });
+
+        // ── One send-only video track; the encoder's NAL sink is its source ──
+        rtc::Description::Video media("video", rtc::Description::Direction::SendOnly);
+        if (codec == BELAY_CODEC_HEVC) media.addH265Codec(BELAY_VIDEO_PAYLOAD_TYPE);
+        else media.addH264Codec(BELAY_VIDEO_PAYLOAD_TYPE);
+        media.addSSRC(BELAY_VIDEO_SSRC, "belay-video", "belay-stream", "belay-video");
+        t->video = t->pc->addTrack(media);
+
+        t->rtpConfig = std::make_shared<rtc::RtpPacketizationConfig>(
+            BELAY_VIDEO_SSRC, "belay-video", BELAY_VIDEO_PAYLOAD_TYPE,
+            rtc::H264RtpPacketizer::ClockRate); // 90 kHz for H.264 and H.265 alike
+
+        // Media-handler chain: packetize → SR reports → NACK cache → PLI.
+        std::shared_ptr<rtc::MediaHandler> packetizer;
+        if (codec == BELAY_CODEC_HEVC) {
+            packetizer = std::make_shared<rtc::H265RtpPacketizer>(
+                rtc::H265RtpPacketizer::Separator::LongStartSequence, t->rtpConfig,
+                BELAY_MAX_FRAGMENT_SIZE);
+        } else {
+            packetizer = std::make_shared<rtc::H264RtpPacketizer>(
+                rtc::H264RtpPacketizer::Separator::LongStartSequence, t->rtpConfig,
+                BELAY_MAX_FRAGMENT_SIZE);
+        }
+        packetizer->addToChain(std::make_shared<rtc::RtcpSrReporter>(t->rtpConfig));
+        packetizer->addToChain(std::make_shared<rtc::RtcpNackResponder>());
+        packetizer->addToChain(std::make_shared<rtc::PliHandler>([t] {
+            // Receiver's decoder lost its reference chain → force an IDR.
+            if (!t->closed.load() && t->cb.on_keyframe_request)
+                t->cb.on_keyframe_request(t->cb.ctx);
+        }));
+        t->video->setMediaHandler(packetizer);
+
+        // ── The three data channels from channels.ts ────────────────────────
+        // The PHONE is the offerer and creates all three up front
+        // (createPeerAdapter in peer-adapter.ts), so the callee side must
+        // RECEIVE them here — creating our own would duplicate every label
+        // with a second in-band-negotiated channel. Reliability (ordered /
+        // maxRetransmits:0) is a property of the creating side's init and
+        // rides in the DCEP open message; nothing to configure here.
+        t->pc->onDataChannel([t](std::shared_ptr<rtc::DataChannel> dc) {
+            const std::string label = dc->label();
+            belay_channel ch;
+            if (label == "input") ch = BELAY_CH_INPUT;
+            else if (label == "cursor") ch = BELAY_CH_CURSOR;
+            else if (label == "control") ch = BELAY_CH_CONTROL;
+            else return; // unknown label: ignore, never crash on a peer quirk
+
+            dc->onMessage([t, ch](rtc::message_variant msg) {
+                if (t->closed.load() || !t->cb.on_channel_message) return;
+                if (std::holds_alternative<rtc::binary>(msg)) {
+                    auto &bin = std::get<rtc::binary>(msg);
+                    t->cb.on_channel_message(t->cb.ctx, ch,
+                        reinterpret_cast<const uint8_t *>(bin.data()), bin.size());
+                } else {
+                    // Strings arrive from JSON-speaking clients; hand the bytes
+                    // through unchanged — the Swift side parses and validates.
+                    auto &str = std::get<std::string>(msg);
+                    t->cb.on_channel_message(t->cb.ctx, ch,
+                        reinterpret_cast<const uint8_t *>(str.data()), str.size());
+                }
+            });
+
+            std::lock_guard<std::mutex> lock(t->mutex);
+            if (ch == BELAY_CH_INPUT) t->input = std::move(dc);
+            else if (ch == BELAY_CH_CURSOR) t->cursor = std::move(dc);
+            else t->control = std::move(dc);
+        });
+    } catch (const std::exception &e) {
+        // Creation failed (bad config, library init): report and fail cleanly
+        // so the caller falls back to JPEG instead of crashing the helper.
+        if (t->cb.on_state) {
+            const std::string msg = std::string("create-failed: ") + e.what();
+            t->cb.on_state(t->cb.ctx, msg.c_str());
+        }
+        delete t;
+        return nullptr;
+    }
 #else
     (void)ice_servers_json;
 #endif
@@ -111,19 +236,31 @@ belay_transport *belay_transport_create(belay_codec codec,
 }
 
 void belay_transport_set_remote_offer(belay_transport *t, const char *sdp) {
-    if (!t || !sdp) return;
+    if (!t || !sdp || t->closed.load()) return;
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
-    t->pc->setRemoteDescription(rtc::Description(sdp, "offer"));
-    // Answer is produced automatically and surfaced via onLocalDescription.
+    try {
+        // The callee path: accepting the remote offer makes libdatachannel
+        // produce the answer automatically, surfaced via onLocalDescription.
+        t->pc->setRemoteDescription(rtc::Description(sdp, "offer"));
+    } catch (const std::exception &e) {
+        if (t->cb.on_state) {
+            const std::string msg = std::string("offer-rejected: ") + e.what();
+            t->cb.on_state(t->cb.ctx, msg.c_str());
+        }
+    }
 #else
     (void)t; (void)sdp;
 #endif
 }
 
 void belay_transport_add_remote_candidate(belay_transport *t, const char *candidate, const char *mid) {
-    if (!t || !candidate) return;
+    if (!t || !candidate || t->closed.load()) return;
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
-    t->pc->addRemoteCandidate(rtc::Candidate(candidate, mid ? mid : ""));
+    try {
+        t->pc->addRemoteCandidate(rtc::Candidate(candidate, mid ? mid : ""));
+    } catch (const std::exception &) {
+        // A malformed candidate is not fatal: ICE proceeds on the others.
+    }
 #else
     (void)t; (void)candidate; (void)mid;
 #endif
@@ -131,15 +268,23 @@ void belay_transport_add_remote_candidate(belay_transport *t, const char *candid
 
 void belay_transport_send_frame(belay_transport *t, const uint8_t *annexb, size_t len,
                                 int is_keyframe, double pts_ms) {
-    if (!t || !annexb || len == 0) return;
+    if (!t || !annexb || len == 0 || t->closed.load()) return;
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
-    (void)is_keyframe;
-    // Advance the RTP timestamp by the frame delta derived from pts_ms, then
-    // packetize the Annex-B access unit and send on the video track. The
-    // packetizer fragments into FU-A / aggregates into STAP-A as needed.
-    t->rtpConfig->timestamp = static_cast<uint32_t>(pts_ms * 90.0); // 90kHz clock
-    if (t->video && t->video->isOpen()) {
+    (void)is_keyframe; // the packetizer needs no flag; IDRs carry their own NAL type
+    std::lock_guard<std::mutex> lock(t->mutex);
+    if (!t->video || !t->video->isOpen()) return;
+    // RTP timestamp: 90 kHz clock, anchored at the first frame's capture pts so
+    // one clock (the capture clock) drives both RTP timing and glass-to-glass
+    // accounting. Matches ptsMsToRtpTimestamp in packetization.ts.
+    if (t->basePtsMs < 0) t->basePtsMs = pts_ms;
+    const double elapsedSec = (pts_ms - t->basePtsMs) / 1000.0;
+    t->rtpConfig->timestamp =
+        t->rtpConfig->startTimestamp + t->rtpConfig->secondsToTimestamp(elapsedSec);
+    try {
         t->video->send(reinterpret_cast<const std::byte *>(annexb), len);
+    } catch (const std::exception &) {
+        // A send on a closing track can throw; the state callback already
+        // reports the disconnect — dropping this frame is the right outcome.
     }
 #else
     (void)t; (void)annexb; (void)len; (void)is_keyframe; (void)pts_ms;
@@ -147,11 +292,16 @@ void belay_transport_send_frame(belay_transport *t, const uint8_t *annexb, size_
 }
 
 void belay_transport_send_on(belay_transport *t, belay_channel ch, const uint8_t *data, size_t len) {
-    if (!t || !data) return;
+    if (!t || !data || len == 0 || t->closed.load()) return;
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
+    std::lock_guard<std::mutex> lock(t->mutex);
     auto dc = ch == BELAY_CH_INPUT ? t->input : ch == BELAY_CH_CURSOR ? t->cursor : t->control;
-    if (dc && dc->isOpen())
+    if (!dc || !dc->isOpen()) return;
+    try {
         dc->send(reinterpret_cast<const std::byte *>(data), len);
+    } catch (const std::exception &) {
+        // Same rationale as the frame path: a racing close loses one message.
+    }
 #else
     (void)t; (void)ch; (void)data; (void)len;
 #endif
@@ -159,8 +309,19 @@ void belay_transport_send_on(belay_transport *t, belay_channel ch, const uint8_t
 
 void belay_transport_close(belay_transport *t) {
     if (!t) return;
+    t->closed.store(true);
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
-    if (t->pc) t->pc->close();
+    {
+        std::lock_guard<std::mutex> lock(t->mutex);
+        if (t->pc) {
+            try { t->pc->close(); } catch (const std::exception &) {}
+        }
+        t->video.reset();
+        t->input.reset();
+        t->cursor.reset();
+        t->control.reset();
+        t->pc.reset();
+    }
 #endif
     delete t;
 }

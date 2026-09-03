@@ -170,6 +170,14 @@ static class BelayHost
             if (c.MimeType == "image/jpeg") { jpeg = c; break; }
 
         var stdout = Console.Out;
+#if BELAY_WEBRTC_BUILD
+        // Wire the hardware-gated WebRTC path to this process's reply writer and
+        // input primitives. Reply() locks nothing today because the stdio loop is
+        // single-threaded; the WebRTC callbacks arrive on library threads, so
+        // pushes go through a lock shared with Reply (see ReplyLocked).
+        WebrtcHost.Write = delegate(Dictionary<string, object> obj) { Reply(stdout, obj); };
+        InputBridge.Route = RouteChannelInput;
+#endif
         Reply(stdout, new Dictionary<string, object> { { "id", 0 }, { "ok", true }, { "ready", true } });
 
         string line;
@@ -208,6 +216,11 @@ static class BelayHost
             }
             catch (Exception e) { Err(stdout, idObj, e.Message); }
         }
+#if BELAY_WEBRTC_BUILD
+        // stdin closed: Node is gone. Tear the peer + encoder down before exit
+        // so the encode thread never outlives the process teardown.
+        WebrtcHost.Shutdown();
+#endif
     }
 
     static void MaybeMove(Dictionary<string, object> c)
@@ -230,14 +243,41 @@ static class BelayHost
     // local answer/ICE back as `type:"webrtc"` lines (see native.ts). Input
     // injection (SendInput) is unchanged and already bypasses the video pipeline.
     //
-    // Until that is built, the verb fails cleanly — exactly like an unknown
+    // The implementation lives in BelayHostWebRtc.cs and is compiled ONLY when
+    // build.ps1 runs with BELAY_WEBRTC_BUILD=1 (it adds /define + the source).
+    // In the default build the verb fails cleanly — exactly like an unknown
     // command — so /ws/webrtc degrades to a JPEG fallback rather than hanging.
     static void DoWebrtc(TextWriter w, object id, Dictionary<string, object> c)
     {
+#if BELAY_WEBRTC_BUILD
+        WebrtcHost.Handle(id, c);
+#else
         Err(w, id, "webrtc transport is not built on this host (HARDWARE-GATED: "
-                 + "needs Desktop Duplication + Media Foundation + libdatachannel). "
+                 + "rebuild with BELAY_WEBRTC_BUILD=1 — Desktop Duplication + Media "
+                 + "Foundation + libdatachannel; see docs/WEBRTC-SLICE.md). "
                  + "Falling back to JPEG.");
+#endif
     }
+
+#if BELAY_WEBRTC_BUILD
+    /// One already-parsed input event from the WebRTC data channels, dispatched
+    /// through the same primitives as the stdio loop (no reply line — the
+    /// channel has its own error reporting on `control`).
+    static void RouteChannelInput(Dictionary<string, object> c)
+    {
+        string cmd = Str(Get(c, "cmd"));
+        switch (cmd)
+        {
+            case "move": Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), TargetBounds(c)); break;
+            case "down": MaybeMove(c); Native.Button(Str(Get(c, "button")), true); break;
+            case "up": MaybeMove(c); Native.Button(Str(Get(c, "button")), false); break;
+            case "scroll": Native.Scroll(Int(Get(c, "dy")), Int(Get(c, "dx"))); break;
+            case "key": DoKey(TextWriter.Null, null, c); break;
+            case "text": Native.TypeText(Str(Get(c, "text"))); break;
+            default: throw new ArgumentException("unknown input cmd: " + cmd);
+        }
+    }
+#endif
 
     /// Hardware encoder preference on Windows, best first. The real path
     /// enumerates Media Foundation transforms (MFT_CATEGORY_VIDEO_ENCODER,
@@ -488,10 +528,18 @@ static class BelayHost
     static void Ok(TextWriter w, object id) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", true } }); }
     static void Err(TextWriter w, object id, string msg) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", false }, { "error", msg } }); }
 
+    // One lock so a pushed WebRTC signaling line (library thread) can never
+    // interleave with a stdio reply. Uncontended in the default build, where
+    // the loop is single-threaded — same guarantee as the mac ReplyWriter.
+    static readonly object replyGate = new object();
+
     static void Reply(TextWriter w, Dictionary<string, object> obj)
     {
-        w.WriteLine(J.Serialize(obj));
-        w.Flush();
+        lock (replyGate)
+        {
+            w.WriteLine(J.Serialize(obj));
+            w.Flush();
+        }
     }
 
     static object Get(Dictionary<string, object> d, string k) { object v; return d.TryGetValue(k, out v) ? v : null; }

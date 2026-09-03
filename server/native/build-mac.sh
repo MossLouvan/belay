@@ -52,29 +52,51 @@ common_flags=(-O -swift-version 5 -framework ScreenCaptureKit -framework CoreGra
 if [ "${BELAY_WEBRTC_BUILD:-}" = "1" ]; then
   echo "note: BELAY_WEBRTC_BUILD=1 — folding in the hardware-gated WebRTC encoder/transport (UNVERIFIED)" >&2
   shopt -s nullglob
-  sources+=("$src_dir"/encode/*.swift)
+  sources+=("$src_dir"/encode/*.swift "$src_dir"/transport/*.swift)
   shopt -u nullglob
   # VideoEncoder needs VideoToolbox; the transport shim needs libdatachannel and
-  # its deps (libjuice/usrsctp/srtp), a C++ runtime, and the bridging header that
-  # exposes belay_transport.h to Swift. Vendor libdatachannel as a prebuilt
-  # static archive under mac/transport/vendor/ (checked in or fetched here) — the
-  # one place ARCHITECTURE.md's "no dependency to restore" claim bends.
+  # its deps (libjuice/usrsctp/srtp2 + OpenSSL's libcrypto/libssl), a C++
+  # runtime, and the bridging header that exposes belay_transport.h to Swift.
+  # Vendor libdatachannel as a static build under mac/transport/vendor/ — run
+  # mac/transport/vendor/build-libdatachannel.sh once to produce it (the one
+  # place ARCHITECTURE.md's "no dependency to restore" claim bends; it is
+  # fetched/built by that script, never restored by a package manager).
   : "${LIBDATACHANNEL_ROOT:=$src_dir/transport/vendor/libdatachannel}"
-  common_flags+=(-framework VideoToolbox
+  if [ ! -f "$LIBDATACHANNEL_ROOT/lib/libdatachannel-static.a" ]; then
+    echo "error: static libdatachannel not found at $LIBDATACHANNEL_ROOT/lib/." >&2
+    echo "       Run: bash $src_dir/transport/vendor/build-libdatachannel.sh" >&2
+    echo "       (or set LIBDATACHANNEL_ROOT to an existing static build)" >&2
+    exit 1
+  fi
+  # -D BELAY_WEBRTC_BUILD compiles in the Swift-side gated seams (the webrtc
+  # verb in main.swift, the encoder push sink in Capture.swift, WebRTCSession).
+  # The C++ shim is compiled separately per-arch by clang++ (swiftc does not
+  # compile C++ sources) and handed to swiftc as an object file to link.
+  common_flags+=(-D BELAY_WEBRTC_BUILD
+                 -framework VideoToolbox
                  -import-objc-header "$src_dir/transport/belay-bridging.h"
-                 "$src_dir/transport/belay_transport.cpp"
-                 -Xcc "-DBELAY_HAVE_LIBDATACHANNEL"
-                 -I "$LIBDATACHANNEL_ROOT/include"
                  -L "$LIBDATACHANNEL_ROOT/lib"
-                 -ldatachannel-static -ljuice-static -lusrsctp -lsrtp2 -lc++)
+                 -ldatachannel-static -ljuice-static -lusrsctp -lsrtp2
+                 -lssl -lcrypto -lc++)
 fi
 
 build_slice() {
   local arch="$1"
   local dest="$work/BelayHostMac.$arch"
+  local extra_objects=()
+  if [ "${BELAY_WEBRTC_BUILD:-}" = "1" ]; then
+    local shim_obj="$work/belay_transport.$arch.o"
+    clang++ -c -std=c++17 -O2 -arch "$arch" \
+      -mmacosx-version-min="$deployment_target" \
+      -DBELAY_HAVE_LIBDATACHANNEL -DRTC_ENABLE_MEDIA=1 \
+      -I "$LIBDATACHANNEL_ROOT/include" \
+      -o "$shim_obj" "$src_dir/transport/belay_transport.cpp" \
+      2>"$work/$arch.log" || return 1
+    extra_objects+=("$shim_obj")
+  fi
   swiftc "${common_flags[@]}" \
     -target "$arch-apple-macos$deployment_target" \
-    -o "$dest" "${sources[@]}" 2>"$work/$arch.log" || return 1
+    -o "$dest" "${sources[@]}" ${extra_objects[@]+"${extra_objects[@]}"} 2>>"$work/$arch.log" || return 1
   echo "$dest"
 }
 

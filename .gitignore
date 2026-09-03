@@ -65,3 +65,7 @@ server/agent-logs/
 # generated pairing / expo QR pages (contain LAN IP and live code)
 *_qr.html
 *_qr.png
+
+# vendored WebRTC transport build tree (fetched/built by build-libdatachannel.sh, never committed)
+server/native/mac/transport/vendor/libdatachannel/
+server/native/mac/transport/vendor/.build/

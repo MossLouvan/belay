@@ -30,6 +30,12 @@ private let virtualWidthRange = 640...7680
 private let virtualHeightRange = 480...4320
 private let virtualRefreshRange = 24...240
 
+#if BELAY_WEBRTC_BUILD
+// HARDWARE-GATED: only exists in a BELAY_WEBRTC_BUILD=1 build (build-mac.sh);
+// the shipping helper compiles none of the WebRTC sources.
+private let webrtc = WebRTCVerb(replies: replies, capture: capture, input: input)
+#endif
+
 private func run() {
     // Without this the process is killed outright the moment stdout closes —
     // confirmed empirically: closing stdout produced an immediate SIGPIPE and
@@ -63,6 +69,9 @@ private func run() {
     // physically pressed — a phone that disconnects mid-drag would otherwise
     // leave the desktop stuck in a drag with no way to clear it.
     input.releaseAll()
+    #if BELAY_WEBRTC_BUILD
+    webrtc.stop() // close the peer + encoder before the capture streams they feed
+    #endif
     capture.stopAll()
     // Releasing the reference removes the display; a crash would too (the OS
     // tears it down with the owning process), but exiting cleanly means the
@@ -86,6 +95,17 @@ private func handle(_ command: Command) throws {
     case "focuswindow": try handleFocusWindow(command)
     case "virtualdisplay": try handleVirtualDisplay(command)
     case "ping": replies.ok(id: command.id, ["pong": true])
+    case "webrtc":
+        #if BELAY_WEBRTC_BUILD
+        try webrtc.handle(command)
+        #else
+        // A clean, explicit refusal (not a hang): Node's /ws/webrtc bridge sees
+        // the error reply and the phone stays on the JPEG path.
+        throw HostError(.badCommand,
+            "webrtc transport is not built into this helper "
+            + "(rebuild with BELAY_WEBRTC_BUILD=1 — see docs/WEBRTC-SLICE.md); JPEG stays the transport",
+            details: ["cmd": command.name])
+        #endif
     default:
         throw HostError(.badCommand, "unknown command: \(command.name)", details: ["cmd": command.name])
     }
