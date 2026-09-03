@@ -88,6 +88,13 @@ final class VideoEncoder {
     /// and VideoToolbox's output callback thread.
     private let lock = NSLock()
     private var stopped = false
+    /// Guards the VTCompressionSession itself against the encode/stop race:
+    /// encode() holds it across the whole submit, stop() takes it before it nils
+    /// and invalidates the session, so a frame can never run against a session
+    /// that is being torn down. Kept separate from `lock` (which guards only the
+    /// tiny keyframe/param flags) so emit()'s `lock` use inside the encode
+    /// completion cannot deadlock against it.
+    private let sessionLock = NSLock()
 
     init(width: Int32, height: Int32, codec: VideoCodec = .h264, fps: Int = 60,
          onFrame: @escaping EncodedFrameHandler, onError: EncoderErrorHandler? = nil) throws {
@@ -175,7 +182,10 @@ final class VideoEncoder {
     /// (SCStream's sample timestamp); it rides through to the encoded-frame
     /// handler for glass-to-glass timing.
     func encode(pixelBuffer: CVPixelBuffer, ptsMs: Double) {
-        guard let session else { return }
+        // Hold sessionLock across the entire submit so stop() cannot invalidate
+        // the session between this guard and VTCompressionSessionEncodeFrame.
+        sessionLock.lock()
+        guard let session else { sessionLock.unlock(); return }
         let pts = CMTime(value: Int64(ptsMs * 1000), timescale: 1_000_000)
 
         var frameProperties: CFDictionary?
@@ -203,6 +213,7 @@ final class VideoEncoder {
             guard let sampleBuffer else { return }
             self.emit(sampleBuffer, ptsMs: ptsMs)
         }
+        sessionLock.unlock()
         if status != noErr {
             onError?("VTCompressionSessionEncodeFrame failed: \(status)")
         }
@@ -225,10 +236,18 @@ final class VideoEncoder {
         let alreadyStopped = stopped
         stopped = true
         lock.unlock()
-        guard !alreadyStopped, let session else { return }
-        VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
-        VTCompressionSessionInvalidate(session)
-        self.session = nil
+        guard !alreadyStopped else { return }
+        // Take the session out under sessionLock: an in-flight encode() finishes
+        // its submit first, and any later encode() then sees nil. Complete and
+        // invalidate the now-exclusive local reference off-lock so the (possibly
+        // slow) flush never blocks an encode behind the lock.
+        sessionLock.lock()
+        let s = session
+        session = nil
+        sessionLock.unlock()
+        guard let s else { return }
+        VTCompressionSessionCompleteFrames(s, untilPresentationTimeStamp: .invalid)
+        VTCompressionSessionInvalidate(s)
     }
 
     // ── NAL extraction: AVCC (length-prefixed) -> Annex-B (start codes) ───────

@@ -94,6 +94,13 @@ struct belay_transport {
     belay_codec codec{BELAY_CODEC_H264};
     std::mutex mutex; // guards the pointers below against close() races
     std::atomic<bool> closed{false};
+    // Self-reference that owns this object's lifetime. Every libdatachannel
+    // callback captures a std::weak_ptr to it and locks it before touching any
+    // field, so the struct outlives every in-flight callback and is freed only
+    // once the last one releases — instead of being `delete`d out from under a
+    // callback still running on a datachannel thread (the use-after-free this
+    // pattern replaces). close() drops this reference to start teardown.
+    std::shared_ptr<belay_transport> self;
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
     std::shared_ptr<rtc::PeerConnection> pc;
     std::shared_ptr<rtc::Track> video;
@@ -112,6 +119,10 @@ belay_transport *belay_transport_create(belay_codec codec,
                                         belay_transport_callbacks callbacks) {
     auto *t = new (std::nothrow) belay_transport();
     if (!t) return nullptr;
+    // Hand ownership to a shared_ptr and keep a self-reference so callbacks can
+    // hold a weak_ptr; `t` stays a raw view for the existing code below.
+    std::shared_ptr<belay_transport> owner(t);
+    t->self = owner;
     t->cb = callbacks;
     t->codec = codec;
 
@@ -127,24 +138,27 @@ belay_transport *belay_transport_create(belay_codec codec,
 
         // Local SDP (our answer — the helper is the callee) → relay to the
         // phone via Node's type:"webrtc" push line.
-        t->pc->onLocalDescription([t](rtc::Description desc) {
-            if (t->closed.load()) return;
+        t->pc->onLocalDescription([wp = std::weak_ptr<belay_transport>(t->self)](rtc::Description desc) {
+            auto t = wp.lock();
+            if (!t || t->closed.load()) return;
             if (t->cb.on_local_description) {
                 const std::string type = desc.typeString();
                 const std::string sdp = std::string(desc);
                 t->cb.on_local_description(t->cb.ctx, type.c_str(), sdp.c_str());
             }
         });
-        t->pc->onLocalCandidate([t](rtc::Candidate cand) {
-            if (t->closed.load()) return;
+        t->pc->onLocalCandidate([wp = std::weak_ptr<belay_transport>(t->self)](rtc::Candidate cand) {
+            auto t = wp.lock();
+            if (!t || t->closed.load()) return;
             if (t->cb.on_local_candidate) {
                 const std::string c = std::string(cand);
                 const std::string mid = cand.mid();
                 t->cb.on_local_candidate(t->cb.ctx, c.c_str(), mid.c_str());
             }
         });
-        t->pc->onStateChange([t](rtc::PeerConnection::State state) {
-            if (t->closed.load()) return;
+        t->pc->onStateChange([wp = std::weak_ptr<belay_transport>(t->self)](rtc::PeerConnection::State state) {
+            auto t = wp.lock();
+            if (!t || t->closed.load()) return;
             if (t->cb.on_state) {
                 std::ostringstream os;
                 os << state; // "connected" / "failed" / "closed" / ...
@@ -177,9 +191,10 @@ belay_transport *belay_transport_create(belay_codec codec,
         }
         packetizer->addToChain(std::make_shared<rtc::RtcpSrReporter>(t->rtpConfig));
         packetizer->addToChain(std::make_shared<rtc::RtcpNackResponder>());
-        packetizer->addToChain(std::make_shared<rtc::PliHandler>([t] {
+        packetizer->addToChain(std::make_shared<rtc::PliHandler>([wp = std::weak_ptr<belay_transport>(t->self)] {
             // Receiver's decoder lost its reference chain → force an IDR.
-            if (!t->closed.load() && t->cb.on_keyframe_request)
+            auto t = wp.lock();
+            if (t && !t->closed.load() && t->cb.on_keyframe_request)
                 t->cb.on_keyframe_request(t->cb.ctx);
         }));
         t->video->setMediaHandler(packetizer);
@@ -191,7 +206,9 @@ belay_transport *belay_transport_create(belay_codec codec,
         // with a second in-band-negotiated channel. Reliability (ordered /
         // maxRetransmits:0) is a property of the creating side's init and
         // rides in the DCEP open message; nothing to configure here.
-        t->pc->onDataChannel([t](std::shared_ptr<rtc::DataChannel> dc) {
+        t->pc->onDataChannel([wp = std::weak_ptr<belay_transport>(t->self)](std::shared_ptr<rtc::DataChannel> dc) {
+            auto t = wp.lock();
+            if (!t || t->closed.load()) return;
             const std::string label = dc->label();
             belay_channel ch;
             if (label == "input") ch = BELAY_CH_INPUT;
@@ -199,8 +216,9 @@ belay_transport *belay_transport_create(belay_codec codec,
             else if (label == "control") ch = BELAY_CH_CONTROL;
             else return; // unknown label: ignore, never crash on a peer quirk
 
-            dc->onMessage([t, ch](rtc::message_variant msg) {
-                if (t->closed.load() || !t->cb.on_channel_message) return;
+            dc->onMessage([wp = std::weak_ptr<belay_transport>(t->self), ch](rtc::message_variant msg) {
+                auto t = wp.lock();
+                if (!t || t->closed.load() || !t->cb.on_channel_message) return;
                 if (std::holds_alternative<rtc::binary>(msg)) {
                     auto &bin = std::get<rtc::binary>(msg);
                     t->cb.on_channel_message(t->cb.ctx, ch,
@@ -226,7 +244,7 @@ belay_transport *belay_transport_create(belay_codec codec,
             const std::string msg = std::string("create-failed: ") + e.what();
             t->cb.on_state(t->cb.ctx, msg.c_str());
         }
-        delete t;
+        t->self.reset(); // `owner` frees it on return; never double-delete
         return nullptr;
     }
 #else
@@ -310,20 +328,28 @@ void belay_transport_send_on(belay_transport *t, belay_channel ch, const uint8_t
 void belay_transport_close(belay_transport *t) {
     if (!t) return;
     t->closed.store(true);
+    // Hold the object alive across teardown, then drop the self-cycle: it frees
+    // once `keep` here and every in-flight callback's weak-lock have all
+    // released — no `delete` under a live callback thread.
+    std::shared_ptr<belay_transport> keep = t->self;
+    t->self.reset();
 #if defined(BELAY_HAVE_LIBDATACHANNEL)
+    // Reset the channels under the mutex (onDataChannel writes them there), but
+    // close/destroy the peer connection WITHOUT holding the mutex — ~PeerConnection
+    // joins its callback threads, and one may be blocked acquiring this mutex.
     {
         std::lock_guard<std::mutex> lock(t->mutex);
-        if (t->pc) {
-            try { t->pc->close(); } catch (const std::exception &) {}
-        }
         t->video.reset();
         t->input.reset();
         t->cursor.reset();
         t->control.reset();
-        t->pc.reset();
     }
+    if (t->pc) {
+        try { t->pc->close(); } catch (const std::exception &) {}
+    }
+    t->pc.reset();
 #endif
-    delete t;
+    // keep drops here.
 }
 
 } // extern "C"

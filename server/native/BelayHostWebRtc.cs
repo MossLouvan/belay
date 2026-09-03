@@ -274,7 +274,10 @@ sealed class WebrtcSession : IDisposable
                 // codes, in-band SPS/PPS on IDRs) — exactly what the packetizer
                 // in belay_transport expects; no AVCC conversion on Windows.
                 byte[] annexB = EncoderMatrix.Encode(encoderMft, surface, forceIdr, out ptsMs);
-                if (annexB != null && annexB.Length > 0 && connected)
+                // Re-check `running` after the (bounded) encode: Dispose may have
+                // flipped it while we were inside Encode, and SendFrame must not
+                // touch a transport Dispose is about to close.
+                if (annexB != null && annexB.Length > 0 && running && connected)
                     Transport.SendFrame(transport, annexB, (UIntPtr)annexB.Length, forceIdr ? 1 : 0, ptsMs);
             }
             finally
@@ -288,7 +291,18 @@ sealed class WebrtcSession : IDisposable
     {
         running = false;
         connected = false;
-        if (encodeThread != null) { encodeThread.Join(500); encodeThread = null; }
+        // Wait for EncodeLoop to fully exit BEFORE freeing the native handles it
+        // dereferences (duplication, encoder, transport). The old Join(500)
+        // ignored its return value and freed regardless — if the loop was still
+        // inside AcquireFrame / Encode / SendFrame it then used freed handles and
+        // took the whole helper down. The loop re-checks `running` every
+        // AcquireFrame timeout (<=100 ms) and one Encode is bounded, so a full
+        // join returns promptly; the 3 s cap only guards a wedged encoder, and if
+        // it ever trips we LEAK the handles rather than free them under a live
+        // thread — a bounded leak is strictly safer than a use-after-free.
+        var t = encodeThread;
+        encodeThread = null;
+        if (t != null && !t.Join(3000)) return;
         if (transport != IntPtr.Zero) { Transport.Close(transport); transport = IntPtr.Zero; }
         if (encoderMft != IntPtr.Zero) { Marshal.Release(encoderMft); encoderMft = IntPtr.Zero; }
         if (duplication != IntPtr.Zero) { Duplicator.CloseDuplication(duplication); duplication = IntPtr.Zero; }
