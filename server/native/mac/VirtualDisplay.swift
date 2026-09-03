@@ -116,6 +116,14 @@ final class VirtualDisplayManager {
         active = nil
     }
 
+    /// The CoreGraphics display ID of the live virtual display, or nil when
+    /// none is up. This is what `capture` targets when the client asks for the
+    /// virtual display: one manager owns exactly one display, so there is never
+    /// any ambiguity about which ID "the virtual display" means.
+    func activeDisplayID() -> CGDirectDisplayID? {
+        active.map { CGDirectDisplayID($0.displayID) }
+    }
+
     func status() -> [String: Any] {
         var payload: [String: Any] = [
             "active": active != nil,

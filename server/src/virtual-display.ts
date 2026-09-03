@@ -129,3 +129,107 @@ export function parseVirtualDisplayRequest(body: unknown): VirtualDisplayParse {
  */
 export const VIRTUAL_DISPLAY_DISABLED_ERROR =
   'virtual display support is disabled on this host; set BELAY_VIRTUAL_DISPLAY=1 and restart (see docs/VIRTUAL-DISPLAY.md)';
+
+// ---------------------------------------------------------------------------
+// Phone-driven capture path (the Parsec-style TRUE resolution feature).
+//
+// The REST route above uses `parseVirtualDisplayRequest`, which REJECTS any
+// out-of-range value: a script hitting the API deserves a 400, not a silently
+// altered display. The live screen stream is different — the phone drives it
+// through the `config` control message, and a resolution a hair outside the
+// bounds (an odd phone logical size, an unusual aspect) must NUDGE to the
+// nearest valid mode rather than tear the running stream down. So this half of
+// the module CLAMPS instead of rejecting, and every decision below is a pure
+// function so the wiring in index.ts stays a thin imperative shell around it.
+// ---------------------------------------------------------------------------
+
+function clampInt(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+/** Round to the nearest even number the encoder will accept, within bounds. */
+function clampEven(value: number, min: number, max: number): number {
+  // mod-2: H.264/HEVC require even dimensions. Round to even first, then clamp,
+  // so the clamp cannot re-introduce an odd bound (MIN/MAX are already even).
+  const even = 2 * Math.round(value / 2);
+  return clampInt(even, min, max);
+}
+
+/**
+ * Coerce an untrusted `config`-message resolution into a valid request, or
+ * `null` when the phone did not send a usable one.
+ *
+ * `null` (not a clamp to some default size) is the deliberate answer to a
+ * missing or non-numeric width/height: guessing a resolution the phone never
+ * asked for is worse than falling back to the physical downscale, which is
+ * exactly what `null` selects downstream.
+ */
+export function clampVirtualDisplayRequest(body: unknown): VirtualDisplayRequest | null {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
+  const record = body as Record<string, unknown>;
+  const width = toFinite(record.width);
+  const height = toFinite(record.height);
+  if (width === null || height === null) return null;
+
+  const refresh = toFinite(record.refreshHz);
+  return {
+    width: clampEven(width, MIN_WIDTH, MAX_WIDTH),
+    height: clampEven(height, MIN_HEIGHT, MAX_HEIGHT),
+    refreshHz: refresh === null
+      ? DEFAULT_REFRESH_HZ
+      : clampInt(refresh, MIN_REFRESH_HZ, MAX_REFRESH_HZ),
+  };
+}
+
+function toFinite(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Read the desired virtual-display request out of a partial `config` update.
+ *
+ * Three-state on purpose, mirroring how `resolveStreamParams` treats an absent
+ * field: `undefined` means "keep what the stream had", explicit `null` means
+ * "tear the virtual display down and go back to the physical screen", and an
+ * object is a new (clamped) resolution. Nothing else can change the mode, so a
+ * malformed message can never silently strand the stream on a virtual display.
+ */
+export function resolveVirtualRequest(
+  input: { readonly virtualDisplay?: unknown },
+  current: VirtualDisplayRequest | null,
+): VirtualDisplayRequest | null {
+  if (!('virtualDisplay' in input) || input.virtualDisplay === undefined) return current;
+  if (input.virtualDisplay === null) return null;
+  return clampVirtualDisplayRequest(input.virtualDisplay);
+}
+
+/** Whether two resolved requests are the same mode — used to skip a needless
+ *  destroy/recreate when the phone re-sends an unchanged config. */
+export function sameRequest(
+  a: VirtualDisplayRequest | null,
+  b: VirtualDisplayRequest | null,
+): boolean {
+  if (a === null || b === null) return a === b;
+  return a.width === b.width && a.height === b.height && a.refreshHz === b.refreshHz;
+}
+
+/** The capture mode the stream loop should use for the next frame. */
+export interface CaptureMode {
+  /** Non-null only when the host will actually capture a driver-backed display
+   *  at this resolution; null means the physical-screen downscale path. */
+  readonly virtual: VirtualDisplayRequest | null;
+}
+
+/**
+ * The single fallback decision, isolated and pure so it can be tested to death:
+ * a true-resolution request takes effect ONLY when the host both has the
+ * feature enabled and actually created the display. Anytime that is not true
+ * the answer is the physical downscale path — the shipping JPEG stream must
+ * never break because the phone asked for something this host cannot do.
+ */
+export function selectCaptureMode(
+  requested: VirtualDisplayRequest | null,
+  hostHasVirtualDisplay: boolean,
+): CaptureMode {
+  return { virtual: hostHasVirtualDisplay ? requested : null };
+}

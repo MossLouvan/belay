@@ -16,7 +16,7 @@
 // expo-router's route context and would register as extra tabs.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, Keyboard, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { Animated, Image, Keyboard, KeyboardAvoidingView, Platform, ScrollView, useWindowDimensions, View } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -46,6 +46,7 @@ import {
   EMPTY_SIZE,
   fitBox,
   findQuality,
+  findResolution,
   GESTURE,
   keyFor,
   KEYS,
@@ -53,8 +54,11 @@ import {
   MAC_STEPS,
   messageOf,
   modsFor,
+  PHYSICAL_RESOLUTION_ID,
   QUALITY,
+  resolutionOptions,
   STREAM,
+  virtualRequestFor,
 } from '../../src/screen/model';
 import type { KeySpec, QualityId, Size } from '../../src/screen/model';
 import {
@@ -110,6 +114,12 @@ export default function ScreenTab() {
   const navigation = useNavigation();
 
   const [qualityId, setQualityId] = useState<QualityId>(DEFAULT_QUALITY);
+  // The NEW true-resolution axis (Parsec-style), orthogonal to quality:
+  // `resolutionId` picks WHAT the host renders, quality picks how it is encoded.
+  // Defaults to the physical screen, which every host can do; the virtual
+  // options only take effect once the host advertises `vdAvailable`.
+  const [resolutionId, setResolutionId] = useState<string>(PHYSICAL_RESOLUTION_ID);
+  const [vdAvailable, setVdAvailable] = useState(false);
   const [mode, setMode] = useState<PointerMode>('touch');
   const [button, setButton] = useState<PendingButton>('none');
   const [fullscreen, setFullscreen] = useState(false);
@@ -130,6 +140,24 @@ export default function ScreenTab() {
   const [box, setBox] = useState<Size>(EMPTY_SIZE);
 
   const quality = useMemo(() => findQuality(qualityId), [qualityId]);
+
+  // "Match my phone" needs the device's own pixel size (logical points × the
+  // display scale), so the host can render a desktop of exactly this shape.
+  const window = useWindowDimensions();
+  const device = useMemo<Size>(
+    () => ({ w: window.width * window.scale, h: window.height * window.scale }),
+    [window.width, window.height, window.scale],
+  );
+  const resolutions = useMemo(() => resolutionOptions(device), [device]);
+  const resolution = useMemo(() => findResolution(resolutionId, resolutions), [resolutionId, resolutions]);
+  // The request handed to the stream: null (physical) unless the host both
+  // advertises the feature AND this option maps to a real size. That gate is
+  // the app-side half of the graceful fallback — a host without it never even
+  // gets asked, so the shipping downscale path is what runs.
+  const virtualRequest = useMemo(
+    () => (vdAvailable ? virtualRequestFor(resolution) : null),
+    [vdAvailable, resolution],
+  );
 
   // The latch state, mirrored into a ref so `sendKey` reads the value at press
   // time without rebuilding its callback on every latch change.
@@ -157,7 +185,20 @@ export default function ScreenTab() {
     [selectedScreen, screens]
   );
 
-  const stream = useScreenStream(active, quality, screenIndex);
+  const stream = useScreenStream(active, quality, screenIndex, virtualRequest);
+
+  // Probe once per active session whether this host can render at a chosen
+  // resolution. A 403 (flag off) or an unreachable host resolves to false
+  // inside the api helper, so the true-resolution picker simply stays hidden
+  // on hosts that cannot do it — no error, no broken option.
+  useEffect(() => {
+    if (!active) { setVdAvailable(false); return; }
+    let disposed = false;
+    void api.virtualDisplayStatus().then((s) => {
+      if (!disposed) setVdAvailable(s.available);
+    });
+    return () => { disposed = true; };
+  }, [active]);
 
   const permissions = useMemo(() => readPermissions(facts.info, stream.error), [facts.info, stream.error]);
   const isMac = isMacHost(facts.info);
@@ -737,6 +778,31 @@ export default function ScreenTab() {
           <Caption>
             {`Now: ${stream.stats.fps} fps · ${stream.stats.kbps} KB/s · ping ${facts.pingMs === null ? '—' : `${facts.pingMs} ms`}`}
           </Caption>
+
+          {/* True-resolution picker — only when the host advertises the virtual
+              display driver. On every other host the physical-downscale path
+              above is the whole story, so the section simply does not appear. */}
+          {vdAvailable ? (
+            <Column gap="xxs" testID="resolution-section">
+              <Rule />
+              <Txt variant="bodyStrong">Host resolution</Txt>
+              {resolutions.map((option) => (
+                <ListItem
+                  key={option.id}
+                  testID={`resolution-${option.id}`}
+                  title={option.label}
+                  subtitle={option.hint}
+                  selected={option.id === resolution.id}
+                  onPress={() => setResolutionId(option.id)}
+                />
+              ))}
+              <Caption>
+                {resolution.size
+                  ? 'The host renders a virtual display at this size and streams it — aspect-matched, no letterbox. Removed when you disconnect or switch back.'
+                  : 'Mirroring the real monitor. Pick a size above to have the host render a display shaped to your phone.'}
+              </Caption>
+            </Column>
+          ) : null}
         </Column>
       </Sheet>
 

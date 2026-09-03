@@ -337,8 +337,18 @@ class NativeHost {
   // `screen` is the monitor index from ScreenInfo.screens. Optional everywhere:
   // undefined keys are dropped by JSON.stringify, so old helpers see the exact
   // same wire messages as before and fall back to the primary monitor.
-  capture(w: number, q: number, virtual: boolean, screen?: number): Promise<Frame> {
-    return this.send<Frame>({ cmd: 'capture', w, q, virtual, screen });
+  //
+  // `virtualDisplay` (distinct from `virtual`, which unions the whole desktop)
+  // asks the helper to capture the active driver-backed display — the one it
+  // created via `virtualDisplayCreate`, at the client's exact resolution. It is
+  // dropped from the wire when false/undefined, so an old helper never sees it
+  // and the shipping capture path is byte-for-byte unchanged.
+  capture(w: number, q: number, virtual: boolean, screen?: number, virtualDisplay?: boolean):
+    Promise<Frame> {
+    return this.send<Frame>({
+      cmd: 'capture', w, q, virtual, screen,
+      virtualdisplay: virtualDisplay ? true : undefined,
+    });
   }
 
   /**
@@ -401,7 +411,11 @@ class NativeHost {
     return this.send({ cmd: 'virtualdisplay', action: 'destroy' });
   }
 
-  virtualDisplayStatus(): Promise<{ active?: boolean; display?: unknown }> {
+  // `supported` reports whether the backend actually exists on this host (on
+  // macOS: the private CGVirtualDisplay API is present) — the signal the phone
+  // needs to decide whether to OFFER true-resolution capture at all, separate
+  // from whether one is currently `active`.
+  virtualDisplayStatus(): Promise<{ active?: boolean; supported?: boolean; display?: unknown }> {
     return this.send({ cmd: 'virtualdisplay', action: 'status' });
   }
 

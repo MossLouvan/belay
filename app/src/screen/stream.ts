@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
-import { messageOf, numberOf, PERMISSION_PATTERN, QualityPreset, STREAM } from './model';
+import { buildConfigMessage, messageOf, numberOf, PERMISSION_PATTERN, QualityPreset, STREAM, VirtualRequest } from './model';
 
 export type Phase = 'idle' | 'connecting' | 'live' | 'stalled' | 'reconnecting' | 'error';
 
@@ -125,6 +125,12 @@ const SOCKET_OPEN = 1;
 export const backoffDelayMs = (attempt: number): number =>
   Math.min(STREAM.backoffMaxMs, STREAM.backoffBaseMs * 2 ** Math.max(0, attempt - 1));
 
+// The `config` control message and its builder live in model.ts (a pure,
+// react-free module the node test runner can import); re-exported here so the
+// socket code and the host contract still read as one unit.
+export { buildConfigMessage };
+export type { ConfigMessage } from './model';
+
 /**
  * @param active True only while the tab is both paired and on screen. The tab
  *   navigator keeps this route mounted after the user moves to Terminal or
@@ -139,7 +145,20 @@ export const backoffDelayMs = (attempt: number): number =>
  *   reconnect. Must be the SAME index the input calls use — capture and input
  *   agreeing on one monitor is the whole multi-monitor contract.
  */
-export function useScreenStream(active: boolean, quality: QualityPreset, screen?: number): StreamState {
+/**
+ * @param virtual The true-resolution request, or null for the physical screen.
+ *   Sent in the `config` message (and re-sent on every reconnect via onopen,
+ *   since a WebSocket URL cannot carry the object). The host creates the
+ *   driver-backed display, captures IT, and destroys it on disconnect; a host
+ *   without the feature ignores the field and keeps downscaling — so passing a
+ *   request can never break the picture, only upgrade it.
+ */
+export function useScreenStream(
+  active: boolean,
+  quality: QualityPreset,
+  screen?: number,
+  virtual: VirtualRequest | null = null,
+): StreamState {
   const [phase, setPhase] = useState<Phase>('idle');
   const [frameUri, setFrameUri] = useState<string | null>(null);
   const [stats, setStats] = useState<StreamStats>(EMPTY_STATS);
@@ -150,23 +169,25 @@ export function useScreenStream(active: boolean, quality: QualityPreset, screen?
   const socketRef = useRef<WebSocket | null>(null);
   const qualityRef = useRef<QualityPreset>(quality);
   const screenRef = useRef<number | undefined>(screen);
+  const virtualRef = useRef<VirtualRequest | null>(virtual);
   const counters = useRef<FrameCounters>(newCounters());
 
-  // Live retune: the host accepts a `config` message, so changing quality or
-  // the streamed monitor costs neither a reconnect nor a dropped picture.
+  // Live retune: the host accepts a `config` message, so changing quality, the
+  // streamed monitor, or the true resolution costs neither a reconnect nor a
+  // dropped picture. The refs also feed onopen, so a reconnect re-sends the
+  // current mode (a virtual display has to be re-created on the fresh socket).
   useEffect(() => {
     qualityRef.current = quality;
     screenRef.current = screen;
+    virtualRef.current = virtual;
     const socket = socketRef.current;
     if (!socket || socket.readyState !== SOCKET_OPEN) return;
     try {
-      // `screen` is omitted (not null) when undefined: JSON.stringify drops
-      // undefined keys, and the host treats an absent field as "keep current".
-      socket.send(JSON.stringify({ type: 'config', w: quality.w, q: quality.q, fps: quality.fps, screen }));
+      socket.send(JSON.stringify(buildConfigMessage(quality, screen, virtual)));
     } catch (e: unknown) {
       setError(`Could not apply the ${quality.label} preset — ${messageOf(e)}`);
     }
-  }, [quality, screen]);
+  }, [quality, screen, virtual]);
 
   useEffect(() => {
     if (!active) {
@@ -273,6 +294,18 @@ export function useScreenStream(active: boolean, quality: QualityPreset, screen?
       socket.onopen = () => {
         // Backoff is reset on the first frame (see onFrame), not here — a socket
         // that opens but never delivers must not clear the counter.
+        //
+        // Re-send the full mode on every (re)connect. w/q/fps/screen already
+        // rode in on the URL, but the virtual-resolution request cannot — a URL
+        // carries no object — and a re-created socket starts with no virtual
+        // display, so this is what makes a reconnect restore the true
+        // resolution rather than silently dropping back to the physical screen.
+        const v = virtualRef.current;
+        if (v !== null && socket.readyState === SOCKET_OPEN) {
+          try {
+            socket.send(JSON.stringify(buildConfigMessage(qualityRef.current, screenRef.current, v)));
+          } catch { /* a failed send just means the picture stays physical */ }
+        }
       };
       socket.onmessage = onMessage;
       socket.onerror = () => {

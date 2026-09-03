@@ -246,3 +246,131 @@ export const fitBox = (box: Size, aspect: number): Size => {
   const h = Math.min(box.h, box.w / aspect);
   return { w: h * aspect, h };
 };
+
+// --- true-resolution (virtual display) selection ----------------------------
+//
+// The NEW axis, orthogonal to the Smooth/Balanced/Sharp quality presets above.
+// Quality decides how many pixels are ENCODED (the downscale width); resolution
+// decides what the host actually RENDERS. "Physical" is today's behavior and
+// the fallback — capture the real monitor and letterbox to its aspect. The
+// other options ask the host to spin up a driver-backed virtual display at an
+// exact size, so the desktop arrives already the phone's shape: no letterbox.
+
+/** A resolution the phone can ask the host to render at. */
+export interface ResolutionOption {
+  /** Stable id, also the SegmentedControl value and testID suffix. */
+  readonly id: string;
+  readonly label: string;
+  readonly hint: string;
+  /**
+   * The virtual-display size to request, or `null` for the physical monitor
+   * (today's downscale path). `null` is the only value that works on every
+   * host; the rest need the host to advertise `available`.
+   */
+  readonly size: Size | null;
+}
+
+/** Refresh the phone asks for. The host clamps 24..240; 60 suits every client. */
+export const VIRTUAL_REFRESH_HZ = 60;
+
+/** The id of the always-present physical/fallback option. */
+export const PHYSICAL_RESOLUTION_ID = 'physical';
+
+export const PHYSICAL_RESOLUTION: ResolutionOption = Object.freeze({
+  id: PHYSICAL_RESOLUTION_ID,
+  label: 'Physical screen',
+  hint: 'Mirror the real monitor and fit it to your phone. Works on every host; the picture is letterboxed when the shapes differ.',
+  size: null,
+});
+
+/** Fixed true-resolution choices, in menu order. "Match my phone" is prepended
+ *  at runtime because it depends on the device's own logical size. */
+export const RESOLUTION_PRESETS: readonly ResolutionOption[] = Object.freeze([
+  { id: '1280x800', label: '1280 × 800', hint: 'A compact 16:10 desktop — sharp text without a lot of pixels to send.', size: { w: 1280, h: 800 } },
+  { id: '1920x1200', label: '1920 × 1200', hint: 'A full 16:10 desktop. More room for windows; more pixels over the link.', size: { w: 1920, h: 1200 } },
+]);
+
+/** Nearest even integer — the encoder rejects odd dimensions, and the host
+ *  clamps anyway, but sending a valid size keeps the phone's aspect math and
+ *  the host's in agreement. */
+export const toEven = (n: number): number => 2 * Math.round(n / 2);
+
+/**
+ * The "Match my phone" option for a device of the given logical size, or null
+ * when the size is not yet known (dimensions are 0 before first layout). The
+ * host renders the desktop at exactly the phone's shape, so it fills the screen
+ * edge to edge with nothing cropped and nothing letterboxed.
+ */
+export const matchDeviceResolution = (device: Size): ResolutionOption | null => {
+  if (device.w <= 0 || device.h <= 0) return null;
+  const size: Size = { w: toEven(device.w), h: toEven(device.h) };
+  return {
+    id: 'match',
+    label: 'Match my phone',
+    hint: `Render the desktop at ${size.w} × ${size.h} — your screen's exact shape, edge to edge with no letterbox.`,
+    size,
+  };
+};
+
+/**
+ * The resolution menu for this device: physical first (always), then "Match my
+ * phone" when the device size is known, then the fixed presets.
+ */
+export const resolutionOptions = (device: Size): ResolutionOption[] => {
+  const match = matchDeviceResolution(device);
+  return [PHYSICAL_RESOLUTION, ...(match ? [match] : []), ...RESOLUTION_PRESETS];
+};
+
+/** The virtual-display request an option maps to, or `null` for the physical
+ *  screen. `null` is the wire value that tells the host to tear any virtual
+ *  display down and fall back — see `buildConfigMessage` in stream.ts. */
+export interface VirtualRequest {
+  readonly width: number;
+  readonly height: number;
+  readonly refreshHz: number;
+}
+
+export const virtualRequestFor = (option: ResolutionOption): VirtualRequest | null =>
+  option.size
+    ? { width: toEven(option.size.w), height: toEven(option.size.h), refreshHz: VIRTUAL_REFRESH_HZ }
+    : null;
+
+/** The `/ws/screen` `config` control message. One writer for the host contract,
+ *  so the socket code and the tests assert against the exact wire bytes. */
+export interface ConfigMessage {
+  readonly type: 'config';
+  readonly w: number;
+  readonly q: number;
+  readonly fps: number;
+  readonly screen?: number;
+  /** The true-resolution request, or explicit `null` for the physical screen.
+   *  The phone is authoritative about the mode, so this is ALWAYS present — the
+   *  host reads `null` as "tear the virtual display down and downscale". */
+  readonly virtualDisplay: VirtualRequest | null;
+}
+
+/**
+ * Shape the live retune message. `screen` is omitted (not null) when absent —
+ * JSON.stringify drops undefined keys and the host treats a missing field as
+ * "keep current", exactly as the monitor picker has always relied on.
+ * `virtualDisplay` is different: it is always sent, because the phone drives
+ * the resolution mode and a missing field would strand a stale virtual display.
+ */
+export const buildConfigMessage = (
+  quality: QualityPreset,
+  screen: number | undefined,
+  virtual: VirtualRequest | null,
+): ConfigMessage => ({
+  type: 'config',
+  w: quality.w,
+  q: quality.q,
+  fps: quality.fps,
+  ...(screen === undefined ? {} : { screen }),
+  virtualDisplay: virtual,
+});
+
+/** Resolve a saved id against the live menu, falling back to physical when the
+ *  option no longer exists (the device size changed, or the host stopped
+ *  advertising the feature). One value in, always a valid option out. */
+export const findResolution = (id: string, options: readonly ResolutionOption[]): ResolutionOption =>
+  options.find((o) => o.id === id) ?? PHYSICAL_RESOLUTION;
