@@ -78,7 +78,9 @@ fork.** Reasons:
    and audit surface; Belay's needs one monitor, one mode list, four IOCTLs.
    Less inherited code is less to re-audit after every upstream drift.
 3. **Hardening is easier to prove on a small surface**: our device object is
-   ACL'd (`D:P(A;;GA;;;SY)(A;;GA;;;BA)`) before creation, every IOCTL is
+   ACL'd (`D:P(A;;GA;;;SY)(A;;GA;;;BA)`) - applied by the PnP manager from the
+   INF's `.HW` section, since UMDF2 has no `WdfDeviceInitAssignSDDLString` -
+   every IOCTL is
    `METHOD_BUFFERED` with exact-size and field-range validation, unknown
    control codes are rejected, and the HWID (`Root\BelayVDD`), interface
    GUID and symbolic link are all Belay's own — no collision or confusion
@@ -144,10 +146,24 @@ afford to break, before any user sees this.
 - Install Visual Studio 2022, the Windows SDK, and the matching WDK +
   "Windows Driver Kit" VS extension.
 - `powershell -File server\native\win-display\build-driver.ps1 -Platform x64`
-- The script builds `BelayVdd.dll`, runs `infverif /v /w` on the INF, runs
-  Inf2Cat, and **test-signs** the catalog. Expect first-build fixes: this
-  source has never seen a compiler (IddCx struct fields drift between IddCx
-  versions; the project pins `UmdfExtensions = IddCx0102`).
+- The script builds `BelayVdd.dll`, runs `infverif /v /u` on the INF (the
+  Universal ruleset, matching `DriverTargetPlatform`), runs Inf2Cat, and
+  **test-signs** the DLL and the catalog. Run it elevated so it can also put
+  the throwaway cert in `LocalMachine\Root` and `LocalMachine\TrustedPublisher`;
+  unelevated it prints the two `Import-Certificate` commands instead.
+
+This has now been executed successfully, using VS2022 **Build Tools** (workload
+`Microsoft.VisualStudio.Workload.VCTools`), Windows 11 SDK 26100, and WDK
+10.0.26100. Note that since VS 17.11 the WDK's Visual Studio integration is a
+VS *component*, not a VSIX inside the WDK MSI - without it MSBuild has no
+`WindowsUserModeDriver10.0` platform toolset:
+
+```powershell
+winget install --id Microsoft.WindowsWDK.10.0.26100 -e
+# then, elevated. PowerShell's --% stop-parsing token is required: without it
+# the VS installer silently ignores every argument and exits 87.
+& "$env:ProgramFiles(x86)\Microsoft Visual Studio\Installer\setup.exe" --% modify --installPath "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools" --add Component.Microsoft.Windows.DriverKit.BuildTools --quiet --norestart
+```
 - Also rebuild the helper: `powershell -File server\native\build.ps1`
   (now includes `BelayHostVirtualDisplay.cs` — equally never compiled).
 
@@ -157,6 +173,12 @@ afford to break, before any user sees this.
 bcdedit /set testsigning on   & reboot
 pnputil /add-driver server\native\win-display\dist\x64\BelayVdd\BelayVdd.inf /install
 ```
+
+`pnputil` accepts the package even before test signing is on (verified: it
+registers as `oem<N>.inf`, signer "BelayVDD Test Cert (DO NOT SHIP)"). What
+test signing gates is whether the device can actually *start*. And
+`bcdedit /set testsigning on` is itself refused while Secure Boot is enabled -
+see "Secure Boot blocks the last step" above.
 
 ### 3. Verify — every line, in order
 
