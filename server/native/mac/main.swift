@@ -6,6 +6,7 @@
 // `id`. The command set is identical across platforms.
 //
 //   info | capture | move | down | up | click | scroll | key | text | ping
+//   clipboard (get/set — two-way clipboard sync with the phone)
 //   audiostart | audiostop | audiostatus  (driverless system-audio loopback)
 //
 // The loop is deliberately single-threaded and synchronous: Node serialises
@@ -97,6 +98,7 @@ private func handle(_ command: Command) throws {
     case "capturewindow": try handleCaptureWindow(command)
     case "focuswindow": try handleFocusWindow(command)
     case "virtualdisplay": try handleVirtualDisplay(command)
+    case "clipboard": try handleClipboard(command)
     case "audiostart": try handleAudioStart(command)
     case "audiostop": audio.stop(); replies.ok(id: command.id)
     case "audiostatus": handleAudioStatus(command)
@@ -305,6 +307,36 @@ private func handleVirtualDisplay(_ command: Command) throws {
         replies.ok(id: command.id, virtualDisplays.status())
     case let other:
         throw HostError(.badArgument, "unknown virtualdisplay action: \(other)")
+    }
+}
+
+/// Clipboard sync (see Clipboard.swift). One command, an `action` verb:
+///   get          → the pasteboard's plain text, capped, `truncated` when cut
+///   set  {text}  → replaces the pasteboard's contents with `text`
+///
+/// Node validates size first (server/src/clipboard.ts); the helper rejects an
+/// over-cap `set` again because stdin is a boundary of its own.
+private func handleClipboard(_ command: Command) throws {
+    switch try command.string("action") ?? "" {
+    case "get":
+        let readout = HostClipboard.read()
+        var payload: [String: Any] = ["text": readout.text]
+        if readout.truncated { payload["truncated"] = true }
+        replies.ok(id: command.id, payload)
+    case "set":
+        guard let text = try command.string("text") else {
+            throw HostError(.badArgument, "'text' is required for set")
+        }
+        guard text.utf16.count <= HostClipboard.maxTextUnits else {
+            throw HostError(.badArgument,
+                "clipboard text exceeds the \(HostClipboard.maxTextUnits)-unit cap")
+        }
+        guard HostClipboard.write(text) else {
+            throw HostError(.internalFailure, "the pasteboard refused the write")
+        }
+        replies.ok(id: command.id, ["set": true])
+    case let other:
+        throw HostError(.badArgument, "unknown clipboard action: \(other)")
     }
 }
 

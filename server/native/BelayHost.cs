@@ -212,6 +212,9 @@ static class BelayHost
                     // native/win-display/ installed — without it the handler
                     // throws a message that says so. See docs/VIRTUAL-DISPLAY.md.
                     case "virtualdisplay": Reply(stdout, BelayVirtualDisplay.Handle(idObj, c)); break;
+                    // Two-way clipboard sync with the phone. WRITTEN-BUT-NOT-
+                    // COMPILED — see BelayHostClipboard.cs.
+                    case "clipboard": BelayHostClipboard.Handle(stdout, idObj, c); break;
                     // Driverless system-audio loopback (WASAPI). WRITTEN-BUT-
                     // NOT-COMPILED — see BelayHostAudio.cs and docs/AUDIO.md.
                     case "audiostart": BelayHostAudio.Start(stdout, idObj); break;
