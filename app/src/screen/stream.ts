@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, checkHost, getConnection, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
 import { buildConfigMessage, messageOf, numberOf, PERMISSION_PATTERN, QualityPreset, STREAM, VirtualRequest } from './model';
 import { PROBE_INTERVAL_MS, shouldProbeDuringBackoff } from './retry';
+import { bytesToBase64, decodeBinaryFrame, isBinaryFramePayload } from './frame-codec';
 
 export type Phase = 'idle' | 'connecting' | 'live' | 'stalled' | 'reconnecting' | 'error';
 
@@ -54,8 +55,32 @@ type StreamMessage =
   | { readonly type: 'frame'; readonly frame: FramePayload }
   | { readonly type: 'error'; readonly error: string };
 
-/** Parses an untrusted socket payload. Returns null for anything unrecognised. */
+/**
+ * Parses an untrusted socket payload. Returns null for anything unrecognised.
+ *
+ * Two wire shapes arrive on one socket. A binary message is a pixel frame in
+ * the compact layout of frame-codec.ts (the host only sends these once we ask
+ * with `?bin=1`, so an old host that keeps sending JSON still works); a string
+ * is the JSON envelope — still the carrier for errors and, from old hosts,
+ * for frames. The codec bounds-checks every header field before slicing, so a
+ * malformed or truncated buffer degrades to "unrecognised", never a crash.
+ */
 export function parseStreamMessage(raw: unknown): StreamMessage | null {
+  if (isBinaryFramePayload(raw)) {
+    const decoded = decodeBinaryFrame(raw);
+    if (!decoded) return null;
+    return {
+      type: 'frame',
+      frame: {
+        data: bytesToBase64(decoded.jpeg),
+        w: decoded.w,
+        h: decoded.h,
+        sw: decoded.sw,
+        sh: decoded.sh,
+        bytes: decoded.jpeg.length,
+      },
+    };
+  }
   if (typeof raw !== 'string') return null;
   let parsed: unknown;
   try {
@@ -316,6 +341,9 @@ export function useScreenStream(
             w: preset.w,
             q: preset.q,
             fps: preset.fps,
+            // Ask for binary pixel frames. An old host ignores the param and
+            // keeps sending JSON, which parseStreamMessage still accepts.
+            bin: 1,
             // Only named when a monitor was actually chosen; older hosts
             // ignore unknown query params, so this is safe either way.
             ...(screenIndex === undefined ? {} : { screen: screenIndex }),
@@ -334,6 +362,9 @@ export function useScreenStream(
         return;
       }
       if (disposed) { socket.close(); return; }
+      // Binary frames must arrive as ArrayBuffer (the default is Blob on some
+      // platforms, which the codec cannot read synchronously).
+      socket.binaryType = 'arraybuffer';
       socketRef.current = socket;
       socket.onopen = () => {
         // Backoff is reset on the first frame (see onFrame), not here — a socket

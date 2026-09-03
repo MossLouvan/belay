@@ -26,7 +26,8 @@ import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { messageOf } from './errors.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
 import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-params.js';
-import { native } from './native.js';
+import { native, Frame, WindowFrame } from './native.js';
+import { encodeBinaryFrame } from './frame-codec.js';
 import { classifyScreens } from './displays.js';
 import { openableWindows, sanitizeWindows, windowIdOf } from './windows.js';
 import { MAX_CLIPBOARD_UNITS, parseClipboardSet, shapeClipboardGet } from './clipboard.js';
@@ -1011,6 +1012,32 @@ function handleWebrtc(ws: WebSocket, url: URL) {
 // Screen stream: capture-encode-send in a self-scheduling loop. The next frame
 // is only requested after the previous one is sent, so a slow link naturally
 // lowers the frame rate instead of piling up a backlog.
+
+// One frame, one send. A client that opted in (`?bin=1` on the stream URL)
+// gets the pixels as one compact binary WebSocket message — see frame-codec.ts
+// for the wire layout — which is what drops the base64 +33% and the JSON
+// encode/decode from the hottest path in the system. Everyone else (every
+// already-shipped client) gets the JSON envelope byte-for-byte as before, and
+// even an opted-in socket still carries errors, `gone`, and pixel-less window
+// frames as JSON: binary is only ever pixels, and clients sniff
+// string-vs-binary per message, so the two interleave freely.
+function sendFrame(ws: WebSocket, frame: Frame | WindowFrame, binary: boolean): void {
+  if (binary && typeof frame.data === 'string' && frame.data.length > 0) {
+    // `bytes` is dropped: it is the JPEG length, which the binary framing
+    // already carries. Everything else that is not a header field (a window's
+    // rect/title/hidden) rides in the meta block.
+    const { data, w = 0, h = 0, sw = 0, sh = 0, bytes: _bytes, ...extra } = frame;
+    try {
+      ws.send(encodeBinaryFrame(
+        { w, h, sw, sh, meta: Object.keys(extra).length > 0 ? extra : null },
+        Buffer.from(data, 'base64'),
+      ));
+      return;
+    } catch { /* a frame the encoder refuses still reaches the client as JSON */ }
+  }
+  ws.send(JSON.stringify({ type: 'frame', ...frame }));
+}
+
 /**
  * Stream one window of the host into a client window of its own.
  *
@@ -1031,6 +1058,9 @@ function handleWindow(ws: WebSocket, url: URL) {
   }
 
   let alive = true;
+  // Binary framing is opt-in per socket: a client that never asks keeps the
+  // JSON it has always parsed.
+  const binary = url.searchParams.get('bin') === '1';
   let params: StreamParams = resolveStreamParams({
     w: url.searchParams.get('w'),
     q: url.searchParams.get('q'),
@@ -1064,7 +1094,7 @@ function handleWindow(ws: WebSocket, url: URL) {
           await sleep(FRAME_DROP_BACKOFF_MS);
           continue;
         }
-        ws.send(JSON.stringify({ type: 'frame', ...frame }));
+        sendFrame(ws, frame, binary);
       } catch (e: unknown) {
         consecutiveErrors += 1;
         if (alive && ws.readyState === ws.OPEN) {
@@ -1090,6 +1120,9 @@ function handleWindow(ws: WebSocket, url: URL) {
 
 function handleScreen(ws: WebSocket, url: URL) {
   let alive = true;
+  // Binary framing is opt-in per socket: a client that never asks keeps the
+  // JSON it has always parsed.
+  const binary = url.searchParams.get('bin') === '1';
   // Query string and control message go through the same validation. Both are
   // untrusted, and only clamping one of them is how `?fps=100000` and
   // `{"fps":"abc"}` each turned into an uncapped capture loop.
@@ -1186,7 +1219,7 @@ function handleScreen(ws: WebSocket, url: URL) {
           await sleep(FRAME_DROP_BACKOFF_MS);
           continue;
         }
-        ws.send(JSON.stringify({ type: 'frame', ...frame }));
+        sendFrame(ws, frame, binary);
       } catch (e: unknown) {
         if (alive && ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({ type: 'error', error: messageOf(e) }));
