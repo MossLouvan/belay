@@ -5,10 +5,10 @@
 // next to the screen because expo-router turns every file under `app/` into a
 // route — a helper there would render as an extra tab.
 
-import React, { useCallback, useState } from 'react';
-import { Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
-import { useTheme } from './theme';
-import { haptic } from './ui';
+import React, { useCallback, useRef, useState } from 'react';
+import { Animated, Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
+import { easing, useTheme } from './theme';
+import { haptic, useReducedMotion } from './ui';
 import { LAUNCH_KEYS, LETTER_KEYS, PRIMARY_KEYS, SYMBOL_KEYS, encodeKey } from './terminal-keymap';
 import type { KeyDef } from './terminal-keymap';
 
@@ -20,24 +20,66 @@ export interface KeyCapProps {
   onPress: () => void;
   active?: boolean;
   wide?: boolean;
+  /** Spoken name when the cap's `id` is not self-describing (e.g. `Aa`). */
+  accessibilityLabel?: string;
 }
 
-export function KeyCap({ id, label, onPress, active, wide }: KeyCapProps) {
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+export function KeyCap({ id, label, onPress, active, wide, accessibilityLabel }: KeyCapProps) {
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
+  const [pressed, setPressed] = useState(false);
+
+  // Ignition drive, the same rope idiom as TrackLabel (REVAMP-SPEC §3.5):
+  // 0 = slack, 1 = loaded. Press-in SNAPS the chip from its granite-quiet
+  // `surfaceAlt` rest to the blue `accentSoft` load — no ramp; release
+  // relaxes back over `motion.fast`. No opacity dim, no scale — the key
+  // feels mechanical, and holds still otherwise.
+  const load = useRef(new Animated.Value(0)).current;
+
+  const handlePressIn = useCallback(() => {
+    setPressed(true);
+    load.stopAnimation();
+    load.setValue(1);
+  }, [load]);
+
+  const handlePressOut = useCallback(() => {
+    setPressed(false);
+    Animated.timing(load, {
+      toValue: 0,
+      duration: reducedMotion ? theme.motion.fast / 2 : theme.motion.fast,
+      easing: easing.standard,
+      // Colour interpolation cannot ride the native driver.
+      useNativeDriver: false,
+    }).start();
+  }, [load, reducedMotion, theme.motion.fast]);
+
+  // An armed modifier holds its lit state steady; every other chip ignites
+  // only under the finger.
+  const background: string | Animated.AnimatedInterpolation<string> = active
+    ? theme.colors.accentSoft
+    : load.interpolate({
+        inputRange: [0, 1],
+        outputRange: [theme.colors.surfaceAlt, theme.colors.accentSoft],
+      });
+
   return (
-    <Pressable
+    <AnimatedPressable
       testID={`qkey-${id}`}
       accessibilityRole="button"
-      accessibilityLabel={id}
+      accessibilityLabel={accessibilityLabel ?? id}
       accessibilityState={{ selected: Boolean(active) }}
       onPress={() => {
         haptic('light');
         onPress();
       }}
-      // A recessed surfaceAlt key with 4pt corners — the one sanctioned radius
-      // above the 2pt standard — and no border box; only the armed state draws
-      // its accent hairline. Bold mono is banned (docs/DESIGN.md §12).
-      style={({ pressed }) => ({
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      // A recessed surfaceAlt chip with 4pt corners — the one sanctioned
+      // radius above the 2pt standard — and no border box; only the armed
+      // state draws its accent hairline. Bold mono is banned (DESIGN.md §12).
+      style={{
         minWidth: wide ? 56 : theme.layout.minTouch,
         minHeight: theme.layout.minTouch,
         paddingHorizontal: theme.space.sm,
@@ -46,21 +88,20 @@ export function KeyCap({ id, label, onPress, active, wide }: KeyCapProps) {
         borderRadius: theme.radius.sm,
         borderWidth: active ? theme.layout.hairline : 0,
         borderColor: theme.colors.accent,
-        backgroundColor: active ? theme.colors.accentSoft : theme.colors.surfaceAlt,
-        opacity: pressed ? theme.motion.pressOpacity : 1,
-      })}
+        backgroundColor: background,
+      }}
     >
       <Text
         allowFontScaling={false}
         style={{
-          color: active ? theme.colors.onAccentSoft : theme.colors.text,
+          color: active || pressed ? theme.colors.onAccentSoft : theme.colors.text,
           fontFamily: theme.font.mono,
           fontSize: 13,
         }}
       >
         {label}
       </Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -76,6 +117,14 @@ export interface KeyBarProps {
    */
   onTab: () => void;
   ptyMode: boolean;
+  /**
+   * The text-size cycle (`Aa`), a bar concern rather than a header one: it
+   * changes how the transcript reads, and it lives with the other keys.
+   * Each press steps sm → md → lg → sm; `fontLabel` names the current step
+   * for the screen reader.
+   */
+  onFontCycle?: () => void;
+  fontLabel?: string;
 }
 
 /**
@@ -85,7 +134,7 @@ export interface KeyBarProps {
  * or Alt+F on a phone. A modifier applies to the next key press — any key, top
  * row included — and is then disarmed, so it can never leak into a later one.
  */
-export function KeyBar({ onSend, onClear, onHistory, onTab, ptyMode }: KeyBarProps) {
+export function KeyBar({ onSend, onClear, onHistory, onTab, ptyMode, onFontCycle, fontLabel }: KeyBarProps) {
   const theme = useTheme();
   const [ctrl, setCtrl] = useState(false);
   const [alt, setAlt] = useState(false);
@@ -158,6 +207,22 @@ export function KeyBar({ onSend, onClear, onHistory, onTab, ptyMode }: KeyBarPro
             }}
           />
         ))}
+        {/* Text size lives with the keys, not in the header: it is a bar
+            control over how the transcript reads. One cap, cycling
+            sm → md → lg — a modifier makes no sense on it, so it is
+            consumed without being applied. */}
+        {onFontCycle ? (
+          <KeyCap
+            id="Aa"
+            label="Aa"
+            accessibilityLabel={fontLabel ? `Text size, ${fontLabel}` : 'Text size'}
+            wide
+            onPress={() => {
+              consume();
+              onFontCycle();
+            }}
+          />
+        ) : null}
         {/* The keyboard is a state and needs a visible exit (docs/DESIGN.md
             §11.2). Return can't dismiss here — it runs the command — and the
             transcript's tap-to-blur is invisible, so the bar that sits right
