@@ -33,7 +33,7 @@ impl SyntheticSource {
     pub fn new(width: u32, height: u32) -> Result<SyntheticSource, String> {
         unsafe {
             let mut device: Option<ID3D11Device> = None;
-            D3D11CreateDevice(
+            let mut created = D3D11CreateDevice(
                 None,
                 D3D_DRIVER_TYPE_HARDWARE,
                 None,
@@ -43,8 +43,24 @@ impl SyntheticSource {
                 Some(&mut device),
                 None,
                 None,
-            )
-            .map_err(|e| format!("no D3D11 device: {e}"))?;
+            );
+            if created.is_err() {
+                // WARP: a software rasteriser. A machine with no GPU still
+                // needs a device to hold the source texture, and this source
+                // exists precisely to run where there is no GPU.
+                created = D3D11CreateDevice(
+                    None,
+                    D3D_DRIVER_TYPE_WARP,
+                    None,
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                    None,
+                    D3D11_SDK_VERSION,
+                    Some(&mut device),
+                    None,
+                    None,
+                );
+            }
+            created.map_err(|e| format!("no D3D11 device: {e}"))?;
             let device = device.ok_or("no D3D11 device")?;
             let context = device.GetImmediateContext().map_err(|e| format!("no context: {e}"))?;
 
@@ -97,6 +113,16 @@ impl SyntheticSource {
 
     pub fn height(&self) -> u32 {
         self.height
+    }
+
+    /// The frame's pixels, already in CPU memory, with their row stride.
+    ///
+    /// The CPU fallback needs BGRA on the CPU. Reading it back from the texture
+    /// would be absurd here — this source WROTE those pixels from CPU memory a
+    /// moment ago, so the readback would be a round trip to the GPU purely to
+    /// fetch something we still hold.
+    pub fn cpu_bgra(&self) -> (&[u8], usize) {
+        (&self.bgra, self.width as usize * 4)
     }
 
     /// Produce the next frame. Always returns one — that is the point.

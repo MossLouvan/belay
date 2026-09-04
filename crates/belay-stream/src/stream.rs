@@ -238,13 +238,25 @@ pub fn run(
                 .encode_texture(conv.output_texture())
                 .map_err(|e| format!("encode failed: {e}"))?
         } else {
-            // CPU fallback: the texture must come down to us first.
-            let Some(cap) = capture.as_mut() else {
-                return Err("the CPU fallback needs a real capture device".into());
+            // CPU fallback: the pixels must be on the CPU to convert them.
+            //
+            // The synthetic source already holds them — it wrote that texture
+            // from CPU memory a moment ago — so reading it back would be a
+            // round trip to the GPU to fetch something we still have.
+            let stride = if let Some(synth) = synthetic.as_ref() {
+                let (pixels, stride) = synth.cpu_bgra();
+                if bgra.len() != pixels.len() {
+                    bgra.resize(pixels.len(), 0);
+                }
+                bgra.copy_from_slice(pixels);
+                stride
+            } else {
+                let Some(cap) = capture.as_mut() else {
+                    return Err("the CPU fallback has no source of pixels".into());
+                };
+                cap.copy_texture_to_cpu(&texture, &mut bgra)
+                    .map_err(|e| format!("readback failed: {e}"))?
             };
-            let stride = cap
-                .copy_texture_to_cpu(&texture, &mut bgra)
-                .map_err(|e| format!("readback failed: {e}"))?;
             bgra_to_nv12(&bgra, stride, width as usize, height as usize, &mut nv12)
                 .map_err(|e| format!("colour conversion failed: {e:?}"))?;
             encoder.encode(&nv12).map_err(|e| format!("encode failed: {e}"))?
