@@ -291,6 +291,22 @@ export function useViewport(options: ViewportOptions): Viewport {
     [paintCursor, queueCursorMove, sizeRef]
   );
 
+  // A tap awaiting double-tap confirmation: its single click is deferred by
+  // GESTURE.doubleTapMs so a quick second tap can upgrade it to a double-click
+  // (which the host sends as a real cc1+cc2). Only plain left taps defer;
+  // armed R-CLICK/2×CLICK still fire instantly.
+  const doubleTap = useRef<{ point: { x: number; y: number }; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  const sendLeftClick = useCallback(
+    (point: { x: number; y: number }, double: boolean) => {
+      haptic(double ? 'medium' : 'light');
+      const mods = activeModsRef.current?.();
+      send(() => api.click(point.x, point.y, 'left', double, screenRef.current, mods), double ? 'Double-click' : 'Click');
+      onPointerRef.current?.();
+    },
+    [send]
+  );
+
   const clickAt = useCallback(
     (point: { x: number; y: number }) => {
       const pending = buttonRef.current;
@@ -313,6 +329,28 @@ export function useViewport(options: ViewportOptions): Viewport {
       onPointerRef.current?.();
     },
     [send]
+  );
+
+  // Route a stage tap: an armed one-shot (right/double) fires immediately; a
+  // plain tap defers briefly so a second tap nearby becomes a double-click.
+  const handleTap = useCallback(
+    (point: { x: number; y: number }) => {
+      if (buttonRef.current !== 'none') { clickAt(point); return; }
+      const dt = doubleTap.current;
+      if (dt && Math.abs(point.x - dt.point.x) < GESTURE.doubleTapSlop && Math.abs(point.y - dt.point.y) < GESTURE.doubleTapSlop) {
+        clearTimeout(dt.timer);
+        doubleTap.current = null;
+        sendLeftClick(dt.point, true); // upgrade the pair to one real double-click
+        return;
+      }
+      if (dt) { clearTimeout(dt.timer); doubleTap.current = null; sendLeftClick(dt.point, false); }
+      const timer = setTimeout(() => {
+        doubleTap.current = null;
+        sendLeftClick(point, false);
+      }, GESTURE.doubleTapMs);
+      doubleTap.current = { point, timer };
+    },
+    [clickAt, sendLeftClick]
   );
 
   /**
@@ -566,7 +604,7 @@ export function useViewport(options: ViewportOptions): Viewport {
       const g = gesture.current;
       gesture.current = newGesture();
       if (g.kind === 'pending') {
-        clickAt(modeRef.current === 'trackpad' ? cursor.current : toHost(g.startX, g.startY));
+        handleTap(modeRef.current === 'trackpad' ? cursor.current : toHost(g.startX, g.startY));
         return;
       }
       if (g.kind === 'pan') {
@@ -591,7 +629,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         onPointerRef.current?.();
       }
     },
-    [cancelLongPress, clickAt, send, startMomentum, startScrollMomentum, toHost]
+    [cancelLongPress, clickAt, handleTap, send, startMomentum, startScrollMomentum, toHost]
   );
 
   const handlers = useMemo(
@@ -638,6 +676,7 @@ export function useViewport(options: ViewportOptions): Viewport {
       stopMomentum();
       if (moveTimer.current) clearTimeout(moveTimer.current);
       if (gesture.current.longPress) clearTimeout(gesture.current.longPress);
+      if (doubleTap.current) clearTimeout(doubleTap.current.timer);
     },
     [stopMomentum]
   );
