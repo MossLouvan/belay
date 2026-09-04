@@ -1,0 +1,30 @@
+[package]
+name = "belay-stream"
+version = "0.1.0"
+edition = "2021"
+description = "The Belay host streamer: capture, encode and send a desktop over BWP"
+license = "MIT"
+
+[dependencies]
+belay-wire = { path = "../belay-wire" }
+belay-net = { path = "../belay-net" }
+belay-encode = { path = "../belay-encode" }
+
+# Only the synthetic test source needs D3D directly; everything else reaches
+# the GPU through belay-encode.
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi_Common",
+]
+
+[[bin]]
+name = "belay-stream"
+path = "src/main.rs"
+
+[[bin]]
+name = "recv-probe"
+path = "src/bin/recv_probe.rs"

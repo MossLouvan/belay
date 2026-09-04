@@ -44,3 +44,7 @@ path = "src/bin/gpu_bench.rs"
 name = "vp-probe"
 path = "src/bin/vp_probe.rs"
 
+
+[[bin]]
+name = "decode-probe"
+path = "src/bin/decode_probe.rs"

@@ -153,6 +153,76 @@ impl DesktopCapture {
         self.height
     }
 
+    /// The D3D11 device the duplicated frames live on.
+    ///
+    /// The colour converter and the encoder must both be built on THIS device.
+    /// A texture cannot cross devices without a copy through shared memory,
+    /// which is the exact cost the GPU path exists to avoid.
+    pub fn device(&self) -> &ID3D11Device {
+        &self.device
+    }
+
+    /// Grab the next frame as a GPU texture, with no CPU copy at all.
+    ///
+    /// This is the hot path. `next_frame` copies ~8 MB out of VRAM per frame
+    /// and stalls on the GPU to do it; this hands back the texture DXGI already
+    /// produced.
+    ///
+    /// **The texture is only valid until the next call.** DXGI owns it and
+    /// reclaims it on `ReleaseFrame`, so the caller must convert or encode
+    /// before asking for another frame. Holding it longer reads pixels that
+    /// belong to a later frame, or to nothing.
+    ///
+    /// `Ok(None)` means the desktop did not change — normal, not an error.
+    /// A returned `FrameMeta` with `idle: true` means only the cursor moved and
+    /// there is no texture worth encoding.
+    pub fn next_frame_gpu(
+        &mut self,
+        timeout_ms: u32,
+    ) -> windows::core::Result<Option<(FrameMeta, Option<ID3D11Texture2D>)>> {
+        unsafe {
+            self.release_if_held();
+
+            let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
+            let mut resource: Option<IDXGIResource> = None;
+            match self.duplication.AcquireNextFrame(timeout_ms, &mut info, &mut resource) {
+                Ok(()) => {}
+                Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok(None),
+                Err(e) => return Err(e),
+            }
+            self.holding_frame = true;
+
+            if info.LastMouseUpdateTime != 0 {
+                self.cursor.x = info.PointerPosition.Position.x;
+                self.cursor.y = info.PointerPosition.Position.y;
+                self.cursor.visible = info.PointerPosition.Visible.as_bool();
+            }
+            if info.PointerShapeBufferSize > 0 {
+                self.cursor.shape_id = self.cursor.shape_id.wrapping_add(1);
+            }
+
+            let base = FrameMeta {
+                dirty: Vec::new(),
+                cursor: self.cursor,
+                idle: true,
+                stride: 0,
+                width: self.width,
+                height: self.height,
+                copy_ms: 0.0,
+            };
+            if info.AccumulatedFrames == 0 || info.TotalMetadataBufferSize == 0 {
+                return Ok(Some((base, None)));
+            }
+
+            let dirty = self.read_dirty_rects(info.TotalMetadataBufferSize)?;
+            let resource =
+                resource.ok_or_else(|| windows::core::Error::new(E_FAIL, "no frame resource"))?;
+            let texture: ID3D11Texture2D = resource.cast()?;
+
+            Ok(Some((FrameMeta { dirty, idle: false, ..base }, Some(texture))))
+        }
+    }
+
     /// Grab the next frame, waiting up to `timeout_ms`.
     ///
     /// `Ok(None)` means the desktop did not change in that window. That is the
@@ -253,6 +323,22 @@ impl DesktopCapture {
                 height: r.bottom - r.top,
             })
             .collect())
+    }
+
+    /// Bring a texture from `next_frame_gpu` down to the CPU.
+    ///
+    /// Only for machines with no video processor, where the colour conversion
+    /// has to happen on the CPU and the pixels must be here to do it. On any
+    /// machine with a GPU this is the ~2.4 ms per frame that the GPU path
+    /// exists to avoid, so calling it there is a bug, not a fallback.
+    ///
+    /// Returns the row pitch, which is NOT width*4 — the GPU pads rows.
+    pub fn copy_texture_to_cpu(
+        &mut self,
+        src: &ID3D11Texture2D,
+        dst: &mut Vec<u8>,
+    ) -> windows::core::Result<usize> {
+        unsafe { self.copy_to_cpu(src, dst) }
     }
 
     /// Copy the GPU texture into a CPU-readable staging texture and out to
