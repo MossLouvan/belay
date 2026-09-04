@@ -153,6 +153,9 @@ export default function Connect() {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   /** True when we opened Tailscale, so we know to auto-recheck on return. */
   const awaitingTailscale = useRef(false);
+  // Latest onRetryTailscale, so the AppState effect can call it without
+  // depending on a callback declared further down the component.
+  const retryTailscaleRef = useRef<() => void>(() => {});
   /** Fade animation for stage transitions. */
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const resolution = useMemo(() => resolveHost(hostText), [hostText]);
@@ -182,13 +185,13 @@ export default function Connect() {
       ) {
         awaitingTailscale.current = false;
         // Re-run the full check to see if Tailscale is now reachable.
-        void onRetryTailscale();
+        void retryTailscaleRef.current();
       }
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [stage, onRetryTailscale]);
+  }, [stage]);
 
   // Already set up from a previous launch. One reachable computer goes straight
   // in; anything else lands on the computer list, which is the only screen that
@@ -480,6 +483,7 @@ export default function Connect() {
     setPairError(null);
     void doCheck();
   }, [doCheck]);
+  retryTailscaleRef.current = onRetryTailscale;
 
   const onPickRecent = useCallback((url: string) => {
     setHostText(prettyHost(url));

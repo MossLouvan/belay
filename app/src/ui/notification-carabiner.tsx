@@ -183,7 +183,7 @@ export function NotificationCarabiner({
           {title}
         </Txt>
         {message ? (
-          <Caption tone="dim" numberOfLines={3}>
+          <Caption numberOfLines={3}>
             {message}
           </Caption>
         ) : null}

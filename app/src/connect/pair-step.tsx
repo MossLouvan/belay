@@ -107,7 +107,7 @@ export function PairStep({
           autoFocus
         />
 
-        <Caption tone="dim">
+        <Caption>
           Codes are single-use and expire after five minutes.
         </Caption>
       </View>
