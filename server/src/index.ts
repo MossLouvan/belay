@@ -21,6 +21,7 @@ import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
 import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
+import { notifyPairAttempt } from './pair-notify.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { messageOf } from './errors.js';
@@ -264,6 +265,16 @@ app.post('/pair', async (req, res) => {
   }
 
   const { code, deviceName } = req.body || {};
+
+  // Tell whoever is AT the machine that someone is asking, and what to type.
+  // Deliberately before validation and deliberately not awaited: a popup must
+  // never delay or gate a pairing decision. notifyPairAttempt throttles itself
+  // and swallows its own errors.
+  void notifyPairAttempt(native, {
+    from: clientId,
+    deviceName: typeof deviceName === 'string' ? deviceName : null,
+    code: currentCode()?.code ?? null,
+  });
 
   // Code-less path: a peer on our own tailnet, verified by the Tailscale
   // daemon, is already proven to be one of the owner's devices. See tailnet.ts

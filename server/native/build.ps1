@@ -9,7 +9,7 @@ if (-not (Test-Path $csc)) {
 if (-not (Test-Path $csc)) { throw "csc.exe not found. Install the .NET Framework or run with the dotnet SDK." }
 
 # Every source in the helper, compiled in one csc invocation.
-$src = @('BelayHost.cs', 'BelayHostDisplays.cs', 'BelayHostWindows.cs', 'BelayHostVirtualDisplay.cs', 'BelayHostAudio.cs', 'BelayHostClipboard.cs') | ForEach-Object { Join-Path $here $_ }
+$src = @('BelayHost.cs', 'BelayHostDisplays.cs', 'BelayHostWindows.cs', 'BelayHostVirtualDisplay.cs', 'BelayHostAudio.cs', 'BelayHostClipboard.cs', 'BelayHostNotify.cs') | ForEach-Object { Join-Path $here $_ }
 
 # ── WebRTC path (opt-in, HARDWARE-GATED, WRITTEN-BUT-NOT-COMPILED) ──────────
 # $env:BELAY_WEBRTC_BUILD=1 folds in the Desktop Duplication + Media Foundation

@@ -225,6 +225,8 @@ static class BelayHost
                     // Two-way clipboard sync with the phone. WRITTEN-BUT-NOT-
                     // COMPILED — see BelayHostClipboard.cs.
                     case "clipboard": BelayHostClipboard.Handle(stdout, idObj, c); break;
+                    // Corner popup on the host screen (pairing prompts).
+                    case "notify": BelayHostNotify.Handle(stdout, idObj, c); break;
                     // Driverless system-audio loopback (WASAPI). WRITTEN-BUT-
                     // NOT-COMPILED — see BelayHostAudio.cs and docs/AUDIO.md.
                     case "audiostart": BelayHostAudio.Start(stdout, idObj); break;

@@ -419,6 +419,20 @@ class NativeHost {
     return this.send({ cmd: 'virtualdisplay', action: 'status' });
   }
 
+  // ---- Host-screen popup --------------------------------------------------
+  //
+  // Draws a small panel in the corner of the HOST's screen. Used for pairing
+  // prompts: the code is deliberately shown only on this machine, so it has to
+  // be visible even when the terminal running Belay is not.
+  //
+  // `shown:false` is a normal answer, not a failure — a helper with no
+  // interactive desktop (service, session 0) has nowhere to draw. Callers treat
+  // the popup as a courtesy and must not gate anything on it.
+  notify(title: string, body: string, accent: string, seconds: number):
+    Promise<{ shown?: boolean; reason?: string }> {
+    return this.send({ cmd: 'notify', title, body, accent, seconds });
+  }
+
   // ---- Clipboard sync ----------------------------------------------------
   //
   // Read and write the host's clipboard, so the phone and the PC can trade
