@@ -216,10 +216,10 @@ export const space = Object.freeze({
 });
 
 export const font = Object.freeze({
-  // Sans is the platform default (undefined fontFamily). Named here so a
-  // future custom-font swap (Archivo Black / Space Mono, docs/DESIGN.md §4.1)
-  // is one edit rather than a component sweep.
-  sans: undefined as string | undefined,
+  // Outfit from Google Fonts as the primary UI typeface. Loaded in app/_layout.tsx
+  // with weights 400 (Regular), 500 (Medium), 600 (SemiBold), and 700 (Bold).
+  // The font is specified by weight via the type scale below.
+  sans: 'Outfit' as string,
   mono: Platform.select({
     ios: 'Menlo',
     default: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
@@ -235,15 +235,15 @@ export const font = Object.freeze({
  * or the page turns into a shouting match (docs/DESIGN.md §4.3).
  */
 export const type = Object.freeze({
-  display: { fontSize: 40, lineHeight: 42, fontWeight: '900', letterSpacing: -1.5, textTransform: 'uppercase' },
-  title: { fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.6, textTransform: 'uppercase' },
-  heading: { fontSize: 19, lineHeight: 24, fontWeight: '800', letterSpacing: -0.3 },
-  subheading: { fontSize: 16, lineHeight: 21, fontWeight: '700' },
-  body: { fontSize: 15, lineHeight: 21, fontWeight: '400' },
-  bodyStrong: { fontSize: 15, lineHeight: 21, fontWeight: '600' },
-  caption: { fontSize: 13, lineHeight: 17, fontWeight: '400' },
+  display: { fontFamily: font.sans, fontSize: 40, lineHeight: 42, fontWeight: '900', letterSpacing: -1.5, textTransform: 'uppercase' },
+  title: { fontFamily: font.sans, fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.6, textTransform: 'uppercase' },
+  heading: { fontFamily: font.sans, fontSize: 19, lineHeight: 24, fontWeight: '800', letterSpacing: -0.3 },
+  subheading: { fontFamily: font.sans, fontSize: 16, lineHeight: 21, fontWeight: '700' },
+  body: { fontFamily: font.sans, fontSize: 15, lineHeight: 21, fontWeight: '400' },
+  bodyStrong: { fontFamily: font.sans, fontSize: 15, lineHeight: 21, fontWeight: '600' },
+  caption: { fontFamily: font.sans, fontSize: 13, lineHeight: 17, fontWeight: '400' },
   // Hero stats ("39%"). Tabular numerals so live values do not jitter.
-  numeral: { fontSize: 34, lineHeight: 38, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
+  numeral: { fontFamily: font.sans, fontSize: 34, lineHeight: 38, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
   label: { fontFamily: font.mono, fontSize: 11, lineHeight: 14, fontWeight: '400', letterSpacing: 1.5, textTransform: 'uppercase', fontVariant: ['tabular-nums'] },
   micro: { fontFamily: font.mono, fontSize: 10, lineHeight: 13, fontWeight: '400', letterSpacing: 1.2, textTransform: 'uppercase', fontVariant: ['tabular-nums'] },
   mono: { fontFamily: font.mono, fontSize: 13, lineHeight: 19, fontVariant: ['tabular-nums'] },

@@ -140,9 +140,9 @@ export const space = Object.freeze({
 
 ```ts
 export const font = Object.freeze({
-  // Sans is the platform default (undefined fontFamily). Named here so a future
-  // custom-font swap (Archivo Black / Space Mono, see DESIGN.md §4.1) is one edit.
-  sans: undefined as string | undefined,
+  // Outfit from Google Fonts as the primary UI typeface. Loaded in app/_layout.tsx
+  // with weights 400 (Regular), 500 (Medium), 600 (SemiBold), and 700 (Bold).
+  sans: 'Outfit' as string,
   mono: Platform.select({
     ios: 'Menlo',
     default: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
@@ -152,14 +152,14 @@ export const font = Object.freeze({
 
 ```ts
 export const type = Object.freeze({
-  display:    { fontSize: 40, lineHeight: 42, fontWeight: '900', letterSpacing: -1.5, textTransform: 'uppercase' },
-  title:      { fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.6, textTransform: 'uppercase' },
-  heading:    { fontSize: 19, lineHeight: 24, fontWeight: '800', letterSpacing: -0.3 },
-  subheading: { fontSize: 16, lineHeight: 21, fontWeight: '700' },
-  body:       { fontSize: 15, lineHeight: 21, fontWeight: '400' },
-  bodyStrong: { fontSize: 15, lineHeight: 21, fontWeight: '600' },
-  caption:    { fontSize: 13, lineHeight: 17, fontWeight: '400' },
-  numeral:    { fontSize: 34, lineHeight: 38, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
+  display:    { fontFamily: font.sans, fontSize: 40, lineHeight: 42, fontWeight: '900', letterSpacing: -1.5, textTransform: 'uppercase' },
+  title:      { fontFamily: font.sans, fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.6, textTransform: 'uppercase' },
+  heading:    { fontFamily: font.sans, fontSize: 19, lineHeight: 24, fontWeight: '800', letterSpacing: -0.3 },
+  subheading: { fontFamily: font.sans, fontSize: 16, lineHeight: 21, fontWeight: '700' },
+  body:       { fontFamily: font.sans, fontSize: 15, lineHeight: 21, fontWeight: '400' },
+  bodyStrong: { fontFamily: font.sans, fontSize: 15, lineHeight: 21, fontWeight: '600' },
+  caption:    { fontFamily: font.sans, fontSize: 13, lineHeight: 17, fontWeight: '400' },
+  numeral:    { fontFamily: font.sans, fontSize: 34, lineHeight: 38, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
   label:      { fontFamily: font.mono, fontSize: 11, lineHeight: 14, fontWeight: '400', letterSpacing: 1.5, textTransform: 'uppercase' },
   micro:      { fontFamily: font.mono, fontSize: 10, lineHeight: 13, fontWeight: '400', letterSpacing: 1.2, textTransform: 'uppercase' },
   mono:       { fontFamily: font.mono, fontSize: 13, lineHeight: 19 },
@@ -172,6 +172,11 @@ body/caption drop from 500→400 (editorial regular, ink contrast carries legibi
 `label` moves from bold sans to tracked regular mono — **this is the biggest visual
 change in the app**; new variants `numeral` and `micro`; old `label` call sites compile
 unchanged (same name).
+
+**Font loading:** Outfit is loaded in `app/_layout.tsx` using `@expo-google-fonts/outfit`
+with `useFonts` hook. The splash screen is held visible until fonts load to prevent
+FOUT (flash of unstyled text). If font loading fails, the app proceeds with system
+fonts as fallback. Fonts are loaded once at app startup and cached by Expo.
 
 `MAX_SCALE` additions in `src/ui/text.tsx` when implemented: `numeral: 1.3`,
 `micro: 1.3`; `display`/`title` drop to 1.2.
