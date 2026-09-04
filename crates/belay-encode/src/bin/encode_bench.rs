@@ -10,7 +10,7 @@
 
 use std::time::Instant;
 
-use belay_encode::color::{bgra_to_nv12, nv12_len};
+use belay_encode::color::{bgra_to_nv12, bgra_to_nv12_scalar, nv12_len};
 
 #[cfg(windows)]
 use belay_encode::h264::{init_media_foundation, EncoderConfig, H264Encoder};
@@ -57,15 +57,31 @@ fn main() {
 
     println!("belay encode bench — {WIDTH}x{HEIGHT}, {FRAMES} frames");
 
-    // Colour conversion is on the hot path for every frame, so measure it.
-    let mut convert_total = 0.0f64;
-    for t in 0..8 {
+    // Colour conversion is on the hot path for every frame, so measure it —
+    // and measure what parallelising it actually bought, since "it felt faster"
+    // is not a number.
+    let mut scalar_ms = 0.0f64;
+    let mut par_ms = 0.0f64;
+    const REPS: usize = 16;
+    for t in 0..REPS {
         synth_frame(&mut bgra, stride, t);
         let start = Instant::now();
+        bgra_to_nv12_scalar(&bgra, stride, WIDTH, HEIGHT, &mut nv12).expect("convert");
+        scalar_ms += start.elapsed().as_secs_f64() * 1000.0;
+
+        let start = Instant::now();
         bgra_to_nv12(&bgra, stride, WIDTH, HEIGHT, &mut nv12).expect("convert");
-        convert_total += start.elapsed().as_secs_f64() * 1000.0;
+        par_ms += start.elapsed().as_secs_f64() * 1000.0;
     }
-    println!("BGRA->NV12 : {:.2} ms/frame", convert_total / 8.0);
+    let scalar = scalar_ms / REPS as f64;
+    let par = par_ms / REPS as f64;
+    println!(
+        "BGRA->NV12 : {:.2} ms/frame single-threaded, {:.2} ms/frame parallel ({:.1}x, {} cores)",
+        scalar,
+        par,
+        scalar / par.max(0.0001),
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+    );
 
     #[cfg(windows)]
     {

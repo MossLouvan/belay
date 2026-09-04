@@ -7,6 +7,10 @@ license = "MIT"
 
 [dependencies]
 belay-wire = { path = "../belay-wire" }
+# A persistent work-stealing pool. std::thread::scope spawns fresh threads on
+# every call, which at 60fps is ~1000 thread creations a second purely as
+# overhead - it capped speedup at 3x on 16 cores.
+rayon = "1.10"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.58"
