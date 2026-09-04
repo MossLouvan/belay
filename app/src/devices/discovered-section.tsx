@@ -169,7 +169,7 @@ export function DiscoveredSection({ saved, connected, viaLabel, nonce, onAdd }: 
     <View>
       {heading}
       {fresh.map((host) => (
-        <View key={host.id}>
+        <View key={host.id} style={{ marginBottom: theme.space.sm }}>
           <ListItem
             testID={`discovered-${host.id}`}
             title={host.label}
@@ -203,12 +203,12 @@ export function DiscoveredSection({ saved, connected, viaLabel, nonce, onAdd }: 
         </View>
       ))}
       {summary ? (
-        <View style={{ gap: theme.space.xxs }}>
+        <View style={{ gap: theme.space.xxs, marginTop: theme.space.sm }}>
           <Caption>{summary.message}</Caption>
           <Micro>{`Checked ${timeOf(scan.at)} · Refresh looks again`}</Micro>
         </View>
       ) : (
-        <Micro style={{ marginTop: theme.space.xxs }}>
+        <Micro style={{ marginTop: theme.space.md }}>
           {`Tap to add — no code needed on your own tailnet. Checked ${timeOf(scan.at)}`}
         </Micro>
       )}

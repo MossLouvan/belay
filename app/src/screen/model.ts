@@ -3,7 +3,7 @@
 // builds on.
 //
 // This lives under `src/` rather than next to the route because every file
-// inside `app/app/(tabs)/` is picked up by expo-router's route context and would
+// inside `app/app/(home)/` is picked up by expo-router's route context and would
 // register as an extra tab.
 
 export interface Size {

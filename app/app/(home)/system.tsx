@@ -45,6 +45,7 @@ import { EMPTY_SERIES, pushSeries } from '../../src/system/history';
 import type { Series } from '../../src/system/history';
 import { fmtBytes } from '../../src/system/format';
 import { ThemeToggle } from '../../src/settings/theme-toggle';
+import { ToolPanel } from '../../src/home/panel';
 
 type Rate = 'fast' | 'normal' | 'slow' | 'paused';
 
@@ -74,7 +75,16 @@ const STAT_CARD_STYLE = { flexGrow: 1, flexBasis: '46%' } as const;
 const message = (e: unknown): string =>
   e instanceof Error ? e.message : 'Could not read system stats from the host.';
 
-export default function SystemTab() {
+/** The panel route: the unchanged tab body inside the shared slide-up chrome. */
+export default function SystemPanel() {
+  return (
+    <ToolPanel testID="system-panel">
+      <SystemTab />
+    </ToolPanel>
+  );
+}
+
+function SystemTab() {
   const { connection, active, forget, phase } = useConnection();
   const insets = useSafeAreaInsets();
   const theme = useTheme();

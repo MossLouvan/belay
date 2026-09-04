@@ -12,6 +12,7 @@ import { Card, ConnectionStatus, EmptyState, Rule, Txt } from '../../src/ui';
 import { setOpenSession, useAgentAttention } from '../../src/agent/attention-store';
 import { SessionList } from '../../src/agent/session-list';
 import { SessionView } from '../../src/agent/session-view';
+import { ToolPanel } from '../../src/home/panel';
 
 /**
  * What the tab shows before there is a live link. The old code rendered a bare
@@ -67,7 +68,16 @@ function NotConnected() {
   );
 }
 
-export default function AgentTab() {
+/** The panel route: the unchanged tab body inside the shared slide-up chrome. */
+export default function AgentPanel() {
+  return (
+    <ToolPanel testID="agent-panel">
+      <AgentTab />
+    </ToolPanel>
+  );
+}
+
+function AgentTab() {
   const { connection } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();

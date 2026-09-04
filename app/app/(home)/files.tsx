@@ -45,6 +45,7 @@ import { InfoCard } from '../../src/files/info-card';
 import { hiddenCount, toggledHiddenMode, withoutHidden } from '../../src/files/hidden';
 import type { HiddenMode } from '../../src/files/hidden';
 import { loadHiddenMode, persistHiddenMode } from '../../src/files/hidden-store';
+import { ToolPanel } from '../../src/home/panel';
 
 // --- constants ---------------------------------------------------------------
 
@@ -57,7 +58,16 @@ interface Root {
 
 // --- screen ------------------------------------------------------------------
 
-export default function FilesTab() {
+/** The panel route: the unchanged tab body inside the shared slide-up chrome. */
+export default function FilesPanel() {
+  return (
+    <ToolPanel testID="files-panel">
+      <FilesTab />
+    </ToolPanel>
+  );
+}
+
+function FilesTab() {
   const { connection } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();

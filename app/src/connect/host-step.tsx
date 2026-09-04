@@ -1,14 +1,16 @@
-// Step one: point the app at the computer.
+// Step one: point the app at the computer — redesigned with premium glass
+// aesthetic inspired by Grok Bot UI.
 //
-// Sweep anatomy (Next Terminal): the address lives in one clean bordered
-// card, a solid-blue CONNECT beside a quiet SCAN below it, and failures come
-// back as a calm bordered notice — not a saturated fill. The recent computers
-// stay hairline-separated rows under their own micro-label.
+// Premium changes:
+// - Glass panels instead of cards for softer, cleaner feel
+// - More generous spacing and negative space
+// - Refined borders and subtle backgrounds
+// - Cleaner button layout with primary/secondary hierarchy
 
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Badge, Button, Caption, Card, IconButton, Input, Label, ListItem, Row, Rule, Txt } from '../ui';
+import { Badge, Button, Caption, GlassPanel, IconButton, Input, Label, ListItem, Row, Rule, Txt } from '../ui';
 import { StatusNotice } from '../devices/notice';
 import type { Diagnosis } from './diagnose';
 import { isTailscaleAddress, prettyHost } from './host-input';
@@ -116,8 +118,8 @@ export function HostStep({
   const theme = useTheme();
 
   return (
-    <View testID="host-step">
-      <Card>
+    <View testID="host-step" style={{ gap: theme.space.lg }}>
+      <GlassPanel elevation="medium">
         <Input
           testID="host-input"
           label="Computer address"
@@ -140,13 +142,13 @@ export function HostStep({
         {showResolution ? <ResolutionPreview resolution={resolution} /> : (
           <Caption style={{ marginTop: theme.space.xs }}>Port 8787 is added for you if you leave it off.</Caption>
         )}
-      </Card>
+      </GlassPanel>
 
       {error ? (
-        <StatusNotice testID="error" title={error.title} message={error.message} status="bad" style={{ marginTop: theme.space.md }} />
+        <StatusNotice testID="error" title={error.title} message={error.message} status="bad" />
       ) : null}
 
-      <Row gap="sm" style={{ marginTop: theme.space.md }}>
+      <Row gap="sm">
         <View style={{ flex: 1 }}>
           <Button
             label="Connect"
@@ -154,6 +156,7 @@ export function HostStep({
             loading={busy}
             testID="check-host"
             fullWidth
+            size="lg"
           />
         </View>
         <Button
@@ -161,13 +164,14 @@ export function HostStep({
           variant="secondary"
           onPress={onScan}
           testID="scan-btn"
+          size="lg"
           accessibilityHint="Scans the QR code the host agent prints"
         />
       </Row>
 
       <RecentHosts recent={recent} onPick={onPickRecent} onForget={onForgetRecent} />
 
-      <Caption style={{ marginTop: theme.space.md }}>
+      <Caption>
         Belay talks straight to your computer. Nothing routes through anyone else.
       </Caption>
     </View>

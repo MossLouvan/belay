@@ -58,7 +58,7 @@ export const HUD = Object.freeze({
 
 // --- view-drawn glyphs -------------------------------------------------------
 // All built from 2pt bars with borderRadius 1, exactly like `CloseGlyph` in
-// ui/sheet.tsx and the tab glyphs in app/(tabs)/_layout.tsx.
+// ui/sheet.tsx and the tool glyphs in src/home/tool-glyphs.tsx.
 
 const glyphBar = (color: string): ViewStyle => ({
   position: 'absolute',
