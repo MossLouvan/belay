@@ -19,6 +19,8 @@ interface TailscaleStepProps {
   readonly detail?: string | null;
   /** Re-run the check once Tailscale is on. */
   readonly onRetry: () => void;
+  /** Called when opening Tailscale app (for seamless return tracking). */
+  readonly onOpenTailscale?: () => void;
   /** True while the retry is in flight. */
   readonly busy?: boolean;
 }
@@ -40,46 +42,47 @@ export async function openTailscale(): Promise<void> {
   }
 }
 
-export function TailscaleStep({ hostName, detail, onRetry, busy }: TailscaleStepProps) {
+export function TailscaleStep({ hostName, detail, onRetry, onOpenTailscale, busy }: TailscaleStepProps) {
   const theme = useTheme();
   const [opened, setOpened] = useState(false);
 
   const open = useCallback(() => {
     haptic('light');
     setOpened(true);
+    onOpenTailscale?.();
     void openTailscale();
-  }, []);
+  }, [onOpenTailscale]);
 
   return (
-    <View style={{ gap: theme.space.sm }}>
-      {/* Observation first, inference second. This card once said "Tailscale
-          is off" for an iOS transport-security block and sent the owner to fix
-          an app that was fine — the probe only shows the address not
-          answering, so that is what the headline says. */}
-      <Txt variant="label" tone="warn">No answer over Tailscale</Txt>
-      <Txt variant="caption" tone="dim">
-        {hostName} answered on its regular address, but its Tailscale address did not — even
-        after several tries. That usually means Tailscale is off or signed out on this phone.
-        With it on, Belay connects with no pairing code — at home or anywhere else.
-      </Txt>
+    <View style={{ gap: theme.space.lg }}>
+      {/* Minimal warning notice — typography-first, clean */}
+      <View style={{ gap: theme.space.sm }}>
+        <Txt variant="label" tone="warn">No answer over Tailscale</Txt>
+        <Txt variant="body" tone="dim" style={{ fontSize: 15, lineHeight: 22 }}>
+          {hostName} answered on its regular address, but its Tailscale address did not.
+          Turn on Tailscale on this phone to connect with no pairing code — at home or anywhere else.
+        </Txt>
+      </View>
 
-      <Button label="Open Tailscale" onPress={open} fullWidth />
+      {/* Clean button stack */}
+      <View style={{ gap: theme.space.sm }}>
+        <Button label="Open Tailscale" onPress={open} fullWidth size="lg" />
+        {opened ? (
+          <Button
+            label="I turned it on — connect"
+            variant="secondary"
+            onPress={onRetry}
+            loading={busy}
+            fullWidth
+            size="lg"
+          />
+        ) : null}
+      </View>
 
-      {opened ? (
-        <Button
-          label="I turned it on — connect"
-          variant="secondary"
-          onPress={onRetry}
-          loading={busy}
-          fullWidth
-        />
+      {detail ? (
+        <Micro tone="faint">{`Tailnet address said: ${detail}`}</Micro>
       ) : null}
 
-      <Txt variant="caption" tone="faint">
-        Sign in with the same account your computer uses. Nothing routes through anyone else.
-      </Txt>
-
-      {detail ? <Micro>{`Tailnet address said: ${detail}`}</Micro> : null}
       <Rule bleed={theme.layout.margin} />
     </View>
   );

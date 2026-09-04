@@ -7,7 +7,8 @@
 // A saved connection skips the whole thing.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { AppState, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import type { AppStateStatus } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../src/connection';
@@ -33,8 +34,11 @@ import { detectDeadEnd } from '../src/connect/dead-end';
 import { NoCodeStep } from '../src/connect/no-code-step';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
 import { connectLanding, postPairDestination } from '../src/connect/landing';
+import { WelcomeScreen, HowItWorksScreen } from '../src/connect/setup-intro';
+import { Animated } from 'react-native';
+import { useReducedMotion } from '../src/ui';
 
-type Stage = 'host' | 'scan' | 'code' | 'success';
+type Stage = 'welcome' | 'how-it-works' | 'host' | 'scan' | 'code' | 'success';
 
 /** How long to wait for `/health` before calling the address unreachable. */
 const HOST_CHECK_TIMEOUT_MS = 8000;
@@ -112,8 +116,10 @@ export default function Connect() {
   const [hostText, setHostText] = useState('');
   const [touched, setTouched] = useState(false);
   const [code, setCode] = useState('');
-  const [stage, setStage] = useState<Stage>('host');
+  const [stage, setStage] = useState<Stage>('welcome');
   const [host, setHost] = useState<HostSummary | null>(null);
+  const [skipIntro, setSkipIntro] = useState(false);
+  const reducedMotion = useReducedMotion();
   const [busy, setBusy] = useState(false);
   const [hostError, setHostError] = useState<Diagnosis | null>(null);
   const [pairError, setPairError] = useState<Diagnosis | null>(null);
@@ -143,6 +149,12 @@ export default function Connect() {
   const checking = useRef(false);
   /** Identifies the newest check, so only its result may be applied. */
   const checkSeq = useRef(0);
+  /** Tracks previous AppState to detect foreground transitions. */
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  /** True when we opened Tailscale, so we know to auto-recheck on return. */
+  const awaitingTailscale = useRef(false);
+  /** Fade animation for stage transitions. */
+  const fadeAnim = useRef(new Animated.Value(1)).current;
   const resolution = useMemo(() => resolveHost(hostText), [hostText]);
 
   useEffect(() => {
@@ -151,6 +163,32 @@ export default function Connect() {
       live.current = false;
     };
   }, []);
+
+  // Auto-recheck when returning from Tailscale app for seamless setup.
+  useEffect(() => {
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = nextState;
+
+      // Only act when transitioning to active (foreground) from background,
+      // and only if we're waiting for Tailscale and on the code stage.
+      if (
+        nextState === 'active' &&
+        prev.match(/inactive|background/) &&
+        awaitingTailscale.current &&
+        stage === 'code' &&
+        !checking.current &&
+        live.current
+      ) {
+        awaitingTailscale.current = false;
+        // Re-run the full check to see if Tailscale is now reachable.
+        void onRetryTailscale();
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, [stage, onRetryTailscale]);
 
   // Already set up from a previous launch. One reachable computer goes straight
   // in; anything else lands on the computer list, which is the only screen that
@@ -173,6 +211,12 @@ export default function Connect() {
     loadRecentHosts().then((list) => {
       if (!live) return;
       setRecent(list);
+      // Skip intro screens if user has connected before (has recent hosts).
+      // First-time users see welcome → how it works → connect.
+      if (list.length > 0) {
+        setSkipIntro(true);
+        setStage('host');
+      }
       // Pre-fill the last computer used, so the common case is one tap — but
       // not when adding another: the most recent host is by definition the
       // machine already paired, the one address that cannot be the answer.
@@ -181,7 +225,7 @@ export default function Connect() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [adding]);
 
   useEffect(() => () => {
     if (successTimer.current) clearTimeout(successTimer.current);
@@ -447,29 +491,76 @@ export default function Connect() {
     forgetHost(url).then(setRecent, () => undefined);
   }, []);
 
+  /**
+   * Transition to a new stage with fade animation (crossfade).
+   * Reduced motion = instant cut.
+   */
+  const transitionToStage = useCallback(
+    (nextStage: Stage) => {
+      if (reducedMotion) {
+        setStage(nextStage);
+        return;
+      }
+
+      // Fade out
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: theme.motion.fast,
+        useNativeDriver: true,
+      }).start(() => {
+        setStage(nextStage);
+        // Fade in
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: theme.motion.base,
+          useNativeDriver: true,
+        }).start();
+      });
+    },
+    [fadeAnim, reducedMotion, theme.motion],
+  );
+
+  const onWelcomeContinue = useCallback(() => {
+    transitionToStage('how-it-works');
+  }, [transitionToStage]);
+
+  const onHowItWorksContinue = useCallback(() => {
+    transitionToStage('host');
+  }, [transitionToStage]);
+
+  const onHowItWorksBack = useCallback(() => {
+    transitionToStage('welcome');
+  }, [transitionToStage]);
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={{ flex: 1, backgroundColor: theme.colors.bg }}
     >
-      <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: theme.layout.margin,
-          paddingTop: insets.top + theme.space.lg,
-          paddingBottom: insets.bottom + theme.space.xl,
-          gap: theme.space.lg,
-          flexGrow: 1,
-          justifyContent: 'center',
-          width: '100%',
-          maxWidth: theme.layout.contentMaxWidth,
-          alignSelf: 'center',
-        }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <Brand />
+      <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+        {stage === 'welcome' ? (
+          <WelcomeScreen onContinue={onWelcomeContinue} />
+        ) : stage === 'how-it-works' ? (
+          <HowItWorksScreen onContinue={onHowItWorksContinue} onBack={onHowItWorksBack} />
+        ) : (
+          <ScrollView
+            contentContainerStyle={{
+              paddingHorizontal: theme.layout.margin,
+              paddingTop: insets.top + theme.space.lg,
+              paddingBottom: insets.bottom + theme.space.xl,
+              gap: theme.space.lg,
+              flexGrow: 1,
+              justifyContent: 'center',
+              width: '100%',
+              maxWidth: theme.layout.contentMaxWidth,
+              alignSelf: 'center',
+            }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Brand />
 
-        {stage === 'host' ? (
+            {stage === 'host' ? (
           <>
             <HostStep
               value={hostText}
@@ -531,6 +622,9 @@ export default function Connect() {
                 hostName={tailscaleOff}
                 detail={tailscaleDetail}
                 onRetry={onRetryTailscale}
+                onOpenTailscale={() => {
+                  awaitingTailscale.current = true;
+                }}
                 busy={busy}
               />
             ) : null}
@@ -548,8 +642,10 @@ export default function Connect() {
           </>
         ) : null}
 
-        {stage === 'success' && host ? <SuccessNotice name={host.name} /> : null}
-      </ScrollView>
+            {stage === 'success' && host ? <SuccessNotice name={host.name} /> : null}
+          </ScrollView>
+        )}
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 }
