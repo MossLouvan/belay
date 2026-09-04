@@ -679,7 +679,73 @@ allowed one `display`-weight word as the landing point on otherwise-empty screen
 
 ---
 
-## 12. Never do this
+## 12. Setup flow and onboarding
+
+### 12.1 Apple-style first-run experience
+
+First-time users (no saved devices) see a minimal, typography-first intro carousel before
+the connect flow:
+
+1. **Welcome** — huge "welcome to BELAY" headline, centered, lowercase-friendly, with
+   enormous negative space. Single tagline: "Control your computer from your phone. No
+   cloud, no middleman." One button: "Get started".
+2. **How it works** — clean vertical step list (01–04), each with mono ordinal,
+   heading, and detail. Minimal copy explaining: start host → connect phone → pair
+   once → control computer. "Connect now" button advances to the connect flow.
+3. **Connect** — the existing host/scan/code/success stages, simplified with flatter
+   styling (no glass panels, more negative space).
+
+Returning users (have recent hosts) skip straight to the connect flow. The intro is
+only shown once.
+
+### 12.2 Fade transitions between stages
+
+All setup stage transitions (welcome → how-it-works → connect, host → scan → code →
+success) use crossfade animations:
+- Fade out (120ms) → change stage → fade in (180ms)
+- Reduced motion: instant cuts, no animation
+- Uses `Animated` for smooth opacity transitions
+
+### 12.3 Seamless Tailscale return
+
+When Tailscale is needed but off, the flow opens the Tailscale app via deep link. An
+`AppState` listener detects when the user returns to Belay and automatically rechecks
+the tailnet connection — no manual "Retry" button press needed in the happy path.
+
+Implementation: when "Open Tailscale" is tapped, a flag is set. The `AppState` listener
+watches for transitions to `active` state; if the flag is set and we're on the code
+stage, it automatically calls the retry handler. This makes the Tailscale path feel
+seamless: open Tailscale → sign in → switch back → Belay continues pairing.
+
+The manual "I turned it on — connect" button remains as a fallback (shown after opening
+Tailscale), but most users never need it.
+
+### 12.4 Rope+carabiner brand splash
+
+The boot splash shows:
+- Blue curved rope (using `theme.colors.accentGraphic`) hanging across the top third
+- Carabiner clipped at the rope's sag point (center)
+- "BELAY" wordmark + "HOLD THE LINE" tagline at bottom-right
+- Animation sequence: rope drops down → carabiner slides in → wordmark fades up
+- Drawn with React Native Views and SVG for clean scaling and theme recoloring
+- Replaces the old two-square tether LogoMark on boot
+
+### 12.5 Notification carabiner
+
+Notifications (NeedsYou toasts, banners, or future native notifications) drop from
+the top-right with the carabiner mark:
+- Short rope segment above the carabiner
+- Carabiner drops down with spring animation (bouncy config)
+- Notification card hangs below
+- Auto-dismisses after 4 seconds (configurable)
+- Component: `NotificationCarabiner` in `app/src/ui/notification-carabiner.tsx`
+
+Brand consistency: the same carabiner design used in splash and notifications creates a
+cohesive visual language.
+
+---
+
+## 13. Never do this
 
 - No cards: no closed border boxes, no fills behind grouped content, no corner radius
   above 4pt anywhere (2pt standard; 4pt only on key-bar keys), no shadows/elevation.
