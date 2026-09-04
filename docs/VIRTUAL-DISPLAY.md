@@ -45,14 +45,49 @@ An indirect display never has a physical panel - that is the point of the
 model - so none of this needs a monitor attached, and it was all confirmed on
 a headless VM whose only "display" is Hyper-V's synthetic adapter.
 
+### Two constraints that fall out of this
+
+**The host must run ELEVATED to create a virtual display.** The devnode is
+ACL'd to SYSTEM + Administrators by the INF, so `SwDeviceCreate` from an
+ordinary user session fails with `0x80070005` and the helper says so. Belay
+running unelevated still works for everything else; only the virtual display
+needs it. On the dev VM this is done with a scheduled task
+(`/IT /RL HIGHEST`) so the server is both elevated and on the interactive
+desktop.
+
+**The host must be in the INTERACTIVE session** for the capture path (GDI
+`CopyFromScreen`) and for the pairing popup. Session 0 has no desktop: capture
+returns a blank frame and the popup reports `shown:false`.
+
+### Known limitation: changing mode after the first create
+
+The FIRST create applies exactly: request 1920x1080 and Windows reports
+`Belay Virtual Display Adapter -> 1920 x 1080`. A later create at a different
+mode returns `ok` and the driver reports the new mode, but the OS keeps the
+previous desktop resolution.
+
+The cause is deliberate elsewhere in this file: `MonitorContainerId` is a fixed
+GUID so Windows remembers the display's layout and scale across sessions. That
+same memory means a re-arriving monitor is restored to its remembered mode
+rather than adopting the new preferred one. Destroying and recreating is not
+enough.
+
+The fix is one of: call `IddCxMonitorUpdateModes` to update the mode list in
+place instead of tearing the monitor down, or have the host apply the mode with
+`ChangeDisplaySettingsEx` once the monitor has arrived. Neither is implemented
+yet, so treat "pick a resolution" as working once per session.
+
 ### Still not verified
 
-Belay's own **capture path over the virtual display**. The driver makes Windows
-render at the requested resolution; whether Desktop Duplication then streams
-that surface acceptably has not been tested, and on Hyper-V's synthetic video
-it may not be representative. The swap-chain drain (`SwapChainProcessor`) has
-not been exercised under real presentation either - a monitor exists, but
-nothing has driven frames through it yet.
+Capture over the virtual display now IS verified: a frame grabbed from the
+Belay display came back as a real 1920x1080 desktop - wallpaper, taskbar and
+all - on a guest whose only physical panel is 1366x768.
+
+What remains untested is **latency and quality under a real client**. Frames
+have been captured one at a time, not streamed; the swap-chain drain
+(`SwapChainProcessor`) has not been exercised under sustained presentation; and
+Hyper-V's synthetic video has no GPU behind it, so throughput measured here
+would not predict a real machine anyway.
 
 ## Fork-vs-build decision and license survey
 
