@@ -80,3 +80,5 @@ server/native/win-display/ARM64/
 server/native/win-display/Win32/
 server/native/win-display/*.cer
 server/native/win-display/*.pfx
+server/native/win-display/shim/
+server/native/BelayVddShim.dll

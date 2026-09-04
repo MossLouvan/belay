@@ -125,14 +125,35 @@ NTSTATUS BelayVddDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT pDeviceInit)
     status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_BELAYVDD, nullptr);
     if (!NT_SUCCESS(status)) return status;
 
-    // Stable symbolic link so the host opens \\.\BelayVDD without a SetupAPI
-    // interface walk. The link inherits the device object's security.
+    // Convenience symbolic link so the host can open \\.\BelayVDD directly.
+    //
+    // NOT fatal if it fails. The name is global, so a device that has not
+    // finished tearing down still owns it and this returns
+    // STATUS_OBJECT_NAME_COLLISION. Treating that as fatal made DeviceAdd fail
+    // — and because this call sits after WdfDeviceCreateDeviceInterface, the
+    // interface got rolled back with the device too, leaving user mode with no
+    // way in at all. The observable symptom was create attempts alternating
+    // pass/fail: a failed attempt leaves no link, so the next one succeeds, and
+    // that one's link then breaks the attempt after it.
+    //
+    // The device interface registered above is the supported discovery
+    // mechanism and is always present; the link is only a shortcut.
     DECLARE_CONST_UNICODE_STRING(symlink, L"\\DosDevices\\BelayVDD");
     status = WdfDeviceCreateSymbolicLink(device, &symlink);
-    if (!NT_SUCCESS(status)) return status;
+    if (!NT_SUCCESS(status)) {
+        // Deliberately swallowed: the host falls back to the interface GUID.
+        status = STATUS_SUCCESS;
+    }
 
-    // One SEQUENTIAL queue for IOCTLs: requests arrive one at a time, so the
-    // device context needs no locking and add/remove can never interleave.
+    // One SEQUENTIAL DEFAULT queue for IOCTLs: requests arrive one at a time, so
+    // the device context needs no locking and add/remove can never interleave.
+    //
+    // A default queue is correct here, and is what SudoVDA (the production IddCx
+    // driver this one is modelled on) uses. An earlier attempt to move the
+    // control codes onto a secondary queue with
+    // WdfDeviceConfigureRequestDispatching was rejected by the framework:
+    // DeviceAdd failed and the UMDF host reported 0xD0200204, so the device
+    // never loaded at all.
     WDF_IO_QUEUE_CONFIG queueConfig;
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchSequential);
     queueConfig.EvtIoDeviceControl = BelayVddIoDeviceControl;

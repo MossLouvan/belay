@@ -49,12 +49,56 @@ function Find-MSBuild([string]$relative) {
         Where-Object { $_ -like '*MSBuild.exe' -and (Test-Path $_) } |
         Select-Object -First 1
 }
-$msbuild = Find-MSBuild 'MSBuild\**\Binmd64\MSBuild.exe'
+$msbuild = Find-MSBuild 'MSBuild\**\Bin\amd64\MSBuild.exe'
+
+# Deterministic fallback: derive the path from the install root instead of
+# trusting the -find glob. Cheap insurance, and it stops a bad pattern above
+# from silently degrading to the 32-bit MSBuild, which then fails much later and
+# far less legibly, inside INF verification.
+if (-not $msbuild) {
+    $installPath = & $vswhere -nologo -latest -products * -property installationPath |
+        Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    if ($installPath) {
+        $candidate = Join-Path $installPath 'MSBuild\Current\Bin\amd64\MSBuild.exe'
+        if (Test-Path $candidate) { $msbuild = $candidate }
+    }
+}
+
 if (-not $msbuild) {
     $msbuild = Find-MSBuild 'MSBuild\**\Bin\MSBuild.exe'
     if ($msbuild) { Write-Warning 'Only 32-bit MSBuild found; INF verification may fail to load InfVerif.dll' }
 }
 if (-not $msbuild) { throw 'MSBuild not found via vswhere. Is VS2022 (or VS2022 Build Tools) installed?' }
+
+# ---- native shim ------------------------------------------------------------
+# SwDeviceCreate pins the module that owns its creation callback, and a CLR
+# delegate thunk belongs to no module - so the call fails from C# with
+# ERROR_MOD_NOT_FOUND no matter how the arguments are marshalled. See the header
+# of BelayVddShim.cpp. This builds the tiny DLL that owns that callback and
+# drops it beside BelayHost.exe, which P/Invokes it.
+$installPathForCl = & $vswhere -nologo -latest -products * -property installationPath |
+    Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+$vcvars = if ($installPathForCl) { Join-Path $installPathForCl 'VC\Auxiliary\Build\vcvars64.bat' } else { $null }
+
+if ($vcvars -and (Test-Path $vcvars)) {
+    $shimSrc = Join-Path $here 'BelayVddShim.cpp'
+    $shimOut = Join-Path $here 'shim'
+    New-Item -ItemType Directory -Force -Path $shimOut | Out-Null
+    $shimCmd = Join-Path $shimOut 'build-shim.cmd'
+    # cfgmgr32.lib does NOT export SwDeviceCreate - it lives in SwDevice.lib.
+    @"
+@echo off
+call "$vcvars" >nul
+cd /d "$shimOut"
+cl /nologo /W4 /O2 /LD /DUNICODE /D_UNICODE "$shimSrc" /Fe:BelayVddShim.dll /link SwDevice.lib cfgmgr32.lib
+"@ | Set-Content -Path $shimCmd -Encoding ASCII
+
+    & cmd /c $shimCmd
+    if ($LASTEXITCODE -ne 0) { throw "BelayVddShim.dll failed to build (exit $LASTEXITCODE)" }
+    Write-Host "Built shim: $(Join-Path $shimOut 'BelayVddShim.dll')"
+} else {
+    Write-Warning 'vcvars64.bat not found; skipping BelayVddShim.dll (virtual display creation will fail from the C# host)'
+}
 
 # ---- build ------------------------------------------------------------------
 $proj = Join-Path $here 'BelayVdd.vcxproj'
@@ -122,9 +166,31 @@ if (-not $TestCertPfx) {
     $cer = Join-Path $here 'BelayVddTest.cer'
     Export-Certificate -Cert $cert -FilePath $cer -Force | Out-Null
     if ($isAdmin) {
-        Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
-        Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
-        Write-Host "Test cert trusted in LocalMachine\Root and LocalMachine\TrustedPublisher."
+        # certutil, not Import-Certificate. The Cert: provider writes to
+        # LocalMachine\Root through a path that fails with E_ACCESSDENIED in
+        # non-interactive sessions (PowerShell Direct, WinRM, scheduled tasks)
+        # even when the token really is elevated. certutil talks to the store
+        # API directly and works in all of them.
+        $trusted = $true
+        foreach ($store in 'Root', 'TrustedPublisher') {
+            $out = & certutil -f -addstore $store $cer 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                $trusted = $false
+                Write-Warning "certutil -addstore $store failed: $($out | Out-String)"
+                # Fall back to the provider in case certutil is unavailable.
+                try {
+                    Import-Certificate -FilePath $cer -CertStoreLocation "Cert:\LocalMachine\$store" -ErrorAction Stop | Out-Null
+                    $trusted = $true
+                } catch {
+                    Write-Warning "Import-Certificate $store also failed: $($_.Exception.Message)"
+                }
+            }
+        }
+        if ($trusted) {
+            Write-Host "Test cert trusted in LocalMachine\Root and LocalMachine\TrustedPublisher."
+        } else {
+            Write-Warning "Could not trust the test cert; pnputil will reject the package."
+        }
     } else {
         Write-Warning "Not elevated - the test cert was NOT added to the machine trust stores."
         Write-Warning "Run these in an ELEVATED PowerShell before pnputil, or the install will fail:"
@@ -136,6 +202,15 @@ if (-not $TestCertPfx) {
 $dist = Join-Path $here "dist\$Platform\BelayVdd"
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 Copy-Item (Join-Path $outDir '*') $dist -Recurse -Force
+
+# The shim is NOT part of the driver package - it must not go in the .cat or the
+# Driver Store. It belongs beside BelayHost.exe, which loads it by name.
+$shimDll = Join-Path $here 'shim\BelayVddShim.dll'
+if (Test-Path $shimDll) {
+    $hostDir = Resolve-Path (Join-Path $here '..')
+    Copy-Item $shimDll $hostDir -Force
+    Write-Host "Shim installed beside the host helper: $(Join-Path $hostDir 'BelayVddShim.dll')"
+}
 
 Write-Host ''
 Write-Host "Built and TEST-signed: $dist"

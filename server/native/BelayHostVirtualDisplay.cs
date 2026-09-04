@@ -39,6 +39,11 @@ static class BelayVirtualDisplay
 
     const string SymbolicLink = "\\\\.\\BelayVDD";
     const string HardwareId = "Root\\BelayVDD";
+
+    // GUID_DEVINTERFACE_BELAYVDD — must match BelayVddIoctl.h exactly.
+    // {7f2a6b41-9c1e-4d0b-a2c5-58e1b0d4f9a3}
+    static readonly Guid InterfaceGuid = new Guid(
+        0x7f2a6b41, 0x9c1e, 0x4d0b, 0xa2, 0xc5, 0x58, 0xe1, 0xb0, 0xd4, 0xf9, 0xa3);
     const uint ProtocolVersion = 1;
 
     const uint MinWidth = 640, MaxWidth = 7680;
@@ -170,29 +175,73 @@ static class BelayVirtualDisplay
                                 ", host expects v" + ProtocolVersion + " — reinstall the driver");
     }
 
+    /// Every way we know of to reach the control device, best first.
+    ///
+    /// The device INTERFACE is authoritative: the driver always registers it,
+    /// and its path is unique per devnode. The \\.\BelayVDD symbolic link is a
+    /// convenience that can legitimately be missing — the name is global, so a
+    /// device still tearing down owns it and the new one cannot claim it.
+    /// Relying on the link alone made the host fail with "device did not
+    /// appear" against a devnode that was actually healthy.
+    static IEnumerable<string> CandidatePaths()
+    {
+        foreach (string p in DeviceInterfacePaths()) yield return p;
+        yield return SymbolicLink;
+    }
+
+    /// Interface paths for GUID_DEVINTERFACE_BELAYVDD, present devices only.
+    static List<string> DeviceInterfacePaths()
+    {
+        var result = new List<string>();
+        try
+        {
+            Guid guid = InterfaceGuid;
+            int len;
+            // CR_SUCCESS == 0; flag 0 = CM_GET_DEVICE_INTERFACE_LIST_PRESENT
+            if (CM_Get_Device_Interface_List_SizeW(out len, ref guid, null, 0) != 0 || len <= 1)
+                return result;
+            var buf = new char[len];
+            if (CM_Get_Device_Interface_ListW(ref guid, null, buf, len, 0) != 0)
+                return result;
+            foreach (string s in new string(buf).Split('\0'))
+                if (!string.IsNullOrEmpty(s)) result.Add(s);
+        }
+        catch (DllNotFoundException) { /* fall back to the symlink */ }
+        catch (EntryPointNotFoundException) { }
+        return result;
+    }
+
     static SafeFileHandle TryOpenControlDevice()
     {
-        SafeFileHandle h = CreateFileW(SymbolicLink, 0xC0000000 /* GENERIC_READ|WRITE */,
-            0, IntPtr.Zero, 3 /* OPEN_EXISTING */, 0, IntPtr.Zero);
-        if (h.IsInvalid) { h.Dispose(); return null; }
-        return h;
+        foreach (string path in CandidatePaths())
+        {
+            SafeFileHandle h = CreateFileW(path, 0xC0000000 /* GENERIC_READ|WRITE */,
+                0, IntPtr.Zero, 3 /* OPEN_EXISTING */, 0, IntPtr.Zero);
+            if (!h.IsInvalid) return h;
+            h.Dispose();
+        }
+        return null;
     }
 
     static SafeFileHandle OpenControlDevice()
     {
         // The software device may take a moment to start after creation, so a
         // few short retries — not an unbounded loop.
+        int lastErr = 0;
         for (int attempt = 0; ; attempt++)
         {
-            SafeFileHandle h = CreateFileW(SymbolicLink, 0xC0000000, 0, IntPtr.Zero, 3, 0, IntPtr.Zero);
-            if (!h.IsInvalid) return h;
-            int err = Marshal.GetLastWin32Error();
-            h.Dispose();
-            if (err == 5) // ERROR_ACCESS_DENIED
-                throw new Exception("access to BelayVDD denied: the Belay host must run elevated " +
-                                    "(the device is ACL'd to Administrators) — see docs/VIRTUAL-DISPLAY.md");
+            foreach (string path in CandidatePaths())
+            {
+                SafeFileHandle h = CreateFileW(path, 0xC0000000, 0, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                if (!h.IsInvalid) return h;
+                lastErr = Marshal.GetLastWin32Error();
+                h.Dispose();
+                if (lastErr == 5) // ERROR_ACCESS_DENIED
+                    throw new Exception("access to BelayVDD denied: the Belay host must run elevated " +
+                                        "(the device is ACL'd to Administrators) — see docs/VIRTUAL-DISPLAY.md");
+            }
             if (attempt >= 10)
-                throw new Exception("BelayVDD device did not appear (win32 error " + err + "). " +
+                throw new Exception("BelayVDD device did not appear (win32 error " + lastErr + "). " +
                                     "Is the driver installed? See docs/VIRTUAL-DISPLAY.md");
             Thread.Sleep(200);
         }
@@ -209,10 +258,8 @@ static class BelayVirtualDisplay
 
     static IntPtr swDevice = IntPtr.Zero;
     static readonly object swDeviceLock = new object();
-    // Rooted for the life of the process: Windows may invoke the callback
-    // again on device restarts, and a collected delegate is a native callback
-    // into freed memory.
-    static SW_DEVICE_CREATE_CALLBACK swDeviceCallback;
+    // The creation callback lives in BelayVddShim.dll, not here, so there is no
+    // managed delegate to root. See EnsureSoftwareDevice for why.
 
     static void EnsureSoftwareDevice()
     {
@@ -220,48 +267,86 @@ static class BelayVirtualDisplay
         {
             if (swDevice != IntPtr.Zero) return;
 
-            var created = new ManualResetEvent(false);
-            int createResult = -1;
-            swDeviceCallback = delegate(IntPtr device, int hrCreate, IntPtr context, string instanceId)
-            {
-                createResult = hrCreate;
-                created.Set();
-            };
-            SW_DEVICE_CREATE_CALLBACK callback = swDeviceCallback;
-
-            var info = new SW_DEVICE_CREATE_INFO();
-            info.cbSize = Marshal.SizeOf(typeof(SW_DEVICE_CREATE_INFO));
-            info.pszInstanceId = "BelayVDD";
-            info.pszzHardwareIds = HardwareId + "\0\0";
-            info.pszzCompatibleIds = null;
-            info.pszDeviceDescription = "Belay Virtual Display Adapter";
-            // SW_DEVICE_CAPABILITIES flags (cfgmgr32.h):
-            //   Removable = 0x1, SilentInstall = 0x2, NoDisplayInUI = 0x4,
-            //   DriverRequired = 0x8.
-            // DriverRequired is 0x8, NOT 0x2 — asking for 0x2 alone requests a
-            // silent install and lets the devnode come up with no driver bound,
-            // so a missing/unsigned BelayVdd.sys would look like success and
-            // then fail later at CreateFile with a confusing "device not found".
-            // Removable lets the device be torn down cleanly on SwDeviceClose.
-            info.CapabilityFlags = 0x1 | 0x2 | 0x8;
-
+            // Why this goes through a native shim instead of calling
+            // SwDeviceCreate directly from here:
+            //
+            // SwDeviceCreate requires a creation callback and pins the module
+            // that OWNS that callback for the device's lifetime. A CLR delegate
+            // is a runtime-generated thunk belonging to no loaded module, so
+            // that lookup fails and the call returns 0x8007007E
+            // (ERROR_MOD_NOT_FOUND) before the device is created and before the
+            // callback ever runs. Verified on Windows 11 26200: the identical
+            // call succeeds from native C++ and fails from .NET three different
+            // ways (plain DllImport, raw-pointer struct, and GetProcAddress +
+            // GetDelegateForFunctionPointer). A null callback is refused with
+            // E_INVALIDARG, so there is no pure-managed way to make this call.
+            //
+            // BelayVddShim.dll exists solely to own that callback. It is built
+            // by build-driver.ps1 and dropped beside this helper.
             IntPtr handle;
-            int hr = SwDeviceCreate("BelayVDD", "HTREE\\ROOT\\0", ref info, 0, IntPtr.Zero, callback, IntPtr.Zero, out handle);
-            if (hr != 0) throw new Win32Exception(hr, "SwDeviceCreate failed");
+            int hr;
+            try
+            {
+                // SW_DEVICE_CAPABILITIES (cfgmgr32.h): Removable = 0x1,
+                // SilentInstall = 0x2, NoDisplayInUI = 0x4, DriverRequired = 0x8.
+                // DriverRequired matters: without it the devnode comes up even
+                // when no driver binds, so a missing or signature-blocked driver
+                // would look like success and only fail later at CreateFile.
+                hr = BelayVddShimCreate("BelayVDD", HardwareId, 0x1 | 0x2 | 0x8, 20000, out handle);
+            }
+            catch (DllNotFoundException)
+            {
+                throw new Exception(
+                    "BelayVddShim.dll is missing next to BelayHost.exe. It is built by " +
+                    "server/native/win-display/build-driver.ps1 — build the driver package " +
+                    "first. See docs/VIRTUAL-DISPLAY.md");
+            }
+            catch (EntryPointNotFoundException)
+            {
+                throw new Exception(
+                    "BelayVddShim.dll is present but out of date (BelayVddShimCreate not found). " +
+                    "Rebuild it with server/native/win-display/build-driver.ps1");
+            }
 
-            if (!created.WaitOne(15000))
+            if (hr != 0)
             {
-                SwDeviceClose(handle);
-                throw new Exception("timed out waiting for the BelayVDD device to start — " +
-                                    "is the driver installed and signed? See docs/VIRTUAL-DISPLAY.md");
+                throw new Exception(Describe(
+                    "BelayVDD device creation failed (driver missing or blocked by signing policy?)", hr));
             }
-            if (createResult != 0)
-            {
-                SwDeviceClose(handle);
-                throw new Win32Exception(createResult, "BelayVDD device creation failed (driver missing or blocked by signing policy?)");
-            }
+
             swDevice = handle; // held for process lifetime: lifetime == handle
         }
+    }
+
+    /// Win32 error -> HRESULT, so Describe() can render it uniformly.
+    static int HrFromWin32(int err)
+    {
+        if (err <= 0) return err;
+        return unchecked((int)(0x80070000 | ((uint)err & 0xFFFF)));
+    }
+
+    /// Render an HRESULT so a failure is actionable instead of a bare sentence.
+    /// `new Win32Exception(hr, message)` REPLACES the system text with `message`,
+    /// so the code itself was being thrown away — the difference between "it
+    /// didn't work" and "E_ACCESSDENIED: you are not elevated".
+    static string Describe(string what, int hr)
+    {
+        string detail;
+        try { detail = new Win32Exception(hr).Message; }
+        catch { detail = "(no description)"; }
+
+        string hint = "";
+        switch ((uint)hr)
+        {
+            case 0x80070005: hint = " — access denied; the Belay host must run elevated"; break;
+            case 0x80070057: hint = " — invalid argument; SW_DEVICE_CREATE_INFO layout or hardware id is wrong"; break;
+            case 0x800705B4: hint = " — timeout waiting for the device to start"; break;
+            case 0x800F0242:
+            case 0x800B0109: hint = " — driver signature rejected; is test signing on and the cert trusted?"; break;
+            case 0x8007000E: hint = " — out of memory"; break;
+            case 0x80070490: hint = " — element not found; no driver matched hardware id Root\\BelayVDD"; break;
+        }
+        return what + " (hr=0x" + ((uint)hr).ToString("x8") + ": " + detail + ")" + hint;
     }
 
     // ---- IOCTL helpers -----------------------------------------------------
@@ -270,7 +355,7 @@ static class BelayVirtualDisplay
     {
         uint returned;
         if (!DeviceIoControl(device, code, IntPtr.Zero, 0, IntPtr.Zero, 0, out returned, IntPtr.Zero))
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "BelayVDD ioctl 0x" + code.ToString("x") + " failed");
+            throw new Exception(Describe("BelayVDD ioctl 0x" + code.ToString("x") + " failed", HrFromWin32(Marshal.GetLastWin32Error())));
     }
 
     static TOut IoctlOut<TOut>(SafeFileHandle device, uint code) where TOut : struct
@@ -281,7 +366,7 @@ static class BelayVirtualDisplay
         {
             uint returned;
             if (!DeviceIoControl(device, code, IntPtr.Zero, 0, outBuf, (uint)outSize, out returned, IntPtr.Zero))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "BelayVDD ioctl 0x" + code.ToString("x") + " failed");
+                throw new Exception(Describe("BelayVDD ioctl 0x" + code.ToString("x") + " failed", HrFromWin32(Marshal.GetLastWin32Error())));
             if (returned < outSize)
                 throw new Exception("BelayVDD ioctl 0x" + code.ToString("x") + " returned " + returned + " bytes, expected " + outSize);
             return (TOut)Marshal.PtrToStructure(outBuf, typeof(TOut));
@@ -301,7 +386,7 @@ static class BelayVirtualDisplay
             Marshal.StructureToPtr(input, inBuf, false);
             uint returned;
             if (!DeviceIoControl(device, code, inBuf, (uint)inSize, outBuf, (uint)outSize, out returned, IntPtr.Zero))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "BelayVDD ioctl 0x" + code.ToString("x") + " failed");
+                throw new Exception(Describe("BelayVDD ioctl 0x" + code.ToString("x") + " failed", HrFromWin32(Marshal.GetLastWin32Error())));
             if (returned < outSize)
                 throw new Exception("BelayVDD ioctl 0x" + code.ToString("x") + " returned " + returned + " bytes, expected " + outSize);
             return (TOut)Marshal.PtrToStructure(outBuf, typeof(TOut));
@@ -321,29 +406,28 @@ static class BelayVirtualDisplay
         IntPtr inBuffer, uint inBufferSize, IntPtr outBuffer, uint outBufferSize,
         out uint bytesReturned, IntPtr overlapped);
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    struct SW_DEVICE_CREATE_INFO
-    {
-        public int cbSize;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pszInstanceId;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pszzHardwareIds;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pszzCompatibleIds;
-        public IntPtr pContainerId;
-        public uint CapabilityFlags;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pszDeviceDescription;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pszDeviceLocation;
-        public IntPtr pSecurityDescriptor;
-    }
+    // SW_DEVICE_CREATE_INFO and SW_DEVICE_CREATE_CALLBACK are deliberately NOT
+    // declared here any more. They only existed to call SwDeviceCreate from
+    // managed code, which cannot work: see EnsureSoftwareDevice. The struct now
+    // lives in BelayVddShim.cpp where the compiler lays it out natively.
 
-    [UnmanagedFunctionPointer(CallingConvention.Winapi, CharSet = CharSet.Unicode)]
-    delegate void SW_DEVICE_CREATE_CALLBACK(IntPtr swDevice, int createResult, IntPtr context,
-        [MarshalAs(UnmanagedType.LPWStr)] string deviceInstanceId);
+    // BelayVddShim.dll — built by win-display/build-driver.ps1 and placed beside
+    // BelayHost.exe. See EnsureSoftwareDevice for why SwDeviceCreate cannot be
+    // called directly from managed code.
+    [DllImport("BelayVddShim.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall)]
+    static extern int BelayVddShimCreate(string instanceId, string hardwareId,
+        uint capabilityFlags, uint timeoutMs, out IntPtr swDevice);
 
-    [DllImport("cfgmgr32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    static extern int SwDeviceCreate(string enumeratorName, string parentDeviceInstance,
-        ref SW_DEVICE_CREATE_INFO createInfo, uint propertyCount, IntPtr properties,
-        SW_DEVICE_CREATE_CALLBACK callback, IntPtr context, out IntPtr swDevice);
+    [DllImport("BelayVddShim.dll", CallingConvention = CallingConvention.StdCall)]
+    static extern void BelayVddShimClose(IntPtr swDevice);
 
-    [DllImport("cfgmgr32.dll")]
-    static extern void SwDeviceClose(IntPtr swDevice);
+    // Device interface enumeration. Unlike SwDeviceCreate these take no
+    // callback, so they are safe to call straight from managed code.
+    [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode)]
+    static extern int CM_Get_Device_Interface_List_SizeW(out int length, ref Guid interfaceClass,
+        string deviceId, int flags);
+
+    [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode)]
+    static extern int CM_Get_Device_Interface_ListW(ref Guid interfaceClass, string deviceId,
+        char[] buffer, int bufferLength, int flags);
 }
