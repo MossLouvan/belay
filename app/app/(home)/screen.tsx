@@ -96,6 +96,7 @@ import {
 import type { ModsState, StickyMod } from '../../src/screen/mods';
 import { useAutoHide } from '../../src/screen/useAutoHide';
 import {
+  ChevronGlyph,
   Crosshair,
   DotsGlyph,
   FullscreenGlyph,
@@ -105,6 +106,9 @@ import {
   StageButton,
   StreamHud,
 } from '../../src/screen/parts';
+import { EdgeRevealStrip } from '../../src/screen/edge-reveal';
+import { TrackpadSurface } from '../../src/screen/trackpad-surface';
+import { PAD_CURSOR_LINGER_MS } from '../../src/screen/trackpad';
 import { ControlDock } from '../../src/screen/dock';
 import { PanelState } from '../../src/screen/panel-state';
 import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
@@ -241,14 +245,15 @@ export default function ScreenTab() {
   const stageRef = useRef<Size>(EMPTY_SIZE);
   stageRef.current = stage;
 
-  // In (portrait) fullscreen the floating dock hides after 4s untouched;
-  // while the text field is open it stays put (the keyboard is up — hiding
-  // under the user's thumbs would be hostile). Stage touches never poke this:
-  // they are remote input, and the only reveal is the pinned corner control.
-  // Landscape deliberately never auto-hides: rotation has no Exit control to
-  // poke the bar back, so the floating bar simply stays.
-  const dockHide = useAutoHide(fullscreen && !typeOpen);
-  const dockShown = !fullscreen || dockHide.visible;
+  // While immersive (portrait fullscreen OR landscape) the floating dock
+  // hides after 4s untouched; while the text field or the key bar is open it
+  // stays put (the user is actively working the bar — hiding it under their
+  // thumbs would be hostile). Stage touches never poke this: they are remote
+  // input. The reveal is a swipe UP from the very bottom edge of the screen
+  // (EdgeRevealStrip) — an edge gesture that can never be mistaken for a
+  // remote click or scroll — plus a Hide chevron for the deliberate dismiss.
+  const dockHide = useAutoHide(immersive && !typeOpen && !keysOn);
+  const dockShown = !immersive || dockHide.visible;
   const dockOpacity = useToggleAnimation(dockShown, theme.motion.fast);
 
   // Transient toast for one-shot input failures. Timer cleared on unmount.
@@ -284,6 +289,24 @@ export default function ScreenTab() {
     },
     [isMac, reportError]
   );
+  // The deadspace pad drives the shared cursor whatever the pointer mode is;
+  // while it does — and for a short linger after — the crosshair shows over
+  // the picture, so the user can see where a pad tap would click even with
+  // the dock set to touch or scroll.
+  const [padCursor, setPadCursor] = useState(false);
+  const padCursorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const onPadInput = useCallback(() => {
+    setPadCursor(true);
+    if (padCursorTimer.current) clearTimeout(padCursorTimer.current);
+    padCursorTimer.current = setTimeout(() => setPadCursor(false), PAD_CURSOR_LINGER_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (padCursorTimer.current) clearTimeout(padCursorTimer.current);
+    },
+    []
+  );
+
   const viewport = useViewport({
     sizeRef: stageRef,
     mode,
@@ -296,6 +319,7 @@ export default function ScreenTab() {
     onPointer: spendLatch,
     activeMods: () => modNamesForHost(activeMods(modsRef.current), isMac),
     onSwipe,
+    onPadInput,
   });
 
   const onBoxLayout = useCallback((event: LayoutChangeEvent) => {
@@ -440,9 +464,9 @@ export default function ScreenTab() {
   // has its companion controls on screen with it.
   const toggleKeys = useCallback(() => {
     dismissHint();
-    if (fullscreen) dockHide.poke();
+    if (immersive) dockHide.poke();
     setKeysOn((v) => !v);
-  }, [fullscreen, dockHide, dismissHint]);
+  }, [immersive, dockHide, dismissHint]);
   const toggleFullscreen = useCallback(() => {
     // The floating type bar is anchored to this layout's bottom edge; the
     // fullscreen flip moves that edge without a keyboard event to re-measure
@@ -592,7 +616,7 @@ export default function ScreenTab() {
         recordPhase={recordPhase}
         onRecord={onRecordKey}
         floating={immersive}
-        onInteract={fullscreen ? dockHide.poke : undefined}
+        onInteract={immersive ? dockHide.poke : undefined}
         onOpenClipboard={() => setShowClipboard(true)}
         keysOn={keysOn}
         onToggleKeys={toggleKeys}
@@ -677,9 +701,24 @@ export default function ScreenTab() {
           justifyContent: immersive ? 'center' : 'flex-start',
         }}
       >
+        {/* The deadspace trackpad: fills the whole panel BEHIND the stage, so
+            every touch the letterboxed picture does not claim — the black gap
+            between stream and control bar above all — is a laptop trackpad
+            instead of a hole gestures fall through to the navigation. Mounted
+            only while there is a live picture: with the panel-state guidance
+            up there is nothing to point at. */}
+        {!showPanelState ? (
+          <TrackpadSurface
+            testID="trackpad-surface"
+            handlers={viewport.padHandlers}
+            boxH={box.h}
+            stageH={stage.h}
+            immersive={immersive}
+          />
+        ) : null}
         <View
           testID="screen-surface"
-          accessibilityLabel="Remote screen. Tap to click, long press to right-click, pinch to zoom, two fingers to scroll, three fingers to switch desktops."
+          accessibilityLabel="Remote screen. Tap to click, long press or two-finger tap to right-click, pinch to zoom, two fingers to scroll, three fingers to switch desktops."
           {...viewport.handlers}
           style={{
             width: stage.w > 0 ? stage.w : '100%',
@@ -712,7 +751,7 @@ export default function ScreenTab() {
                 resizeMode="cover"
               />
             ) : null}
-            {mode === 'trackpad' && stream.frameUri ? (
+            {(mode === 'trackpad' || padCursor) && stream.frameUri ? (
               <Crosshair x={viewport.cursorX} y={viewport.cursorY} color={theme.colors.accent} />
             ) : null}
           </Animated.View>
@@ -790,9 +829,28 @@ export default function ScreenTab() {
             opacity: dockOpacity,
           }}
         >
+          {/* The deliberate dismiss: a labelled chevron riding the bar's top
+              edge. Its counterpart — the ONLY way back by touch — is the
+              bottom-edge swipe below. */}
+          <View style={{ alignItems: 'flex-end', marginBottom: theme.space.xxs }}>
+            <StageButton
+              testID="dock-hide"
+              glyph={<ChevronGlyph direction="down" color={HUD.ink} />}
+              label="Hide"
+              accessibilityLabel="Hide the control bar. Swipe up from the bottom edge to bring it back."
+              onPress={dockHide.hide}
+            />
+          </View>
           {controls}
         </Animated.View>
       )}
+
+      {/* While the immersive bar is away, a thin strip on the very bottom
+          edge waits for the reveal swipe. Mounted only then, so it can never
+          sit between a finger and the desktop while the bar is up. */}
+      {immersive && !dockShown ? (
+        <EdgeRevealStrip testID="edge-reveal" bottomInset={insets.bottom} onReveal={dockHide.poke} />
+      ) : null}
 
       {/* The type-to-PC row, floating on the keyboard's top edge. Absolute so
           opening it moves NOTHING else: the stage keeps its size (the keyboard
@@ -964,9 +1022,17 @@ export default function ScreenTab() {
           </Caption>
           <Txt variant="bodyStrong">All modes</Txt>
           <Caption>
-            Pinch to zoom, two-finger drag to scroll. The right-click and double-click controls in the dock arm the next
-            tap only. Swipe three fingers left or right to switch to the next or previous desktop, or three fingers up
-            for Mission Control / Task View — the Desk keys on the key bar's last page do the same by touch.
+            Pinch to zoom, two-finger drag to scroll, and a quick two-finger tap right-clicks — the Mac trackpad's
+            secondary click. Double-tap for a real double-click. The right-click and double-click controls in the dock
+            arm the next tap only. Swipe three fingers left or right to switch to the next or previous desktop, or
+            three fingers up for Mission Control / Task View — the Desk keys on the key bar's last page do the same by
+            touch.
+          </Caption>
+          <Txt variant="bodyStrong">The black gap is a trackpad</Txt>
+          <Caption>
+            The space between the picture and the control bar is a laptop trackpad, whatever mode is on: drag to move
+            the pointer, tap to click it, two fingers to scroll. In landscape the control bar tucks away after a few
+            seconds — swipe up from the very bottom edge of the screen to bring it back.
           </Caption>
           <Txt variant="bodyStrong">Key bar pages</Txt>
           <Caption>

@@ -5,7 +5,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AUTO_HIDE_MS, ZOOM_DIM_MS, DIMMED_OPACITY, stillVisible, hideDelayRemaining } from './autohide.ts';
+import {
+  AUTO_HIDE_MS,
+  ZOOM_DIM_MS,
+  DIMMED_OPACITY,
+  REVEAL_EDGE_PX,
+  REVEAL_SWIPE_PX,
+  isRevealSwipe,
+  stillVisible,
+  hideDelayRemaining,
+} from './autohide.ts';
 
 test('the dock outlives a touch by exactly the advertised window', () => {
   const poked = 10_000;
@@ -35,4 +44,32 @@ test('a poke from the future (clock skew) behaves like "just now"', () => {
 test('the tuning constants keep their intent: dim before hide, and truly dim', () => {
   assert.ok(ZOOM_DIM_MS < AUTO_HIDE_MS, 'the pill dims sooner than the dock hides');
   assert.ok(DIMMED_OPACITY > 0 && DIMMED_OPACITY < 0.5, 'dimmed overlays stay findable but recede');
+});
+
+// --- the bottom-edge reveal swipe -------------------------------------------
+//
+// While the immersive bar is hidden, a thin strip on the very bottom edge
+// listens for an upward swipe. `isRevealSwipe` is the claim rule: the strip
+// takes the gesture only once the finger has committed upward, so a remote
+// scroll or click elsewhere on the stage can never be mistaken for it.
+
+test('an upward swipe from the edge reveals', () => {
+  assert.equal(isRevealSwipe(0, -REVEAL_SWIPE_PX), true, 'straight up at the threshold');
+  assert.equal(isRevealSwipe(4, -40), true, 'a fast committed swipe with a little slant');
+});
+
+test('a still touch, a tap, or a downward drag never claims', () => {
+  assert.equal(isRevealSwipe(0, 0), false);
+  assert.equal(isRevealSwipe(0, -(REVEAL_SWIPE_PX - 1)), false, 'under the commitment threshold');
+  assert.equal(isRevealSwipe(0, REVEAL_SWIPE_PX * 2), false, 'downward is not a reveal');
+});
+
+test('a sideways drag never claims, however long', () => {
+  assert.equal(isRevealSwipe(200, -REVEAL_SWIPE_PX), false, 'mostly horizontal is not a reveal');
+  assert.equal(isRevealSwipe(-200, -REVEAL_SWIPE_PX), false);
+});
+
+test('the strip is thin: an edge affordance, not a dead band over the desktop', () => {
+  assert.ok(REVEAL_EDGE_PX >= 16 && REVEAL_EDGE_PX <= 32);
+  assert.ok(REVEAL_SWIPE_PX >= 8, 'jitter alone must not reveal');
 });

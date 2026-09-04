@@ -75,6 +75,13 @@ export const GESTURE = Object.freeze({
   doubleTapMs: 260,
   doubleTapSlop: 0.06,
   longPressMs: 320, // faster hold-to-right-click
+  /** Two fingers down and up inside this window (ms) with no real travel is
+   *  a right-click at the pair's centroid — the Mac trackpad's secondary
+   *  click. Longer, or any movement, and the pair stays scroll/pinch. */
+  twoFingerTapMs: 250,
+  /** Centroid drift (px) the two-finger tap forgives. Kept ≥ scrollThresholdPx
+   *  so no drift band is too still to scroll yet too travelled to tap. */
+  twoFingerTapSlopPx: 12,
   minScale: 1,
   maxScale: 6,
   zoomStep: 1.6,
