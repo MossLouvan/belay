@@ -279,6 +279,10 @@ export default function TabsLayout() {
         headerShown: false,
         // Tab switches crossfade; the bar itself holds perfectly still.
         animation: 'fade',
+        // Freeze inactive tabs (react-native-screens): a blurred tab stops
+        // re-rendering and running its effects, so switching is snappy instead
+        // of fighting five live screens (stream, polls) at once.
+        freezeOnBlur: true,
         // Selection = the accent; rest state = the micro-label's usual textDim.
         tabBarActiveTintColor: theme.colors.accent,
         tabBarInactiveTintColor: theme.colors.textDim,
