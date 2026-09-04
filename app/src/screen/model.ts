@@ -70,7 +70,11 @@ export const STREAM = Object.freeze({
 
 export const GESTURE = Object.freeze({
   tapSlopPx: 8,
-  longPressMs: 480,
+  /** Two taps within this window (ms) and this normalized distance become a
+   *  native double-click — no need to arm the 2×CLICK key. */
+  doubleTapMs: 260,
+  doubleTapSlop: 0.06,
+  longPressMs: 320, // faster hold-to-right-click
   minScale: 1,
   maxScale: 6,
   zoomStep: 1.6,
@@ -84,8 +88,8 @@ export const GESTURE = Object.freeze({
    * so a screen-height drag moves the page meaningfully further. "Still too
    * slow" and "too twitchy" are both answered here, in one edit.
    */
-  scrollGain: 1.6,
-  maxNotchesPerSend: 8,
+  scrollGain: 3.0, // faster wheel — a screen drag moves the page a long way
+  maxNotchesPerSend: 16,
   moveThrottleMs: 40,
   // Tuned down from 60 alongside scrollGain: a higher gain packs more notches
   // into each send, and stretching the same delta over fewer, larger events
