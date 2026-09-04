@@ -10,7 +10,7 @@
 // PowerShell's AMSI heuristic when it is scanned as script text. A normal
 // compiled binary the user builds locally does not go through that path.
 //
-// Commands: info | capture | move | down | up | click | scroll | key | text | ping
+// Commands: info | capture | move | down | up | click | scroll | key | text | ping | idle
 //           audiostart | audiostop | audiostatus  (WASAPI loopback, BelayHostAudio.cs)
 
 using System;
@@ -46,6 +46,33 @@ static class Native
     [DllImport("user32.dll", SetLastError = true)]
     static extern uint SendInput(uint n, INPUT[] p, int cb);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+    [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO pli);
+    [DllImport("kernel32.dll")] static extern uint GetTickCount();
+
+    /// <summary>
+    /// Milliseconds since the last keyboard or mouse event in this session,
+    /// or -1 when the OS will not say.
+    ///
+    /// GetLastInputInfo counts input we injected ourselves, so this number
+    /// alone cannot distinguish a human from a remote click — Node discounts
+    /// its own injections (server/src/input-floor.ts, isLocalActivity).
+    ///
+    /// Both counters are 32-bit millisecond tick counts that wrap every ~49
+    /// days, and they can wrap between the two calls. Unsigned subtraction in
+    /// uint space wraps identically, which is exactly the arithmetic that makes
+    /// the difference come out right across the boundary; the result is only
+    /// widened to a signed long afterwards.
+    /// </summary>
+    internal static long IdleMs()
+    {
+        var lii = new LASTINPUTINFO();
+        lii.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
+        if (!GetLastInputInfo(ref lii)) return -1;
+        return (long)(GetTickCount() - lii.dwTime);
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT { public int x; public int y; }
@@ -216,6 +243,10 @@ static class BelayHost
                     case "capturewindow": DoCaptureWindow(stdout, idObj, c); break;
                     case "focuswindow": DoFocusWindow(stdout, idObj, c); break;
                     case "ping": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "pong", true } }); break;
+                    // How long since anyone touched this machine's own keyboard
+                    // or mouse. Node uses it to hand the desktop back to the
+                    // person sitting at it (server/src/input-floor.ts).
+                    case "idle": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "idleMs", Native.IdleMs() } }); break;
                     case "webrtc": DoWebrtc(stdout, idObj, c); break;
                     // Virtual display driver (opt-in; Node gates it behind
                     // BELAY_VIRTUAL_DISPLAY). Needs the BelayVDD driver from

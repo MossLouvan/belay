@@ -82,6 +82,8 @@ import {
   useScreenStream,
 } from '../../src/screen/stream';
 import { useViewport } from '../../src/screen/viewport';
+import { useRemoteCursors } from '../../src/screen/cursors-store';
+import { RemoteCursors } from '../../src/screen/cursors-overlay';
 import type { PendingButton, PointerMode } from '../../src/screen/viewport';
 import { SWIPE_ACTION_ID } from '../../src/screen/swipe';
 import type { SwipeDirection } from '../../src/screen/swipe';
@@ -284,6 +286,10 @@ export default function ScreenTab() {
     },
     [isMac, reportError]
   );
+  // The collaboration channel: everyone else's cursor coming in, ours going
+  // out. Only while this tab is live — an unfocused tab has nobody pointing.
+  const room = useRemoteCursors(active);
+
   const viewport = useViewport({
     sizeRef: stageRef,
     mode,
@@ -294,6 +300,7 @@ export default function ScreenTab() {
     inputBlocked: permissions.inputBlocked,
     screen: screenIndex,
     onPointer: spendLatch,
+    onCursor: room.send,
     activeMods: () => modNamesForHost(activeMods(modsRef.current), isMac),
     onSwipe,
   });
@@ -714,6 +721,18 @@ export default function ScreenTab() {
             ) : null}
             {mode === 'trackpad' && stream.frameUri ? (
               <Crosshair x={viewport.cursorX} y={viewport.cursorY} color={theme.colors.accent} />
+            ) : null}
+            {/* Collaborators' cursors ride INSIDE the zoom transform, so a
+                remote pointer stays on the pixel it is pointing at however far
+                this user has zoomed in. */}
+            {stream.frameUri ? (
+              <RemoteCursors
+                cursors={room.cursors}
+                selfId={room.selfId}
+                width={stage.w}
+                height={stage.h}
+                surface={{ screen: screenIndex }}
+              />
             ) : null}
           </Animated.View>
 

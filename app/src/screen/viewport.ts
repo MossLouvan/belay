@@ -77,6 +77,16 @@ export interface ViewportOptions {
    */
   readonly onPointer?: () => void;
   /**
+   * Where this user is pointing, in normalized host coordinates, reported on
+   * every repaint of the local cursor.
+   *
+   * Feeds the collaboration channel (screen/cursors-store.ts), which throttles
+   * it before it reaches the wire. Unlike `onPointer` this DOES fire for
+   * viewing gestures: pointing at something is exactly what a collaborator
+   * wants everyone else to see, and it costs the desktop nothing.
+   */
+  readonly onCursor?: (x: number, y: number) => void;
+  /**
    * Active sticky-modifier names (host wire form, e.g. 'ctrl','shift','cmd') at
    * the moment of a click, so a latched modifier on the phone becomes a real
    * Ctrl+click / Shift+click. Read just before the click is sent; `onPointer`
@@ -104,7 +114,7 @@ export interface Viewport {
 }
 
 export function useViewport(options: ViewportOptions): Viewport {
-  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, activeMods, onSwipe } =
+  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, onCursor, activeMods, onSwipe } =
     options;
 
   const translateX = useRef(new Animated.Value(0)).current;
@@ -131,6 +141,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const onButtonUsedRef = useRef(onButtonUsed);
   const screenRef = useRef(screen);
   const onPointerRef = useRef(onPointer);
+  const onCursorRef = useRef(onCursor);
   const activeModsRef = useRef(activeMods);
   const onSwipeRef = useRef(onSwipe);
 
@@ -143,9 +154,10 @@ export function useViewport(options: ViewportOptions): Viewport {
     onButtonUsedRef.current = onButtonUsed;
     screenRef.current = screen;
     onPointerRef.current = onPointer;
+    onCursorRef.current = onCursor;
     activeModsRef.current = activeMods;
     onSwipeRef.current = onSwipe;
-  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, activeMods, onSwipe]);
+  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, onCursor, activeMods, onSwipe]);
 
   const send = useCallback((run: () => Promise<unknown>, what: string): void => {
     if (blockedRef.current) return;
@@ -252,6 +264,9 @@ export function useViewport(options: ViewportOptions): Viewport {
     const { w, h } = sizeRef.current;
     cursorX.setValue(cursor.current.x * w);
     cursorY.setValue(cursor.current.y * h);
+    // Tell the room, every repaint. The collaboration channel coalesces this
+    // down to its own send rate, so a gesture-rate call here is free.
+    onCursorRef.current?.(cursor.current.x, cursor.current.y);
   }, [cursorX, cursorY, sizeRef]);
 
   const flushCursorMove = useCallback(() => {
