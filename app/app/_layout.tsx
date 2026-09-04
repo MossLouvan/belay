@@ -14,7 +14,7 @@ import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outf
 import { ConnectionProvider, useConnection } from '../src/connection';
 import { useTheme } from '../src/theme';
 import { restoreThemeMode } from '../src/settings/theme-mode';
-import { LogoMark } from '../src/connect/brand';
+import { RopeSplash } from '../src/connect/rope-splash';
 import {
   AgentLink, parseAgentLink, planAgentLink, sessionKnown, settlePendingOpen,
 } from '../src/agent/deep-link';
@@ -35,17 +35,9 @@ LogBox.ignoreLogs([/multiple possible URI schemes/i]);
  */
 const MAX_BOOT_WAIT_MS = 2500;
 
-/** Branded hold-screen. Identical background to the splash, so the seam is invisible. */
+/** Branded hold-screen with animated rope+carabiner splash. */
 function Boot() {
-  const theme = useTheme();
-  return (
-    <View
-      accessibilityLabel="Starting Belay"
-      style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.bg }}
-    >
-      <LogoMark />
-    </View>
-  );
+  return <RopeSplash animated />;
 }
 
 /**

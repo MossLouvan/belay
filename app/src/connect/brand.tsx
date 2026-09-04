@@ -37,16 +37,23 @@ export function LogoMark({ size = 20 }: { size?: number }) {
   );
 }
 
-/** Logo plus name and one-line pitch, centred. */
+/** Minimal logo plus name, centered. */
 export function Brand() {
   const theme = useTheme();
   return (
-    <View style={{ alignItems: 'center', gap: theme.space.sm }}>
-      <LogoMark />
-      <Txt variant="display" heading>
+    <View style={{ alignItems: 'center', gap: theme.space.md, paddingBottom: theme.space.lg }}>
+      <LogoMark size={16} />
+      <Txt
+        variant="display"
+        style={{
+          fontSize: 36,
+          lineHeight: 40,
+          textTransform: 'none',
+          letterSpacing: -1,
+        }}
+      >
         Belay
       </Txt>
-      <Micro tone="dim">Your computer, on your phone</Micro>
     </View>
   );
 }
