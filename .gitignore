@@ -86,3 +86,4 @@ server/native/BelayVddShim.dll
 # Rust build output
 crates/*/target/
 target/
+crates/belay-encode/target/
