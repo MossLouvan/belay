@@ -319,6 +319,7 @@ export default function ScreenTab() {
     onPointer: spendLatch,
     activeMods: () => modNamesForHost(activeMods(modsRef.current), isMac),
     onSwipe,
+    isMac,
     onPadInput,
   });
 
@@ -718,7 +719,7 @@ export default function ScreenTab() {
         ) : null}
         <View
           testID="screen-surface"
-          accessibilityLabel="Remote screen. Tap to click, long press or two-finger tap to right-click, pinch to zoom, two fingers to scroll, three fingers to switch desktops."
+          accessibilityLabel="Remote screen. Tap to click, long press or two-finger tap to right-click, pinch to zoom, two fingers to scroll, three fingers to switch desktops or access system controls."
           {...viewport.handlers}
           style={{
             width: stage.w > 0 ? stage.w : '100%',
@@ -1024,9 +1025,14 @@ export default function ScreenTab() {
           <Caption>
             Pinch to zoom, two-finger drag to scroll, and a quick two-finger tap right-clicks — the Mac trackpad's
             secondary click. Double-tap for a real double-click. The right-click and double-click controls in the dock
-            arm the next tap only. Swipe three fingers left or right to switch to the next or previous desktop, or
-            three fingers up for Mission Control / Task View — the Desk keys on the key bar's last page do the same by
-            touch.
+            arm the next tap only.
+          </Caption>
+          <Txt variant="bodyStrong">Multi-finger gestures</Txt>
+          <Caption>
+            Swipe three fingers left or right to switch desktops, three up for Mission Control / Task View, or three down
+            to show windows of the current app (macOS only). On Windows, two-finger swipe from the top edge opens Action
+            Center. These match your computer's native trackpad gestures — the Desk keys on the key bar's last page do
+            the same by touch.
           </Caption>
           <Txt variant="bodyStrong">The black gap is a trackpad</Txt>
           <Caption>

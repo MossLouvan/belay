@@ -111,6 +111,10 @@ export const GESTURE = Object.freeze({
   trackpadGain: 0.85,
   /** Frame budget assumed for the momentum decay, in ms. */
   frameMs: 16,
+  /** Edge detection thresholds for 2-finger gestures (Notification Center, etc). */
+  edgeThresholdPx: 60,
+  cornerThresholdPx: 80,
+  edgeSwipeThresholdPx: 40,
 });
 
 export interface KeySpec {
@@ -201,6 +205,15 @@ export const KEYS: readonly KeySpec[] = Object.freeze([
   { id: 'DeskPrev', label: 'Desk ←', key: 'left', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Previous desktop' },
   { id: 'DeskNext', label: 'Desk →', key: 'right', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Next desktop' },
   { id: 'Overview', label: 'Views', key: 'tab', mods: ['win'], macKey: 'up', macMods: ['rawctrl'], action: 'See every window and desktop' },
+
+  // 3-finger down: App Exposé on Mac (shows windows of current app), unbound
+  // on Windows (Win+D is destructive toggle). Triggered by 3-finger swipe down.
+  { id: 'AppExpose', label: 'App Windows', macKey: 'down', macMods: ['rawctrl'], action: 'Show windows of current app' },
+
+  // 2-finger edge gesture: Notification Center / Action Center. Triggered by
+  // 2-finger swipe down from top edge. Windows only — macOS has no default
+  // hotkey for NC (user must configure one in System Settings).
+  { id: 'NotifyCenter', label: 'Notify', key: 'a', mods: ['win'], action: 'Open action center' },
 ]);
 
 /** Modifiers to send for a key, honouring the macOS variant when relevant. */

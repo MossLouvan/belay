@@ -25,7 +25,7 @@ import {
 } from 'react-native';
 import { api } from '../api';
 import { haptic } from '../ui';
-import { clamp01, GESTURE, messageOf, numberOf, Size } from './model';
+import { clamp01, GESTURE, KEYS, keyFor, messageOf, modsFor, numberOf, Size } from './model';
 import {
   centroidOf,
   geometryOf,
@@ -44,6 +44,8 @@ import { batchScroll, classifyOneFinger, decayStep, flickSpent, flickStep, scrol
 import type { PointerMode, ScrollBatch } from './scroll-mode';
 import { detectSwipe } from './swipe';
 import type { SwipeDirection } from './swipe';
+import { detectEdgeGesture, edgeGestureToAction } from './edge-gestures';
+import type { EdgeTuning } from './edge-gestures';
 
 export type { PointerMode };
 
@@ -94,6 +96,11 @@ export interface ViewportOptions {
    */
   readonly onSwipe?: (direction: SwipeDirection) => void;
   /**
+   * Whether the host is macOS (vs Windows). Used for edge gesture mapping
+   * (Notification Center vs Action Center) and keyboard shortcut resolution.
+   */
+  readonly isMac: boolean;
+  /**
    * Fired when a touch lands on the trackpad surface (`padHandlers`). The
    * screen tab uses it to surface the crosshair while the pad drives the
    * cursor, whatever the stage's own pointer mode is.
@@ -123,7 +130,7 @@ export interface Viewport {
 }
 
 export function useViewport(options: ViewportOptions): Viewport {
-  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, activeMods, onSwipe, onPadInput } =
+  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, activeMods, onSwipe, isMac, onPadInput } =
     options;
 
   const translateX = useRef(new Animated.Value(0)).current;
@@ -152,6 +159,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const onPointerRef = useRef(onPointer);
   const activeModsRef = useRef(activeMods);
   const onSwipeRef = useRef(onSwipe);
+  const isMacRef = useRef(isMac);
   const onPadInputRef = useRef(onPadInput);
 
   // Whether the gesture in flight arrived through `padHandlers`. A ref, not
@@ -176,8 +184,9 @@ export function useViewport(options: ViewportOptions): Viewport {
     onPointerRef.current = onPointer;
     activeModsRef.current = activeMods;
     onSwipeRef.current = onSwipe;
+    isMacRef.current = isMac;
     onPadInputRef.current = onPadInput;
-  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, activeMods, onSwipe, onPadInput]);
+  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, activeMods, onSwipe, isMac, onPadInput]);
 
   const send = useCallback((run: () => Promise<unknown>, what: string): void => {
     if (blockedRef.current) return;
@@ -457,14 +466,30 @@ export function useViewport(options: ViewportOptions): Viewport {
    * fingers lifts. Re-baselining the pinch distance and scroll anchor here is
    * what stops the zoom/scroll "pop" that switching fingers would otherwise
    * cause; an already-classified gesture keeps its intent.
+   * 
+   * Also detects if the gesture started from a screen edge for Notification
+   * Center and similar OS-level gestures.
    */
   const rebaselineTwoFingers = useCallback(
     (touches: readonly NativeTouchEvent[], origin: Origin) => {
       const g = gesture.current;
       const [first, second] = touches;
       const { distance, centerX, centerY } = geometryOf(touchPoint(first, origin), touchPoint(second, origin));
-      const classified = g.kind === 'zoom' || g.kind === 'scroll';
+      const classified = g.kind === 'zoom' || g.kind === 'scroll' || g.kind === 'edgeGesture';
       if (!classified) cancelLongPress();
+      
+      // Check if this is an edge gesture (2-finger swipe starting from screen edge)
+      // Only check on initial adoption (not classified yet)
+      const { w, h } = sizeRef.current;
+      const edgeTuning = { 
+        edgeThresholdPx: GESTURE.edgeThresholdPx, 
+        cornerThresholdPx: GESTURE.cornerThresholdPx,
+        edgeSwipeThresholdPx: GESTURE.edgeSwipeThresholdPx 
+      };
+      const isFromEdge = !classified && detectEdgeGesture(
+        centerX, centerY, 0, 0, w, h, edgeTuning
+      ) !== null;
+      
       gesture.current = {
         ...g,
         kind: classified ? g.kind : 'pendingTwo',
@@ -480,20 +505,23 @@ export function useViewport(options: ViewportOptions): Viewport {
         scrollX: centerX,
         scrollY: centerY,
         longPress: classified ? g.longPress : undefined,
+        edgeStartX: centerX,
+        edgeStartY: centerY,
+        isEdgeGesture: isFromEdge,
       };
     },
-    [cancelLongPress]
+    [cancelLongPress, sizeRef]
   );
 
   /**
    * Classifies a two-finger gesture once (pinch.ts owns the rules: pinch
    * zooms anywhere, a plain drag pans when zoomed and scrolls at 1x), then
-   * keeps serving that intent.
+   * keeps serving that intent. Also handles edge gestures for Notification Center.
    */
   const handleTwoFingers = useCallback(
     (touches: readonly NativeTouchEvent[], origin: Origin) => {
       const g = gesture.current;
-      const following = g.kind === 'zoom' || g.kind === 'scroll' || g.kind === 'pendingTwo';
+      const following = g.kind === 'zoom' || g.kind === 'scroll' || g.kind === 'pendingTwo' || g.kind === 'edgeGesture';
       const pair = following ? trackedPair(touches, g) : null;
       if (!pair) {
         // Either this is the first move of the gesture, or one of the two
@@ -505,12 +533,47 @@ export function useViewport(options: ViewportOptions): Viewport {
 
       const { distance, centerX, centerY } = geometryOf(touchPoint(pair[0], origin), touchPoint(pair[1], origin));
       const ratio = distance / (g.pinchDistance || 1);
+      
       if (g.kind === 'pendingTwo') {
         const moved = Math.hypot(centerX - g.twoStartX, centerY - g.twoStartY);
+
         // Carried as a max ACROSS re-anchors: the anchor resets on a finger
         // swap, and the release's tap-or-not verdict must remember the whole
         // gesture's travel, not just the latest leg's.
         g.twoMovedPx = Math.max(g.twoMovedPx, moved);
+
+        // Check if this should be an edge gesture
+        if (g.isEdgeGesture) {
+          const { w, h } = sizeRef.current;
+          const edgeTuning = {
+            edgeThresholdPx: GESTURE.edgeThresholdPx,
+            cornerThresholdPx: GESTURE.cornerThresholdPx,
+            edgeSwipeThresholdPx: GESTURE.edgeSwipeThresholdPx,
+          };
+          const dx = centerX - g.edgeStartX;
+          const dy = centerY - g.edgeStartY;
+          const edgeResult = detectEdgeGesture(g.edgeStartX, g.edgeStartY, dx, dy, w, h, edgeTuning);
+
+          if (edgeResult) {
+            const actionId = edgeGestureToAction(edgeResult, isMacRef.current);
+            if (actionId) {
+              g.kind = 'consumed';
+              haptic('medium');
+              const spec = KEYS.find((key) => key.id === actionId);
+              if (spec) {
+                send(
+                  () => api.key(keyFor(spec, isMacRef.current), modsFor(spec, isMacRef.current)),
+                  `Edge gesture ${actionId}`
+                );
+              }
+              return;
+            }
+          }
+          // If not enough movement yet for edge gesture, keep waiting
+          if (moved < GESTURE.edgeSwipeThresholdPx) return;
+        }
+
+        // Classify as zoom or scroll if not an edge gesture
         const kind = classifyTwoFinger(ratio, moved, view.current.scale, GESTURE);
         if (kind === 'pendingTwo') return;
         g.kind = kind;
@@ -533,7 +596,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         g.scrollX = centerX;
       }
     },
-    [emitScroll, rebaselineTwoFingers, setTranslate, zoomTo]
+    [emitScroll, rebaselineTwoFingers, setTranslate, zoomTo, send, sizeRef]
   );
 
   const handleOneFinger = useCallback(
