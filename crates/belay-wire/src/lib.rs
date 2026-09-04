@@ -28,13 +28,15 @@
 #![warn(missing_debug_implementations)]
 
 pub mod congestion;
+pub mod crypto;
 pub mod cursor;
 pub mod packet;
 pub mod reassembly;
 
 pub use congestion::{AbrConfig, AbrState, BitratePreset, LinkFeedback};
+pub use crypto::{CryptoError, Direction, DirectionKey, ReplayWindow};
 pub use cursor::{CursorSample, CursorSampler, CursorTrack};
-pub use packet::{Channel, Header, DecodeError, HEADER_LEN, MAX_DATAGRAM, MAX_PAYLOAD};
+pub use packet::{Channel, Header, DecodeError, HEADER_LEN, MAX_DATAGRAM, MAX_PAYLOAD, VERSION};
 pub use reassembly::{Accepted, DropReason, Reassembler};
 
 #[cfg(test)]
