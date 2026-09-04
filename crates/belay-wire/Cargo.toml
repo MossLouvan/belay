@@ -1,0 +1,18 @@
+[package]
+name = "belay-wire"
+version = "0.1.0"
+edition = "2021"
+description = "BWP — the Belay Wire Protocol: pure datagram protocol logic for low-latency remote desktop"
+license = "MIT"
+
+# Deliberately dependency-free for the protocol core. Everything here is
+# framing, arithmetic and control law, so it stays exercisable under `cargo
+# test` with no I/O, no hardware and no network. Sockets, the encoder and the
+# AEAD live in the host layer above.
+[dependencies]
+
+[dev-dependencies]
+
+[lib]
+name = "belay_wire"
+path = "src/lib.rs"

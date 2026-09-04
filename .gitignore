@@ -82,3 +82,7 @@ server/native/win-display/*.cer
 server/native/win-display/*.pfx
 server/native/win-display/shim/
 server/native/BelayVddShim.dll
+
+# Rust build output
+crates/*/target/
+target/
