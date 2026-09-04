@@ -93,6 +93,6 @@ crates/belay-encode/target/
 # They arrived mid-session twice and were committed twice by accident.
 docs/brand/wallpaper/
 
-# The iOS client static library is built on a Mac by scripts/build-ios-client.sh.
-# It is ~10 MB of build output per architecture and must never be committed.
+# The iOS client library is built on a Mac by scripts/build-ios-client.sh.
+# Build output, tens of MB per architecture, and must never be committed.
 app/modules/belay-stream/ios/lib/

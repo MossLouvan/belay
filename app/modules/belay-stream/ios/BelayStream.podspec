@@ -15,15 +15,24 @@ Pod::Spec.new do |s|
 
   s.dependency 'ExpoModulesCore'
 
-  # The protocol is the same Rust the host was tested against, built for iOS as
-  # a static library. Reimplementing it in Swift would mean two implementations
-  # that must agree byte-for-byte forever, and they would not.
+  # The protocol is the same Rust the host was tested against, built for iOS.
+  # Reimplementing it in Swift would mean two implementations that must agree
+  # byte-for-byte forever, and they would not.
+  #
+  # An XCFramework rather than a fat .a on purpose: a lipo archive cannot hold
+  # an arm64 device slice AND an arm64 simulator slice, so on an Apple-silicon
+  # Mac the simulator build picks up the device slice and fails to link with a
+  # platform mismatch. An XCFramework keeps them apart and lets Xcode choose.
   #
   # Produced by scripts/build-ios-client.sh, which must be run on a Mac before
-  # the app will link.
-  s.vendored_libraries = 'lib/libbelay_client.a'
-  s.source_files = '**/*.{h,swift}'
-  s.preserve_paths = 'lib/**/*', 'include/**/*'
+  # this will link.
+  s.vendored_frameworks = 'lib/BelayClient.xcframework'
+
+  # Swift only. The C header is NOT a source file: it is declared by
+  # include/module.modulemap and imported as `BelayClientFFI`. Compiling it
+  # here as well would give the same header two module definitions.
+  s.source_files   = '*.swift'
+  s.preserve_paths = 'include/**/*', 'lib/**/*'
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',

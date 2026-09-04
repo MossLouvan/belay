@@ -2,6 +2,12 @@ import AVFoundation
 import ExpoModulesCore
 import UIKit
 
+// The BWP protocol itself, as a C library. Declared by
+// ios/include/module.modulemap and built by scripts/build-ios-client.sh; an
+// Expo module is a pod, and a pod has no app bridging header to put a plain
+// #import in.
+import BelayClientFFI
+
 /// The view that shows the host's desktop.
 ///
 /// One thread owns the session and pulls frames; decoded samples are handed to

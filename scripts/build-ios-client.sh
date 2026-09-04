@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 #
-# Build the BWP client as a static library for iOS.
+# Build the BWP client for iOS.
 #
-# MUST BE RUN ON A MAC. Rust can cross-compile to iOS targets, but only against
-# an iOS SDK, which only ships with Xcode. There is no way to produce this from
-# the Windows dev machine the host is built on — so the app will not link until
-# someone runs this.
+# MUST BE RUN ON A MAC. Rust cross-compiles to iOS targets, but only against an
+# iOS SDK, which ships only with Xcode. There is no way to produce this from the
+# Windows machine the host is built on, so the app will not link until someone
+# runs this.
 #
-# Produces app/modules/belay-stream/ios/lib/libbelay_client.a, a fat archive
-# covering the device and both simulator architectures.
+# Produces app/modules/belay-stream/ios/lib/BelayClient.xcframework.
 #
 #   bash scripts/build-ios-client.sh
 #
@@ -16,17 +15,17 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CRATE="$ROOT/crates/belay-client"
-OUT="$ROOT/app/modules/belay-stream/ios/lib"
+MODULE="$ROOT/app/modules/belay-stream/ios"
+OUT="$MODULE/lib"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "error: iOS libraries can only be built on macOS (needs the iOS SDK from Xcode)." >&2
     exit 1
 fi
 
-if ! command -v cargo >/dev/null; then
-    echo "error: cargo not found. Install Rust from https://rustup.rs" >&2
-    exit 1
-fi
+for tool in cargo rustup xcodebuild lipo; do
+    command -v "$tool" >/dev/null || { echo "error: $tool not found on PATH" >&2; exit 1; }
+done
 
 # aarch64-apple-ios       — real devices
 # aarch64-apple-ios-sim   — simulator on Apple silicon
@@ -45,37 +44,39 @@ for target in "${TARGETS[@]}"; do
     (cd "$CRATE" && cargo build --release --target "$target")
 done
 
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+
+# The two SIMULATOR slices merge into one archive — they are different
+# architectures for the same platform, which is exactly what lipo is for. The
+# device slice must stay separate: it is arm64 like the Apple-silicon simulator,
+# and an archive cannot hold two arm64 slices.
+mkdir -p "$STAGE/sim"
+lipo -create \
+    "$CRATE/target/aarch64-apple-ios-sim/release/libbelay_client.a" \
+    "$CRATE/target/x86_64-apple-ios/release/libbelay_client.a" \
+    -output "$STAGE/sim/libbelay_client.a"
+
+# Headers go into the XCFramework so the modulemap resolves wherever it is
+# consumed from.
+mkdir -p "$STAGE/headers"
+cp "$CRATE/include/belay_client.h" "$STAGE/headers/"
+cp "$MODULE/include/module.modulemap" "$STAGE/headers/"
+
+rm -rf "$OUT/BelayClient.xcframework"
 mkdir -p "$OUT"
 
-# The device slice stands alone; the two simulator slices are merged, because a
-# single archive cannot hold two slices of the same architecture family for
-# different platforms.
-#
-# lipo produces one archive covering everything, which is what the podspec
-# expects. A proper XCFramework would be tidier, but it needs a framework
-# wrapper this module does not otherwise want.
-lipo -create \
-    "$CRATE/target/aarch64-apple-ios/release/libbelay_client.a" \
-    "$CRATE/target/x86_64-apple-ios/release/libbelay_client.a" \
-    -output "$OUT/libbelay_client.a" 2>/dev/null || {
-        # lipo refuses to merge two arm64 slices. When that happens, ship the
-        # device slice: it is the one that matters, and the simulator can be
-        # built separately by re-running with SIMULATOR=1.
-        echo "note: device + Intel-simulator merge failed; using the device slice alone"
-        cp "$CRATE/target/aarch64-apple-ios/release/libbelay_client.a" "$OUT/libbelay_client.a"
-    }
+xcodebuild -create-xcframework \
+    -library "$CRATE/target/aarch64-apple-ios/release/libbelay_client.a" -headers "$STAGE/headers" \
+    -library "$STAGE/sim/libbelay_client.a" -headers "$STAGE/headers" \
+    -output "$OUT/BelayClient.xcframework"
 
-if [[ "${SIMULATOR:-0}" == "1" ]]; then
-    echo "using the Apple-silicon simulator slice instead"
-    cp "$CRATE/target/aarch64-apple-ios-sim/release/libbelay_client.a" "$OUT/libbelay_client.a"
-fi
-
-# The header the Swift side imports must match the library it links against.
-# Copying rather than symlinking means a stale header cannot survive a checkout.
-cp "$CRATE/include/belay_client.h" "$ROOT/app/modules/belay-stream/ios/include/"
+# Keep the module's own copy of the header in step with the library it links
+# against. A stale header against a changed ABI is a crash, not a build error.
+cp "$CRATE/include/belay_client.h" "$MODULE/include/"
 
 echo
-echo "built $OUT/libbelay_client.a"
-lipo -info "$OUT/libbelay_client.a"
+echo "built $OUT/BelayClient.xcframework"
+find "$OUT/BelayClient.xcframework" -maxdepth 1 -mindepth 1 -type d -exec basename {} \;
 echo
 echo "Next: cd app && npx expo prebuild -p ios && npx expo run:ios"
