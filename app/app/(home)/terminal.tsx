@@ -25,7 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { wsUrl } from '../../src/api';
-import { Banner, Button, Dot, IconButton, Row, Rule, Txt } from '../../src/ui';
+import { Banner, Button, IconButton, Row, Rule, Txt, StatusBadge } from '../../src/ui';
 import type { GlassStateProps } from '../../src/ui';
 import { useKeyboardShown } from '../../src/ui/keyboard-lift';
 import { useTheme } from '../../src/theme';
@@ -41,6 +41,7 @@ import { applyCandidate, parseCompletion } from '../../src/terminal/complete';
 import { planTab, trackPrimed } from '../../src/terminal/primed';
 import { CandidateRow } from '../../src/terminal/candidate-row';
 import { TerminalHelpSheet } from '../../src/terminal/help-sheet';
+import { ToolPanel } from '../../src/home/panel';
 
 // --- constants ---------------------------------------------------------------
 
@@ -70,7 +71,16 @@ type ShellMode = 'pty' | 'pipe';
 
 // --- screen ------------------------------------------------------------------
 
-export default function TerminalTab() {
+/** The panel route: the unchanged tab body inside the shared slide-up chrome. */
+export default function TerminalPanel() {
+  return (
+    <ToolPanel testID="terminal-panel">
+      <TerminalTab />
+    </ToolPanel>
+  );
+}
+
+function TerminalTab() {
   const { connection, phase } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -537,12 +547,11 @@ export default function TerminalTab() {
               trailing (docs/DESIGN.md §10). */}
           <Row gap="xs" style={{ flexShrink: 1 }}>
             {live ? (
-              <>
-                <Dot status="good" pulse label={`live · ${shellLabel}`} />
-                <Txt testID="term-status" variant="label" tone="dim" numberOfLines={1}>
-                  {`live · ${shellLabel}`}
-                </Txt>
-              </>
+              <StatusBadge 
+                label={`Connected · ${shellLabel}`} 
+                variant="subtle"
+                testID="term-status"
+              />
             ) : null}
           </Row>
           <SwitchComputerLink />

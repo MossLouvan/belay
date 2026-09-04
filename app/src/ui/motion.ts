@@ -1,15 +1,45 @@
-// Motion helpers: reduced-motion detection and the shared selection/entry
-// animations (Alpine Ledger revamp, REVAMP-SPEC §3.5 "still is premium").
-// Motion is small, fast and honest — `easing.standard` for every entrance and
-// fade, `easing.exit` for exits only, nothing over `motion.slow`, and press
-// feedback is opacity, not scale.
+// Motion helpers: intentional, spring-based motion system for premium UI.
+// 
+// Philosophy (2026 SaaS pattern — Linear/Vercel/Framer class):
+// - Spring physics for interruptible, natural motion
+// - Shared-layout transitions between related states
+// - Staggered sequences with intent, not decoration
+// - Motion that MEANS something: pairing success, state changes, attention
+// - NO generic fade+slide entrances on every list row
+//
+// Reduced motion collapses springs to instant state changes, respecting
+// system accessibility preferences.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Platform } from 'react-native';
+import { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import type { WithSpringConfig, WithTimingConfig } from 'react-native-reanimated';
 import { easing, motion } from '../theme';
 
 // The native driver is not meaningfully supported by react-native-web.
 const USE_NATIVE_DRIVER = Platform.OS !== 'web';
+
+// Spring configs for different interaction types
+export const SPRING_CONFIGS = {
+  // Gentle spring for UI transitions — feels responsive but calm
+  gentle: {
+    damping: 20,
+    stiffness: 300,
+    mass: 0.8,
+  } as WithSpringConfig,
+  // Snappy spring for button presses, quick interactions
+  snappy: {
+    damping: 18,
+    stiffness: 400,
+    mass: 0.5,
+  } as WithSpringConfig,
+  // Bouncy spring for success states, celebrations
+  bouncy: {
+    damping: 12,
+    stiffness: 250,
+    mass: 0.7,
+  } as WithSpringConfig,
+} as const;
 
 /**
  * True when the user has asked the OS to reduce motion. Defaults to `false` and
@@ -163,4 +193,129 @@ export function useEntrance(): EntranceStyle {
       }),
     [progress, translateY],
   );
+}
+
+// --- New Spring-Based Motion Hooks (Reanimated) ---
+
+/**
+ * Spring-based scale animation for press feedback. More natural than opacity.
+ * Returns animated style object for Reanimated.View.
+ * 
+ * Usage:
+ * ```tsx
+ * const pressStyle = useSpringPress(pressed);
+ * return <Animated.View style={[styles.button, pressStyle]}>...</Animated.View>
+ * ```
+ */
+export function useSpringPress(pressed: boolean) {
+  const reduced = useReducedMotion();
+  const scale = useSharedValue(1);
+
+  useEffect(() => {
+    if (reduced) {
+      scale.value = 1;
+      return;
+    }
+    scale.value = withSpring(pressed ? 0.96 : 1, SPRING_CONFIGS.snappy);
+  }, [pressed, reduced, scale]);
+
+  return useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+}
+
+/**
+ * Morphing transition between states using shared layout. For pairing flow
+ * stage transitions (host → code → success).
+ * 
+ * Returns opacity and scale for smooth state morphing.
+ */
+export function useMorphTransition(active: boolean) {
+  const reduced = useReducedMotion();
+  const opacity = useSharedValue(active ? 1 : 0);
+  const scale = useSharedValue(active ? 1 : 0.92);
+
+  useEffect(() => {
+    if (reduced) {
+      opacity.value = active ? 1 : 0;
+      scale.value = 1;
+      return;
+    }
+    opacity.value = withSpring(active ? 1 : 0, SPRING_CONFIGS.gentle);
+    scale.value = withSpring(active ? 1 : 0.92, SPRING_CONFIGS.gentle);
+  }, [active, reduced, opacity, scale]);
+
+  return useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+}
+
+/**
+ * Intentional pulse for live status indicators. Not a generic blink — this
+ * is for "LIVE" badges, streaming activity, pairing in progress.
+ * 
+ * Pulses with meaning: grows slightly + fades, spring-based.
+ */
+export function useStatusPulse(active: boolean) {
+  const reduced = useReducedMotion();
+  const opacity = useSharedValue(1);
+  const scale = useSharedValue(1);
+
+  useEffect(() => {
+    if (!active || reduced) {
+      opacity.value = 1;
+      scale.value = 1;
+      return;
+    }
+
+    // Pulse loop: subtle scale + opacity
+    const pulse = () => {
+      opacity.value = withSpring(0.5, SPRING_CONFIGS.gentle, () => {
+        opacity.value = withSpring(1, SPRING_CONFIGS.gentle);
+      });
+      scale.value = withSpring(1.05, SPRING_CONFIGS.gentle, () => {
+        scale.value = withSpring(1, SPRING_CONFIGS.gentle);
+      });
+    };
+
+    pulse();
+    const interval = setInterval(pulse, 2000);
+    return () => clearInterval(interval);
+  }, [active, reduced, opacity, scale]);
+
+  return useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+}
+
+/**
+ * Success celebration animation — bouncy spring for pairing success, 
+ * connection established, etc. One-time animation on mount.
+ */
+export function useSuccessCelebration() {
+  const reduced = useReducedMotion();
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.8);
+  const translateY = useSharedValue(10);
+
+  useEffect(() => {
+    if (reduced) {
+      opacity.value = 1;
+      scale.value = 1;
+      translateY.value = 0;
+      return;
+    }
+
+    // Bouncy entrance
+    opacity.value = withSpring(1, SPRING_CONFIGS.bouncy);
+    scale.value = withSpring(1, SPRING_CONFIGS.bouncy);
+    translateY.value = withSpring(0, SPRING_CONFIGS.bouncy);
+  }, [reduced, opacity, scale, translateY]);
+
+  return useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }, { translateY: translateY.value }],
+  }));
 }

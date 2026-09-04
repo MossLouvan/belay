@@ -9,7 +9,7 @@
 //
 // Pure, so the routing decision can be unit tested under node.
 
-export type ConnectLanding = '/(tabs)/screen' | '/devices' | null;
+export type ConnectLanding = '/(home)/screen' | '/devices' | null;
 
 export interface LandingInputs {
   /** The saved-computer store has been read; before that, nothing can move. */
@@ -31,13 +31,13 @@ export interface LandingInputs {
  */
 export function connectLanding(i: LandingInputs): ConnectLanding {
   if (!i.ready || i.adding) return null;
-  if (i.connected) return '/(tabs)/screen';
+  if (i.connected) return '/(home)/screen';
   if (i.deviceCount > 0 && !i.connecting) return '/devices';
   return null;
 }
 
 /** Where a fresh pair drops the user in. */
-export type PairDestination = '/(tabs)/screen' | '/(tabs)/system';
+export type PairDestination = '/(home)/screen' | '/(home)/system';
 
 /**
  * The first tab shown right after pairing. A Mac that has not granted the
@@ -52,5 +52,5 @@ export type PairDestination = '/(tabs)/screen' | '/(tabs)/system';
  * stays Screen exactly as before — only an explicit `false` reroutes.
  */
 export function postPairDestination(native: boolean | undefined): PairDestination {
-  return native === false ? '/(tabs)/system' : '/(tabs)/screen';
+  return native === false ? '/(home)/system' : '/(home)/screen';
 }

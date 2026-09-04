@@ -4,7 +4,9 @@
 // picture (when zoomed in), drags the host mouse (touch mode at 1x), nudges
 // the cursor (trackpad mode) or sends the scroll wheel (scroll mode). Two
 // fingers: pinch zooms the view about the fingers and drags it with them; a
-// plain two-finger drag pans when zoomed in, sends the scroll wheel at 1x.
+// plain two-finger drag pans when zoomed in, sends the scroll wheel at 1x;
+// a quick, still two-finger TAP right-clicks at the pair's centroid — the
+// Mac trackpad's secondary click.
 // Three fingers swipe between the host's desktops. Pans, pinch-drags and
 // scroll-mode flicks carry momentum unless reduced motion is on.
 //
@@ -29,8 +31,10 @@ import {
   geometryOf,
   GestureRecord,
   identifierOf,
+  isTwoFingerTap,
   newGesture,
   Origin,
+  pairTapEligible,
   touchPoint,
   trackedPair,
   trackedTriple,
@@ -96,6 +100,12 @@ export interface ViewportOptions {
    * (Notification Center vs Action Center) and keyboard shortcut resolution.
    */
   readonly isMac: boolean;
+  /**
+   * Fired when a touch lands on the trackpad surface (`padHandlers`). The
+   * screen tab uses it to surface the crosshair while the pad drives the
+   * cursor, whatever the stage's own pointer mode is.
+   */
+  readonly onPadInput?: () => void;
 }
 
 export interface Viewport {
@@ -106,12 +116,21 @@ export interface Viewport {
   readonly cursorY: Animated.Value;
   readonly zoom: number;
   readonly handlers: GestureResponderHandlers;
+  /**
+   * The same gesture vocabulary as `handlers`, pinned to trackpad (relative)
+   * mode whatever the dock says: drag nudges the host cursor, tap clicks at
+   * it, two-finger tap right-clicks, two fingers scroll, three fingers swipe.
+   * For the DEADSPACE between the letterboxed picture and the control bar —
+   * attached there, the black gap becomes a laptop trackpad instead of a
+   * hole gestures fall through (the swipe-leak-to-device-switch bug).
+   */
+  readonly padHandlers: GestureResponderHandlers;
   readonly zoomBy: (factor: number) => void;
   readonly reset: () => void;
 }
 
 export function useViewport(options: ViewportOptions): Viewport {
-  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, activeMods, onSwipe, isMac } =
+  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, activeMods, onSwipe, isMac, onPadInput } =
     options;
 
   const translateX = useRef(new Animated.Value(0)).current;
@@ -141,6 +160,18 @@ export function useViewport(options: ViewportOptions): Viewport {
   const activeModsRef = useRef(activeMods);
   const onSwipeRef = useRef(onSwipe);
   const isMacRef = useRef(isMac);
+  const onPadInputRef = useRef(onPadInput);
+
+  // Whether the gesture in flight arrived through `padHandlers`. A ref, not
+  // state: it must be readable synchronously inside responder callbacks, and
+  // flipping it re-renders nothing.
+  const padActive = useRef(false);
+
+  /** The pointer mode this gesture obeys: the pad is ALWAYS a trackpad. */
+  const effectiveMode = useCallback(
+    (): PointerMode => (padActive.current ? 'trackpad' : modeRef.current),
+    []
+  );
 
   useEffect(() => {
     modeRef.current = mode;
@@ -154,7 +185,8 @@ export function useViewport(options: ViewportOptions): Viewport {
     activeModsRef.current = activeMods;
     onSwipeRef.current = onSwipe;
     isMacRef.current = isMac;
-  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, activeMods, onSwipe, isMac]);
+    onPadInputRef.current = onPadInput;
+  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, activeMods, onSwipe, isMac, onPadInput]);
 
   const send = useCallback((run: () => Promise<unknown>, what: string): void => {
     if (blockedRef.current) return;
@@ -300,6 +332,22 @@ export function useViewport(options: ViewportOptions): Viewport {
     [paintCursor, queueCursorMove, sizeRef]
   );
 
+  // A tap awaiting double-tap confirmation: its single click is deferred by
+  // GESTURE.doubleTapMs so a quick second tap can upgrade it to a double-click
+  // (which the host sends as a real cc1+cc2). Only plain left taps defer;
+  // armed R-CLICK/2×CLICK still fire instantly.
+  const doubleTap = useRef<{ point: { x: number; y: number }; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  const sendLeftClick = useCallback(
+    (point: { x: number; y: number }, double: boolean) => {
+      haptic(double ? 'medium' : 'light');
+      const mods = activeModsRef.current?.();
+      send(() => api.click(point.x, point.y, 'left', double, screenRef.current, mods), double ? 'Double-click' : 'Click');
+      onPointerRef.current?.();
+    },
+    [send]
+  );
+
   const clickAt = useCallback(
     (point: { x: number; y: number }) => {
       const pending = buttonRef.current;
@@ -322,6 +370,28 @@ export function useViewport(options: ViewportOptions): Viewport {
       onPointerRef.current?.();
     },
     [send]
+  );
+
+  // Route a stage tap: an armed one-shot (right/double) fires immediately; a
+  // plain tap defers briefly so a second tap nearby becomes a double-click.
+  const handleTap = useCallback(
+    (point: { x: number; y: number }) => {
+      if (buttonRef.current !== 'none') { clickAt(point); return; }
+      const dt = doubleTap.current;
+      if (dt && Math.abs(point.x - dt.point.x) < GESTURE.doubleTapSlop && Math.abs(point.y - dt.point.y) < GESTURE.doubleTapSlop) {
+        clearTimeout(dt.timer);
+        doubleTap.current = null;
+        sendLeftClick(dt.point, true); // upgrade the pair to one real double-click
+        return;
+      }
+      if (dt) { clearTimeout(dt.timer); doubleTap.current = null; sendLeftClick(dt.point, false); }
+      const timer = setTimeout(() => {
+        doubleTap.current = null;
+        sendLeftClick(point, false);
+      }, GESTURE.doubleTapMs);
+      doubleTap.current = { point, timer };
+    },
+    [clickAt, sendLeftClick]
   );
 
   /**
@@ -423,6 +493,7 @@ export function useViewport(options: ViewportOptions): Viewport {
       gesture.current = {
         ...g,
         kind: classified ? g.kind : 'pendingTwo',
+        twoTapEligible: !classified && pairTapEligible(g.kind, g.twoTapEligible),
         touchA: identifierOf(first),
         touchB: identifierOf(second),
         pinchDistance: distance || 1,
@@ -465,19 +536,24 @@ export function useViewport(options: ViewportOptions): Viewport {
       
       if (g.kind === 'pendingTwo') {
         const moved = Math.hypot(centerX - g.twoStartX, centerY - g.twoStartY);
-        
+
+        // Carried as a max ACROSS re-anchors: the anchor resets on a finger
+        // swap, and the release's tap-or-not verdict must remember the whole
+        // gesture's travel, not just the latest leg's.
+        g.twoMovedPx = Math.max(g.twoMovedPx, moved);
+
         // Check if this should be an edge gesture
         if (g.isEdgeGesture) {
           const { w, h } = sizeRef.current;
-          const edgeTuning = { 
-            edgeThresholdPx: GESTURE.edgeThresholdPx, 
+          const edgeTuning = {
+            edgeThresholdPx: GESTURE.edgeThresholdPx,
             cornerThresholdPx: GESTURE.cornerThresholdPx,
-            edgeSwipeThresholdPx: GESTURE.edgeSwipeThresholdPx 
+            edgeSwipeThresholdPx: GESTURE.edgeSwipeThresholdPx,
           };
           const dx = centerX - g.edgeStartX;
           const dy = centerY - g.edgeStartY;
           const edgeResult = detectEdgeGesture(g.edgeStartX, g.edgeStartY, dx, dy, w, h, edgeTuning);
-          
+
           if (edgeResult) {
             const actionId = edgeGestureToAction(edgeResult, isMacRef.current);
             if (actionId) {
@@ -496,7 +572,7 @@ export function useViewport(options: ViewportOptions): Viewport {
           // If not enough movement yet for edge gesture, keep waiting
           if (moved < GESTURE.edgeSwipeThresholdPx) return;
         }
-        
+
         // Classify as zoom or scroll if not an edge gesture
         const kind = classifyTwoFinger(ratio, moved, view.current.scale, GESTURE);
         if (kind === 'pendingTwo') return;
@@ -526,7 +602,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const handleOneFinger = useCallback(
     (state: PanResponderGestureState) => {
       const g = gesture.current;
-      const kind = classifyOneFinger(g.kind, state.dx, state.dy, modeRef.current, view.current.scale, GESTURE);
+      const kind = classifyOneFinger(g.kind, state.dx, state.dy, effectiveMode(), view.current.scale, GESTURE);
       if (kind === 'pending') return;
       if (kind !== g.kind) {
         cancelLongPress();
@@ -554,7 +630,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         }
       }
     },
-    [cancelLongPress, emitScroll, nudgeCursor, setTranslate]
+    [cancelLongPress, effectiveMode, emitScroll, nudgeCursor, setTranslate]
   );
 
   /**
@@ -607,6 +683,10 @@ export function useViewport(options: ViewportOptions): Viewport {
         baseTx: view.current.tx,
         baseTy: view.current.ty,
         baseScale: view.current.scale,
+        // Arms the two-finger tap: the clock runs from THIS touch, so a
+        // finger that rested a while before its partner joined cannot tap.
+        startAt: Date.now(),
+        twoTapEligible: true,
       };
       gesture.current.longPress = setTimeout(() => {
         const g = gesture.current;
@@ -614,12 +694,12 @@ export function useViewport(options: ViewportOptions): Viewport {
         g.kind = 'consumed';
         g.longPress = undefined;
         haptic('medium');
-        const target = modeRef.current === 'trackpad' ? cursor.current : toHost(g.startX, g.startY);
+        const target = effectiveMode() === 'trackpad' ? cursor.current : toHost(g.startX, g.startY);
         send(() => api.click(target.x, target.y, 'right', false, screenRef.current, activeModsRef.current?.()), 'Right-click');
         onPointerRef.current?.();
       }, GESTURE.longPressMs);
     },
-    [send, stopMomentum, toHost]
+    [effectiveMode, send, stopMomentum, toHost]
   );
 
   const onRelease = useCallback(
@@ -628,7 +708,22 @@ export function useViewport(options: ViewportOptions): Viewport {
       const g = gesture.current;
       gesture.current = newGesture();
       if (g.kind === 'pending') {
-        clickAt(modeRef.current === 'trackpad' ? cursor.current : toHost(g.startX, g.startY));
+        handleTap(effectiveMode() === 'trackpad' ? cursor.current : toHost(g.startX, g.startY));
+        return;
+      }
+      if (g.kind === 'pendingTwo') {
+        // The Mac trackpad's secondary click: two fingers down and up quickly
+        // with no real travel. Anything that moved or pinched was classified
+        // away from 'pendingTwo' long before this line; anything slow, or a
+        // pair formed mid-drag, fails the pure verdict and does nothing —
+        // exactly what a released, unclassified pair has always done.
+        if (isTwoFingerTap(g.kind, g.twoTapEligible, Date.now() - g.startAt, g.twoMovedPx, GESTURE)) {
+          const point = effectiveMode() === 'trackpad' ? cursor.current : toHost(g.twoStartX, g.twoStartY);
+          haptic('medium');
+          const mods = activeModsRef.current?.();
+          send(() => api.click(point.x, point.y, 'right', false, screenRef.current, mods), 'Right-click');
+          onPointerRef.current?.();
+        }
         return;
       }
       if (g.kind === 'pan') {
@@ -653,17 +748,46 @@ export function useViewport(options: ViewportOptions): Viewport {
         onPointerRef.current?.();
       }
     },
-    [cancelLongPress, clickAt, send, startMomentum, startScrollMomentum, toHost]
+    [cancelLongPress, clickAt, effectiveMode, handleTap, send, startMomentum, startScrollMomentum, toHost]
   );
 
-  const handlers = useMemo(
-    () =>
+  /**
+   * One responder recipe, two surfaces. `pad: false` is the stage — the mode
+   * the dock chose governs. `pad: true` is the deadspace trackpad: the same
+   * gesture vocabulary with the mode pinned to 'trackpad' via `padActive`
+   * (set at the grant, read by `effectiveMode` everywhere a gesture asks).
+   * Both refuse termination requests, which is what stops a swipe from
+   * leaking out to any ancestor pager or navigator mid-gesture.
+   */
+  const buildResponder = useCallback(
+    (pad: boolean): GestureResponderHandlers =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderTerminationRequest: () => false,
-        onPanResponderGrant: onGrant,
+        onPanResponderGrant: (event: GestureResponderEvent) => {
+          padActive.current = pad;
+          if (pad) onPadInputRef.current?.();
+          onGrant(event);
+        },
+        // Extra fingers landing fire START events, not moves. Adopting the
+        // pair/trio here — not only in the move handler — is what lets a
+        // perfectly still two-finger tap register at all (no movement means
+        // no move events), and it disarms the one-finger long-press the
+        // moment a second finger touches rather than a frame later.
+        onPanResponderStart: (event: GestureResponderEvent) => {
+          const kind = gesture.current.kind;
+          if (kind === 'consumed') return;
+          const touches = event.nativeEvent.touches;
+          const count = touches ? touches.length : 0;
+          if (count >= 3 && kind !== 'zoom' && kind !== 'scroll') {
+            handleThreeFingers(touches, originOf(event));
+            return;
+          }
+          if (count === 2) handleTwoFingers(touches, originOf(event));
+        },
         onPanResponderMove: (event: GestureResponderEvent, state: PanResponderGestureState) => {
+          if (pad) onPadInputRef.current?.();
           const kind = gesture.current.kind;
           // A long-press or a fired swipe ends the conversation: whatever the
           // fingers do next must not become a scroll, zoom or second fire.
@@ -681,14 +805,22 @@ export function useViewport(options: ViewportOptions): Viewport {
           if (kind === 'zoom' || kind === 'scroll' || kind === 'pendingThree') return;
           handleOneFinger(state);
         },
-        onPanResponderRelease: onRelease,
+        onPanResponderRelease: (event: GestureResponderEvent, state: PanResponderGestureState) => {
+          // Order matters: the release must still see the pad's forced mode.
+          onRelease(event, state);
+          padActive.current = false;
+        },
         onPanResponderTerminate: () => {
           cancelLongPress();
           gesture.current = newGesture();
+          padActive.current = false;
         },
       }).panHandlers,
     [cancelLongPress, handleOneFinger, handleThreeFingers, handleTwoFingers, onGrant, onRelease]
   );
+
+  const handlers = useMemo(() => buildResponder(false), [buildResponder]);
+  const padHandlers = useMemo(() => buildResponder(true), [buildResponder]);
 
   // Keep the crosshair pinned when the stage resizes or the zoom changes.
   useEffect(() => {
@@ -700,9 +832,10 @@ export function useViewport(options: ViewportOptions): Viewport {
       stopMomentum();
       if (moveTimer.current) clearTimeout(moveTimer.current);
       if (gesture.current.longPress) clearTimeout(gesture.current.longPress);
+      if (doubleTap.current) clearTimeout(doubleTap.current.timer);
     },
     [stopMomentum]
   );
 
-  return { translateX, translateY, scale: scaleValue, cursorX, cursorY, zoom, handlers, zoomBy, reset };
+  return { translateX, translateY, scale: scaleValue, cursorX, cursorY, zoom, handlers, padHandlers, zoomBy, reset };
 }

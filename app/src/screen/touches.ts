@@ -62,6 +62,23 @@ export interface GestureRecord {
   /** Centroid anchor of a three-finger swipe, set when the trio is adopted. */
   threeStartX: number;
   threeStartY: number;
+  /** Date.now() at the grant — the two-finger tap's clock starts here, so a
+   *  finger that rested before the second one joined can never tap. */
+  startAt: number;
+  /**
+   * The farthest the pair's centroid has drifted from its anchor, in px,
+   * carried as a maximum ACROSS re-anchors: a re-baseline resets the anchor
+   * (twoStartX/Y) for the pinch/scroll maths, and without this a pair that
+   * wandered, swapped a finger and lifted could still read as "still".
+   */
+  twoMovedPx: number;
+  /**
+   * Whether a release of this pair may become the two-finger tap (the Mac
+   * trackpad's secondary click). Armed at the grant, kept only while the
+   * pair was adopted from a clean 'pending'/'pendingTwo' state — a second
+   * finger joining mid-drag must never turn the release into a right-click.
+   */
+  twoTapEligible: boolean;
   /**
    * `identifier`s of the fingers currently driving a multi-finger gesture.
    * Tracked by identity rather than by array position: `touches[0]`/`touches[1]`
@@ -100,6 +117,9 @@ export const newGesture = (): GestureRecord => ({
   scrollY: 0,
   threeStartX: 0,
   threeStartY: 0,
+  startAt: 0,
+  twoMovedPx: 0,
+  twoTapEligible: false,
   touchA: null,
   touchB: null,
   touchC: null,
@@ -184,6 +204,49 @@ export const trackedTriple = (
   const c = findById(touches, gesture.touchC);
   return a && b && c ? [a, b, c] : null;
 };
+
+// --- the two-finger tap -----------------------------------------------------
+
+/** The slice of GESTURE the two-finger tap reads. Structural, so GESTURE fits. */
+export interface TwoFingerTapTuning {
+  /** Both fingers down and up inside this window (from the grant), or it is
+   *  a rest, not a tap. */
+  readonly twoFingerTapMs: number;
+  /** Centroid drift the tap forgives. At least `scrollThresholdPx`, so no
+   *  movement band exists where a touch is too still to scroll yet too
+   *  travelled to tap. */
+  readonly twoFingerTapSlopPx: number;
+}
+
+/**
+ * Whether a pair being (re)adopted may still end in a tap. Only a clean
+ * arrival — fresh 'pending' touch or an already-armed 'pendingTwo' finger
+ * swap — keeps the flag; a pair formed mid-drag (cursor, pan, wheel, a
+ * broken trio…) is a grip change, not a secondary click. One-way: lost
+ * eligibility is never regained within a gesture.
+ */
+export const pairTapEligible = (kind: GestureKind, wasEligible: boolean): boolean =>
+  wasEligible && (kind === 'pending' || kind === 'pendingTwo');
+
+/**
+ * The release-time verdict: a two-finger touch that stayed 'pendingTwo'
+ * (so the classifier never saw a pinch or a scroll in it), arrived cleanly,
+ * lifted inside the tap window and never really travelled is the Mac
+ * trackpad's secondary click. Negative elapsed time (clock skew) refuses —
+ * a phantom right-click is worse than a missed one.
+ */
+export const isTwoFingerTap = (
+  kind: GestureKind,
+  eligible: boolean,
+  elapsedMs: number,
+  movedPx: number,
+  t: TwoFingerTapTuning
+): boolean =>
+  kind === 'pendingTwo' &&
+  eligible &&
+  elapsedMs >= 0 &&
+  elapsedMs <= t.twoFingerTapMs &&
+  movedPx <= t.twoFingerTapSlopPx;
 
 /** Mean position of any number of stage-local points. */
 export const centroidOf = (points: readonly Point[]): Point => {

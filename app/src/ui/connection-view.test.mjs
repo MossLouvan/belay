@@ -15,22 +15,22 @@ import { describeConnection, describeSurface } from './connection-view.ts';
 
 test('connected link with no surface is LIVE, filled, good', () => {
   const v = describeSurface('connected');
-  assert.deepEqual(v, { ring: false, status: 'good', word: 'LIVE' });
+  assert.deepEqual(v, { ring: false, status: 'good', word: 'Connected' });
 });
 
 test('connecting link is OPENING with a hollow ring in accent', () => {
   const v = describeSurface('connecting');
-  assert.deepEqual(v, { ring: true, status: 'accent', word: 'OPENING' });
+  assert.deepEqual(v, { ring: true, status: 'accent', word: 'Connecting' });
 });
 
 test('unreachable link is OFFLINE, filled bad, with the honest why', () => {
   const v = describeSurface('unreachable');
-  assert.deepEqual(v, { ring: false, status: 'bad', word: 'OFFLINE', detail: 'asleep or off' });
+  assert.deepEqual(v, { ring: false, status: 'bad', word: 'Offline', detail: 'asleep or off' });
 });
 
 test('idle link is OFFLINE, filled neutral, no detail invented', () => {
   const v = describeSurface('idle');
-  assert.deepEqual(v, { ring: false, status: 'neutral', word: 'OFFLINE' });
+  assert.deepEqual(v, { ring: false, status: 'neutral', word: 'Offline' });
 });
 
 // ---------------------------------------------------------------------------
@@ -39,27 +39,27 @@ test('idle link is OFFLINE, filled neutral, no detail invented', () => {
 
 test('a surface may not say OFFLINE while the link is still connecting', () => {
   const v = describeSurface('connecting', 'offline');
-  assert.equal(v.word, 'OPENING');
+  assert.equal(v.word, 'Connecting');
   assert.equal(v.ring, true);
 });
 
 test('a surface may not claim LIVE while the link is unreachable', () => {
   const v = describeSurface('unreachable', 'live');
-  assert.equal(v.word, 'OFFLINE');
+  assert.equal(v.word, 'Offline');
   assert.equal(v.status, 'bad');
   assert.equal(v.ring, false);
 });
 
 test('an idle link silences every surface claim', () => {
-  assert.equal(describeSurface('idle', 'live').word, 'OFFLINE');
-  assert.equal(describeSurface('idle', 'ended').word, 'OFFLINE');
+  assert.equal(describeSurface('idle', 'live').word, 'Offline');
+  assert.equal(describeSurface('idle', 'ended').word, 'Offline');
 });
 
 test('a reconnecting surface keeps its word through a link reconnect', () => {
   // The link re-races while the surface is already trying again: one voice,
   // and RECONNECTING is the truer of the two.
   const v = describeSurface('connecting', 'reconnecting');
-  assert.deepEqual(v, { ring: true, status: 'warn', word: 'RECONNECTING' });
+  assert.deepEqual(v, { ring: true, status: 'warn', word: 'Reconnecting' });
 });
 
 // ---------------------------------------------------------------------------
@@ -67,15 +67,15 @@ test('a reconnecting surface keeps its word through a link reconnect', () => {
 // ---------------------------------------------------------------------------
 
 test('link up: surface phases map onto the closed vocabulary', () => {
-  assert.deepEqual(describeSurface('connected', 'live'), { ring: false, status: 'good', word: 'LIVE' });
-  assert.deepEqual(describeSurface('connected', 'opening'), { ring: true, status: 'accent', word: 'OPENING' });
-  assert.deepEqual(describeSurface('connected', 'reconnecting'), { ring: true, status: 'warn', word: 'RECONNECTING' });
-  assert.deepEqual(describeSurface('connected', 'offline'), { ring: false, status: 'bad', word: 'OFFLINE' });
+  assert.deepEqual(describeSurface('connected', 'live'), { ring: false, status: 'good', word: 'Connected' });
+  assert.deepEqual(describeSurface('connected', 'opening'), { ring: true, status: 'accent', word: 'Connecting' });
+  assert.deepEqual(describeSurface('connected', 'reconnecting'), { ring: true, status: 'warn', word: 'Reconnecting' });
+  assert.deepEqual(describeSurface('connected', 'offline'), { ring: false, status: 'bad', word: 'Offline' });
 });
 
 test('link up: an ended shell is SHELL ENDED — calm warn, not an error', () => {
   const v = describeSurface('connected', 'ended');
-  assert.deepEqual(v, { ring: false, status: 'warn', word: 'SHELL ENDED' });
+  assert.deepEqual(v, { ring: false, status: 'warn', word: 'Shell ended' });
 });
 
 test('ring is true for exactly the transitioning words', () => {
@@ -83,7 +83,7 @@ test('ring is true for exactly the transitioning words', () => {
     [undefined, 'live', 'opening', 'reconnecting', 'offline', 'ended'].map((s) => describeSurface(link, s)),
   );
   for (const v of words) {
-    assert.equal(v.ring, v.word === 'OPENING' || v.word === 'RECONNECTING', `${v.word} ring=${v.ring}`);
+    assert.equal(v.ring, v.word === 'Connecting' || v.word === 'Reconnecting', `${v.word} ring=${v.ring}`);
   }
 });
 
@@ -95,9 +95,9 @@ test('paired:false wins over everything — NOT PAIRED, neutral, filled', () => 
   assert.deepEqual(describeSurface('connected', 'live', { paired: false }), {
     ring: false,
     status: 'neutral',
-    word: 'NOT PAIRED',
+    word: 'Not paired',
   });
-  assert.equal(describeSurface('connecting', undefined, { paired: false }).word, 'NOT PAIRED');
+  assert.equal(describeSurface('connecting', undefined, { paired: false }).word, 'Not paired');
 });
 
 test('a caller detail rides along on a steady word', () => {
@@ -123,23 +123,23 @@ test('describeConnection keeps its shape: status, pulse, label', () => {
   const v = describeConnection('connected', 'studio');
   assert.equal(v.status, 'good');
   assert.equal(v.pulse, false);
-  assert.equal(v.label, 'LIVE · studio');
+  assert.equal(v.label, 'Connected · studio');
 });
 
 test('describeConnection maps ring onto the legacy pulse flag', () => {
   const v = describeConnection('connecting', 'studio');
   assert.equal(v.status, 'accent');
   assert.equal(v.pulse, true);
-  assert.equal(v.label, 'OPENING', 'the machine is not confirmed reachable while the race runs');
+  assert.equal(v.label, 'Connecting', 'the machine is not confirmed reachable while the race runs');
 });
 
 test('describeConnection speaks OFFLINE for unreachable, with the why', () => {
   const v = describeConnection('unreachable', 'studio');
   assert.equal(v.status, 'bad');
-  assert.equal(v.label, 'OFFLINE · asleep or off');
+  assert.equal(v.label, 'Offline · asleep or off');
 });
 
 test('describeConnection idle drops every suffix rather than printing "undefined"', () => {
-  assert.equal(describeConnection('idle').label, 'OFFLINE');
-  assert.equal(describeConnection('connected').label, 'LIVE');
+  assert.equal(describeConnection('idle').label, 'Offline');
+  assert.equal(describeConnection('connected').label, 'Connected');
 });

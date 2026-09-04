@@ -11,6 +11,29 @@ export const ZOOM_DIM_MS = 2500;
 /** Opacity of a dimmed-but-present overlay (the corner handle, the zoom pill). */
 export const DIMMED_OPACITY = 0.35;
 
+// --- the bottom-edge reveal -------------------------------------------------
+//
+// While the immersive control bar is hidden, a thin strip pinned to the very
+// bottom edge of the screen is the ONE way touch brings it back. Stage touches
+// are remote input and must never double as "reveal the controls"; an edge
+// swipe cannot be a remote click or scroll because it starts off the desktop's
+// useful surface and must commit upward before the strip claims it.
+
+/** Height of the reveal strip, px. Thin: an edge affordance, not a dead band. */
+export const REVEAL_EDGE_PX = 24;
+
+/** Upward travel (px) that commits the reveal. Jitter alone must not reveal. */
+export const REVEAL_SWIPE_PX = 12;
+
+/**
+ * The strip's claim rule, from the responder's cumulative dx/dy: committed
+ * upward (dy past the threshold, negative is up) and more vertical than
+ * horizontal. Anything else — a tap, a rest, a sideways or downward drag —
+ * is refused, so the strip never argues with input it cannot serve.
+ */
+export const isRevealSwipe = (dx: number, dy: number): boolean =>
+  dy <= -REVEAL_SWIPE_PX && Math.abs(dy) > Math.abs(dx);
+
 /** Whether an overlay last poked at `lastPokeAt` should still be shown at `now`. */
 export function stillVisible(now: number, lastPokeAt: number, delayMs: number): boolean {
   return now - lastPokeAt < delayMs;
