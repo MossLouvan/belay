@@ -70,6 +70,7 @@ import {
   useHostFacts,
   useScreenStream,
 } from '../../src/screen/stream';
+import { BelayStreamView } from '../../modules/belay-stream/src';
 import { useViewport } from '../../src/screen/viewport';
 import type { PendingButton, PointerMode } from '../../src/screen/viewport';
 import { SWIPE_ACTION_ID } from '../../src/screen/swipe';
@@ -434,7 +435,10 @@ export default function ScreenTab() {
 
   const live = stream.phase === 'live';
   const connecting = stream.phase === 'connecting' || stream.phase === 'reconnecting';
-  const showPanelState = permissions.captureBlocked || !stream.frameUri;
+  // A live H.264 stream is a picture even before any JPEG frame has arrived —
+  // and none ever will while it is up, so keying the overlay off `frameUri`
+  // alone would leave the "connecting" panel on top of working video.
+  const showPanelState = permissions.captureBlocked || (!stream.frameUri && !stream.bwp);
 
   const noticeArea = <NoticeArea permissions={permissions} actionError={actionError} onHelp={() => setShowHelp(true)} />;
 
@@ -639,7 +643,16 @@ export default function ScreenTab() {
               ],
             }}
           >
-            {stream.frameUri ? (
+            {/* Two video paths, never both. When the host is streaming H.264
+                over UDP the native view owns the picture and `frameUri` holds
+                whatever the last JPEG frame was — which is stale by definition,
+                because the host stopped sending them. */}
+            {stream.bwp && BelayStreamView ? (
+              <BelayStreamView
+                source={stream.bwp}
+                style={{ width: '100%', height: '100%' }}
+              />
+            ) : stream.frameUri ? (
               <Image
                 source={{ uri: stream.frameUri }}
                 accessibilityIgnoresInvertColors
@@ -647,7 +660,7 @@ export default function ScreenTab() {
                 resizeMode="cover"
               />
             ) : null}
-            {mode === 'trackpad' && stream.frameUri ? (
+            {mode === 'trackpad' && (stream.bwp || stream.frameUri) ? (
               <Crosshair x={viewport.cursorX} y={viewport.cursorY} color={theme.colors.accent} />
             ) : null}
           </Animated.View>

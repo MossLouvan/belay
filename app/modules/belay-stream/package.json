@@ -1,0 +1,7 @@
+{
+  "name": "belay-stream",
+  "version": "0.1.0",
+  "description": "Low-latency H.264 desktop stream over BWP",
+  "main": "src/index.ts",
+  "private": true
+}

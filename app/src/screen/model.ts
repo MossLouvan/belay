@@ -25,6 +25,23 @@ export interface QualityPreset {
   /** Target frame rate (host clamps 1..30). */
   readonly fps: number;
   readonly hint: string;
+  /**
+   * Bitrate ceiling when the host can stream H.264 over UDP.
+   *
+   * The JPEG presets above trade frame rate against sharpness because every
+   * JPEG frame costs full price. H.264 removes that trade: a still desktop
+   * costs almost nothing, so the same link buys both a sharp picture AND a high
+   * frame rate. These presets therefore cap BANDWIDTH, not quality — the
+   * congestion controller decides the rest.
+   */
+  readonly bwpPreset: 'auto' | 'data-saver' | 'balanced' | 'high' | 'max';
+  /**
+   * Frame rate to request on the H.264 path.
+   *
+   * Uniformly high, and deliberately not tied to `fps` above: the reason the
+   * JPEG presets drop to 8fps is cost per frame, which no longer applies.
+   */
+  readonly bwpFps: number;
 }
 
 export const QUALITY: readonly QualityPreset[] = Object.freeze([
@@ -35,6 +52,8 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     q: 35,
     fps: 20,
     hint: 'Softer picture, highest frame rate. Best on cellular or a slow Tailscale hop.',
+    bwpPreset: 'data-saver',
+    bwpFps: 60,
   },
   {
     id: 'balanced',
@@ -43,6 +62,8 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     q: 50,
     fps: 12,
     hint: 'The default. Readable text at a comfortable frame rate.',
+    bwpPreset: 'balanced',
+    bwpFps: 60,
   },
   {
     id: 'sharp',
@@ -51,6 +72,8 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     q: 78,
     fps: 8,
     hint: 'Crisp small text for code and terminals, at fewer frames per second.',
+    bwpPreset: 'high',
+    bwpFps: 60,
   },
 ]);
 

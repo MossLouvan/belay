@@ -22,6 +22,7 @@ import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from '
 import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
+import { BwpSession } from './bwp-stream.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { messageOf } from './errors.js';
@@ -117,6 +118,13 @@ const FRAME_DROP_BACKOFF_MS = 50;
 
 /** Pause after a capture failure, so a broken helper cannot spin the loop. */
 const CAPTURE_ERROR_BACKOFF_MS = 500;
+
+/** How often the idle JPEG loop re-checks whether BWP is still carrying video.
+ *
+ *  Long enough that an idle loop costs nothing, short enough that a BWP stream
+ *  which dies is picked up within a fifth of a second rather than leaving the
+ *  client on a frozen frame. */
+const BWP_IDLE_POLL_MS = 200;
 
 /** How often to rotate and reprint the pairing code while nothing is paired. */
 const CODE_REFRESH_INTERVAL_MS = 30_000;
@@ -921,7 +929,10 @@ server.on('upgrade', (req, socket, head) => {
       ws.on('close', () => {
         void native.tray('show', `Belay - ${getHostName()}`, false).catch(() => {});
       });
-      handleScreen(ws, url);
+      // The peer address comes from the socket, never from a client message:
+      // taking it from the message would let a paired client aim the UDP video
+      // stream at a third party.
+      handleScreen(ws, url, req.socket.remoteAddress);
     });
   } else if (url.pathname === '/ws/window') {
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleWindow(ws, url); });
@@ -1115,7 +1126,7 @@ function handleWindow(ws: WebSocket, url: URL) {
   void loop().catch((e: unknown) => console.error('[window] stream loop failed:', messageOf(e)));
 }
 
-function handleScreen(ws: WebSocket, url: URL) {
+function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
   let alive = true;
   // Query string and control message go through the same validation. Both are
   // untrusted, and only clamping one of them is how `?fps=100000` and
@@ -1136,6 +1147,70 @@ function handleScreen(ws: WebSocket, url: URL) {
   // the flag that says a display this stream created is live right now. When
   // it is, capture targets that display (aspect-matched, no letterbox);
   // otherwise nothing changed and the shipping downscale path runs untouched.
+  // ---- BWP (H.264 over UDP) --------------------------------------------
+  //
+  // When the client asks for it and the host can provide it, video leaves over
+  // UDP as H.264 and this WebSocket stops sending pixels entirely. The JPEG
+  // loop is not deleted: a client that has not been rebuilt, a host without the
+  // streamer, and every non-Windows host all still need it. It simply idles
+  // while BWP is up, so there is exactly one video path at a time.
+  let bwp: BwpSession | null = null;
+  let bwpActive = false;
+
+  const stopBwp = (): void => {
+    bwp?.stop();
+    bwp = null;
+    bwpActive = false;
+  };
+
+  const startBwp = async (msg: Record<string, unknown>): Promise<void> => {
+    if (bwp) stopBwp();
+    const session = new BwpSession((event) => {
+      if (!alive || ws.readyState !== ws.OPEN) return;
+      switch (event.type) {
+        case 'stats':
+          ws.send(JSON.stringify({ type: 'bwpStats', fps: event.fps, kbps: event.kbps, bitrate: event.bitrate }));
+          break;
+        case 'bitrate':
+          ws.send(JSON.stringify({ type: 'bwpBitrate', bps: event.bps }));
+          break;
+        case 'error':
+        case 'exit': {
+          // The stream died. Say so and fall back to JPEG rather than leaving
+          // the client watching a frozen picture with no explanation.
+          const why = event.type === 'error' ? event.error : `stream exited (${event.code})`;
+          bwpActive = false;
+          ws.send(JSON.stringify({ type: 'bwpEnded', error: why }));
+          break;
+        }
+        default:
+          break;
+      }
+    });
+    bwp = session;
+    try {
+      const offer = await session.start({
+        port: Number(msg.port),
+        address: peerAddress ?? '',
+        preset: typeof msg.preset === 'string' ? msg.preset : undefined,
+        fps: typeof msg.fps === 'number' ? msg.fps : undefined,
+        monitor: params.screen,
+      });
+      if (!alive || ws.readyState !== ws.OPEN) { stopBwp(); return; }
+      bwpActive = true;
+      // The key travels only here, on the socket that is already authenticated
+      // and encrypted. It is never logged and never put in a URL.
+      ws.send(JSON.stringify({ type: 'bwpOffer', ...offer }));
+    } catch (e: unknown) {
+      stopBwp();
+      if (alive && ws.readyState === ws.OPEN) {
+        // A refusal must be explicit: a client left waiting for an offer that
+        // never comes shows a black screen with no reason for it.
+        ws.send(JSON.stringify({ type: 'bwpUnavailable', error: messageOf(e) }));
+      }
+    }
+  };
+
   const featureOn = virtualDisplayEnabled();
   let desired: VirtualDisplayRequest | null = null; // what the phone last asked for
   let activeReq: VirtualDisplayRequest | null = null; // what is actually up
@@ -1178,6 +1253,8 @@ function handleScreen(ws: WebSocket, url: URL) {
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
+      if (msg?.type === 'bwpStart') { void startBwp(msg); return; }
+      if (msg?.type === 'bwpStop') { stopBwp(); return; }
       if (msg?.type !== 'config') return;
       params = resolveStreamParams(msg, params);
       const next = resolveVirtualRequest(msg, desired);
@@ -1186,6 +1263,9 @@ function handleScreen(ws: WebSocket, url: URL) {
   });
   const teardown = () => {
     alive = false;
+    // A streamer that outlived its socket would keep capturing the desktop and
+    // sending it to a client that is gone.
+    stopBwp();
     // Free the virtual display on disconnect: a display that outlived the phone
     // that asked for it would rearrange the host owner's desktop for nobody.
     if (virtualUp || desired) { desired = null; reconcileVirtual(); }
@@ -1196,6 +1276,13 @@ function handleScreen(ws: WebSocket, url: URL) {
   const loop = async () => {
     while (alive && ws.readyState === ws.OPEN) {
       const started = Date.now();
+      // Exactly one video path at a time. While BWP carries the pixels this
+      // loop must not also capture: two capture loops on one desktop compete
+      // for the same GPU and halve the frame rate of the one that matters.
+      if (bwpActive) {
+        await sleep(BWP_IDLE_POLL_MS);
+        continue;
+      }
       try {
         // `selectCaptureMode` is the fallback gate: it only ever returns a
         // virtual mode while a display is genuinely up, so a create still in

@@ -1,0 +1,7 @@
+// Makes the Rust client's C ABI importable from Swift without a bridging
+// header — Expo modules build as pods, and a pod has no app bridging header to
+// put one in.
+module BelayClientFFI {
+    header "belay_client.h"
+    export *
+}

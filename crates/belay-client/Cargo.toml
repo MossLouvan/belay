@@ -1,0 +1,16 @@
+[package]
+name = "belay-client"
+version = "0.1.0"
+edition = "2021"
+description = "The BWP client, exposed over a C ABI for iOS and Android"
+license = "MIT"
+
+[lib]
+name = "belay_client"
+# staticlib for iOS (linked into the app binary), cdylib for Android and for
+# desktop testing. rlib so Rust integration tests can use it directly.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+belay-wire = { path = "../belay-wire" }
+belay-net = { path = "../belay-net" }

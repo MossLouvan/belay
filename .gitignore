@@ -92,3 +92,7 @@ crates/belay-encode/target/
 # and belong in their own change, not swept into feature branches by `git add -A`.
 # They arrived mid-session twice and were committed twice by accident.
 docs/brand/wallpaper/
+
+# The iOS client static library is built on a Mac by scripts/build-ios-client.sh.
+# It is ~10 MB of build output per architecture and must never be committed.
+app/modules/belay-stream/ios/lib/

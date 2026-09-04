@@ -91,6 +91,14 @@ export interface StreamState {
   readonly error: string | null;
   readonly attempt: number;
   readonly retry: () => void;
+  /**
+   * Set while the host is streaming H.264 over UDP. When it is non-null the
+   * renderer must show the native view and IGNORE `frameUri` — the host has
+   * stopped sending JPEG frames, so the last one is stale by definition.
+   */
+  readonly bwp: BwpSource | null;
+  /** Host-reported stream rate while BWP is carrying video. */
+  readonly bwpStats: BwpStats | null;
 }
 
 interface FrameCounters {
@@ -128,6 +136,18 @@ export const backoffDelayMs = (attempt: number): number =>
 // The `config` control message and its builder live in model.ts (a pure,
 // react-free module the node test runner can import); re-exported here so the
 // socket code and the host contract still read as one unit.
+// BWP: H.264 over UDP. The negotiation is pure and lives in ./bwp; the
+// receiving and decoding is native and lives in modules/belay-stream.
+import {
+  buildBwpStart,
+  buildBwpStop,
+  hostFromSocketUrl,
+  parseBwpMessage,
+  type BwpStats,
+} from './bwp';
+import * as nativeStream from '../../modules/belay-stream/src';
+import type { BwpSource } from '../../modules/belay-stream/src';
+
 export { buildConfigMessage };
 export type { ConfigMessage } from './model';
 
@@ -165,12 +185,23 @@ export function useScreenStream(
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [generation, setGeneration] = useState(0);
+  const [bwp, setBwp] = useState<BwpSource | null>(null);
+  const [bwpStats, setBwpStats] = useState<BwpStats | null>(null);
+  // A ref as well as state: the stall detector and the message handler both
+  // need to know synchronously whether BWP is carrying video, and reading it
+  // from state there would see the value from the render that installed them.
+  const bwpLive = useRef(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const qualityRef = useRef<QualityPreset>(quality);
   const screenRef = useRef<number | undefined>(screen);
   const virtualRef = useRef<VirtualRequest | null>(virtual);
   const counters = useRef<FrameCounters>(newCounters());
+  // The host address is taken from the URL we authenticated against, never from
+  // a message — a host field in a message would be a redirect with no reason to
+  // honour it.
+  const socketUrl = useRef<string | null>(null);
+  const reservedPort = useRef(0);
 
   // Live retune: the host accepts a `config` message, so changing quality, the
   // streamed monitor, or the true resolution costs neither a reconnect nor a
@@ -200,6 +231,9 @@ export function useScreenStream(
       setError(null);
       counters.current = newCounters();
       setStats(EMPTY_STATS);
+      setBwp(null);
+      setBwpStats(null);
+      bwpLive.current = false;
       return;
     }
 
@@ -230,6 +264,52 @@ export function useScreenStream(
     };
 
     const onMessage = (event: { data: unknown }): void => {
+      // BWP messages first: while the stream is up the host sends no frames at
+      // all, so falling through to the frame parser would only ever fail.
+      const bwpMsg = parseBwpMessage(event.data);
+      if (bwpMsg) {
+        switch (bwpMsg.type) {
+          case 'offer': {
+            const host = hostFromSocketUrl(socketUrl.current ?? '');
+            if (!host) return;
+            bwpLive.current = true;
+            setBwp({
+              host,
+              port: bwpMsg.offer.port,
+              key: bwpMsg.offer.key,
+              salt: bwpMsg.offer.salt,
+              preset: qualityRef.current.bwpPreset,
+              localPort: reservedPort.current,
+            });
+            setPhase('live');
+            setError(null);
+            if (tries !== 0) { tries = 0; setAttempt(0); }
+            break;
+          }
+          case 'stats':
+            setBwpStats(bwpMsg.stats);
+            break;
+          case 'bitrate':
+            setBwpStats((prev) => (prev ? { ...prev, bitrate: bwpMsg.bps } : prev));
+            break;
+          case 'unavailable':
+            // Not an error the user needs to see: the host simply cannot do
+            // this, and the JPEG loop is already carrying the picture.
+            bwpLive.current = false;
+            setBwp(null);
+            break;
+          case 'ended':
+            // The stream died mid-session. Drop back to JPEG rather than
+            // leaving a frozen picture, and re-arm the stall detector.
+            bwpLive.current = false;
+            setBwp(null);
+            setBwpStats(null);
+            counters.current.lastFrameAt = 0;
+            break;
+        }
+        return;
+      }
+
       const msg = parseStreamMessage(event.data);
       if (!msg) return;
       if (msg.type === 'error') {
@@ -265,18 +345,32 @@ export function useScreenStream(
       setPhase(tries === 0 ? 'connecting' : 'reconnecting');
       const preset = qualityRef.current;
       const screenIndex = screenRef.current;
+      // Reserve the UDP port BEFORE the socket opens. The host must be told
+      // where to send before it starts sending; binding afterwards means its
+      // first frames land on a port nothing is listening to and are lost, which
+      // looks like a dead stream rather than like the race it is.
+      if (nativeStream.isAvailable() && reservedPort.current === 0) {
+        try {
+          reservedPort.current = await nativeStream.reservePort();
+        } catch {
+          // No port, no BWP. The JPEG path still works.
+          reservedPort.current = 0;
+        }
+      }
+      if (disposed) return;
+
       let socket: WebSocket;
+      let url: string;
       try {
-        socket = new WebSocket(
-          await wsUrl('/ws/screen', {
+        url = await wsUrl('/ws/screen', {
             w: preset.w,
             q: preset.q,
             fps: preset.fps,
             // Only named when a monitor was actually chosen; older hosts
             // ignore unknown query params, so this is safe either way.
             ...(screenIndex === undefined ? {} : { screen: screenIndex }),
-          }),
-        );
+        });
+        socket = new WebSocket(url);
       } catch (e: unknown) {
         if (e instanceof UnauthorizedError) {
           // The phone is no longer paired with this computer. Retrying can only
@@ -291,6 +385,7 @@ export function useScreenStream(
       }
       if (disposed) { socket.close(); return; }
       socketRef.current = socket;
+      socketUrl.current = url;
       socket.onopen = () => {
         // Backoff is reset on the first frame (see onFrame), not here — a socket
         // that opens but never delivers must not clear the counter.
@@ -306,6 +401,18 @@ export function useScreenStream(
             socket.send(JSON.stringify(buildConfigMessage(qualityRef.current, screenRef.current, v)));
           } catch { /* a failed send just means the picture stays physical */ }
         }
+        // Ask for the H.264 stream. A host that does not understand this
+        // ignores it and keeps sending JPEG, so asking can only upgrade the
+        // picture, never break it.
+        if (reservedPort.current > 0 && socket.readyState === SOCKET_OPEN) {
+          try {
+            socket.send(buildBwpStart(
+              reservedPort.current,
+              qualityRef.current.bwpPreset,
+              qualityRef.current.bwpFps,
+            ));
+          } catch { /* the JPEG loop is already carrying the picture */ }
+        }
       };
       socket.onmessage = onMessage;
       socket.onerror = () => {
@@ -315,6 +422,12 @@ export function useScreenStream(
       socket.onclose = (event: { code?: number }) => {
         if (disposed) return;
         socketRef.current = null;
+        // The host tears its streamer down when the socket closes, so the
+        // native session is pointed at nothing. Drop it rather than leaving a
+        // frozen last frame on screen through the whole reconnect.
+        bwpLive.current = false;
+        setBwp(null);
+        setBwpStats(null);
         if (event?.code === 4001) {
           // The host revoked this device mid-stream. Terminal — do not retry.
           setError('This phone is no longer paired with that computer.');
@@ -342,7 +455,13 @@ export function useScreenStream(
         sourceWidth: c.sourceWidth,
         sourceHeight: c.sourceHeight,
       });
-      const stale = c.lastFrameAt > 0 && Date.now() - c.lastFrameAt > STREAM.stallAfterMs;
+      // While BWP carries the video the host sends no JPEG frames at all, so
+      // `lastFrameAt` stops advancing by design. Without this guard the stall
+      // detector would close a perfectly healthy socket a second after the
+      // H.264 stream started, every time.
+      const stale = !bwpLive.current
+        && c.lastFrameAt > 0
+        && Date.now() - c.lastFrameAt > STREAM.stallAfterMs;
       if (stale && socketRef.current) {
         // A half-open socket never fires 'close' on its own; tear it down so the
         // reconnect path runs instead of freezing on a stale frame forever.
@@ -358,6 +477,12 @@ export function useScreenStream(
       const socket = socketRef.current;
       socketRef.current = null;
       if (!socket) return;
+      // Tell the host to stop capturing before dropping the socket. It also
+      // stops on close, but saying so explicitly means the desktop is not
+      // captured for the extra moment the close takes to be noticed.
+      if (socket.readyState === SOCKET_OPEN) {
+        try { socket.send(buildBwpStop()); } catch { /* closing anyway */ }
+      }
       socket.onopen = null;
       socket.onmessage = null;
       socket.onerror = null;
@@ -372,7 +497,7 @@ export function useScreenStream(
     setGeneration((g) => g + 1);
   }, []);
 
-  return { phase, frameUri, stats, error, attempt, retry };
+  return { phase, frameUri, stats, error, attempt, retry, bwp, bwpStats };
 }
 
 // --- host facts -------------------------------------------------------------
