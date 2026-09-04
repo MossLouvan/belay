@@ -1,0 +1,12 @@
+[package]
+name = "belay-net"
+version = "0.1.0"
+edition = "2021"
+description = "BWP over UDP: sessions, pacing, feedback — the I/O half of the Belay Wire Protocol"
+license = "MIT"
+
+[dependencies]
+belay-wire = { path = "../belay-wire" }
+# Session salts must be unpredictable: a guessable salt undoes the whole point
+# of having one (see belay_wire::crypto).
+getrandom = "0.2"
