@@ -71,6 +71,38 @@ bool BelayVdd::IsValidMode(const BELAYVDD_MODE& mode)
 }
 
 // ---------------------------------------------------------------------------
+// Monitor callback ownership
+// ---------------------------------------------------------------------------
+//
+// IddCx invokes the monitor callbacks DURING IddCxMonitorCreate — it has to,
+// because a monitor created without an EDID has no mode list until
+// EvtIddCxMonitorGetDefaultDescriptionModes supplies one. That happens before
+// IddCxMonitorCreate returns, and therefore before the returned monitor object
+// exists for us to attach a context to.
+//
+// The original code attached the context immediately AFTER the call, so the
+// callback ran against a null context: a null dereference inside the UMDF host
+// (observed as event 10111, "device is offline due to a user-mode driver
+// crash") and IddCxMonitorCreate failing with STATUS_INVALID_PARAMETER.
+//
+// The adapter promises MaxMonitorsSupported = 1, so a single owner recorded
+// before the call is sufficient and unambiguous.
+static IndirectDeviceContext* s_ActiveContext = nullptr;
+
+/// Resolve the context for ANY IddCx callback - adapter or monitor. Prefers
+/// the object's own context once attached, and falls back to the creating
+/// context for the window in which it is not. Returns null rather than
+/// dereferencing garbage; every caller checks.
+static IndirectDeviceContext* ContextFor(WDFOBJECT object)
+{
+    if (object != nullptr) {
+        auto* wrapper = WdfObjectGet_IndirectDeviceContextWrapper(object);
+        if (wrapper != nullptr && wrapper->pContext != nullptr) return wrapper->pContext;
+    }
+    return s_ActiveContext;
+}
+
+// ---------------------------------------------------------------------------
 // DriverEntry / device add
 // ---------------------------------------------------------------------------
 
@@ -405,6 +437,10 @@ void IndirectDeviceContext::InitAdapter()
     adapterInit.ObjectAttributes = &attributes;
 
     IDARG_OUT_ADAPTER_INIT adapterInitOut = {};
+    // Before the call, not after: IddCxAdapterInitAsync can complete - and
+    // fire EvtIddCxAdapterInitFinished - before it returns here.
+    s_ActiveContext = this;
+
     NTSTATUS status = IddCxAdapterInitAsync(&adapterInit, &adapterInitOut);
     if (!NT_SUCCESS(status)) return;
 
@@ -445,12 +481,19 @@ NTSTATUS IndirectDeviceContext::PlugInMonitor(const BELAYVDD_MODE& mode)
     monitorInfo.MonitorType = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_WIRED;
     monitorInfo.ConnectorIndex = 0;
     monitorInfo.MonitorDescription.Size = sizeof(monitorInfo.MonitorDescription);
-    // UNINITIALIZED, not EDID. "No description" is expressed by the TYPE, not by
-    // an EDID of zero length: declaring EDID and then handing IddCx DataSize 0 /
-    // pData null is self-contradictory, and IddCxMonitorCreate rejects it with
-    // STATUS_INVALID_PARAMETER (surfacing as 0x80070057 on the ADD_MONITOR
-    // ioctl) and takes the driver down with it.
-    monitorInfo.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_UNINITIALIZED;
+    // EDID with a zero size and a null pointer IS the documented way to say
+    // "this monitor has no description". From iddcx.h, on the EDID enumerator:
+    //
+    //   "The monitor description is EDID or no EDID description available.
+    //    If the monitor has no description then
+    //    IDDCX_MONITOR_DESCRIPTION_TYPE_EDID shall be used with zero
+    //    description size and null pointer for data"
+    //
+    // So no EDID blob has to be synthesised. UNINITIALIZED (0) is the not-set
+    // sentinel and is rejected. When there is no description, IddCx asks for the
+    // mode list through EvtIddCxMonitorGetDefaultDescriptionModes instead —
+    // which it calls from inside IddCxMonitorCreate, hence s_ActiveContext.
+    monitorInfo.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_EDID;
     monitorInfo.MonitorDescription.DataSize = 0;
     monitorInfo.MonitorDescription.pData = nullptr;
 
@@ -533,13 +576,24 @@ static void FillSignalInfo(DISPLAYCONFIG_VIDEO_SIGNAL_INFO& info,
     info.vSyncFreq.Denominator = 1;
     info.activeSize.cx = width;
     info.activeSize.cy = height;
-    if (monitorMode) {
-        info.totalSize.cx = width;
-        info.totalSize.cy = height;
-    } else {
-        info.AdditionalSignalInfo.vSyncFreqDivider = 1;
-        info.AdditionalSignalInfo.videoStandard = 255; // other
-    }
+
+    // BOTH fields apply to BOTH kinds of mode. The branch here used to set
+    // totalSize only for monitor modes and videoStandard only for target modes,
+    // so every target mode went out with totalSize {0,0} — a timing that
+    // describes a frame containing no pixels. IddCxMonitorArrival rejected the
+    // monitor for it with STATUS_INVALID_PARAMETER (0x80070057 at the caller),
+    // which is a validation failure, not anything to do with there being no
+    // physical panel: an indirect display never has one.
+    //
+    // Belay drives no real timing, so the blanking interval is zero and the
+    // total frame is exactly the active area.
+    info.totalSize.cx = width;
+    info.totalSize.cy = height;
+    info.AdditionalSignalInfo.videoStandard = 255; // "other"
+    // The one genuine difference: a monitor mode must report a divider of zero
+    // (iddcx.h says so explicitly on IDDCX_MONITOR_MODE), a target mode reports 1.
+    info.AdditionalSignalInfo.vSyncFreqDivider = monitorMode ? 0 : 1;
+
     info.scanLineOrdering = DISPLAYCONFIG_SCANLINE_ORDERING_PROGRESSIVE;
 }
 
@@ -589,7 +643,8 @@ static UINT BuildModeList(const BELAYVDD_MODE& requested, TMode* dest, UINT capa
 NTSTATUS BelayVddAdapterInitFinished(IDDCX_ADAPTER adapterObject,
                                      const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
 {
-    auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(adapterObject)->pContext;
+    auto* pContext = ContextFor(adapterObject);
+    if (pContext == nullptr) return STATUS_INVALID_DEVICE_STATE;
     pContext->AdapterInitFinished(pInArgs->AdapterInitStatus);
     return STATUS_SUCCESS;
 }
@@ -614,7 +669,8 @@ NTSTATUS BelayVddMonitorGetDefaultModes(IDDCX_MONITOR monitorObject,
                                         const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* pInArgs,
                                         IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* pOutArgs)
 {
-    auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(monitorObject)->pContext;
+    auto* pContext = ContextFor(monitorObject);
+    if (pContext == nullptr) return STATUS_INVALID_DEVICE_STATE;
     const BELAYVDD_MODE& requested = pContext->RequestedMode();
 
     IDDCX_MONITOR_MODE modes[3];
@@ -622,14 +678,25 @@ NTSTATUS BelayVddMonitorGetDefaultModes(IDDCX_MONITOR monitorObject,
         [](DWORD w, DWORD h, DWORD hz) { return MakeMonitorMode(w, h, hz); });
 
     pOutArgs->DefaultMonitorModeBufferOutputCount = count;
-    if (pInArgs->DefaultMonitorModeBufferInputCount == 0) {
+    // Always meaningful, including on the size query: IddCx reads this whether
+    // or not it asked for the modes themselves.
+    pOutArgs->PreferredMonitorModeIdx = 0; // the client's exact mode
+
+    // The BUFFER POINTER is the authority on whether to copy, not the count.
+    // From iddcx.h: "Pointer to buffer that driver should copy the monitor
+    // modes to IF THE VALUE IS NON-NULL. If value is NULL then driver should
+    // not copy any data and should just set [the output count]". Keying only
+    // off DefaultMonitorModeBufferInputCount meant a size query that supplied a
+    // non-zero count with a null buffer was treated as a real buffer and
+    // written through.
+    if (pInArgs->pDefaultMonitorModes == nullptr ||
+        pInArgs->DefaultMonitorModeBufferInputCount == 0) {
         return STATUS_SUCCESS; // size query
     }
     if (pInArgs->DefaultMonitorModeBufferInputCount < count) {
         return STATUS_BUFFER_TOO_SMALL;
     }
     for (UINT i = 0; i < count; i++) pInArgs->pDefaultMonitorModes[i] = modes[i];
-    pOutArgs->PreferredMonitorModeIdx = 0; // the client's exact mode
     return STATUS_SUCCESS;
 }
 
@@ -637,7 +704,8 @@ NTSTATUS BelayVddMonitorQueryModes(IDDCX_MONITOR monitorObject,
                                    const IDARG_IN_QUERYTARGETMODES* pInArgs,
                                    IDARG_OUT_QUERYTARGETMODES* pOutArgs)
 {
-    auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(monitorObject)->pContext;
+    auto* pContext = ContextFor(monitorObject);
+    if (pContext == nullptr) return STATUS_INVALID_DEVICE_STATE;
     const BELAYVDD_MODE& requested = pContext->RequestedMode();
 
     IDDCX_TARGET_MODE modes[3];
@@ -645,7 +713,10 @@ NTSTATUS BelayVddMonitorQueryModes(IDDCX_MONITOR monitorObject,
         [](DWORD w, DWORD h, DWORD hz) { return MakeTargetMode(w, h, hz); });
 
     pOutArgs->TargetModeBufferOutputCount = count;
-    if (pInArgs->TargetModeBufferInputCount >= count) {
+    // Same contract as the default-modes callback: copy only when the OS
+    // actually supplied a buffer, and only when it is large enough.
+    if (pInArgs->pTargetModes != nullptr &&
+        pInArgs->TargetModeBufferInputCount >= count) {
         for (UINT i = 0; i < count; i++) pInArgs->pTargetModes[i] = modes[i];
     }
     return STATUS_SUCCESS;
@@ -654,7 +725,8 @@ NTSTATUS BelayVddMonitorQueryModes(IDDCX_MONITOR monitorObject,
 NTSTATUS BelayVddMonitorAssignSwapChain(IDDCX_MONITOR monitorObject,
                                         const IDARG_IN_SETSWAPCHAIN* pInArgs)
 {
-    auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(monitorObject)->pContext;
+    auto* pContext = ContextFor(monitorObject);
+    if (pContext == nullptr) return STATUS_INVALID_DEVICE_STATE;
     pContext->AssignSwapChain(pInArgs->hSwapChain, pInArgs->RenderAdapterLuid,
                               pInArgs->hNextSurfaceAvailable);
     return STATUS_SUCCESS;
@@ -662,7 +734,8 @@ NTSTATUS BelayVddMonitorAssignSwapChain(IDDCX_MONITOR monitorObject,
 
 NTSTATUS BelayVddMonitorUnassignSwapChain(IDDCX_MONITOR monitorObject)
 {
-    auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(monitorObject)->pContext;
+    auto* pContext = ContextFor(monitorObject);
+    if (pContext == nullptr) return STATUS_INVALID_DEVICE_STATE;
     pContext->UnassignSwapChain();
     return STATUS_SUCCESS;
 }
