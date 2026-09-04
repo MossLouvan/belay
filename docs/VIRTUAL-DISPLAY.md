@@ -25,47 +25,34 @@ byte-for-byte what it was.
 | `/screen/virtual-display` routes (GET/POST/DELETE) | Implemented, behind the flag |
 | `native.ts` `virtualdisplay` verbs | Implemented (degrades to a clean error on old helpers) |
 | macOS `VirtualDisplay.swift` (CGVirtualDisplay) | **Implemented, compiled and runtime-verified** on this machine: created 1280x720@60 and 1920x1080@120 displays, observed them in the OS display list as "Belay Virtual Display", destroyed them, observed removal |
-| Windows driver `server/native/win-display/` | **BUILDS, INSTALLS AND LOADS.** On Windows 11 26200 (Hyper-V guest, test signing on): builds, passes `infverif /u`, test-signs, `pnputil` installs it, the UMDF host loads it together with `iddcx.dll`, and the devnode reports `CM_PROB_NONE`. **No monitor plumbed yet** — see "What still fails" |
+| Windows driver `server/native/win-display/` | **WORKS.** Verified on Windows 11 26200 (Hyper-V guest, test signing on, no physical panel, no GPU): builds, passes `infverif /u`, test-signs, installs, loads, and plumbs a monitor at the requested mode |
 | `BelayVddShim.cpp` (native SwDeviceCreate shim) | **Implemented and verified.** Creates the devnode; closing the handle removes it |
-| Windows host side `BelayHostVirtualDisplay.cs` | **COMPILES AND RUNS.** Device creation, teardown, the no-driver degradation path, and both validation rejections (out-of-range and odd dimensions) are verified. The IOCTL layer is not |
-| Driver signing / WHQL / attestation | **Not done, cannot be done from here** — see "Signing for release" |
+| Windows host side `BelayHostVirtualDisplay.cs` | **WORKS.** create / status / destroy all verified, plus both validation rejections and the no-driver degradation path |
+| Driver signing / WHQL / attestation | **Not done, cannot be done from here** - see "Signing for release" |
 
-### What still fails
+### Verified end to end
 
-Every IOCTL returns **`0x80070032` (ERROR_NOT_SUPPORTED)** — `VERSION`,
-`STATUS` and `REMOVE_MONITOR` alike — against a device that is healthy
-(`CM_PROB_NONE`) with the driver loaded. The control codes are not reaching
-`BelayVddIoDeviceControl`.
-
-Leading suspect is the `IndirectKmd` upper filter, which BelayVdd.inf must
-install for IddCx and which sits above the UMDF stack: it may be rejecting
-control codes it does not recognise before WUDFRd can forward them. Ruled out
-already: a secondary queue with `WdfDeviceConfigureRequestDispatching` is
-worse, not better — the framework refuses it and `DeviceAdd` fails outright
-(UMDF host reports `0xD0200204`). A default queue is correct and is what
-SudoVDA uses.
-
-So the driver runs, but nothing has yet asked it for a monitor: mode commit,
-swap-chain drain and monitor arrival remain unverified.
-
-### Secure Boot blocks the last step
-
-A test-signed driver cannot load while Secure Boot is enabled:
-`bcdedit /set testsigning on` is refused with *"The value is protected by
-Secure Boot policy and cannot be modified or deleted."* Secure Boot must be
-turned off in UEFI firmware setup first.
-
-**If BitLocker protects the system volume, suspend it before changing Secure
-Boot**, or the next boot will demand the 48-digit recovery key:
-
-```powershell
-# elevated; resumes automatically after the next two boots
-manage-bde -protectors -disable C: -RebootCount 2
+```
+create 1920x1080@60  -> PnP monitors 1 -> 2, new DISPLAY\DEFAULT_MONITOR
+status               -> active:true, supported:true, exact mode reported
+create 2560x1440@60  -> replaces in place, still 2 monitors (never stacks)
+w=999999 / odd width -> refused
+destroy              -> monitors 2 -> 1
+host exit            -> devnode phantom, no orphaned display
 ```
 
-Then: reboot into UEFI setup, disable Secure Boot, boot, and run
-`bcdedit /set testsigning on` (elevated) followed by one more reboot. A
-"Test Mode" watermark on the desktop confirms it took.
+An indirect display never has a physical panel - that is the point of the
+model - so none of this needs a monitor attached, and it was all confirmed on
+a headless VM whose only "display" is Hyper-V's synthetic adapter.
+
+### Still not verified
+
+Belay's own **capture path over the virtual display**. The driver makes Windows
+render at the requested resolution; whether Desktop Duplication then streams
+that surface acceptably has not been tested, and on Hyper-V's synthetic video
+it may not be representative. The swap-chain drain (`SwapChainProcessor`) has
+not been exercised under real presentation either - a monitor exists, but
+nothing has driven frames through it yet.
 
 ## Fork-vs-build decision and license survey
 
