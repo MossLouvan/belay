@@ -50,6 +50,8 @@ export { haptic, setHapticsEnabled, areHapticsEnabled } from './haptics';
 export type { HapticTone } from './haptics';
 
 export { useReducedMotion, useToggleAnimation, useEntrance, usePulse, useSpringPress, useMorphTransition, useStatusPulse, useSuccessCelebration } from './motion';
+export { NotificationCarabiner, useNotificationCarabiner } from './notification-carabiner';
+export type { NotificationCarabinerProps } from './notification-carabiner';
 export type { PressAnimation, EntranceStyle } from './motion';
 
 export { GlassPanel, PillCTA } from './glass';

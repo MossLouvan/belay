@@ -118,8 +118,9 @@ export function HostStep({
   const theme = useTheme();
 
   return (
-    <View testID="host-step" style={{ gap: theme.space.lg }}>
-      <GlassPanel elevation="medium">
+    <View testID="host-step" style={{ gap: theme.space.xl }}>
+      {/* Minimal input — no panel wrapper, clean and direct */}
+      <View style={{ gap: theme.space.sm }}>
         <Input
           testID="host-input"
           label="Computer address"
@@ -132,9 +133,6 @@ export function HostStep({
           keyboardType="url"
           returnKeyType="go"
           onSubmitEditing={onSubmit}
-          // Locked while a check is in flight, matching the code field in the next
-          // step: editing an address whose result is already on its way only
-          // invites a second, overlapping check.
           editable={!busy}
           accessibilityLabel="Computer address"
           accessibilityHint="The address printed by the host agent on your computer"
@@ -142,38 +140,34 @@ export function HostStep({
         {showResolution ? <ResolutionPreview resolution={resolution} /> : (
           <Caption style={{ marginTop: theme.space.xs }}>Port 8787 is added for you if you leave it off.</Caption>
         )}
-      </GlassPanel>
+      </View>
 
       {error ? (
         <StatusNotice testID="error" title={error.title} message={error.message} status="bad" />
       ) : null}
 
-      <Row gap="sm">
-        <View style={{ flex: 1 }}>
-          <Button
-            label="Connect"
-            onPress={onSubmit}
-            loading={busy}
-            testID="check-host"
-            fullWidth
-            size="lg"
-          />
-        </View>
+      {/* Simplified button layout */}
+      <View style={{ gap: theme.space.sm }}>
         <Button
-          label="Scan"
+          label="Connect"
+          onPress={onSubmit}
+          loading={busy}
+          testID="check-host"
+          fullWidth
+          size="lg"
+        />
+        <Button
+          label="Scan QR code"
           variant="secondary"
           onPress={onScan}
           testID="scan-btn"
+          fullWidth
           size="lg"
           accessibilityHint="Scans the QR code the host agent prints"
         />
-      </Row>
+      </View>
 
       <RecentHosts recent={recent} onPick={onPickRecent} onForget={onForgetRecent} />
-
-      <Caption>
-        Belay talks straight to your computer. Nothing routes through anyone else.
-      </Caption>
     </View>
   );
 }

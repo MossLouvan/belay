@@ -58,17 +58,18 @@ const STEPS: readonly Omit<StepProps, 'index'>[] = [
   },
 ];
 
-/** Numbered setup checklist. */
+/** Minimal numbered setup checklist. */
 export function SetupSteps() {
   const theme = useTheme();
   return (
-    <Section label="Before you connect" bleed={theme.layout.margin}>
+    <View style={{ gap: theme.space.lg }}>
+      <Label>Before you connect</Label>
       <View style={{ gap: theme.space.md }}>
         {STEPS.map((step, i) => (
           <Step key={step.title} index={i + 1} {...step} />
         ))}
       </View>
-    </Section>
+    </View>
   );
 }
 

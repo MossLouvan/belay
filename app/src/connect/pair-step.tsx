@@ -70,29 +70,27 @@ export function PairStep({
   const complete = code.length === CODE_LENGTH;
 
   return (
-    <View testID="pair-step" style={{ gap: theme.space.lg }}>
-      {/* The reachable computer as a premium glass panel — name, address,
-          capability — refined with better spacing. */}
-      <GlassPanel elevation="medium">
-        <Row justify="space-between" align="flex-start" gap="sm">
-          <View style={{ flex: 1, gap: theme.space.xs }}>
-            <Row gap="xs" align="center">
-              <StatusBadge label="Reachable" variant="default" />
-              <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>
-                {host.name}
-              </Txt>
-            </Row>
-            <Txt variant="monoSmall" tone="faint" numberOfLines={1}>
-              {prettyHost(host.url)}
-            </Txt>
-          </View>
+    <View testID="pair-step" style={{ gap: theme.space.xl }}>
+      {/* Minimal host info — no panel, clean typography */}
+      <View style={{ gap: theme.space.sm }}>
+        <Row gap="xs" align="center">
+          <StatusBadge label="Reachable" variant="default" />
+          <Txt variant="subheading" numberOfLines={1} style={{ flex: 1 }}>
+            {host.name}
+          </Txt>
+        </Row>
+        <Row justify="space-between" align="center">
+          <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flex: 1 }}>
+            {prettyHost(host.url)}
+          </Txt>
           <Badge label={host.native ? 'Screen + input' : 'Terminal only'} status={host.native ? 'good' : 'warn'} />
         </Row>
-      </GlassPanel>
+      </View>
 
-      <View>
+      {/* Code entry section */}
+      <View style={{ gap: theme.space.sm }}>
         <Label>Pairing code</Label>
-        <Caption style={{ marginBottom: theme.space.sm }}>
+        <Caption>
           {codeUnlikely
             ? `For when ${host.name} is actually showing one — right after a pairing reset, for instance.`
             : `It is shown in the Belay window on ${host.name}.`}
@@ -109,44 +107,38 @@ export function PairStep({
           autoFocus
         />
 
-        <Caption style={{ marginTop: theme.space.sm }}>
-          Codes are single-use and expire after five minutes. The host keeps a fresh one on screen.
+        <Caption tone="dim">
+          Codes are single-use and expire after five minutes.
         </Caption>
-
-        {host.paired && !codeUnlikely ? (
-          // Redundant under the dead-end notice, which has already said —
-          // more precisely — what being paired means for this screen.
-          <Caption style={{ marginTop: theme.space.xxs }}>
-            This computer already has another device paired — adding this one will not remove it.
-          </Caption>
-        ) : null}
       </View>
 
       <CapabilityNote native={host.native} />
 
       {error ? (
-        <StatusNotice testID="error" title={error.title} message={error.message} status="bad" style={{ marginTop: theme.space.md }} />
+        <StatusNotice testID="error" title={error.title} message={error.message} status="bad" />
       ) : null}
 
-      <Button
-        label="Pair"
-        variant={primary ? 'primary' : 'secondary'}
-        onPress={onPair}
-        loading={busy}
-        disabled={busy}
-        testID="pair-btn"
-        fullWidth
-        accessibilityHint={complete ? undefined : `Enter all ${CODE_LENGTH} digits first`}
-        style={{ marginTop: theme.space.md }}
-      />
-      <Button
-        label="Use a different computer"
-        variant="ghost"
-        onPress={onBack}
-        testID="back-btn"
-        fullWidth
-        style={{ marginTop: theme.space.sm }}
-      />
+      {/* Clean button stack */}
+      <View style={{ gap: theme.space.sm, marginTop: theme.space.md }}>
+        <Button
+          label="Pair"
+          variant={primary ? 'primary' : 'secondary'}
+          onPress={onPair}
+          loading={busy}
+          disabled={busy}
+          testID="pair-btn"
+          fullWidth
+          size="lg"
+          accessibilityHint={complete ? undefined : `Enter all ${CODE_LENGTH} digits first`}
+        />
+        <Button
+          label="Use a different computer"
+          variant="ghost"
+          onPress={onBack}
+          testID="back-btn"
+          fullWidth
+        />
+      </View>
     </View>
   );
 }
