@@ -126,7 +126,12 @@ extern "C" DRIVER_INITIALIZE DriverEntry;
 
 EVT_WDF_DRIVER_DEVICE_ADD BelayVddDeviceAdd;
 EVT_WDF_DEVICE_D0_ENTRY BelayVddDeviceD0Entry;
-EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL BelayVddIoDeviceControl;
+// NOT EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL. IddCx redirects IoDeviceControl to
+// an internal queue of its own, so a WDF queue registered on this device never
+// sees a custom control code — every DeviceIoControl came back
+// ERROR_NOT_SUPPORTED. IddCx hands unrecognised codes to the driver through
+// this callback instead, which takes the WDFDEVICE rather than a WDFQUEUE.
+EVT_IDD_CX_DEVICE_IO_CONTROL BelayVddIoDeviceControl;
 
 EVT_IDD_CX_ADAPTER_INIT_FINISHED BelayVddAdapterInitFinished;
 EVT_IDD_CX_ADAPTER_COMMIT_MODES BelayVddAdapterCommitModes;

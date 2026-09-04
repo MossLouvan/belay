@@ -107,6 +107,10 @@ NTSTATUS BelayVddDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT pDeviceInit)
     iddConfig.EvtIddCxMonitorQueryTargetModes = BelayVddMonitorQueryModes;
     iddConfig.EvtIddCxMonitorAssignSwapChain = BelayVddMonitorAssignSwapChain;
     iddConfig.EvtIddCxMonitorUnassignSwapChain = BelayVddMonitorUnassignSwapChain;
+    // BelayVDD's own control surface. IddCx redirects IoDeviceControl to an
+    // internal queue, so this callback — not a WDF queue — is the only way a
+    // custom control code reaches the driver.
+    iddConfig.EvtIddCxDeviceIoControl = BelayVddIoDeviceControl;
 
     status = IddCxDeviceInitConfig(pDeviceInit, &iddConfig);
     if (!NT_SUCCESS(status)) return status;
@@ -145,22 +149,17 @@ NTSTATUS BelayVddDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT pDeviceInit)
         status = STATUS_SUCCESS;
     }
 
-    // One SEQUENTIAL DEFAULT queue for IOCTLs: requests arrive one at a time, so
-    // the device context needs no locking and add/remove can never interleave.
+    // No WDF I/O queue here on purpose. IddCx owns the device's I/O path and
+    // redirects IoDeviceControl into a queue of its own, so control codes are
+    // delivered through EvtIddCxDeviceIoControl (wired up above) instead.
+    // Registering a WDF queue for them is not merely redundant, it does not
+    // work: with a default queue every DeviceIoControl returned
+    // ERROR_NOT_SUPPORTED, and moving them to a secondary queue with
+    // WdfDeviceConfigureRequestDispatching was refused by the framework
+    // outright (DeviceAdd failed, UMDF host reported 0xD0200204).
     //
-    // A default queue is correct here, and is what SudoVDA (the production IddCx
-    // driver this one is modelled on) uses. An earlier attempt to move the
-    // control codes onto a secondary queue with
-    // WdfDeviceConfigureRequestDispatching was rejected by the framework:
-    // DeviceAdd failed and the UMDF host reported 0xD0200204, so the device
-    // never loaded at all.
-    WDF_IO_QUEUE_CONFIG queueConfig;
-    WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchSequential);
-    queueConfig.EvtIoDeviceControl = BelayVddIoDeviceControl;
-    WDFQUEUE queue = nullptr;
-    status = WdfIoQueueCreate(device, &queueConfig, WDF_NO_OBJECT_ATTRIBUTES, &queue);
-    if (!NT_SUCCESS(status)) return status;
-
+    // Requests arrive serialised on IddCx's queue, so the device context still
+    // needs no locking and add/remove can never interleave.
     status = IddCxDeviceInitialize(device);
     if (!NT_SUCCESS(status)) return status;
 
@@ -182,11 +181,10 @@ NTSTATUS BelayVddDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE)
 
 // METHOD_BUFFERED: WDF hands us system-copied buffers, never user pointers.
 // Retrieval APIs enforce minimum sizes; field ranges are checked after.
-void BelayVddIoDeviceControl(WDFQUEUE queue, WDFREQUEST request,
+void BelayVddIoDeviceControl(WDFDEVICE device, WDFREQUEST request,
                              size_t /*outputBufferLength*/, size_t /*inputBufferLength*/,
                              ULONG ioControlCode)
 {
-    WDFDEVICE device = WdfIoQueueGetDevice(queue);
     auto* pContext = WdfObjectGet_IndirectDeviceContextWrapper(device)->pContext;
 
     NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
@@ -447,7 +445,12 @@ NTSTATUS IndirectDeviceContext::PlugInMonitor(const BELAYVDD_MODE& mode)
     monitorInfo.MonitorType = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INDIRECT_WIRED;
     monitorInfo.ConnectorIndex = 0;
     monitorInfo.MonitorDescription.Size = sizeof(monitorInfo.MonitorDescription);
-    monitorInfo.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_EDID;
+    // UNINITIALIZED, not EDID. "No description" is expressed by the TYPE, not by
+    // an EDID of zero length: declaring EDID and then handing IddCx DataSize 0 /
+    // pData null is self-contradictory, and IddCxMonitorCreate rejects it with
+    // STATUS_INVALID_PARAMETER (surfacing as 0x80070057 on the ADD_MONITOR
+    // ioctl) and takes the driver down with it.
+    monitorInfo.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_UNINITIALIZED;
     monitorInfo.MonitorDescription.DataSize = 0;
     monitorInfo.MonitorDescription.pData = nullptr;
 

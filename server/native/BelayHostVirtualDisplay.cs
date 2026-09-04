@@ -339,7 +339,7 @@ static class BelayVirtualDisplay
         switch ((uint)hr)
         {
             case 0x80070005: hint = " — access denied; the Belay host must run elevated"; break;
-            case 0x80070057: hint = " — invalid argument; SW_DEVICE_CREATE_INFO layout or hardware id is wrong"; break;
+            case 0x80070057: hint = " — invalid argument rejected by the driver or by SwDeviceCreate"; break;
             case 0x800705B4: hint = " — timeout waiting for the device to start"; break;
             case 0x800F0242:
             case 0x800B0109: hint = " — driver signature rejected; is test signing on and the cert trusted?"; break;
