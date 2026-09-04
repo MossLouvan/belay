@@ -121,7 +121,8 @@ export interface KeySpec {
   /** Stable testID suffix. Never derived from the platform-dependent label. */
   readonly id: string;
   readonly label: string;
-  readonly key: string;
+  /** Optional: a few chords are macOS-only (macKey with no Windows key). */
+  readonly key?: string;
   readonly mods?: readonly string[];
   /** Label and modifiers used when the host reports macOS. */
   readonly macLabel?: string;
@@ -226,7 +227,7 @@ export const labelFor = (spec: KeySpec, mac: boolean): string =>
 
 /** The key name to send, honouring a chord that moves keys across platforms. */
 export const keyFor = (spec: KeySpec, mac: boolean): string =>
-  mac && spec.macKey ? spec.macKey : spec.key;
+  (mac && spec.macKey ? spec.macKey : spec.key) ?? spec.macKey ?? '';
 
 // --- macOS permission copy --------------------------------------------------
 

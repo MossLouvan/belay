@@ -52,6 +52,10 @@ import { registerRecordingRoutes } from './recording-routes.js';
 import { handleHandoff } from './handoff.js';
 import { registerAgentApprovalRoutes } from './agent-routes.js';
 import { handleAttention } from './agent-attention.js';
+import { createCursorRegistry } from './cursors.js';
+import { createCursorHub } from './cursor-channel.js';
+import { createInputFloor, denialBody, isLocalActivity } from './input-floor.js';
+import type { FloorDenied } from './input-floor.js';
 import { registerImageRoutes } from './image-routes.js';
 import { handleAudioSocket, registerAudioRoutes } from './audio-routes.js';
 import { productEnv } from './env.js';
@@ -575,13 +579,101 @@ app.post('/windows/focus', auth, async (req, res) => {
   }
 });
 
+// ---- collaboration -------------------------------------------------------
+//
+// Every connected device gets a virtual cursor (cursors.ts) that costs nothing
+// to move, and the single real pointer is rationed by a floor (input-floor.ts)
+// that the person physically at the machine always outranks. See
+// docs/COLLABORATION.md for why it has to work this way.
+
+const floor = createInputFloor();
+const cursors = createCursorRegistry({ actingId: () => floor.holder() });
+const cursorHub = createCursorHub({ registry: cursors });
+
+/** How often the host's own idle counter is sampled while remote input is
+ *  live. Well inside LOCAL_GRACE_MS, so the freeze engages on the host's first
+ *  keystroke rather than their third. */
+const LOCAL_PROBE_MS = 300;
+
+/** Stop sampling once remote input has been quiet this long. An unattended
+ *  host should not be paying for a native round trip every 300 ms forever. */
+const PROBE_IDLE_AFTER_MS = 10_000;
+
+let lastRemoteInputAt = 0;
+let probeInFlight = false;
+
+/**
+ * Sample the host's idle counter and, if a human is at the keyboard, freeze
+ * remote input.
+ *
+ * Deliberately not awaited by the input routes: a native round trip in front of
+ * every click would put the helper's serialized command queue between a tap and
+ * its response. The poller below keeps the reading fresh instead, so the value
+ * the floor consults is at most one LOCAL_PROBE_MS stale — two orders of
+ * magnitude inside the grace window it feeds.
+ */
+function probeLocalActivity(): void {
+  if (probeInFlight) return;
+  probeInFlight = true;
+  void native.idleMs()
+    .then((idleMs) => {
+      const now = Date.now();
+      if (!isLocalActivity(idleMs, now, floor.lastInjectionAt())) return;
+      const wasFrozen = floor.frozen(now);
+      // Date the freeze from the input itself, not from when we noticed.
+      floor.noteLocalActivity(now - (idleMs ?? 0));
+      // The eviction changes who is `acting`; tell the room without waiting for
+      // the next cursor tick.
+      if (!wasFrozen) cursorHub.poke();
+    })
+    .catch(() => { /* a probe that fails is simply no evidence */ })
+    .finally(() => { probeInFlight = false; });
+}
+
+const localProbeTimer = setInterval(() => {
+  if (Date.now() - lastRemoteInputAt > PROBE_IDLE_AFTER_MS) return;
+  probeLocalActivity();
+}, LOCAL_PROBE_MS);
+localProbeTimer.unref?.();
+
+/**
+ * Run `act` only if this device may touch the desktop right now.
+ *
+ * The one gate in front of every route that reaches native input. A refusal is
+ * a 409 naming whoever does hold the floor, so the app can say "Jack is
+ * driving" instead of silently dropping the tap.
+ */
+async function withFloor(
+  req: AuthedRequest,
+  res: Response,
+  act: () => Promise<void>,
+): Promise<boolean> {
+  const device = req.device!;
+  lastRemoteInputAt = Date.now();
+  const decision = floor.request(cursors.idOf(device.token), device.name);
+  if (!decision.ok) {
+    res.status(409).json(denialBody(decision as FloorDenied));
+    return false;
+  }
+  cursorHub.poke();
+  floor.noteInjection(Date.now());
+  try {
+    await act();
+  } finally {
+    // Mark the far end too: a drag or a long typed burst finishes well after
+    // the grant, and the idle probe must not read our own tail as a human.
+    floor.noteInjection(Date.now());
+  }
+  return true;
+}
+
 // Input. Coordinates arrive normalized 0..1 against whatever the client is
 // showing, and the client says what that was: `window` (a handle from
 // /windows) for a single remote window, or `screen` (an index from
 // /screen/info) for a whole monitor. The helper maps 0..1 onto that same
 // rectangle, which is what keeps taps landing on the pixels the frame showed.
 // Neither means the primary monitor, exactly as before both existed.
-app.post('/input/click', auth, async (req, res) => {
+app.post('/input/click', auth, async (req: AuthedRequest, res) => {
   try {
     const { x, y, button = 'left', double = false, mods = [] } = req.body || {};
     // Same name->VK mapping as /input/key, so a latched Ctrl/Shift on the phone
@@ -589,20 +681,45 @@ app.post('/input/click', auth, async (req, res) => {
     const modVks = (Array.isArray(mods) ? mods : [])
       .map((m) => MOD_VK[String(m).toLowerCase()])
       .filter((v): v is number => !!v);
-    await native.click(button, x, y, double, screenIndexOf(req.body?.screen), modVks, windowIdOf(req.body?.window));
-    res.json({ ok: true });
+    await withFloor(req, res, async () => {
+      await native.click(button, x, y, double, screenIndexOf(req.body?.screen), modVks, windowIdOf(req.body?.window));
+      res.json({ ok: true });
+    });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/input/move', auth, async (req, res) => {
+// Moving is the one action that never fails. The virtual cursor always
+// updates — that is the whole point: pointing at something must not depend on
+// holding the desktop, or a room of people cannot point at the same time. Only
+// the leg that warps the REAL pointer needs the floor, and when it is refused
+// the caller still gets a 200 saying the move stayed virtual.
+app.post('/input/move', auth, async (req: AuthedRequest, res) => {
   try {
-    await native.move(req.body.x, req.body.y, screenIndexOf(req.body?.screen), windowIdOf(req.body?.window));
-    res.json({ ok: true });
+    const screen = screenIndexOf(req.body?.screen);
+    const window = windowIdOf(req.body?.window);
+    const device = req.device!;
+    cursors.join(device.token, device.name);
+    cursors.move(device.token, req.body?.x, req.body?.y, { screen, window });
+
+    lastRemoteInputAt = Date.now();
+    const decision = floor.request(cursors.idOf(device.token), device.name);
+    if (!decision.ok) {
+      const why = denialBody(decision as FloorDenied);
+      res.json({ ok: true, virtual: true, reason: why.reason, holderName: why.holderName });
+      return;
+    }
+    floor.noteInjection(Date.now());
+    try {
+      await native.move(req.body.x, req.body.y, screen, window);
+    } finally {
+      floor.noteInjection(Date.now());
+    }
+    res.json({ ok: true, virtual: false });
   }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/input/scroll', auth, async (req, res) => {
+app.post('/input/scroll', auth, async (req: AuthedRequest, res) => {
   try {
     const { dy = 0, dx = 0 } = req.body || {};
     // Validate like /input/drag: a non-finite or non-number delta reaching the
@@ -611,12 +728,14 @@ app.post('/input/scroll', auth, async (req, res) => {
     if (![dy, dx].every((n) => typeof n === 'number' && Number.isFinite(n))) {
       res.status(400).json({ error: 'scroll needs finite dy,dx' }); return;
     }
-    await native.scroll(dy, dx);
-    res.json({ ok: true });
+    await withFloor(req, res, async () => {
+      await native.scroll(dy, dx);
+      res.json({ ok: true });
+    });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/input/drag', auth, async (req, res) => {
+app.post('/input/drag', auth, async (req: AuthedRequest, res) => {
   try {
     const { x1, y1, x2, y2, button = 'left' } = req.body || {};
     // Validate before pressing anything: a non-finite coordinate or an unknown
@@ -629,20 +748,26 @@ app.post('/input/drag', auth, async (req, res) => {
     }
     const screen = screenIndexOf(req.body?.screen);
     const window = windowIdOf(req.body?.window);
-    await native.down(button, x1, y1, screen, window);
-    try {
-      await native.move(x2, y2, screen, window);
-    } finally {
-      // Always release, even if the move leg failed (a native timeout after a
-      // display wake, a helper crash). Otherwise the button stays physically
-      // held down and every later move becomes a drag.
-      await native.up(button, x2, y2, screen, window).catch(() => {});
-    }
-    res.json({ ok: true });
+    // The floor matters most here: a drag is three separate helper commands,
+    // and before the gate a second user's click could land between the press
+    // and the release — on the first user's button, at the second user's
+    // coordinates. Holding the floor across all three makes the gesture atomic.
+    await withFloor(req, res, async () => {
+      await native.down(button, x1, y1, screen, window);
+      try {
+        await native.move(x2, y2, screen, window);
+      } finally {
+        // Always release, even if the move leg failed (a native timeout after a
+        // display wake, a helper crash). Otherwise the button stays physically
+        // held down and every later move becomes a drag.
+        await native.up(button, x2, y2, screen, window).catch(() => {});
+      }
+      res.json({ ok: true });
+    });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/input/text', auth, async (req, res) => {
+app.post('/input/text', auth, async (req: AuthedRequest, res) => {
   try {
     const text = String(req.body?.text ?? '');
     if (text.length > MAX_INPUT_TEXT_UNITS) {
@@ -653,14 +778,16 @@ app.post('/input/text', auth, async (req, res) => {
       });
       return;
     }
-    await native.text(text);
-    res.json({ ok: true });
+    await withFloor(req, res, async () => {
+      await native.text(text);
+      res.json({ ok: true });
+    });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // A named key (enter, tab, arrows...) optionally with modifiers, or a single
 // character that should compose with modifiers (ctrl+c). Falls back to text.
-app.post('/input/key', auth, async (req, res) => {
+app.post('/input/key', auth, async (req: AuthedRequest, res) => {
   try {
     const { key, mods = [] } = req.body || {};
     const name = String(key || '').toLowerCase();
@@ -669,12 +796,14 @@ app.post('/input/key', auth, async (req, res) => {
       .filter((v): v is number => v !== undefined);
     let vk: number | null = Object.hasOwn(VK, name) ? VK[name] ?? null : null;
     if (vk === null) vk = charToVk(String(key || ''));
-    if (vk !== null) {
-      await native.key(vk, modVks);
-    } else if (key) {
-      await native.text(String(key));
-    }
-    res.json({ ok: true });
+    await withFloor(req, res, async () => {
+      if (vk !== null) {
+        await native.key(vk, modVks);
+      } else if (key) {
+        await native.text(String(key));
+      }
+      res.json({ ok: true });
+    });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -850,7 +979,7 @@ heartbeat.unref?.();
 // redeemed — so a half-finished signaling path can never be reached, let alone
 // regress the shipping JPEG-over-WebSocket transport, unless it is deliberately
 // enabled. JPEG (/ws/screen) stays the default and the fallback.
-const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention']);
+const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention', '/ws/cursors']);
 if (webrtcEnabled()) { WS_ROUTES.add('/ws/webrtc'); WS_ROUTES.add('/ws/audio'); }
 
 server.on('upgrade', (req, socket, head) => {
@@ -915,6 +1044,18 @@ server.on('upgrade', (req, socket, head) => {
   } else if (url.pathname === '/ws/attention') {
     // Push channel for the app's badge/banner/list — agent-attention.ts.
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAttention(ws); });
+  } else if (url.pathname === '/ws/cursors') {
+    // Everyone's virtual cursor, both directions — cursor-channel.ts.
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      track(ws);
+      cursorHub.handle(ws as never, device.token, device.name);
+      // Whoever leaves cannot keep the desktop: drop the floor with the socket
+      // rather than making the room wait out the lease.
+      ws.on('close', () => {
+        floor.release(cursors.idOf(device.token));
+        cursorHub.poke();
+      });
+    });
   } else if (url.pathname === '/ws/webrtc') {
     // Only reachable when BELAY_WEBRTC is on (WS_ROUTES gate above). Signaling
     // relay only — Node never sees media.
