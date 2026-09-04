@@ -30,7 +30,15 @@ fn main() -> windows::core::Result<()> {
         )?
     };
     let device = device.unwrap();
-    let vd: ID3D11VideoDevice = device.cast()?;
+    // No video device at all is the normal answer on a GPU-less VM. Say so and
+    // exit rather than returning a bare E_NOINTERFACE that reads like a bug.
+    let vd: ID3D11VideoDevice = match device.cast() {
+        Ok(v) => v,
+        Err(e) => {
+            println!("no ID3D11VideoDevice on this machine ({:?}) — CPU path only", e.code());
+            return Ok(());
+        }
+    };
 
     let desc = D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
         InputFrameFormat: D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
@@ -41,7 +49,13 @@ fn main() -> windows::core::Result<()> {
         Usage: D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
         ..Default::default()
     };
-    let en = unsafe { vd.CreateVideoProcessorEnumerator(&desc)? };
+    let en = match unsafe { vd.CreateVideoProcessorEnumerator(&desc) } {
+        Ok(e) => e,
+        Err(e) => {
+            println!("no video processor ({:?}) — CPU path only", e.code());
+            return Ok(());
+        }
+    };
 
     for (name, fmt) in [
         ("B8G8R8A8_UNORM", DXGI_FORMAT_B8G8R8A8_UNORM),
