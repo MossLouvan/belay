@@ -180,6 +180,22 @@ static class BelayHost
         foreach (var c in ImageCodecInfo.GetImageEncoders())
             if (c.MimeType == "image/jpeg") { jpeg = c; break; }
 
+        // Both pipes are UTF-8, explicitly.
+        //
+        // Node writes JSON.stringify output as UTF-8, but Console.In/Out default
+        // to the process code page (CP-1252 or an OEM page depending on the
+        // machine). Every non-ASCII byte was therefore being decoded wrong: an
+        // em dash in a notify title corrupted the line badly enough that the
+        // JSON parser rejected the whole command, and the same applies to
+        // clipboard text, typed text and anything with an emoji in it.
+        //
+        // Set on the streams rather than via Console.InputEncoding, which throws
+        // when stdio is redirected — which it always is here. No BOM: a leading
+        // U+FEFF would be the first thing Node's line reader saw.
+        var utf8 = new UTF8Encoding(false);
+        Console.SetIn(new StreamReader(Console.OpenStandardInput(), utf8));
+        Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFlush = true });
+
         var stdout = Console.Out;
 #if BELAY_WEBRTC_BUILD
         // Wire the hardware-gated WebRTC path to this process's reply writer and
