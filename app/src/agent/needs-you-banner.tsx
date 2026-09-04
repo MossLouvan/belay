@@ -1,6 +1,8 @@
-// The cross-tab "needs you" band. Whenever any session is blocked on an
-// approval, this sits directly above the tab bar on every tab, names the
-// session and the tool, and shows how long is left before the host gives up.
+// The cross-surface "needs you" band. Whenever any session is blocked on an
+// approval, this sits at the bottom of every surface — inline above the
+// desktop's control bar, floating over each tool panel's bottom edge — names
+// the session and the tool, and shows how long is left before the host gives
+// up.
 //
 // Swept to the Next Terminal register: a quiet navy surface with a hairline
 // top edge, a 2pt amber left edge and a small amber dot — never a saturated
@@ -21,7 +23,17 @@ import { Button, Dot, Micro, Row, Txt, haptic } from '../ui';
 import { askSummary, countdown, expiryUrgent, waitingSessions } from './attention';
 import { setOpenSession, useAgentAttention } from './attention-store';
 
-export function NeedsYouBanner({ bottom }: { bottom: number }) {
+export interface NeedsYouBannerProps {
+  /**
+   * Absolute offset from its parent's bottom edge. Omit to render the band
+   * in normal flow instead — the desktop home lays it inline directly above
+   * the control bar (whose height moves with the key bar), while the tool
+   * panels float it over their own bottom edge.
+   */
+  bottom?: number;
+}
+
+export function NeedsYouBanner({ bottom }: NeedsYouBannerProps) {
   const theme = useTheme();
   const router = useRouter();
   const pathname = usePathname();
@@ -59,10 +71,9 @@ export function NeedsYouBanner({ bottom }: { bottom: number }) {
       testID="needs-you"
       accessibilityLiveRegion="polite"
       style={{
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom,
+        ...(bottom === undefined
+          ? null
+          : { position: 'absolute' as const, left: 0, right: 0, bottom }),
         paddingHorizontal: theme.layout.margin,
         paddingVertical: theme.space.sm,
         gap: theme.space.xs,

@@ -154,7 +154,7 @@ export default function Devices() {
    */
   const onDiscoveredAdd = useCallback(async (device: SavedDevice) => {
     await addDevice(device);
-    router.replace('/(tabs)/screen');
+    router.replace('/(home)/screen');
   }, [addDevice]);
 
   const onPick = useCallback(async (device: SavedDevice) => {
@@ -170,7 +170,7 @@ export default function Devices() {
     setSwitching(device.id);
     try {
       await switchTo(device.id);
-      router.replace('/(tabs)/screen');
+      router.replace('/(home)/screen');
     } finally {
       setSwitching(null);
     }
