@@ -97,6 +97,12 @@ pub struct Session {
     /// Set when reassembly gives up on a frame, so the next poll can ask for a
     /// keyframe once rather than on every dropped fragment.
     want_keyframe: bool,
+    /// How many times the OS has told us the peer was unreachable.
+    ///
+    /// Counted rather than ignored silently: a session where this only ever
+    /// climbs is one where nothing is listening at the other end, and that is
+    /// worth being able to see. It is not itself an error.
+    unreachable_reports: u64,
 }
 
 impl core::fmt::Debug for Session {
@@ -146,6 +152,7 @@ impl Session {
             started: Instant::now(),
             last_report_sent: Instant::now(),
             want_keyframe: false,
+            unreachable_reports: 0,
         })
     }
 
@@ -155,6 +162,15 @@ impl Session {
 
     pub fn bitrate_bps(&self) -> u64 {
         self.abr.bitrate_bps
+    }
+
+    /// How many times the OS has reported the peer unreachable.
+    ///
+    /// A number that climbs while nothing is received means the far end is not
+    /// listening — the difference between "the network is bad" and "no one is
+    /// there", which are worth telling apart.
+    pub fn unreachable_reports(&self) -> u64 {
+        self.unreachable_reports
     }
 
     /// Microseconds since this session started — the clock stamped into headers.
@@ -234,6 +250,23 @@ impl Session {
             let (len, from) = match self.socket.recv_from(&mut buf) {
                 Ok(v) => v,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                // Windows reports a previous datagram's ICMP Port Unreachable
+                // as an error on the NEXT recv, not on the send that caused it.
+                // The socket is fine; the peer simply was not listening yet.
+                //
+                // Treating this as fatal kills the host stream every time the
+                // phone is backgrounded, restarts, or is a moment slow to bind
+                // — which is most of the time at session start. UDP is
+                // connectionless and there is nothing here to reset.
+                Err(ref e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused
+                    ) =>
+                {
+                    self.unreachable_reports = self.unreachable_reports.saturating_add(1);
+                    continue;
+                }
                 Err(e) => return Err(SessionError::Io(e)),
             };
             // UDP will hand us anything anyone sends. Datagrams from elsewhere
@@ -485,6 +518,38 @@ mod tests {
             start_bitrate,
             host.bitrate_bps()
         );
+    }
+
+    /// Windows reports a previous send's ICMP Port Unreachable on the next
+    /// recv. Treating that as fatal killed the host stream every time the
+    /// client was a moment slow to bind — which is most session starts.
+    #[test]
+    fn a_peer_that_is_not_listening_does_not_kill_the_session() {
+        let token = b"paired-device-token";
+        let salt = [4u8; 8];
+        let sock = UdpSocket::bind(local(0)).unwrap();
+        let addr = sock.local_addr().unwrap();
+        drop(sock);
+
+        // Reserve a port and free it, so nothing is listening there.
+        let dead = UdpSocket::bind(local(0)).unwrap();
+        let dead_addr = dead.local_addr().unwrap();
+        drop(dead);
+
+        let mut host =
+            Session::bind(addr, dead_addr, token, salt, Direction::HostToClient, BitratePreset::Max)
+                .unwrap();
+
+        // Send into the void repeatedly, polling between sends. On Windows this
+        // is what produces the reset; elsewhere it is simply a no-op.
+        for _ in 0..20 {
+            host.send_frame(Channel::Video, &[1u8; 900], false).unwrap();
+            std::thread::sleep(Duration::from_millis(5));
+            let events = host
+                .poll()
+                .expect("an unreachable peer must never fail the session");
+            assert!(events.iter().all(|e| !matches!(e, Event::Frame { .. })));
+        }
     }
 
     #[test]
