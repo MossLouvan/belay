@@ -25,13 +25,28 @@ byte-for-byte what it was.
 | `/screen/virtual-display` routes (GET/POST/DELETE) | Implemented, behind the flag |
 | `native.ts` `virtualdisplay` verbs | Implemented (degrades to a clean error on old helpers) |
 | macOS `VirtualDisplay.swift` (CGVirtualDisplay) | **Implemented, compiled and runtime-verified** on this machine: created 1280x720@60 and 1920x1080@120 displays, observed them in the OS display list as "Belay Virtual Display", destroyed them, observed removal |
-| Windows driver `server/native/win-display/` | **COMPILES, PACKAGES AND TEST-SIGNS** on Windows 11 with VS2022 Build Tools + WDK 10.0.26100: produces `BelayVdd.dll` + `.inf` + `.cat`, passes `infverif /u`, and `pnputil /add-driver /install` accepts the package. **NOT YET LOADED OR RUN** — see "Secure Boot" below |
-| Windows host side `BelayHostVirtualDisplay.cs` | **COMPILES AND RUNS.** With the driver installed but not startable, `virtualdisplay status` correctly returns `supported:false` with a pointer to this doc — the degradation path is verified. `create` / `destroy` are still unexercised |
+| Windows driver `server/native/win-display/` | **BUILDS, INSTALLS AND LOADS.** On Windows 11 26200 (Hyper-V guest, test signing on): builds, passes `infverif /u`, test-signs, `pnputil` installs it, the UMDF host loads it together with `iddcx.dll`, and the devnode reports `CM_PROB_NONE`. **No monitor plumbed yet** — see "What still fails" |
+| `BelayVddShim.cpp` (native SwDeviceCreate shim) | **Implemented and verified.** Creates the devnode; closing the handle removes it |
+| Windows host side `BelayHostVirtualDisplay.cs` | **COMPILES AND RUNS.** Device creation, teardown, the no-driver degradation path, and both validation rejections (out-of-range and odd dimensions) are verified. The IOCTL layer is not |
 | Driver signing / WHQL / attestation | **Not done, cannot be done from here** — see "Signing for release" |
 
-The driver builds and installs. It has still never *loaded*, so nothing about
-its runtime behaviour — monitor arrival, mode commit, swap-chain drain,
-teardown — is verified yet.
+### What still fails
+
+Every IOCTL returns **`0x80070032` (ERROR_NOT_SUPPORTED)** — `VERSION`,
+`STATUS` and `REMOVE_MONITOR` alike — against a device that is healthy
+(`CM_PROB_NONE`) with the driver loaded. The control codes are not reaching
+`BelayVddIoDeviceControl`.
+
+Leading suspect is the `IndirectKmd` upper filter, which BelayVdd.inf must
+install for IddCx and which sits above the UMDF stack: it may be rejecting
+control codes it does not recognise before WUDFRd can forward them. Ruled out
+already: a secondary queue with `WdfDeviceConfigureRequestDispatching` is
+worse, not better — the framework refuses it and `DeviceAdd` fails outright
+(UMDF host reports `0xD0200204`). A default queue is correct and is what
+SudoVDA uses.
+
+So the driver runs, but nothing has yet asked it for a monitor: mode commit,
+swap-chain drain and monitor arrival remain unverified.
 
 ### Secure Boot blocks the last step
 
