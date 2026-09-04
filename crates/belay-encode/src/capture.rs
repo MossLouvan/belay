@@ -28,7 +28,6 @@ use windows::core::Interface;
 use windows::Win32::Foundation::E_FAIL;
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_UNKNOWN, D3D_DRIVER_TYPE_WARP};
 use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
 
 /// A region of the desktop that changed since the previous frame.

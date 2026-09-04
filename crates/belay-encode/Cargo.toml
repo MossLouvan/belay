@@ -35,3 +35,12 @@ path = "src/bin/encode_bench.rs"
 [[bin]]
 name = "capture-bench"
 path = "src/bin/capture_bench.rs"
+
+[[bin]]
+name = "gpu-bench"
+path = "src/bin/gpu_bench.rs"
+
+[[bin]]
+name = "vp-probe"
+path = "src/bin/vp_probe.rs"
+

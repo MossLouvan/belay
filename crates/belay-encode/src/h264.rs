@@ -23,8 +23,9 @@
 
 use std::time::Duration;
 
-use windows::core::{Interface, Result as WinResult, GUID};
+use windows::core::{Interface, Result as WinResult, GUID, IUnknown};
 use windows::Win32::Foundation::E_FAIL;
+use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Multithread, ID3D11Texture2D};
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
@@ -85,6 +86,8 @@ pub struct H264Encoder {
     force_keyframe: bool,
     /// Frames collected while waiting for input capacity on an async MFT.
     pending_output: Vec<CodedFrame>,
+    /// Set once the MFT has accepted our D3D device and can take textures.
+    device_manager: Option<IMFDXGIDeviceManager>,
 }
 
 impl core::fmt::Debug for H264Encoder {
@@ -189,12 +192,101 @@ impl H264Encoder {
                 frame_index: 0,
                 force_keyframe: false,
                 pending_output: Vec::new(),
+                device_manager: None,
             })
         }
     }
 
     pub fn config(&self) -> EncoderConfig {
         self.config
+    }
+
+    /// Hand the encoder the D3D11 device the frames live on, so it can take
+    /// GPU textures directly instead of CPU buffers.
+    ///
+    /// This is what removes the last per-frame CPU cost. Without it the NV12
+    /// frame must be read back out of VRAM — measured at ~2.4 ms for 1080p,
+    /// which is nearly twice the encode itself, and it stalls the pipeline
+    /// waiting for the GPU rather than merely spending CPU.
+    ///
+    /// Returns Ok(false) when the MFT declines — a software encoder has nowhere
+    /// to put a texture, and that is a normal configuration (the GPU-less dev
+    /// VM), not a failure. The caller keeps using `encode` in that case.
+    pub fn attach_d3d_device(&mut self, device: &ID3D11Device) -> WinResult<bool> {
+        unsafe {
+            // The MFT runs on its own threads; without multithread protection
+            // it and our capture thread corrupt the device's internal state.
+            if let Ok(mt) = device.cast::<ID3D11Multithread>() {
+                let _ = mt.SetMultithreadProtected(true);
+            }
+
+            let mut token = 0u32;
+            let mut manager: Option<IMFDXGIDeviceManager> = None;
+            MFCreateDXGIDeviceManager(&mut token, &mut manager)?;
+            let Some(manager) = manager else { return Ok(false) };
+            manager.ResetDevice(device, token)?;
+
+            // MFT_MESSAGE_SET_D3D_MANAGER must arrive while the transform is
+            // streaming-capable but before the types are locked in for a GPU
+            // path; a software MFT answers E_NOTIMPL and we simply stay on the
+            // CPU path.
+            let ptr = manager.as_raw() as usize;
+            if self
+                .transform
+                .ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, ptr)
+                .is_err()
+            {
+                return Ok(false);
+            }
+            self.device_manager = Some(manager);
+            Ok(true)
+        }
+    }
+
+    /// True once `attach_d3d_device` has succeeded and `encode_texture` is
+    /// usable.
+    pub fn accepts_textures(&self) -> bool {
+        self.device_manager.is_some()
+    }
+
+    /// Encode an NV12 GPU texture with no readback and no CPU copy.
+    ///
+    /// The texture must stay valid until this returns; the encoder reads from
+    /// it during `ProcessInput`.
+    pub fn encode_texture(&mut self, texture: &ID3D11Texture2D) -> WinResult<Vec<CodedFrame>> {
+        if self.device_manager.is_none() {
+            return Err(windows::core::Error::new(
+                E_FAIL,
+                "encoder has no D3D device; call attach_d3d_device first",
+            ));
+        }
+        unsafe {
+            if self.is_async {
+                self.await_need_input()?;
+            }
+            let surface: IUnknown = texture.cast()?;
+            let buffer: IMFMediaBuffer =
+                MFCreateDXGISurfaceBuffer(&ID3D11Texture2D::IID, &surface, 0, false)?;
+            // A DXGI buffer reports length 0 until told; an MFT handed a
+            // zero-length buffer silently encodes nothing.
+            if let Ok(len2d) = buffer.cast::<IMF2DBuffer>() {
+                if let Ok(len) = len2d.GetContiguousLength() {
+                    buffer.SetCurrentLength(len)?;
+                }
+            }
+
+            let sample: IMFSample = MFCreateSample()?;
+            sample.AddBuffer(&buffer)?;
+            let dur = HNS_PER_SEC / self.config.fps.max(1) as i64;
+            sample.SetSampleTime(self.frame_index * dur)?;
+            sample.SetSampleDuration(dur)?;
+            if self.force_keyframe {
+                sample.SetUINT32(&MFSampleExtension_CleanPoint, 1)?;
+                self.force_keyframe = false;
+            }
+            self.transform.ProcessInput(self.input_stream, &sample, 0)?;
+            self.drain()
+        }
     }
 
     /// Ask for the next frame to be a keyframe.
