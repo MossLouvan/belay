@@ -7,8 +7,10 @@ import { Alert, LogBox, Platform, View } from 'react-native';
 import { Stack, useRootNavigationState, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
+import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
 import { ConnectionProvider, useConnection } from '../src/connection';
 import { useTheme } from '../src/theme';
 import { restoreThemeMode } from '../src/settings/theme-mode';
@@ -17,6 +19,9 @@ import {
   AgentLink, parseAgentLink, planAgentLink, sessionKnown, settlePendingOpen,
 } from '../src/agent/deep-link';
 import { getAttention, refreshAttention, setOpenSession } from '../src/agent/attention-store';
+
+// Keep the splash screen visible while fonts load
+SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 // The app intentionally registers two URI schemes (belay + the load-bearing
 // `tether` compat scheme), so expo-router notes that it picked one prefix. That
@@ -165,6 +170,14 @@ export default function RootLayout() {
   const [themeReady, setThemeReady] = useState(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
 
+  // Load Outfit fonts for the UI (mono stack stays platform-default for machine data)
+  const [fontsLoaded, fontError] = useFonts({
+    Outfit_400Regular,
+    Outfit_500Medium,
+    Outfit_600SemiBold,
+    Outfit_700Bold,
+  });
+
   // Restore the saved appearance before the first paint so the app never
   // flashes the wrong palette.
   useEffect(() => {
@@ -181,12 +194,23 @@ export default function RootLayout() {
     };
   }, []);
 
+  // Hide splash screen once fonts are loaded and theme is ready
+  useEffect(() => {
+    if ((fontsLoaded || fontError) && themeReady) {
+      SplashScreen.hideAsync().catch(() => undefined);
+    }
+  }, [fontsLoaded, fontError, themeReady]);
+
   // Keep the native window background in step with the theme, so overscroll and
   // rotation never reveal a mismatched colour. Cosmetic, hence best-effort.
   useEffect(() => {
     if (Platform.OS === 'web') return;
     SystemUI.setBackgroundColorAsync(theme.colors.bg).catch(() => undefined);
   }, [theme.colors.bg]);
+
+  // Hold the boot screen until fonts load. If font loading fails, proceed anyway
+  // (the app will fall back to system fonts).
+  const ready = (fontsLoaded || fontError) && (themeReady || bootTimedOut);
 
   // A plain View, not GestureHandlerRootView: nothing here uses
   // react-native-gesture-handler — the screen surface is built on PanResponder
@@ -198,7 +222,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <StatusBar style={theme.isDark ? 'light' : 'dark'} />
         <ConnectionProvider>
-          {themeReady || bootTimedOut ? <Routes forced={bootTimedOut} /> : <Boot />}
+          {ready ? <Routes forced={bootTimedOut} /> : <Boot />}
           <AgentLinkHandler />
         </ConnectionProvider>
       </SafeAreaProvider>

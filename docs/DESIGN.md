@@ -205,30 +205,29 @@ terminal from an ANSI-on-light-background palette nobody maintains.
 
 ## 4. Type
 
-### 4.1 The face decision: system fonts, no `expo-font` — for v1
+### 4.1 The face decision: Outfit from Google Fonts
 
-Recommendation: **do not bundle custom fonts yet.**
+**Outfit** is now the primary UI typeface for all sans-serif text across the app.
 
-- The display style uses the system sans at weight `'900'` — SF Pro Black on iOS, Roboto
-  900 on Android, `-apple-system / Helvetica Neue / Arial` heavy weights on web. SF Pro
-  Black with tight tracking is genuinely close to the reference's heavy grotesque at
-  phone sizes; the resemblance gap only opens at poster sizes we never use.
-- The mono style uses the platform mono the app already ships: Menlo on iOS,
-  `ui-monospace / SFMono-Regular / Menlo / Consolas` on web, `monospace` on Android.
-  Wide-tracked uppercase Menlo at 10–11pt is a convincing match for the reference's
-  micro-labels, and Menlo is a proven terminal face — which matters because our terminal
-  is real.
-- Honest costs of this choice: web and Android renderings will be *good* but not
-  *identical* to iOS; Roboto Black is squarer than SF Black. And no system face has the
-  reference's slightly-quirky mono personality.
-- Why it still wins: zero bundle weight, zero licence work, zero `expo-font` loading
-  states, Dynamic Type keeps working natively, and per §2 the aesthetic here is carried
-  by layout, rules and tracking more than by the exact cut of the font.
-- **Named upgrade path** if the owner wants closer fidelity later: bundle exactly two
-  OFL families via `expo-font` — *Archivo Black* (display) and *Space Mono* (labels
-  only, terminal stays Menlo). ~350KB, licence-clean. This is a token-level swap
-  (`font.display`, `font.mono` in DESIGN-TOKENS.md) touching no component code. Decide
-  after seeing v1 on device.
+- **Sans-serif UI:** Outfit (weights 400, 500, 600, 700) replaces system fonts for all
+  UI chrome: titles, body text, buttons, labels, captions, tabs, connect/setup screens,
+  and all other interface elements. Loaded via `@expo-google-fonts/outfit` and
+  `expo-font` in the root layout.
+- **Monospace (machine voice):** Platform defaults unchanged. Menlo on iOS,
+  `ui-monospace / SFMono-Regular / Menlo / Consolas` on web. Used for all machine data:
+  paths, hostnames, terminal output, stats, timestamps, and the micro-labels that mark
+  sections (`label` and `micro` variants).
+- **Why Outfit:** Modern geometric sans with excellent weight coverage (400–700 in
+  variable font), clean at all sizes, works beautifully with the Ledger design system's
+  heavy display weights and tracked uppercase labels. Better cross-platform consistency
+  than system fonts. OFL-licensed, zero licensing friction.
+- **Bundle impact:** ~50–70KB gzipped for the four required weights. Fonts load before
+  app render (splash screen held) to prevent FOUT/FOIT. Dynamic Type still works — all
+  type variants have `maxFontSizeMultiplier` caps.
+- **Migration note:** This replaces the original recommendation to stay on system fonts.
+  The aesthetic carried by Outfit's consistent rendering across platforms outweighs the
+  previous "zero bundle weight" argument. The alternative path to Archivo Black + Space
+  Mono (mentioned in earlier docs) is no longer needed.
 
 ### 4.2 The scale
 
