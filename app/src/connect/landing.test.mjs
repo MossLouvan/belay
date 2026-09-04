@@ -14,7 +14,7 @@ test('nothing moves before the store has been read', () => {
 });
 
 test('a live connection goes straight to the tabs', () => {
-  assert.equal(connectLanding({ ...base, connected: true, deviceCount: 1 }), '/(tabs)/screen');
+  assert.equal(connectLanding({ ...base, connected: true, deviceCount: 1 }), '/(home)/screen');
 });
 
 test('saved computers without a connection land on the list', () => {
@@ -34,15 +34,15 @@ test('coming to add another computer is never bounced away', () => {
 });
 
 test('a fresh pair lands on Screen when the host can capture', () => {
-  assert.equal(postPairDestination(true), '/(tabs)/screen');
+  assert.equal(postPairDestination(true), '/(home)/screen');
 });
 
 test('a host with no capture helper lands on System, not a black Screen', () => {
-  assert.equal(postPairDestination(false), '/(tabs)/system');
+  assert.equal(postPairDestination(false), '/(home)/system');
 });
 
 test('an older host that reports neither way keeps the old Screen landing', () => {
   // Only an explicit `false` reroutes — an unknown capability must not send a
   // fully working machine to System.
-  assert.equal(postPairDestination(undefined), '/(tabs)/screen');
+  assert.equal(postPairDestination(undefined), '/(home)/screen');
 });

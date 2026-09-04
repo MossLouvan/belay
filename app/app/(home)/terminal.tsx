@@ -41,6 +41,7 @@ import { applyCandidate, parseCompletion } from '../../src/terminal/complete';
 import { planTab, trackPrimed } from '../../src/terminal/primed';
 import { CandidateRow } from '../../src/terminal/candidate-row';
 import { TerminalHelpSheet } from '../../src/terminal/help-sheet';
+import { ToolPanel } from '../../src/home/panel';
 
 // --- constants ---------------------------------------------------------------
 
@@ -70,7 +71,16 @@ type ShellMode = 'pty' | 'pipe';
 
 // --- screen ------------------------------------------------------------------
 
-export default function TerminalTab() {
+/** The panel route: the unchanged tab body inside the shared slide-up chrome. */
+export default function TerminalPanel() {
+  return (
+    <ToolPanel testID="terminal-panel">
+      <TerminalTab />
+    </ToolPanel>
+  );
+}
+
+function TerminalTab() {
   const { connection, phase } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();

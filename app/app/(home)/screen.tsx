@@ -1,4 +1,16 @@
-// Remote screen — the flagship surface.
+// The live desktop — the app's HOME.
+//
+// Desktop-first IA: this is the first thing a connected user sees and the
+// surface everything else opens over. There is no tab bar any more; the
+// control bar at the bottom (src/screen/dock.tsx) carries the pointer modes,
+// the KEYS toggle, zoom, and TOOLS — the drawer that slides Agent, Terminal,
+// Files and System up over the picture.
+//
+// Orientation: portrait shows header + stage + docked control bar, with an
+// optional Full mode that hides the chrome. Landscape IS full — turning the
+// phone sideways is the fullscreen gesture, so the desktop goes edge-to-edge
+// automatically, the control bar floats on the HUD scrim, and the Full toggle
+// disappears (it would be a no-op with a broken exit).
 //
 // Streams JPEG frames from the host over a WebSocket into a zoomable, pannable
 // stage. Two pointer models are offered: direct touch (tap where you want to
@@ -12,15 +24,15 @@
 // stranded black box and its separate red banner are gone.
 //
 // The socket, the gesture model and the presentational pieces live in
-// `src/screen/*` — sibling files inside `app/(tabs)/` are picked up by
-// expo-router's route context and would register as extra tabs.
+// `src/screen/*` — sibling files inside `app/(home)/` are picked up by
+// expo-router's route context and would register as extra routes.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, Keyboard, PixelRatio, Platform, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Animated, Image, Keyboard, Platform, ScrollView, useWindowDimensions, View } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { router, useIsFocused, useNavigation } from 'expo-router';
+import { router, useIsFocused } from 'expo-router';
 import { useConnection } from '../../src/connection';
 import { api } from '../../src/api';
 import { useTheme } from '../../src/theme';
@@ -86,7 +98,6 @@ import { useAutoHide } from '../../src/screen/useAutoHide';
 import {
   Crosshair,
   DotsGlyph,
-  EyeGlyph,
   FullscreenGlyph,
   HUD,
   KeyBar,
@@ -101,10 +112,13 @@ import { ClipboardSheet } from '../../src/screen/clipboard-sheet';
 import type { SentInfo } from '../../src/screen/record-parts';
 import { SENT_NOTICE_MS } from '../../src/screen/record';
 import { useRecording } from '../../src/screen/useRecording';
-import { setOpenSession } from '../../src/agent/attention-store';
+import { setOpenSession, useAgentAttention } from '../../src/agent/attention-store';
+import { waitingSessions } from '../../src/agent/attention';
+import { NeedsYouBanner } from '../../src/agent/needs-you-banner';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { HostAudio } from '../../src/stream/audio-player';
-import { tabBarStyleFor } from './_layout';
+import { ToolDrawer } from '../../src/home/tool-drawer';
+import { loadHintSeen, persistHintSeen } from '../../src/home/hint-store';
 
 // Where the open type row lives is a platform constant (so the Input never
 // remounts and drops focus). Only iOS overlays its keyboard on the app — there
@@ -118,7 +132,6 @@ export default function ScreenTab() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
-  const navigation = useNavigation();
 
   const [qualityId, setQualityId] = useState<QualityId>(DEFAULT_QUALITY);
   // The NEW true-resolution axis (Parsec-style), orthogonal to quality:
@@ -155,6 +168,17 @@ export default function ScreenTab() {
     () => ({ w: window.width * window.scale, h: window.height * window.scale }),
     [window.width, window.height, window.scale],
   );
+  // Landscape is the fullscreen gesture: sideways, the desktop goes
+  // edge-to-edge on its own and the chrome floats. The explicit Full toggle
+  // is a portrait-only idea, so rotating clears it — otherwise coming back
+  // upright would strand the user in a fullscreen they never chose, behind
+  // an exit control they already found hard to hit.
+  const landscape = window.width > window.height;
+  const immersive = fullscreen || landscape;
+  useEffect(() => {
+    if (landscape && fullscreen) setFullscreen(false);
+  }, [landscape, fullscreen]);
+
   const resolutions = useMemo(() => resolutionOptions(device), [device]);
   const resolution = useMemo(() => findResolution(resolutionId, resolutions), [resolutionId, resolutions]);
   // The request handed to the stream: null (physical) unless the host both
@@ -217,23 +241,12 @@ export default function ScreenTab() {
   const stageRef = useRef<Size>(EMPTY_SIZE);
   stageRef.current = stage;
 
-  // Immersive fullscreen hides the tab bar for the whole navigator, so both
-  // exits — the corner press AND unmount (navigating away however it happens)
-  // — must put it back or every other tab loses its navigation. "Back" means
-  // the layout's full bar style: a route-level `tabBarStyle` replaces the
-  // navigator's wholesale, so `undefined` here left the default white bar.
-  useEffect(() => {
-    const restored = tabBarStyleFor(theme, insets.bottom, PixelRatio.getFontScale());
-    navigation.setOptions({ tabBarStyle: fullscreen ? { display: 'none' } : restored });
-    return () => {
-      navigation.setOptions({ tabBarStyle: restored });
-    };
-  }, [navigation, fullscreen, theme, insets.bottom]);
-
-  // In fullscreen the floating dock hides after 4s untouched; while the text
-  // field is open it stays put (the keyboard is up — hiding under the user's
-  // thumbs would be hostile). Stage touches never poke this: they are remote
-  // input, and the only reveal is the dimmed corner handle.
+  // In (portrait) fullscreen the floating dock hides after 4s untouched;
+  // while the text field is open it stays put (the keyboard is up — hiding
+  // under the user's thumbs would be hostile). Stage touches never poke this:
+  // they are remote input, and the only reveal is the pinned corner control.
+  // Landscape deliberately never auto-hides: rotation has no Exit control to
+  // poke the bar back, so the floating bar simply stays.
   const dockHide = useAutoHide(fullscreen && !typeOpen);
   const dockShown = !fullscreen || dockHide.visible;
   const dockOpacity = useToggleAnimation(dockShown, theme.motion.fast);
@@ -356,6 +369,35 @@ export default function ScreenTab() {
   const [showRecordSheet, setShowRecordSheet] = useState(false);
   // Clipboard sync lives in its own small sheet; the dock's CLIP key opens it.
   const [showClipboard, setShowClipboard] = useState(false);
+
+  // Desktop-first chrome: the tool drawer (Agent/Terminal/Files/System) and
+  // the one-time hint that points a brand-new user at the control bar. The
+  // waiting count is the old Agent tab badge, now on the TOOLS key and the
+  // drawer's Agent row.
+  const [showTools, setShowTools] = useState(false);
+  const { sessions } = useAgentAttention();
+  const waitingCount = waitingSessions(sessions ?? []).length;
+  /** null while the stored flag loads — the hint never flashes on first paint. */
+  const [hintSeen, setHintSeen] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    void loadHintSeen().then((seen) => {
+      if (live) setHintSeen(seen);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const dismissHint = useCallback(() => {
+    setHintSeen((seen) => {
+      if (seen !== true) void persistHintSeen();
+      return true;
+    });
+  }, []);
+  const openTools = useCallback(() => {
+    dismissHint();
+    setShowTools(true);
+  }, [dismissHint]);
   const recordPhase = recording.status.state;
   const onRecordKey = useCallback(() => {
     if (recordPhase === 'idle') void recording.start(screenIndex);
@@ -392,15 +434,15 @@ export default function ScreenTab() {
     router.navigate('/agent');
   }, [sent]);
 
-  // Two separate, single-action stage controls (docs/DESIGN.md §11.2): the eye
-  // shows/hides the on-screen keys, and the brackets enter/exit full screen.
-  // Neither changes meaning between taps — the old one-button-does-both flow was
-  // the confusing part. In full screen a press also pokes the auto-hidden dock
-  // back, as a harmless side effect, so the rest of the controls are reachable.
+  // The KEYS toggle now lives in the control bar (the founder's call: an eye
+  // glyph on the stage was the one control nobody found). In full screen a
+  // press also pokes the auto-hidden dock back, so the key bar that appears
+  // has its companion controls on screen with it.
   const toggleKeys = useCallback(() => {
+    dismissHint();
     if (fullscreen) dockHide.poke();
     setKeysOn((v) => !v);
-  }, [fullscreen, dockHide]);
+  }, [fullscreen, dockHide, dismissHint]);
   const toggleFullscreen = useCallback(() => {
     // The floating type bar is anchored to this layout's bottom edge; the
     // fullscreen flip moves that edge without a keyboard event to re-measure
@@ -410,17 +452,11 @@ export default function ScreenTab() {
     setFullscreen((v) => !v);
   }, []);
 
-  // The two stage controls, rendered at the top-right in both layouts.
+  // The one remaining stage control: Full / Exit, portrait only (Keys moved
+  // into the control bar, and landscape is already edge-to-edge). A single
+  // clearly-labelled button in a known corner — never a bare glyph box.
   const stageControls = (positionStyle: object) => (
     <View style={[{ position: 'absolute', flexDirection: 'row', gap: theme.space.xxs }, positionStyle]}>
-      <StageButton
-        testID="stage-keys"
-        glyph={<EyeGlyph off={!keysOn} color={HUD.ink} />}
-        label="Keys"
-        active={keysOn}
-        accessibilityLabel={keysOn ? 'Hide the on-screen keys' : 'Show the on-screen keys'}
-        onPress={toggleKeys}
-      />
       <StageButton
         testID="stage-fullscreen"
         glyph={<FullscreenGlyph mode={fullscreen ? 'collapse' : 'expand'} color={HUD.ink} />}
@@ -500,8 +536,30 @@ export default function ScreenTab() {
     </Row>
   );
 
+  // First-run hint: one quiet line pointing at the control bar, shown until
+  // it is dismissed or proved unnecessary (the user opens Keys or Tools).
+  const hint =
+    !immersive && hintSeen === false && Boolean(connection) ? (
+      <Row testID="control-bar-hint" justify="space-between" align="center" gap="sm">
+        <Caption style={{ flexShrink: 1 }}>
+          New here? Keys, and all your tools, live down here.
+        </Caption>
+        <IconButton
+          testID="dismiss-hint"
+          accessibilityLabel="Dismiss this hint"
+          variant="plain"
+          onPress={dismissHint}
+        >
+          <Txt variant="label" tone="dim">×</Txt>
+        </IconButton>
+      </Row>
+    ) : null;
+
   const controls = (
     <Column gap="xs">
+      {/* The cross-surface "needs you" band, inline so it rides directly on
+          top of the control bar wherever that bar happens to be. */}
+      <NeedsYouBanner />
       {keysOn ? (
         <KeyBar
           mac={isMac}
@@ -509,11 +567,12 @@ export default function ScreenTab() {
           onKey={sendKey}
           onRepeat={repeatKey}
           onMod={tapModifier}
-          floating={fullscreen}
+          floating={immersive}
           testID="key-bar"
         />
       ) : null}
       {typeOpen && !TYPE_ROW_FLOATS ? typeRow : null}
+      {hint}
       <ControlDock
         mode={mode}
         onModeChange={setMode}
@@ -532,11 +591,13 @@ export default function ScreenTab() {
         onZoomReset={viewport.reset}
         recordPhase={recordPhase}
         onRecord={onRecordKey}
-        floating={fullscreen}
+        floating={immersive}
         onInteract={fullscreen ? dockHide.poke : undefined}
         onOpenClipboard={() => setShowClipboard(true)}
-        qualityLabel={quality.label}
-        onOpenQuality={() => setShowQuality(true)}
+        keysOn={keysOn}
+        onToggleKeys={toggleKeys}
+        onOpenTools={openTools}
+        toolsBadge={waitingCount > 0 ? waitingCount : null}
       />
     </Column>
   );
@@ -548,19 +609,19 @@ export default function ScreenTab() {
       ref={rootRef}
       style={{
         flex: 1,
-        backgroundColor: fullscreen ? theme.colors.machine : theme.colors.bg,
-        paddingTop: fullscreen ? 0 : insets.top,
+        backgroundColor: immersive ? theme.colors.machine : theme.colors.bg,
+        paddingTop: immersive ? 0 : insets.top,
       }}
     >
-      {/* Mounted only in fullscreen: RN's status bar restores the previous
+      {/* Mounted only while immersive: RN's status bar restores the previous
           entry when this unmounts, so the root layout's style survives. */}
-      {fullscreen ? <StatusBar hidden /> : null}
+      {immersive ? <StatusBar hidden /> : null}
 
       {/* The host-audio sink (hidden). Gated on `active` too, so leaving the
           tab or backgrounding stops the socket and the speaker with it. */}
       <HostAudio enabled={audioOn} connected={active} />
 
-      {!fullscreen ? (
+      {!immersive ? (
         <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
           <Row justify="space-between" gap="sm">
             <Txt
@@ -597,12 +658,12 @@ export default function ScreenTab() {
       {/* The recording strip sits above the panel where the eye already goes
           for stream status; while the host's screen is being captured it must
           be impossible to miss, so it never shares a sheet or a toggle. */}
-      {!fullscreen ? (
+      {!immersive ? (
         <RecordStrip status={recording.status} onStop={stopRecording} onReview={() => setShowRecordSheet(true)} />
       ) : null}
-      {!fullscreen && sent ? <SentNotice info={sent} onOpen={openSentSession} /> : null}
-      {!fullscreen ? noticeArea : null}
-      {!fullscreen ? <Rule /> : null}
+      {!immersive && sent ? <SentNotice info={sent} onOpen={openSentSession} /> : null}
+      {!immersive ? noticeArea : null}
+      {!immersive ? <Rule /> : null}
 
       {/* The machine panel: full-bleed, top-aligned under the header rule,
           filling everything down to the dock so the page never jumps between
@@ -613,7 +674,7 @@ export default function ScreenTab() {
           flex: 1,
           backgroundColor: theme.colors.machine,
           alignItems: 'center',
-          justifyContent: fullscreen ? 'center' : 'flex-start',
+          justifyContent: immersive ? 'center' : 'flex-start',
         }}
       >
         <View
@@ -660,9 +721,9 @@ export default function ScreenTab() {
             <StreamHud stats={stream.stats} pingMs={facts.pingMs} quality={quality} zoom={viewport.zoom} />
           ) : null}
 
-          {/* Normal mode: the two stage controls (Keys eye + Full brackets)
-              ride the stage's own top-right corner. */}
-          {!fullscreen && !permissions.captureBlocked
+          {/* Portrait: the Full control rides the stage's own top-right
+              corner. Landscape shows nothing here — it is already full. */}
+          {!immersive && !permissions.captureBlocked
             ? stageControls({ top: theme.space.xs, right: theme.space.xs })
             : null}
         </View>
@@ -685,15 +746,15 @@ export default function ScreenTab() {
           />
         ) : null}
 
-        {/* Fullscreen: the two controls pin to the safe area (not the
-            letterboxed stage), always visible and each a single action — no
-            reveal-then-act. A press also pokes the auto-hidden dock back. */}
-        {fullscreen
+        {/* Portrait fullscreen: the Exit control pins to the safe area (not
+            the letterboxed stage), always visible, full size, one action.
+            Landscape needs no exit — rotating back IS the exit. */}
+        {fullscreen && !landscape
           ? stageControls({ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs })
           : null}
 
-        {/* Input errors still matter in fullscreen; they float over the top edge. */}
-        {fullscreen ? (
+        {/* Input errors still matter while immersive; they float over the top edge. */}
+        {immersive ? (
           <View
             style={{ pointerEvents: 'box-none', position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0 }}
           >
@@ -713,7 +774,7 @@ export default function ScreenTab() {
         ) : null}
       </View>
 
-      {!fullscreen ? (
+      {!immersive ? (
         <View style={{ paddingHorizontal: theme.layout.margin }}>
           <Rule bleed={theme.layout.margin} />
           <View style={{ paddingTop: theme.space.xs, paddingBottom: insets.bottom + theme.space.sm }}>{controls}</View>
@@ -746,11 +807,11 @@ export default function ScreenTab() {
             right: 0,
             bottom: 0,
             transform: [{ translateY: typeBarLift }],
-            // Opaque page ground normally; the HUD scrim over live video in
-            // fullscreen, matching the floating dock's chrome.
-            backgroundColor: fullscreen ? HUD.scrim : theme.colors.bg,
+            // Opaque page ground normally; the HUD scrim over live video
+            // while immersive, matching the floating dock's chrome.
+            backgroundColor: immersive ? HUD.scrim : theme.colors.bg,
             borderTopWidth: theme.layout.hairline,
-            borderTopColor: fullscreen ? HUD.hairline : theme.colors.border,
+            borderTopColor: immersive ? HUD.hairline : theme.colors.border,
             paddingHorizontal: theme.layout.margin,
             paddingVertical: theme.space.xs,
           }}
@@ -772,6 +833,10 @@ export default function ScreenTab() {
       />
 
       <ClipboardSheet visible={showClipboard} onClose={() => setShowClipboard(false)} />
+
+      {/* The tool drawer: the four former tabs, named and explained, each
+          opening as a slide-up panel over this desktop. */}
+      <ToolDrawer visible={showTools} onClose={() => setShowTools(false)} waitingCount={waitingCount} />
 
       <Sheet visible={showMenu} onClose={() => setShowMenu(false)} title="Screen options" testID="screen-menu-sheet">
         <Column gap="xxs">
