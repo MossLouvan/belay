@@ -21,7 +21,7 @@ import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
 import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
-import { notifyPairAttempt } from './pair-notify.js';
+import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { messageOf } from './errors.js';
@@ -906,7 +906,23 @@ server.on('upgrade', (req, socket, head) => {
     };
 
   if (url.pathname === '/ws/screen') {
-    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleScreen(ws, url); });
+    // Someone paired is now actually on the desktop. Announce it on the machine
+    // itself and turn the tray icon green. Not awaited: presentation must never
+    // sit in front of the stream starting.
+    void notifyDesktopConnect(native, {
+      deviceName: device.name,
+      from: req.socket.remoteAddress ?? 'unknown',
+      what: 'screen',
+    });
+    void native.tray('show', `Belay - ${device.name} connected`, true).catch(() => {});
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      track(ws);
+      // Back to idle once the last screen socket goes away.
+      ws.on('close', () => {
+        void native.tray('show', `Belay - ${getHostName()}`, false).catch(() => {});
+      });
+      handleScreen(ws, url);
+    });
   } else if (url.pathname === '/ws/window') {
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleWindow(ws, url); });
   } else if (url.pathname === '/ws/terminal') {
@@ -1412,6 +1428,12 @@ server.listen(PORT, () => {
   console.log(`  Agent     : ${agentAvailable() ? 'claude CLI found' : 'claude CLI not on PATH — Agent tab disabled'}`);
   console.log(`  Notify    : ${notifyBannerLine()}`);
   console.log('');
+
+  // Raise the tray icon. Belay runs hidden and starts at logon, so without this
+  // there is nothing on screen saying it is running at all. It turns green while
+  // a device is on the desktop. Never awaited and never fatal: a host with no
+  // interactive desktop just answers shown:false.
+  void native.tray('show', `Belay - ${getHostName()}`, false).catch(() => {});
 });
 
 // While no device is paired, keep a valid pairing code alive and reprint it

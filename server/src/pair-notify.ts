@@ -114,3 +114,52 @@ export async function notifyPairAttempt(
     // must never break pairing.
   }
 }
+
+// ---- desktop connections ---------------------------------------------------
+//
+// Separate from pairing: this fires when an ALREADY PAIRED device opens a
+// screen session, i.e. someone is now looking at, and driving, this desktop.
+// That is worth announcing on the machine itself — it is the difference between
+// "a device is authorised" and "a person is watching right now".
+
+/** Its own throttle: a reconnect storm must not become a popup storm. */
+const CONNECT_THROTTLE_MS = 30_000;
+let lastConnectAt = new Map<string, number>();
+
+export interface DesktopConnect {
+  /** Device name from the paired record. Not attacker-controlled, but clamped anyway. */
+  readonly deviceName?: string | null;
+  /** Remote address. */
+  readonly from: string;
+  /** What they opened, e.g. 'screen'. */
+  readonly what?: string;
+}
+
+export function _resetConnect(): void { lastConnectAt = new Map(); }
+
+/**
+ * Announce that a paired device just connected to the desktop. Throttled per
+ * device so a flapping network cannot spam the screen, and never throws.
+ */
+export async function notifyDesktopConnect(
+  native: NotifySink | null,
+  ev: DesktopConnect,
+  now: number = Date.now(),
+): Promise<void> {
+  if (!native) return;
+  const who = safeName(ev.deviceName);
+  const last = lastConnectAt.get(who) ?? Number.NEGATIVE_INFINITY;
+  if (now - last < CONNECT_THROTTLE_MS) return;
+  lastConnectAt.set(who, now);
+
+  try {
+    await native.notify(
+      'Belay - desktop connected',
+      `${who} (${ev.from}) is now viewing and controlling this desktop.`,
+      '',
+      10,
+    );
+  } catch {
+    // A popup is a courtesy; never let it affect the session.
+  }
+}

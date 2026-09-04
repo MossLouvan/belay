@@ -243,6 +243,8 @@ static class BelayHost
                     case "clipboard": BelayHostClipboard.Handle(stdout, idObj, c); break;
                     // Corner popup on the host screen (pairing prompts).
                     case "notify": BelayHostNotify.Handle(stdout, idObj, c); break;
+                    // Tray presence icon (idle vs someone on the desktop).
+                    case "tray": BelayHostTray.Handle(stdout, idObj, c); break;
                     // Driverless system-audio loopback (WASAPI). WRITTEN-BUT-
                     // NOT-COMPILED — see BelayHostAudio.cs and docs/AUDIO.md.
                     case "audiostart": BelayHostAudio.Start(stdout, idObj); break;

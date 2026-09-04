@@ -433,6 +433,14 @@ class NativeHost {
     return this.send({ cmd: 'notify', title, body, accent, seconds });
   }
 
+  // Tray presence icon. `active` flips it green while a client is actually on
+  // the desktop. Same session caveat as notify(): no desktop, no icon, and
+  // shown:false is a normal answer.
+  tray(action: 'show' | 'hide', tooltip: string, active: boolean):
+    Promise<{ shown?: boolean; reason?: string }> {
+    return this.send({ cmd: 'tray', action, tooltip, active });
+  }
+
   // ---- Clipboard sync ----------------------------------------------------
   //
   // Read and write the host's clipboard, so the phone and the PC can trade
