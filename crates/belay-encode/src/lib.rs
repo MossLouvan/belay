@@ -14,9 +14,15 @@
 pub mod color;
 
 #[cfg(windows)]
+pub mod capture;
+
+#[cfg(windows)]
 pub mod h264;
 
 pub use color::{bgra_to_nv12, nv12_len, ConvertError};
+
+#[cfg(windows)]
+pub use capture::{CursorInfo, DesktopCapture, DirtyRect, FrameMeta};
 
 #[cfg(windows)]
 pub use h264::{init_media_foundation, CodedFrame, EncoderConfig, H264Encoder};

@@ -31,3 +31,7 @@ features = [
 [[bin]]
 name = "encode-bench"
 path = "src/bin/encode_bench.rs"
+
+[[bin]]
+name = "capture-bench"
+path = "src/bin/capture_bench.rs"
