@@ -29,6 +29,8 @@ import { HostStep } from '../src/connect/host-step';
 import type { TailnetOutcome } from '../src/connect/tailnet';
 import { TAILNET_PROBE_ATTEMPTS, planTailnetUpgrade, readTailnetProbe, tailnetUrlFrom } from '../src/connect/tailnet';
 import { TailscaleStep } from '../src/connect/tailscale-card';
+import type { GuideHost } from '../src/connect/tailscale-guide';
+import { TailscaleGuide } from '../src/connect/tailscale-guide';
 import type { PairingDeadEnd } from '../src/connect/dead-end';
 import { detectDeadEnd } from '../src/connect/dead-end';
 import { NoCodeStep } from '../src/connect/no-code-step';
@@ -38,7 +40,7 @@ import { WelcomeScreen, HowItWorksScreen } from '../src/connect/setup-intro';
 import { Animated } from 'react-native';
 import { useReducedMotion } from '../src/ui';
 
-type Stage = 'welcome' | 'how-it-works' | 'host' | 'scan' | 'code' | 'success';
+type Stage = 'welcome' | 'how-it-works' | 'host' | 'scan' | 'code' | 'tailscale' | 'success';
 
 /** How long to wait for `/health` before calling the address unreachable. */
 const HOST_CHECK_TIMEOUT_MS = 8000;
@@ -132,6 +134,13 @@ export default function Connect() {
   const [tailscaleOff, setTailscaleOff] = useState<string | null>(null);
   /** The last tailnet failure, shown on the card so a stuck setup is diagnosable. */
   const [tailscaleDetail, setTailscaleDetail] = useState<string | null>(null);
+  /**
+   * The computer the Tailscale guide watches for. Set alongside the guide
+   * stage when a host answered but its tailnet address did not; null when the
+   * guide was opened cold from the connect screen (no computer to watch yet),
+   * in which case the guide ends at the QR scanner instead of auto-detecting.
+   */
+  const [guideHost, setGuideHost] = useState<GuideHost | null>(null);
   /**
    * Set when the code screen would be a trap: the host is already paired and
    * requires a code from this connection, but a paired host never issues one.
@@ -336,6 +345,13 @@ export default function Connect() {
             if (!flagDeadEnd(outcome)) {
               setTailscaleOff(result.name || 'Your computer');
               setTailscaleDetail(outcome.detail ?? null);
+              // The guided climb, not the code screen: it watches for the
+              // tailnet on its own and hands back the discovered address, so
+              // nobody types a port or a 100.x. The code screen survives as
+              // the guide's own escape hatch.
+              setGuideHost({ url: resolved.url, name: result.name || 'your computer' });
+              setStage('tailscale');
+              return;
             }
             setStage('code');
             return;
@@ -524,6 +540,49 @@ export default function Connect() {
     [fadeAnim, reducedMotion, theme.motion],
   );
 
+  /** The guide detected the tailnet: pair over the address it discovered. */
+  const onGuideConnected = useCallback(
+    (url: string) => {
+      void (async () => {
+        setBusy(true);
+        try {
+          await completePairing(url, '');
+        } finally {
+          if (live.current) setBusy(false);
+        }
+      })();
+    },
+    [completePairing],
+  );
+
+  /**
+   * The guide's escape hatch back to the six digits. The compact Tailscale
+   * card is cleared first — someone who chose the code does not need the same
+   * advice repeated above the boxes.
+   */
+  const onGuideUseCode = useCallback(() => {
+    setTailscaleOff(null);
+    setTailscaleDetail(null);
+    transitionToStage('code');
+  }, [transitionToStage]);
+
+  const onGuideClose = useCallback(() => {
+    setTailscaleOff(null);
+    setTailscaleDetail(null);
+    setGuideHost(null);
+    transitionToStage('host');
+  }, [transitionToStage]);
+
+  const onGuideScan = useCallback(() => {
+    transitionToStage('scan');
+  }, [transitionToStage]);
+
+  /** "Connect from anywhere" opened cold — no computer to watch for yet. */
+  const onOpenGuide = useCallback(() => {
+    setGuideHost(null);
+    transitionToStage('tailscale');
+  }, [transitionToStage]);
+
   const onWelcomeContinue = useCallback(() => {
     transitionToStage('how-it-works');
   }, [transitionToStage]);
@@ -546,6 +605,16 @@ export default function Connect() {
           <WelcomeScreen onContinue={onWelcomeContinue} />
         ) : stage === 'how-it-works' ? (
           <HowItWorksScreen onContinue={onHowItWorksContinue} onBack={onHowItWorksBack} />
+        ) : stage === 'tailscale' ? (
+          <TailscaleGuide
+            host={guideHost}
+            detail={tailscaleDetail}
+            busy={busy}
+            onConnected={onGuideConnected}
+            onUseCode={guideHost ? onGuideUseCode : undefined}
+            onScan={onGuideScan}
+            onClose={onGuideClose}
+          />
         ) : (
           <ScrollView
             contentContainerStyle={{
@@ -581,7 +650,7 @@ export default function Connect() {
             />
             <Rule bleed={theme.layout.margin} />
             <SetupSteps />
-            <AwayFromHomeNote />
+            <AwayFromHomeNote onSetUp={onOpenGuide} />
             {adding && router.canGoBack() ? (
               <Button
                 testID="cancel-add"

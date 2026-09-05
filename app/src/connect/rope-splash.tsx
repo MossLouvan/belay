@@ -16,54 +16,15 @@ import Animated, {
   withDelay,
   Easing,
 } from 'react-native-reanimated';
-import Svg, { Path, Ellipse, Line } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '../theme';
 import { Txt, Micro, useReducedMotion } from '../ui';
+import { Carabiner } from '../ui/carabiner';
 import { SPRING_CONFIGS } from '../ui/motion';
 
 interface RopeSplashProps {
   /** Whether to play the animation. Set false for reduced motion instant display. */
   animated?: boolean;
-}
-
-/**
- * Carabiner mark — simplified D-shaped clip, drawn with SVG for clean scaling.
- * Blue stroke to match rope, recolors with theme.
- */
-function Carabiner({ size = 40, color }: { size?: number; color: string }) {
-  const strokeWidth = 3;
-  const width = size;
-  const height = size * 1.3; // Slightly taller than wide
-  
-  return (
-    <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      {/* Main D-shape body */}
-      <Path
-        d={`
-          M ${width * 0.3} ${strokeWidth * 2}
-          L ${width * 0.7} ${strokeWidth * 2}
-          A ${width * 0.25} ${width * 0.25} 0 0 1 ${width * 0.7} ${height - strokeWidth * 2}
-          L ${width * 0.3} ${height - strokeWidth * 2}
-          A ${width * 0.3} ${height * 0.45} 0 0 1 ${width * 0.3} ${strokeWidth * 2}
-        `}
-        stroke={color}
-        strokeWidth={strokeWidth}
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* Gate (opening) - small break in the top */}
-      <Line
-        x1={width * 0.35}
-        y1={strokeWidth * 2}
-        x2={width * 0.5}
-        y2={strokeWidth * 2}
-        stroke={color}
-        strokeWidth={strokeWidth + 1}
-        strokeLinecap="round"
-      />
-    </Svg>
-  );
 }
 
 /**

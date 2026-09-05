@@ -12,48 +12,11 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Path, Line } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
 import { Txt, Caption, useReducedMotion } from './index';
+import { Carabiner } from './carabiner';
 import { SPRING_CONFIGS } from './motion';
-
-/**
- * Small carabiner for notifications — same design as splash but smaller.
- */
-function SmallCarabiner({ size = 24, color }: { size?: number; color: string }) {
-  const strokeWidth = 2.5;
-  const width = size;
-  const height = size * 1.3;
-  
-  return (
-    <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      <Path
-        d={`
-          M ${width * 0.3} ${strokeWidth * 2}
-          L ${width * 0.7} ${strokeWidth * 2}
-          A ${width * 0.25} ${width * 0.25} 0 0 1 ${width * 0.7} ${height - strokeWidth * 2}
-          L ${width * 0.3} ${height - strokeWidth * 2}
-          A ${width * 0.3} ${height * 0.45} 0 0 1 ${width * 0.3} ${strokeWidth * 2}
-        `}
-        stroke={color}
-        strokeWidth={strokeWidth}
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Line
-        x1={width * 0.35}
-        y1={strokeWidth * 2}
-        x2={width * 0.5}
-        y2={strokeWidth * 2}
-        stroke={color}
-        strokeWidth={strokeWidth + 0.5}
-        strokeLinecap="round"
-      />
-    </Svg>
-  );
-}
 
 /**
  * Short rope segment above the carabiner (drops down with it).
@@ -152,7 +115,7 @@ export function NotificationCarabiner({
 
       {/* Carabiner */}
       <View style={{ alignItems: 'center', marginTop: -8 }}>
-        <SmallCarabiner size={24} color={theme.colors.accentGraphic} />
+        <Carabiner size={24} strokeWidth={2.5} color={theme.colors.accentGraphic} />
       </View>
 
       {/* Notification content card */}
