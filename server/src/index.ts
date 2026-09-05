@@ -478,8 +478,14 @@ app.get('/screen/info', auth, async (_req, res) => {
   // Classified on the way out rather than in the helper: which monitors are
   // virtual is a string heuristic that gets corrected as new display drivers
   // appear, and this way correcting it needs no native rebuild. See displays.ts.
-  try { res.json(classifyScreens(await native.info())); }
-  catch (e: any) { res.status(500).json({ error: e.message }); }
+  try {
+    const info = classifyScreens(await native.info());
+    // Add webrtc availability: the flag is on AND the native helper can actually
+    // handle the webrtc verb (a helper built without BELAY_WEBRTC_BUILD=1 answers
+    // "unknown command"). UI can use this to disable high-FPS/codec/audio controls
+    // when gated by either the flag or the build.
+    res.json({ ...info, webrtc: webrtcEnabled() });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // ---- Virtual display driver (opt-in, BELAY_VIRTUAL_DISPLAY) ---------------
