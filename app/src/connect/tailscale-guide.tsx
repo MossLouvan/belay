@@ -47,6 +47,7 @@ import {
   prevGuideStep,
   readGuideDetection,
 } from './tailscale-flow';
+import { TailscaleIpExample } from './tailscale-ip-example';
 
 /** The one bezier the app moves on, in reanimated's dialect. */
 const EASE_STANDARD = Easing.bezier(0.2, 0, 0, 1);
@@ -363,6 +364,8 @@ export function TailscaleGuide({
 
         {step === 'account' ? (
           <View style={{ gap: theme.space.sm }}>
+            {/* Visual example of where to find the Tailscale IP */}
+            <TailscaleIpExample style={{ marginVertical: theme.space.sm }} />
             <Button label="Open Tailscale" onPress={() => void openTailscale()} fullWidth size="lg" />
             <Button label="I'm signed in — next" variant="secondary" onPress={advance} fullWidth size="lg" testID="guide-account-next" />
           </View>
