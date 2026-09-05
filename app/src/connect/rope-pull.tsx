@@ -30,7 +30,7 @@ const ROPE_TAKEN_IN = 44;
 const CARABINER_SIZE = 32;
 /** The carabiner is drawn 1.3× taller than wide (see ui/carabiner). */
 const CARABINER_HEIGHT = CARABINER_SIZE * 1.3;
-const ROPE_WIDTH = 3;
+const ROPE_WIDTH = 5;
 
 /** The bezier the rest of the app moves on (theme.easing.standard). */
 const EASE_STANDARD = Easing.bezier(0.2, 0, 0, 1);
@@ -137,17 +137,54 @@ export function RopePull({ progress }: RopePullProps) {
       pointerEvents="none"
     >
       <Animated.View style={[{ alignItems: 'center' }, columnStyle]}>
-        {/* The rope — a plain taut line under tension; the sag lives on the splash. */}
-        <Animated.View
-          style={[
-            {
-              width: ROPE_WIDTH,
-              borderRadius: ROPE_WIDTH / 2,
-              backgroundColor: theme.colors.accentGraphic,
-            },
-            ropeStyle,
-          ]}
-        />
+        {/* Braided rope with helical strand pattern */}
+        <View style={{ position: 'relative', alignItems: 'center' }}>
+          {/* Shadow for depth */}
+          <Animated.View
+            style={[
+              {
+                position: 'absolute',
+                left: 1,
+                width: ROPE_WIDTH,
+                borderRadius: ROPE_WIDTH / 2,
+                backgroundColor: 'rgba(0, 0, 0, 0.15)',
+              },
+              ropeStyle,
+            ]}
+          />
+          {/* Main rope body */}
+          <Animated.View
+            style={[
+              {
+                width: ROPE_WIDTH,
+                borderRadius: ROPE_WIDTH / 2,
+                backgroundColor: theme.colors.accentGraphic,
+              },
+              ropeStyle,
+            ]}
+          />
+          {/* Helical braid: staggered dashes showing twist (not parallel strips) */}
+          {[0, 1, 2, 3, 4, 5].map((i) => {
+            const dashHeight = ROPE_WIDTH * 2.5;
+            const dashGap = ROPE_WIDTH * 2;
+            const totalSegment = dashHeight + dashGap;
+            return (
+              <View
+                key={`dash-${i}`}
+                style={{
+                  position: 'absolute',
+                  top: i * totalSegment,
+                  left: i % 2 === 0 ? ROPE_WIDTH * 0.15 : -ROPE_WIDTH * 0.05,
+                  width: ROPE_WIDTH * 0.4,
+                  height: dashHeight,
+                  borderRadius: ROPE_WIDTH * 0.2,
+                  backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
+                  overflow: 'hidden',
+                }}
+              />
+            );
+          })}
+        </View>
         {/* Carabiner clipped to the rope's end, gate up, showing load with subtle physics. */}
         <Animated.View style={[{ marginTop: -4 }, carabinerStyle]}>
           <Carabiner size={CARABINER_SIZE} color={theme.colors.accentGraphic} />

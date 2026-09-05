@@ -29,15 +29,12 @@ interface RopeSplashProps {
 }
 
 /** Stroke weight of the splash rope, in points. */
-const ROPE_STROKE = 4;
+const ROPE_STROKE = 6;
 
 /**
- * Curved rope drawn without react-native-svg, which does not render under
- * this Expo release's New Architecture — the visible sag is the bottom arc of
- * a much larger circle: a plain bordered View, clipped by the container. The
- * circle's radius comes from the sagitta formula, so the arc still enters at
- * the container's edges and bottoms out at the same sag point the old bezier
- * hit. Same curve, from geometry instead of a path string.
+ * Curved rope with helical braid pattern under tension.
+ * The visible sag is the bottom arc of a large circle. Offset circles create
+ * the helical twist pattern, avoiding parallel tube appearance.
  */
 function Rope({ width, height, color }: { width: number; height: number; color: string }) {
   const startY = height * 0.15; // Where the rope meets the screen edges
@@ -49,6 +46,20 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
 
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
+      {/* Shadow layer for depth */}
+      <View
+        style={{
+          position: 'absolute',
+          left: width / 2 - radius,
+          top: sagY - radius * 2 + 2,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE,
+          borderColor: 'rgba(0, 0, 0, 0.2)',
+        }}
+      />
+      {/* Main rope body */}
       <View
         style={{
           position: 'absolute',
@@ -59,6 +70,31 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
           borderRadius: radius,
           borderWidth: ROPE_STROKE,
           borderColor: color,
+        }}
+      />
+      {/* Helical braid pattern — offset circles create twist read */}
+      <View
+        style={{
+          position: 'absolute',
+          left: width / 2 - radius + ROPE_STROKE * 0.3,
+          top: sagY - radius * 2 - ROPE_STROKE * 0.2,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE * 0.25,
+          borderColor: 'rgba(255, 255, 255, 0.35)',
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: width / 2 - radius - ROPE_STROKE * 0.25,
+          top: sagY - radius * 2 + ROPE_STROKE * 0.3,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE * 0.2,
+          borderColor: 'rgba(255, 255, 255, 0.2)',
         }}
       />
     </View>

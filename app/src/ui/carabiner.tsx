@@ -26,18 +26,18 @@ export interface CarabinerProps {
 }
 
 /**
- * Simplified D-shaped climbing carabiner: one rounded outline whose left
- * corners bow wider than the right (the spine), plus a short heavier bar
- * across the top where the rope clips in (the gate). Everything is derived
- * from `size`, so it scales cleanly from the 24pt notification clip to the
- * 40pt splash one.
+ * Realistic climbing carabiner with forged aluminum appearance.
+ * D-shaped offset body with visible gate, thin specular highlights along edges,
+ * and proper spine mass. The spine (left side) has thicker stroke weight than
+ * the gate side (right), matching actual climbing hardware.
  */
 export function Carabiner({ size = 40, color, strokeWidth = 3 }: CarabinerProps) {
   const theme = useTheme();
   const ink = color ?? theme.colors.accentGraphic;
   const width = size;
   const height = size * 1.3;
-  const gateWeight = strokeWidth + 1;
+  const gateWeight = strokeWidth + 1.5;
+  const spineWeight = strokeWidth + 1; // Thicker spine for mass
 
   return (
     <View
@@ -46,34 +46,89 @@ export function Carabiner({ size = 40, color, strokeWidth = 3 }: CarabinerProps)
       importantForAccessibility="no-hide-descendants"
       pointerEvents="none"
     >
-      {/* Main D-shape body — the spine's corners bow wider on the left. */}
+      {/* Shadow layer for depth */}
+      <View
+        style={{
+          position: 'absolute',
+          top: 1,
+          left: 1,
+          right: -1,
+          bottom: -1,
+          borderWidth: strokeWidth,
+          borderColor: 'rgba(0, 0, 0, 0.15)',
+          borderTopLeftRadius: width * 0.55,
+          borderBottomLeftRadius: width * 0.55,
+          borderTopRightRadius: width * 0.32,
+          borderBottomRightRadius: width * 0.32,
+        }}
+      />
+      {/* Spine (left side) — thicker stroke for mass */}
       <View
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
-          right: 0,
-          bottom: 0,
-          borderWidth: strokeWidth,
+          width: width * 0.52,
+          height: height,
+          borderLeftWidth: spineWeight,
+          borderTopWidth: strokeWidth,
+          borderBottomWidth: strokeWidth,
           borderColor: ink,
-          borderTopLeftRadius: width * 0.5,
-          borderBottomLeftRadius: width * 0.5,
-          borderTopRightRadius: width * 0.3,
-          borderBottomRightRadius: width * 0.3,
+          borderTopLeftRadius: width * 0.55,
+          borderBottomLeftRadius: width * 0.55,
         }}
       />
-      {/* Gate — the heavier bar at the top where the rope clips in, tilted a
-          touch so it reads as a hinge rather than a thicker outline. */}
+      {/* Gate side (right) — standard weight */}
       <View
         style={{
           position: 'absolute',
-          top: -gateWeight * 0.25,
-          left: width * 0.3,
-          width: width * 0.32,
+          top: 0,
+          right: 0,
+          width: width * 0.52,
+          height: height,
+          borderRightWidth: strokeWidth,
+          borderTopWidth: strokeWidth,
+          borderBottomWidth: strokeWidth,
+          borderColor: ink,
+          borderTopRightRadius: width * 0.32,
+          borderBottomRightRadius: width * 0.32,
+        }}
+      />
+      {/* Thin specular highlight along spine edge (forged aluminum shine) */}
+      <View
+        style={{
+          position: 'absolute',
+          top: strokeWidth,
+          left: strokeWidth + 1,
+          width: 1,
+          height: height * 0.6,
+          backgroundColor: 'rgba(255, 255, 255, 0.5)',
+          borderRadius: 0.5,
+        }}
+      />
+      {/* Gate bar — heavier bar at the top where rope clips in */}
+      <View
+        style={{
+          position: 'absolute',
+          top: height * 0.18,
+          right: -strokeWidth * 0.3,
+          width: width * 0.36,
           height: gateWeight,
           borderRadius: gateWeight / 2,
           backgroundColor: ink,
-          transform: [{ rotate: '-6deg' }],
+          transform: [{ rotate: '-8deg' }],
+        }}
+      />
+      {/* Sharp gate highlight (tube edge catch-light) */}
+      <View
+        style={{
+          position: 'absolute',
+          top: height * 0.18 + gateWeight * 0.1,
+          right: width * 0.12,
+          width: width * 0.14,
+          height: 1,
+          backgroundColor: 'rgba(255, 255, 255, 0.6)',
+          transform: [{ rotate: '-8deg' }],
         }}
       />
     </View>
