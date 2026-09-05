@@ -60,8 +60,10 @@ lipo -create \
 # Headers go into the XCFramework so the modulemap resolves wherever it is
 # consumed from.
 mkdir -p "$STAGE/headers"
+# Header only in the XCFramework. The BelayClientFFI modulemap lives solely in
+# $MODULE/include/ (pod SWIFT_INCLUDE_PATHS). Shipping the same modulemap inside
+# the XCFramework Headers causes "redefinition of module BelayClientFFI".
 cp "$CRATE/include/belay_client.h" "$STAGE/headers/"
-cp "$MODULE/include/module.modulemap" "$STAGE/headers/"
 
 rm -rf "$OUT/BelayClient.xcframework"
 mkdir -p "$OUT"
