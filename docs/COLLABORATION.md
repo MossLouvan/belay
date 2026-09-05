@@ -67,14 +67,12 @@ movement.
 Cursors keep moving through a freeze. Collaborators can still point and follow
 along; they just cannot click. Pointing was never the thing that interfered.
 
-**Windows only, today.** The `idle` verb is implemented in `BelayHost.cs`; the
-macOS helper answers `unknown command`, `native.idleMs()` catches that and
-returns `null`, and `isLocalActivity` treats a missing probe as *no evidence of
-a local user*. So on a macOS host rule 1 does not engage and only rule 2 is in
-force. That degradation is deliberate and one-directional: freezing on no
-evidence would leave a desktop nobody could drive. The macOS equivalent is
-`CGEventSourceSecondsSinceLastEventType`, and wiring it up is a small, separate
-change.
+The `idle` verb is implemented in both helpers: `BelayHost.cs` for Windows
+(`GetLastInputInfo`) and the macOS helper (`CGEventSourceSecondsSinceLastEventType`).
+Both count injected input, so `isLocalActivity` treats input landing within
+400 ms of the server's own injection as its own. The cost is bounded and
+one-sided — a human who touches the mouse in the same 400 ms window as a remote
+click is missed once, and caught on their next movement.
 
 ### 2. Otherwise, one driver at a time
 
