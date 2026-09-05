@@ -171,8 +171,8 @@ export function NotificationCarabiner({
 export function useNotificationCarabiner() {
   // This would integrate with a notification state management system
   // For now, returns a placeholder function
-  return (props: Omit<NotificationCarabinerProps, 'onDismiss'>) => {
+  return (_props: Omit<NotificationCarabinerProps, 'onDismiss'>) => {
     // Implementation would add notification to a queue/stack
-    console.log('Show notification:', props);
+    // TODO: Implement notification queue/stack
   };
 }
