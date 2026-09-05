@@ -57,27 +57,28 @@ function CurvedRopeStrand({
   circleCenter: { x: number; y: number };
   shouldAnimate: boolean;
 }) {
-  // Data packets traveling along the curved arc
+  // Data packets traveling along the curved arc - SUBTLE
   const packet1 = useSharedValue(0);
   const packet2 = useSharedValue(0);
   const packet3 = useSharedValue(0);
 
   useEffect(() => {
     if (!shouldAnimate) {
+      // Reduced motion: no traveling packets
       packet1.value = 0;
       packet2.value = 0;
       packet3.value = 0;
       return;
     }
 
-    const packetDuration = 3200;
+    const packetDuration = 3800; // Slower, more gentle
     packet1.value = withRepeat(
       withTiming(1, { duration: packetDuration, easing: Easing.linear }),
       -1,
       false
     );
     packet2.value = withDelay(
-      1000,
+      1200,
       withRepeat(
         withTiming(1, { duration: packetDuration, easing: Easing.linear }),
         -1,
@@ -85,7 +86,7 @@ function CurvedRopeStrand({
       )
     );
     packet3.value = withDelay(
-      2000,
+      2400,
       withRepeat(
         withTiming(1, { duration: packetDuration, easing: Easing.linear }),
         -1,
@@ -108,10 +109,10 @@ function CurvedRopeStrand({
       const y = circleCenter.y - circleRadius * 2 + Math.sin(angle) * circleRadius;
 
       return {
-        opacity: 0.6,
+        opacity: 0.22, // SUBTLE - not bright
         position: 'absolute',
-        left: x - width * 0.3,
-        top: y - width * 0.9,
+        left: x - width * 0.25, // Tighter to rope strand
+        top: y - width * 0.7,
       };
     });
   };
@@ -174,20 +175,20 @@ function CurvedRopeStrand({
         }}
       />
 
-      {/* Data packets traveling along the curved arc */}
+      {/* Data packets traveling along the curved arc — sparse, subtle, clipped to strand */}
       {shouldAnimate && (
         <>
           <Animated.View
             style={[
               packet1Style,
               {
-                width: width * 0.6,
-                height: width * 1.8,
-                borderRadius: width * 0.3,
-                backgroundColor: '#FFFFFF',
+                width: width * 0.5, // Smaller, subtle
+                height: width * 1.4,
+                borderRadius: width * 0.25,
+                backgroundColor: color, // Belay blue tint
                 shadowColor: color,
-                shadowRadius: width * 0.5,
-                shadowOpacity: 0.6,
+                shadowRadius: width * 0.3,
+                shadowOpacity: 0.2, // Very subtle glow
               },
             ]}
           />
@@ -195,13 +196,13 @@ function CurvedRopeStrand({
             style={[
               packet2Style,
               {
-                width: width * 0.5,
-                height: width * 1.5,
-                borderRadius: width * 0.25,
-                backgroundColor: '#FFFFFF',
+                width: width * 0.45,
+                height: width * 1.2,
+                borderRadius: width * 0.225,
+                backgroundColor: color,
                 shadowColor: color,
-                shadowRadius: width * 0.4,
-                shadowOpacity: 0.5,
+                shadowRadius: width * 0.25,
+                shadowOpacity: 0.18,
               },
             ]}
           />
@@ -209,13 +210,13 @@ function CurvedRopeStrand({
             style={[
               packet3Style,
               {
-                width: width * 0.55,
-                height: width * 1.6,
-                borderRadius: width * 0.275,
-                backgroundColor: '#FFFFFF',
+                width: width * 0.48,
+                height: width * 1.3,
+                borderRadius: width * 0.24,
+                backgroundColor: color,
                 shadowColor: color,
-                shadowRadius: width * 0.45,
-                shadowOpacity: 0.55,
+                shadowRadius: width * 0.28,
+                shadowOpacity: 0.19,
               },
             ]}
           />
@@ -263,30 +264,31 @@ export function RopeStrand({
   const dashHeight = width * 2.5;
   const dashGap = width * 1.5;
 
-  // Data packet animations - 4 packets with staggered timing
+  // Data packet animations - 3 sparse packets with staggered timing (SUBTLE)
   const packet1 = useSharedValue(0);
   const packet2 = useSharedValue(0);
   const packet3 = useSharedValue(0);
-  const flowGlow = useSharedValue(0);
+  const flowGlow = useSharedValue(shouldAnimate ? 0 : 0.3); // Static bloom for reduced motion
 
   useEffect(() => {
     if (!shouldAnimate) {
+      // Reduced motion: static soft bloom, no traveling packets
       packet1.value = 0;
       packet2.value = 0;
       packet3.value = 0;
-      flowGlow.value = 0;
+      flowGlow.value = 0.3; // Static subtle glow
       return;
     }
 
-    // Continuous flow: packets travel down the rope at staggered intervals
-    const packetDuration = 2400;
+    // Continuous flow: sparse packets travel down the rope at staggered intervals
+    const packetDuration = 2800; // Slower, more gentle
     packet1.value = withRepeat(
       withTiming(1, { duration: packetDuration, easing: Easing.linear }),
       -1,
       false
     );
     packet2.value = withDelay(
-      800,
+      900,
       withRepeat(
         withTiming(1, { duration: packetDuration, easing: Easing.linear }),
         -1,
@@ -294,7 +296,7 @@ export function RopeStrand({
       )
     );
     packet3.value = withDelay(
-      1600,
+      1800,
       withRepeat(
         withTiming(1, { duration: packetDuration, easing: Easing.linear }),
         -1,
@@ -302,32 +304,33 @@ export function RopeStrand({
       )
     );
 
-    // Gentle flowing glow effect
+    // Gentle flowing glow effect - very subtle
     flowGlow.value = withRepeat(
-      withTiming(1, { duration: 3000, easing: Easing.inOut(Easing.ease) }),
+      withTiming(1, { duration: 3500, easing: Easing.inOut(Easing.ease) }),
       -1,
       true
     );
   }, [shouldAnimate, packet1, packet2, packet3, flowGlow]);
 
-  // Animated styles for data packets
+  // Animated styles for data packets - SUBTLE opacity
   const packet1Style = useAnimatedStyle(() => ({
-    opacity: packet1.value > 0 && packet1.value < 0.95 ? 0.6 : 0,
+    opacity: packet1.value > 0 && packet1.value < 0.95 ? 0.25 : 0,
     transform: [{ translateY: packet1.value * 100 }],
   }));
 
   const packet2Style = useAnimatedStyle(() => ({
-    opacity: packet2.value > 0 && packet2.value < 0.95 ? 0.5 : 0,
+    opacity: packet2.value > 0 && packet2.value < 0.95 ? 0.2 : 0,
     transform: [{ translateY: packet2.value * 100 }],
   }));
 
   const packet3Style = useAnimatedStyle(() => ({
-    opacity: packet3.value > 0 && packet3.value < 0.95 ? 0.55 : 0,
+    opacity: packet3.value > 0 && packet3.value < 0.95 ? 0.22 : 0,
     transform: [{ translateY: packet3.value * 100 }],
   }));
 
+  // Flow glow style - very low amplitude, Belay blue core
   const flowGlowStyle = useAnimatedStyle(() => ({
-    opacity: flowGlow.value * 0.15 + 0.05,
+    opacity: shouldAnimate ? flowGlow.value * 0.05 + 0.02 : 0.03, // Static bloom or gentle pulse
   }));
 
   return (
@@ -357,24 +360,22 @@ export function RopeStrand({
         ]}
       />
       
-      {/* Fiber optic flow glow — subtle traveling energy */}
-      {shouldAnimate && (
-        <Animated.View
-          style={[
-            {
-              position: 'absolute',
-              width: width * 1.2,
-              borderRadius: width * 0.6,
-              backgroundColor: '#FFFFFF',
-              shadowColor: color,
-              shadowRadius: width * 0.8,
-              shadowOpacity: 0.4,
-            },
-            animatedStyle,
-            flowGlowStyle,
-          ]}
-        />
-      )}
+      {/* Fiber optic flow glow — soft traveling light along the braid core, Belay blue */}
+      <Animated.View
+        style={[
+          {
+            position: 'absolute',
+            width: width * 0.9, // Narrower to stay within strand
+            borderRadius: width * 0.45,
+            backgroundColor: color, // Belay blue / accentGraphic
+            shadowColor: color,
+            shadowRadius: width * 0.6,
+            shadowOpacity: 0.15, // Very subtle
+          },
+          animatedStyle,
+          flowGlowStyle,
+        ]}
+      />
 
       {/* Helical braid highlights — staggered dashes spiraling along rope */}
       {Array.from({ length: dashCount }).map((_, i) => {
@@ -399,7 +400,7 @@ export function RopeStrand({
         );
       })}
 
-      {/* Data packets — discrete bright elements traveling along rope */}
+      {/* Data packets — sparse bright dashes drifting along rope (2-3 visible), clipped to strand */}
       {shouldAnimate && (
         <>
           <Animated.View
@@ -407,13 +408,13 @@ export function RopeStrand({
               {
                 position: 'absolute',
                 top: 0,
-                width: width * 0.6,
-                height: width * 1.8,
-                borderRadius: width * 0.3,
-                backgroundColor: '#FFFFFF',
+                width: width * 0.5, // Smaller, subtle
+                height: width * 1.4,
+                borderRadius: width * 0.25,
+                backgroundColor: color, // Belay blue tint
                 shadowColor: color,
-                shadowRadius: width * 0.5,
-                shadowOpacity: 0.6,
+                shadowRadius: width * 0.3,
+                shadowOpacity: 0.2, // Very subtle glow
               },
               packet1Style,
             ]}
@@ -423,13 +424,13 @@ export function RopeStrand({
               {
                 position: 'absolute',
                 top: 0,
-                width: width * 0.5,
-                height: width * 1.5,
-                borderRadius: width * 0.25,
-                backgroundColor: '#FFFFFF',
+                width: width * 0.45,
+                height: width * 1.2,
+                borderRadius: width * 0.225,
+                backgroundColor: color,
                 shadowColor: color,
-                shadowRadius: width * 0.4,
-                shadowOpacity: 0.5,
+                shadowRadius: width * 0.25,
+                shadowOpacity: 0.18,
               },
               packet2Style,
             ]}
@@ -439,13 +440,13 @@ export function RopeStrand({
               {
                 position: 'absolute',
                 top: 0,
-                width: width * 0.55,
-                height: width * 1.6,
-                borderRadius: width * 0.275,
-                backgroundColor: '#FFFFFF',
+                width: width * 0.48,
+                height: width * 1.3,
+                borderRadius: width * 0.24,
+                backgroundColor: color,
                 shadowColor: color,
-                shadowRadius: width * 0.45,
-                shadowOpacity: 0.55,
+                shadowRadius: width * 0.28,
+                shadowOpacity: 0.19,
               },
               packet3Style,
             ]}
