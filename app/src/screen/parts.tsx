@@ -287,9 +287,9 @@ export interface KeyCapProps {
 }
 
 /**
- * A recessed `surfaceAlt` key, 4pt corners — the one place that radius is
- * allowed — with an un-bold mono label (bold mono is banned, §12). Only the
- * latch states draw a border; a resting key is a fill, not a box.
+ * A recessed `surfaceAlt` key, theme.radius.sm corners (§12: the one place
+ * radius is allowed) — with an un-bold mono label (bold mono is banned, §12).
+ * Only the latch states draw a border; a resting key is a fill, not a box.
  */
 export function KeyCap({ spec, onPress, onRepeat, mac, glyph, sticky = false, latched = false, locked = false, style }: KeyCapProps) {
   const theme = useTheme();

@@ -23,7 +23,10 @@ import { useTheme } from '../../src/theme';
 import { useAgentAttention, resetAttention } from '../../src/agent/attention-store';
 
 /** Whatever route arrives first (a deep link straight to a tool panel
- *  included), the desktop is always the screen underneath it. */
+ *  included), the desktop is always the screen underneath it. The anchor
+ *  ensures tool panels open OVER the desktop even when arriving via deep link,
+ *  but it assumes 'screen' will mount. The guard below (redirecting to /
+ *  without a connection) ensures screen is never bypassed entirely. */
 export const unstable_settings = { anchor: 'screen', initialRouteName: 'screen' };
 
 const TOOL_ROUTES = ['agent', 'terminal', 'files', 'system'] as const;
