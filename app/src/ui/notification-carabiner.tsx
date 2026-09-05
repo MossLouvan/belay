@@ -19,8 +19,8 @@ import { Carabiner } from './carabiner';
 import { SPRING_CONFIGS } from './motion';
 
 /**
- * Short rope segment with helical braid pattern.
- * Staggered dashes show twist construction, avoiding parallel tube appearance.
+ * Short rope segment with helical braid pattern and fiber-optic glow.
+ * Staggered glowing dashes show twist construction with energy bloom.
  */
 function RopeSegment({ height = 30, color }: { height?: number; color: string }) {
   const ropeWidth = 4;
@@ -28,44 +28,85 @@ function RopeSegment({ height = 30, color }: { height?: number; color: string })
   const dashCount = Math.max(2, Math.floor(height / (dashHeight + ropeWidth)));
   
   return (
-    <View style={{ position: 'relative', width: ropeWidth, height, alignItems: 'center' }}>
+    <View style={{ position: 'relative', width: ropeWidth * 3, height, alignItems: 'center' }}>
+      {/* Outer glow layers for fiber-optic effect */}
+      <View
+        style={{
+          position: 'absolute',
+          width: ropeWidth * 3,
+          height,
+          backgroundColor: `${color}10`,
+          borderRadius: ropeWidth * 1.5,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          width: ropeWidth * 1.8,
+          height,
+          backgroundColor: `${color}38`,
+          borderRadius: ropeWidth * 0.9,
+        }}
+      />
       {/* Shadow for depth */}
       <View
         style={{
           position: 'absolute',
-          left: 1,
+          left: ropeWidth + 1,
           top: 0,
           width: ropeWidth,
           height,
-          backgroundColor: 'rgba(0, 0, 0, 0.15)',
+          backgroundColor: 'rgba(0, 0, 0, 0.2)',
           borderRadius: ropeWidth / 2,
         }}
       />
-      {/* Main rope body */}
+      {/* Main rope body - electric blue core */}
       <View
         style={{
+          position: 'absolute',
+          left: ropeWidth,
           width: ropeWidth,
           height,
           backgroundColor: color,
           borderRadius: ropeWidth / 2,
         }}
       />
-      {/* Helical braid: staggered dashes */}
+      {/* Helical braid: staggered glowing dashes */}
       {Array.from({ length: dashCount }).map((_, i) => {
         const offset = i * (dashHeight + ropeWidth * 1.5);
+        const side = i % 2 === 0 ? 1 : -1;
+        const tiltAngle = side * 28;
+        const dashOpacity = i % 2 === 0 ? 0.65 : 0.45;
+        const clippedHeight = Math.min(dashHeight, height - offset);
         return (
-          <View
-            key={`dash-${i}`}
-            style={{
-              position: 'absolute',
-              top: offset,
-              left: i % 2 === 0 ? ropeWidth * 0.15 : -ropeWidth * 0.05,
-              width: ropeWidth * 0.4,
-              height: Math.min(dashHeight, height - offset),
-              borderRadius: ropeWidth * 0.2,
-              backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
-            }}
-          />
+          <React.Fragment key={`dash-${i}`}>
+            {/* Dash glow halo */}
+            <View
+              style={{
+                position: 'absolute',
+                top: offset,
+                left: ropeWidth + (i % 2 === 0 ? ropeWidth * 0.15 : -ropeWidth * 0.05),
+                width: ropeWidth * 0.8,
+                height: clippedHeight,
+                borderRadius: ropeWidth * 0.4,
+                backgroundColor: `rgba(255, 255, 255, ${dashOpacity * 0.2})`,
+                transform: [{ rotate: `${tiltAngle}deg` }],
+              }}
+            />
+            {/* Dash core - bright strand */}
+            <View
+              style={{
+                position: 'absolute',
+                top: offset,
+                left: ropeWidth + (i % 2 === 0 ? ropeWidth * 0.15 : -ropeWidth * 0.05),
+                width: ropeWidth * 0.4,
+                height: clippedHeight,
+                borderRadius: ropeWidth * 0.2,
+                backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
+                transform: [{ rotate: `${tiltAngle}deg` }],
+              }}
+            />
+          </React.Fragment>
         );
       })}
     </View>

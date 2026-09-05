@@ -54,6 +54,31 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
 
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
+      {/* Outer glow/bloom for fiber-optic energy effect */}
+      <View
+        style={{
+          position: 'absolute',
+          left: centerX - radius,
+          top: centerY,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE * 3,
+          borderColor: `${color}15`,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: centerX - radius,
+          top: centerY,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE * 1.8,
+          borderColor: `${color}40`,
+        }}
+      />
       {/* Shadow layer for depth */}
       <View
         style={{
@@ -64,10 +89,10 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
           height: radius * 2,
           borderRadius: radius,
           borderWidth: ROPE_STROKE,
-          borderColor: 'rgba(0, 0, 0, 0.2)',
+          borderColor: 'rgba(0, 0, 0, 0.25)',
         }}
       />
-      {/* Main rope body */}
+      {/* Main rope body - electric blue core */}
       <View
         style={{
           position: 'absolute',
@@ -80,7 +105,7 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
           borderColor: color,
         }}
       />
-      {/* Helical braid pattern — staggered dashes along the arc */}
+      {/* Helical braid pattern — staggered glowing dashes along the arc */}
       {Array.from({ length: dashCount }).map((_, i) => {
         // Angle along the arc from left to right
         const t = i / (dashCount - 1);
@@ -103,20 +128,37 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
         const tangentAngle = angle + Math.PI / 2;
         const rotateDeg = (tangentAngle * 180) / Math.PI;
         
+        const dashOpacity = i % 2 === 0 ? 0.65 : 0.45;
+        
         return (
-          <View
-            key={`dash-${i}`}
-            style={{
-              position: 'absolute',
-              left: dashX - dashWidth / 2,
-              top: dashY - dashHeight / 2,
-              width: dashWidth,
-              height: dashHeight,
-              borderRadius: dashWidth / 2,
-              backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
-              transform: [{ rotate: `${rotateDeg}deg` }],
-            }}
-          />
+          <React.Fragment key={`dash-${i}`}>
+            {/* Dash glow halo */}
+            <View
+              style={{
+                position: 'absolute',
+                left: dashX - dashWidth,
+                top: dashY - dashHeight,
+                width: dashWidth * 2,
+                height: dashHeight * 2,
+                borderRadius: dashWidth,
+                backgroundColor: `rgba(255, 255, 255, ${dashOpacity * 0.15})`,
+                transform: [{ rotate: `${rotateDeg}deg` }],
+              }}
+            />
+            {/* Dash core - bright strand highlight */}
+            <View
+              style={{
+                position: 'absolute',
+                left: dashX - dashWidth / 2,
+                top: dashY - dashHeight / 2,
+                width: dashWidth,
+                height: dashHeight,
+                borderRadius: dashWidth / 2,
+                backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
+                transform: [{ rotate: `${rotateDeg}deg` }],
+              }}
+            />
+          </React.Fragment>
         );
       })}
     </View>
