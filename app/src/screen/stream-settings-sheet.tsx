@@ -36,6 +36,7 @@ const FPS_OPTIONS = [
 ];
 
 const BITRATE_OPTIONS = [
+  { value: 0, label: 'Auto' },  // 0 = use congestion.ts ABR with no ceiling
   { value: 5, label: '5' },
   { value: 10, label: '10' },
   { value: 15, label: '15' },
@@ -69,7 +70,7 @@ export function StreamSettingsSheet({
 
   const handleReset = useCallback(() => {
     setFps(60);
-    setBitrateMbps(20);
+    setBitrateMbps(0); // Auto
     setAudioEnabled(true);
     setCodec('h264');
   }, []);
@@ -123,14 +124,15 @@ export function StreamSettingsSheet({
         <View style={{ gap: theme.space.sm }}>
           <Txt variant="subheading">Bitrate Ceiling</Txt>
           <Caption>
-            Maximum Mbps for adaptive bitrate control. Higher = sharper on fast links. Host adapts down under loss.
+            Maximum Mbps for adaptive bitrate control. Auto lets congestion.ts ABR decide; fixed ceiling clamps it. 
+            Host adapts down under loss. JPEG fallback: bitrate maps to quality/width settings.
           </Caption>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.xs }}>
             {BITRATE_OPTIONS.map((option) => (
               <Button
                 key={option.value}
                 testID={`bitrate-${option.value}`}
-                label={`${option.label} Mbps`}
+                label={option.value === 0 ? 'Auto' : `${option.label} Mbps`}
                 variant={bitrateMbps === option.value ? 'primary' : 'secondary'}
                 onPress={() => setBitrateMbps(option.value)}
                 disabled={!webrtcAvailable}
