@@ -3,10 +3,11 @@
 // A belayer takes in rope as the climber ascends, so the rope hanging from
 // the top of the screen gets shorter with every step completed, and because
 // the step content sits directly below it, shortening the rope visibly hauls
-// the next step up into place. Same carabiner as the splash and the
-// notifications; same single accent; ease-out timing only (springs are
-// retired — docs/DESIGN.md). Purely decorative, so it is hidden from
-// accessibility, and reduced motion renders it at rest with no travel.
+// the next step up into place. The carabiner shows load/tension: not hanging
+// ornamentally but clipped and bearing weight as the rope is taken in. Same
+// carabiner as the splash and notifications; same single accent; ease-out
+// timing. Purely decorative, so it is hidden from accessibility, and reduced
+// motion renders it at rest with no travel.
 
 import React, { useEffect, useRef } from 'react';
 import { View } from 'react-native';
@@ -16,6 +17,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
@@ -57,7 +59,8 @@ export function ropePullHeight(progress: number): number {
  * On mount the rope drops in from above (the sanctioned hero move, same as
  * the splash). Afterwards, `progress` changes animate the rope length — and
  * with it the component's height, which is what "pulls" whatever the parent
- * renders below.
+ * renders below. The carabiner shows subtle physics: a slight bounce when
+ * the rope is taken in (load shift) to reinforce that it's bearing weight.
  */
 export function RopePull({ progress }: RopePullProps) {
   const theme = useTheme();
@@ -65,6 +68,7 @@ export function RopePull({ progress }: RopePullProps) {
 
   const p = useSharedValue(progress);
   const dropIn = useSharedValue(reducedMotion ? 1 : 0);
+  const carabinerBounce = useSharedValue(0); // Subtle bounce on rope changes
   const mounted = useRef(false);
 
   useEffect(() => {
@@ -85,8 +89,15 @@ export function RopePull({ progress }: RopePullProps) {
       p.value = progress;
       return;
     }
+    // Animate rope taking in with subtle carabiner load shift
     p.value = withTiming(progress, { duration: theme.motion.draw, easing: EASE_STANDARD });
-  }, [progress, reducedMotion, p, dropIn, theme.motion.draw]);
+    // Subtle bounce shows the load shifting as rope is taken in
+    carabinerBounce.value = withSequence(
+      withTiming(-2, { duration: theme.motion.fast * 0.6, easing: EASE_STANDARD }),
+      withTiming(1, { duration: theme.motion.fast * 0.4, easing: EASE_STANDARD }),
+      withTiming(0, { duration: theme.motion.base * 0.6, easing: EASE_STANDARD })
+    );
+  }, [progress, reducedMotion, p, dropIn, carabinerBounce, theme.motion.draw, theme.motion.fast, theme.motion.base]);
 
   const containerStyle = useAnimatedStyle(() => ({
     height: interpolate(p.value, [0, 1], [ROPE_FULL, ROPE_TAKEN_IN]) + CARABINER_HEIGHT,
@@ -103,6 +114,10 @@ export function RopePull({ progress }: RopePullProps) {
     height: interpolate(p.value, [0, 1], [ROPE_FULL, ROPE_TAKEN_IN]),
   }));
 
+  const carabinerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: carabinerBounce.value }],
+  }));
+
   return (
     <Animated.View
       style={[{ alignItems: 'center', overflow: 'visible' }, containerStyle]}
@@ -111,7 +126,7 @@ export function RopePull({ progress }: RopePullProps) {
       pointerEvents="none"
     >
       <Animated.View style={[{ alignItems: 'center' }, columnStyle]}>
-        {/* The rope — a plain taut line; the sag lives on the splash. */}
+        {/* The rope — a plain taut line under tension; the sag lives on the splash. */}
         <Animated.View
           style={[
             {
@@ -122,10 +137,10 @@ export function RopePull({ progress }: RopePullProps) {
             ropeStyle,
           ]}
         />
-        {/* Carabiner clipped to the rope's end, gate up. */}
-        <View style={{ marginTop: -4 }}>
+        {/* Carabiner clipped to the rope's end, gate up, showing load with subtle physics. */}
+        <Animated.View style={[{ marginTop: -4 }, carabinerStyle]}>
           <Carabiner size={CARABINER_SIZE} color={theme.colors.accentGraphic} />
-        </View>
+        </Animated.View>
       </Animated.View>
     </Animated.View>
   );

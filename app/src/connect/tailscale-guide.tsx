@@ -18,7 +18,7 @@
 // included, and the race picks the one that works.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, View } from 'react-native';
+import { AppState, Pressable, View } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 import Animated, {
   Easing,
@@ -310,17 +310,16 @@ export function TailscaleGuide({
   const connected = detection.kind === 'connected';
 
   return (
-    <ScrollView
-      contentContainerStyle={{
+    <View
+      style={{
+        flex: 1,
         paddingHorizontal: theme.layout.margin * 1.5,
         paddingTop: insets.top,
         paddingBottom: insets.bottom + theme.space.xl,
-        flexGrow: 1,
         width: '100%',
         maxWidth: theme.layout.contentMaxWidth,
         alignSelf: 'center',
       }}
-      showsVerticalScrollIndicator={false}
       testID="tailscale-guide"
     >
       {/* The rope is taken in as the climb progresses; everything below it
@@ -474,6 +473,6 @@ export function TailscaleGuide({
           </Txt>
         </Pressable>
       </View>
-    </ScrollView>
+    </View>
   );
 }
