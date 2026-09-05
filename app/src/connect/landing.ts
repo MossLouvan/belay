@@ -54,3 +54,20 @@ export type PairDestination = '/(home)/screen' | '/(home)/system';
 export function postPairDestination(native: boolean | undefined): PairDestination {
   return native === false ? '/(home)/system' : '/(home)/screen';
 }
+
+/** Where the intro screens hand off to. */
+export type IntroHandoff = 'tailscale' | 'host';
+
+/**
+ * The stage after "how it works" — the first-run flow's one fork.
+ *
+ * Using Belay away from home is the app's main use case, so a first-time user
+ * walks straight into the guided Tailscale setup rather than finding it later
+ * behind a collapsed "Away from home" note (the guide's own "skip" covers the
+ * user standing next to their computer on the same Wi-Fi). Anyone with a
+ * remembered computer has been through setup already and skips the intro
+ * entirely — this fork exists for the day that skip logic and this one drift.
+ */
+export function afterHowItWorks(hasRecentHosts: boolean): IntroHandoff {
+  return hasRecentHosts ? 'host' : 'tailscale';
+}

@@ -5,8 +5,11 @@
 // fade-and-rise in the app's one easing vocabulary. The last step does the
 // thing the whole guide promises: it watches for the tailnet on a timer and
 // on returning from the Tailscale app, and the moment the host answers over
-// its tailnet address the continue button lights up — with the discovered
-// address inside it, so nobody ever reads a port or a 100.x off a screen.
+// its tailnet address — twice, so one lucky packet cannot fake it — the guide
+// pauses just long enough to say "connected", then carries on into pairing by
+// itself, with the discovered address in hand. Nobody presses anything and
+// nobody ever reads a port or a 100.x off a screen. Reduced motion keeps the
+// manual button instead, and the button survives as a fallback regardless.
 //
 // Two ways in, one component. From a failed tailnet probe the guide knows
 // which computer is waiting (`host` set) and can watch for it. From the cold
@@ -30,14 +33,16 @@ import { useTheme } from '../theme';
 import { Button, Label, Micro, Txt, haptic, useReducedMotion } from '../ui';
 import { RopePull } from './rope-pull';
 import { openTailscale } from './tailscale-card';
-import type { GuideDetection, GuideStep } from './tailscale-flow';
+import type { AutoAdvance, GuideDetection, GuideStep } from './tailscale-flow';
 import {
+  AUTO_ADVANCE_DWELL_MS,
   GUIDE_CHECK_TIMEOUT_MS,
   GUIDE_POLL_MS,
   GUIDE_STEPS,
   guideProbeTarget,
   guideProgress,
   guideStepIndex,
+  nextAutoAdvance,
   nextGuideStep,
   prevGuideStep,
   readGuideDetection,
@@ -87,10 +92,13 @@ function copyFor(step: GuideStep, hostName: string | null): StepCopy {
       return {
         ordinal: '',
         title: 'Reach your computer from anywhere',
-        body:
-          'Right now Belay only works at home. Tailscale puts your phone and ' +
-          'computer on the same private network wherever you are — free for ' +
-          'personal use, and about two minutes to set up.',
+        body: hostName
+          ? 'Right now Belay only works at home. Tailscale puts your phone and ' +
+            'computer on the same private network wherever you are — free for ' +
+            'personal use, and about two minutes to set up.'
+          : 'Belay connects straight to your computer, and away from home that ' +
+            'takes Tailscale — a free app that puts your phone and computer on ' +
+            'the same private network wherever you are. About two minutes, once.',
       };
     case 'install':
       return {
@@ -173,11 +181,15 @@ export function TailscaleGuide({
 
   const [step, setStep] = useState<GuideStep>('intro');
   const [detection, setDetection] = useState<GuideDetection>({ kind: 'waiting' });
+  /** The hands-free ending: two connected readings, then advance untapped. */
+  const [auto, setAuto] = useState<AutoAdvance>({ kind: 'idle' });
 
   /** False once unmounted, so a late poll cannot set state. */
   const live = useRef(true);
   /** True while a poll is in flight — a slow one just skips the next tick. */
   const polling = useRef(false);
+  /** True once pairing has been handed off — auto and tap must not both fire. */
+  const advanced = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   // Step content fades and rises on each transition; reduced motion cuts.
@@ -238,13 +250,16 @@ export function TailscaleGuide({
       const target = guideProbeTarget(check, host.url);
       const probe = target ? await checkBounded(target) : null;
       if (!live.current) return;
+      const reading = readGuideDetection(check, host.url, probe);
+      // The debounce watches raw readings: a lone connected packet starts a
+      // streak, a miss resets it, and only two in a row arm the auto-advance.
+      setAuto((current) => nextAutoAdvance(current, reading));
       setDetection((current) => {
         // Never demote a found connection — a later, slower poll losing a
-        // race must not un-light the button under the user's finger.
+        // race must not un-light the screen under the user's finger.
         if (current.kind === 'connected') return current;
-        const next = readGuideDetection(check, host.url, probe);
-        if (next.kind === 'connected') haptic('success');
-        return next;
+        if (reading.kind === 'connected') haptic('success');
+        return reading;
       });
     } finally {
       polling.current = false;
@@ -253,8 +268,9 @@ export function TailscaleGuide({
 
   // Watch while on the connect step: a steady timer, plus an immediate check
   // whenever the app returns to the foreground (the user just flipped the
-  // switch in Tailscale and came straight back).
-  const watching = step === 'connect' && host !== null && detection.kind !== 'connected';
+  // switch in Tailscale and came straight back). Watching continues past the
+  // first connected reading — the confirming read below still needs polls.
+  const watching = step === 'connect' && host !== null && auto.kind !== 'ready';
   useEffect(() => {
     if (!watching) return;
     void poll();
@@ -269,6 +285,26 @@ export function TailscaleGuide({
       sub.remove();
     };
   }, [watching, poll]);
+
+  // One connected reading demands its confirmation now, not a poll interval
+  // later — the whole dwell should feel like a breath, not five seconds.
+  useEffect(() => {
+    if (auto.kind === 'confirming') void poll();
+  }, [auto, poll]);
+
+  // The hands-free ending: confirmed twice, show "connected" for one readable
+  // beat, then walk into pairing with nobody touching anything. Reduced
+  // motion keeps the manual button instead — no screen changes uninvited —
+  // and a tap on that button wins any race via the `advanced` latch.
+  useEffect(() => {
+    if (auto.kind !== 'ready' || step !== 'connect' || reducedMotion || advanced.current) return;
+    const timer = setTimeout(() => {
+      if (!live.current || advanced.current) return;
+      advanced.current = true;
+      onConnected(auto.url);
+    }, AUTO_ADVANCE_DWELL_MS);
+    return () => clearTimeout(timer);
+  }, [auto, step, reducedMotion, onConnected]);
 
   const copy = copyFor(step, host?.name ?? null);
   const connected = detection.kind === 'connected';
@@ -336,9 +372,14 @@ export function TailscaleGuide({
           <View style={{ gap: theme.space.md }}>
             {/* What the watcher sees right now, in one honest line. */}
             {connected ? (
-              <Txt variant="label" tone="good" testID="guide-connected">
-                {`✓ ${host.name} can hear you`}
-              </Txt>
+              <View style={{ gap: theme.space.xxs }}>
+                <Txt variant="label" tone="good" testID="guide-connected">
+                  {`✓ Connected — ${host.name} can hear you`}
+                </Txt>
+                {!reducedMotion ? (
+                  <Micro tone="dim">Carrying on by itself…</Micro>
+                ) : null}
+              </View>
             ) : detection.kind === 'code-required' ? (
               <Txt variant="label" tone="warn">
                 {`Connected — but ${host.name} still asks for its code`}
@@ -363,9 +404,12 @@ export function TailscaleGuide({
               {/* The promise: lights up on its own, and carries the discovered
                   address — nothing to type, ever. */}
               <Button
-                label={connected ? "You're connected — continue" : 'Waiting for Tailscale…'}
+                label={connected ? 'Continue now' : 'Waiting for Tailscale…'}
                 onPress={() => {
-                  if (detection.kind === 'connected') onConnected(detection.url);
+                  if (detection.kind === 'connected' && !advanced.current) {
+                    advanced.current = true;
+                    onConnected(detection.url);
+                  }
                 }}
                 disabled={!connected}
                 loading={busy}
@@ -379,6 +423,18 @@ export function TailscaleGuide({
               ) : null}
             </View>
 
+            {/* Tailscale's own hiccups ("Could not sign device", a stalled
+                sign-in) surface in its app, not here — Belay just keeps calmly
+                watching. This line points at the right place to look, so a
+                Tailscale-side failure never reads as a Belay failure. */}
+            {!connected && detection.kind === 'waiting' ? (
+              <Txt variant="caption" tone="dim">
+                Having trouble? In the Tailscale app, make sure you are signed in and this
+                phone shows as Connected. Belay will notice on its own — nothing to press
+                here.
+              </Txt>
+            ) : null}
+
             {!connected && detection.kind === 'waiting' && (detection.detail ?? detail) ? (
               <Micro tone="faint">{`Last check said: ${detection.detail ?? detail}`}</Micro>
             ) : null}
@@ -386,9 +442,17 @@ export function TailscaleGuide({
         ) : null}
 
         {step === 'connect' && !host ? (
-          <View style={{ gap: theme.space.sm }}>
-            <Button label="Open Tailscale" onPress={() => void openTailscale()} fullWidth size="lg" />
-            <Button label="Scan the code on your computer" variant="secondary" onPress={onScan} fullWidth size="lg" testID="guide-scan" />
+          <View style={{ gap: theme.space.md }}>
+            <View style={{ gap: theme.space.sm }}>
+              <Button label="Open Tailscale" onPress={() => void openTailscale()} fullWidth size="lg" />
+              <Button label="Scan the code on your computer" variant="secondary" onPress={onScan} fullWidth size="lg" testID="guide-scan" />
+            </View>
+            {/* Same calm pointer as the watched path: Tailscale's own errors
+                live in Tailscale's app, and that is where to look. */}
+            <Txt variant="caption" tone="dim">
+              Having trouble? In the Tailscale app, make sure you are signed in and this
+              phone shows as Connected.
+            </Txt>
           </View>
         ) : null}
       </Animated.View>
@@ -406,7 +470,7 @@ export function TailscaleGuide({
           })}
         >
           <Txt variant="body" tone="dim" style={{ textAlign: 'center', fontSize: 15 }}>
-            {step === 'intro' ? 'Not now' : '← Back'}
+            {step !== 'intro' ? '← Back' : host ? 'Not now' : "Skip — I'm on the same Wi-Fi"}
           </Txt>
         </Pressable>
       </View>
