@@ -27,15 +27,13 @@ interface RopeSplashProps {
 }
 
 /** Stroke weight of the splash rope, in points. */
-const ROPE_STROKE = 4;
+const ROPE_STROKE = 6;
 
 /**
- * Curved rope drawn without react-native-svg, which does not render under
- * this Expo release's New Architecture — the visible sag is the bottom arc of
- * a much larger circle: a plain bordered View, clipped by the container. The
- * circle's radius comes from the sagitta formula, so the arc still enters at
- * the container's edges and bottoms out at the same sag point the old bezier
- * hit. Same curve, from geometry instead of a path string.
+ * Realistic curved climbing rope with twisted strands, shadows, and highlights.
+ * The visible sag is the bottom arc of a much larger circle: multiple layered
+ * bordered Views create the rope's depth and texture. The circle's radius comes
+ * from the sagitta formula, matching the geometry of a rope under tension.
  */
 function Rope({ width, height, color }: { width: number; height: number; color: string }) {
   const startY = height * 0.15; // Where the rope meets the screen edges
@@ -47,6 +45,33 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
 
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
+      {/* Shadow layer for depth underneath the rope */}
+      <View
+        style={{
+          position: 'absolute',
+          left: width / 2 - radius,
+          top: sagY - radius * 2 + 2,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE,
+          borderColor: 'rgba(0, 0, 0, 0.2)',
+        }}
+      />
+      {/* Dark strand (creates twisted rope appearance) */}
+      <View
+        style={{
+          position: 'absolute',
+          left: width / 2 - radius - 1,
+          top: sagY - radius * 2,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE,
+          borderColor: `${color}CC`, // Slightly transparent for layering
+        }}
+      />
+      {/* Main rope body */}
       <View
         style={{
           position: 'absolute',
@@ -57,6 +82,32 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
           borderRadius: radius,
           borderWidth: ROPE_STROKE,
           borderColor: color,
+        }}
+      />
+      {/* Highlight strand (top-left, creates 3D appearance) */}
+      <View
+        style={{
+          position: 'absolute',
+          left: width / 2 - radius + 1,
+          top: sagY - radius * 2 - 1,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE * 0.4,
+          borderColor: 'rgba(255, 255, 255, 0.3)',
+        }}
+      />
+      {/* Secondary highlight for rope texture */}
+      <View
+        style={{
+          position: 'absolute',
+          left: width / 2 - radius - 1,
+          top: sagY - radius * 2 + 1,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE * 0.3,
+          borderColor: 'rgba(255, 255, 255, 0.15)',
         }}
       />
     </View>

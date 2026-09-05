@@ -10,7 +10,6 @@ import { Animated, View } from 'react-native';
 import { useTheme } from '../theme';
 import { Carabiner, Txt, useReducedMotion } from '../ui';
 
-const ROPE_BLUE = '#0066CC'; // Belay blue accent
 const ANIMATION_DELAY = 200;
 const ROPE_DURATION = 800;
 const CARABINER_DURATION = 400;
@@ -24,24 +23,25 @@ export function LogoMark({ size = 20 }: { size?: number }) {
       importantForAccessibility="no-hide-descendants"
       style={{ flexDirection: 'row', alignItems: 'center' }}
     >
-      <View style={{ width: size, height: size, backgroundColor: ROPE_BLUE }} />
-      <View style={{ width: size, height: theme.layout.ruleEmphasis, backgroundColor: ROPE_BLUE }} />
+      <View style={{ width: size, height: size, backgroundColor: theme.colors.accentGraphic }} />
+      <View style={{ width: size, height: theme.layout.ruleEmphasis, backgroundColor: theme.colors.accentGraphic }} />
       <View
         style={{
           width: size,
           height: size,
           borderWidth: theme.layout.ruleEmphasis,
-          borderColor: ROPE_BLUE,
+          borderColor: theme.colors.accentGraphic,
         }}
       />
     </View>
   );
 }
 
-/** Animated rope that slings down with a natural arc. */
+/** Animated rope that slings down with a natural arc and realistic twisted strands. */
 function RopeAnimation({ reducedMotion }: { reducedMotion: boolean }) {
   const ropeProgress = useRef(new Animated.Value(0)).current;
   const theme = useTheme();
+  const ropeColor = theme.colors.accentGraphic;
 
   useEffect(() => {
     if (reducedMotion) {
@@ -63,8 +63,10 @@ function RopeAnimation({ reducedMotion }: { reducedMotion: boolean }) {
   // Rope arc: starts at top center, slings down with a bezier-like curve
   const ropeHeight = 120;
   const ropeWidth = 140;
+  const ropeThickness = 5;
+  const highlightThickness = ropeThickness * 0.35;
 
-  // Create SVG-like path using positioned views to simulate rope curve
+  // Create continuous rope segments that form a natural sag curve
   const segments = 20;
   const ropeSegments = Array.from({ length: segments }, (_, i) => {
     const t = i / (segments - 1);
@@ -73,8 +75,8 @@ function RopeAnimation({ reducedMotion }: { reducedMotion: boolean }) {
     const y = t * ropeHeight + Math.pow(t * 2 - 1, 2) * 30;
     
     return { x, y, opacity: ropeProgress.interpolate({
-      inputRange: [0, t, 1],
-      outputRange: [0, 1, 1],
+      inputRange: [0, Math.max(0, t - 0.1), t, 1],
+      outputRange: [0, 0, 1, 1],
       extrapolate: 'clamp',
     })};
   });
@@ -89,17 +91,66 @@ function RopeAnimation({ reducedMotion }: { reducedMotion: boolean }) {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
+      {/* Shadow layer for depth */}
       {ropeSegments.map((segment, i) => (
         <Animated.View
-          key={i}
+          key={`shadow-${i}`}
+          style={{
+            position: 'absolute',
+            left: ropeWidth / 2 + segment.x + 1,
+            top: segment.y + 1,
+            width: ropeThickness,
+            height: i < segments - 1 ? 10 : 8,
+            backgroundColor: 'rgba(0, 0, 0, 0.2)',
+            borderRadius: ropeThickness / 2,
+            opacity: segment.opacity,
+          }}
+        />
+      ))}
+      {/* Main rope body */}
+      {ropeSegments.map((segment, i) => (
+        <Animated.View
+          key={`main-${i}`}
           style={{
             position: 'absolute',
             left: ropeWidth / 2 + segment.x,
             top: segment.y,
-            width: 4,
-            height: 8,
-            backgroundColor: ROPE_BLUE,
-            borderRadius: 2,
+            width: ropeThickness,
+            height: i < segments - 1 ? 10 : 8,
+            backgroundColor: ropeColor,
+            borderRadius: ropeThickness / 2,
+            opacity: segment.opacity,
+          }}
+        />
+      ))}
+      {/* Left highlight strand (creates twisted rope appearance) */}
+      {ropeSegments.map((segment, i) => (
+        <Animated.View
+          key={`highlight-${i}`}
+          style={{
+            position: 'absolute',
+            left: ropeWidth / 2 + segment.x + ropeThickness * 0.15,
+            top: segment.y,
+            width: highlightThickness,
+            height: i < segments - 1 ? 10 : 8,
+            backgroundColor: 'rgba(255, 255, 255, 0.35)',
+            borderRadius: highlightThickness / 2,
+            opacity: segment.opacity,
+          }}
+        />
+      ))}
+      {/* Right subtle strand */}
+      {ropeSegments.map((segment, i) => (
+        <Animated.View
+          key={`secondary-${i}`}
+          style={{
+            position: 'absolute',
+            left: ropeWidth / 2 + segment.x + ropeThickness * 0.7,
+            top: segment.y,
+            width: highlightThickness * 0.7,
+            height: i < segments - 1 ? 10 : 8,
+            backgroundColor: 'rgba(255, 255, 255, 0.15)',
+            borderRadius: highlightThickness / 2,
             opacity: segment.opacity,
           }}
         />
@@ -147,7 +198,7 @@ function CarabinerAnimation({ reducedMotion }: { reducedMotion: boolean }) {
         opacity: carabinerOpacity,
       }}
     >
-      <Carabiner size={40} color={ROPE_BLUE} strokeWidth={3} />
+      <Carabiner size={40} color={theme.colors.accentGraphic} strokeWidth={3} />
     </Animated.View>
   );
 }
@@ -170,7 +221,7 @@ export function Brand() {
           lineHeight: 40,
           textTransform: 'none',
           letterSpacing: -1,
-          color: ROPE_BLUE,
+          color: theme.colors.accentGraphic,
         }}
       >
         Belay

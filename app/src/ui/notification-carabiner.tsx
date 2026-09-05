@@ -19,18 +19,60 @@ import { Carabiner } from './carabiner';
 import { SPRING_CONFIGS } from './motion';
 
 /**
- * Short rope segment above the carabiner (drops down with it).
+ * Realistic short rope segment with twisted strands and depth.
  */
 function RopeSegment({ height = 30, color }: { height?: number; color: string }) {
+  const ropeWidth = 4;
+  const highlightWidth = ropeWidth * 0.35;
+  
   return (
-    <View
-      style={{
-        width: 3,
-        height,
-        backgroundColor: color,
-        borderRadius: 1.5,
-      }}
-    />
+    <View style={{ position: 'relative', width: ropeWidth, height, alignItems: 'center' }}>
+      {/* Shadow for depth */}
+      <View
+        style={{
+          position: 'absolute',
+          left: 1,
+          top: 0,
+          width: ropeWidth,
+          height,
+          backgroundColor: 'rgba(0, 0, 0, 0.15)',
+          borderRadius: ropeWidth / 2,
+        }}
+      />
+      {/* Main rope body */}
+      <View
+        style={{
+          width: ropeWidth,
+          height,
+          backgroundColor: color,
+          borderRadius: ropeWidth / 2,
+        }}
+      />
+      {/* Left highlight strand */}
+      <View
+        style={{
+          position: 'absolute',
+          left: ropeWidth * 0.15,
+          top: 0,
+          width: highlightWidth,
+          height,
+          backgroundColor: 'rgba(255, 255, 255, 0.35)',
+          borderRadius: highlightWidth / 2,
+        }}
+      />
+      {/* Right subtle strand */}
+      <View
+        style={{
+          position: 'absolute',
+          right: ropeWidth * 0.2,
+          top: 0,
+          width: highlightWidth * 0.7,
+          height,
+          backgroundColor: 'rgba(255, 255, 255, 0.15)',
+          borderRadius: highlightWidth / 2,
+        }}
+      />
+    </View>
   );
 }
 
