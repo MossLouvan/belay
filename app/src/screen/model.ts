@@ -13,7 +13,7 @@ export interface Size {
 
 export const EMPTY_SIZE: Size = Object.freeze({ w: 0, h: 0 });
 
-export type QualityId = 'smooth' | 'balanced' | 'sharp';
+export type QualityId = 'smooth' | 'balanced' | 'sharp' | 'performance' | 'ultra';
 
 export interface QualityPreset {
   readonly id: QualityId;
@@ -33,7 +33,7 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     label: 'Smooth',
     w: 720,
     q: 35,
-    fps: 20,
+    fps: 30,
     hint: 'Softer picture, highest frame rate. Best on cellular or a slow Tailscale hop.',
   },
   {
@@ -41,7 +41,7 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     label: 'Balanced',
     w: 1024,
     q: 50,
-    fps: 12,
+    fps: 30,
     hint: 'The default. Readable text at a comfortable frame rate.',
   },
   {
@@ -49,8 +49,24 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     label: 'Sharp',
     w: 1600,
     q: 78,
-    fps: 8,
-    hint: 'Crisp small text for code and terminals, at fewer frames per second.',
+    fps: 30,
+    hint: 'Crisp small text for code and terminals, at standard frame rate.',
+  },
+  {
+    id: 'performance',
+    label: 'Performance',
+    w: 1920,
+    q: 65,
+    fps: 60,
+    hint: 'High frame rate for smooth interaction. Requires WebRTC and hardware encoding.',
+  },
+  {
+    id: 'ultra',
+    label: 'Ultra',
+    w: 2560,
+    q: 70,
+    fps: 120,
+    hint: 'Maximum quality and frame rate for gaming and high-refresh displays. Requires WebRTC, hardware encoding, and high-speed connection.',
   },
 ]);
 
