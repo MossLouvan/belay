@@ -102,7 +102,13 @@ export function GlassState({
             accessibilityRole="button"
             accessibilityLabel={action.label}
             // 36pt visual button inside the 44pt minimum target (§5.5).
-            hitSlop={{ top: (layout.minTouch - ACTION_HEIGHT) / 2, bottom: (layout.minTouch - ACTION_HEIGHT) / 2 }}
+            // Expand all sides equally to reach 44pt: (44-36)/2 = 4pt each.
+            hitSlop={{
+              top: (layout.minTouch - ACTION_HEIGHT) / 2,
+              bottom: (layout.minTouch - ACTION_HEIGHT) / 2,
+              left: (layout.minTouch - ACTION_HEIGHT) / 2,
+              right: (layout.minTouch - ACTION_HEIGHT) / 2,
+            }}
             onPress={() => {
               haptic('medium');
               action.onPress();

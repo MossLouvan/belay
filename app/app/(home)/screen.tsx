@@ -179,11 +179,24 @@ export default function ScreenTab() {
 
   // "Match my phone" needs the device's own pixel size (logical points × the
   // display scale), so the host can render a desktop of exactly this shape.
+  // Guard against keyboard-induced dimension changes on Android: the keyboard
+  // shrinks window.height with adjustResize, which would reshape the virtual
+  // display mid-session and break the stream. Only re-measure when the screen
+  // actually rotates (width/height swap), not when keyboard shows/hides.
   const window = useWindowDimensions();
-  const device = useMemo<Size>(
-    () => ({ w: window.width * window.scale, h: window.height * window.scale }),
-    [window.width, window.height, window.scale],
-  );
+  const device = useMemo<Size>(() => {
+    // Normalize: always use the LARGER dimension as width, so portrait and
+    // landscape report the same device size (the host renders it, we rotate).
+    const w = Math.max(window.width, window.height);
+    const h = Math.min(window.width, window.height);
+    return { w: w * window.scale, h: h * window.scale };
+  }, [
+    // Intentionally NOT depending on raw width/height to avoid keyboard reshaping.
+    // Only re-measure when scale changes or orientation flips (detected via the
+    // max/min normalization above — a keyboard shrink keeps the same max).
+    window.scale,
+    Math.max(window.width, window.height), // Stable across keyboard
+  ]);
   // Landscape is the fullscreen gesture: sideways, the desktop goes
   // edge-to-edge on its own and the chrome floats. The explicit Full toggle
   // is a portrait-only idea, so rotating clears it — otherwise coming back
@@ -708,14 +721,16 @@ export default function ScreenTab() {
 
       {/* The machine panel: full-bleed, top-aligned under the header rule,
           filling everything down to the dock so the page never jumps between
-          the live, waiting and failed states (docs/DESIGN.md §9). */}
+          the live, waiting and failed states (docs/DESIGN.md §9). 
+          ALWAYS flex-start (top-aligned) — centering creates black space above
+          a short stage, which is the "tap → screen on bottom half" bug. */}
       <View
         onLayout={onBoxLayout}
         style={{
           flex: 1,
           backgroundColor: theme.colors.machine,
           alignItems: 'center',
-          justifyContent: immersive ? 'center' : 'flex-start',
+          justifyContent: 'flex-start',
         }}
       >
         {/* The deadspace trackpad: fills the whole panel BEHIND the stage, so

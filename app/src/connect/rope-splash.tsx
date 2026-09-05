@@ -8,6 +8,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -74,6 +75,7 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
  */
 export function RopeSplash({ animated = true }: RopeSplashProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   const shouldAnimate = animated && !reducedMotion;
 
@@ -199,12 +201,12 @@ export function RopeSplash({ animated = true }: RopeSplashProps) {
         <Carabiner size={40} color={theme.colors.accentGraphic} />
       </Animated.View>
 
-      {/* BELAY wordmark + tagline bottom-right */}
+      {/* BELAY wordmark + tagline bottom-right, with safe area inset */}
       <Animated.View
         style={[
           {
             position: 'absolute',
-            bottom: theme.space.xxl + theme.space.lg,
+            bottom: insets.bottom + theme.space.xxl + theme.space.lg,
             right: theme.layout.margin,
             alignItems: 'flex-end',
             gap: theme.space.xxs,

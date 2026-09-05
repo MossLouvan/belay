@@ -7,9 +7,17 @@
 // Philosophy: State should be readable as TEXT first. Color is accent, not
 // carrier. Matches the premium SaaS pattern where status is typographic.
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { useTheme } from '../theme';
 import { Micro } from './text';
 
@@ -85,21 +93,44 @@ export function StatusBadge({
 
 /**
  * Animated ring indicator for transitioning states (Reconnecting, Opening).
- * Subtle, monochrome — no color coding.
+ * Subtle, monochrome — no color coding. Spins continuously while visible.
  */
 export function TransitionRing({ size = 8 }: { size?: number }) {
   const theme = useTheme();
+  const rotation = useSharedValue(0);
+
+  useEffect(() => {
+    // Continuous rotation: 0 → 360 over 1 second, looping
+    rotation.value = withRepeat(
+      withTiming(360, { duration: 1000, easing: Easing.linear }),
+      -1, // infinite
+      false // don't reverse
+    );
+    return () => {
+      // Cancel animation on unmount
+      cancelAnimation(rotation);
+    };
+  }, [rotation]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
   return (
-    <View
+    <Animated.View
       accessibilityElementsHidden
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        borderWidth: 1.5,
-        borderColor: theme.colors.textDim,
-        opacity: 0.5,
-      }}
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          borderWidth: 1.5,
+          borderColor: theme.colors.textDim,
+          borderTopColor: 'transparent', // Gap to show rotation
+          opacity: 0.6,
+        },
+        animatedStyle,
+      ]}
     />
   );
 }

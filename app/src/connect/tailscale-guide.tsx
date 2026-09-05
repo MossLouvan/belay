@@ -197,7 +197,7 @@ export function TailscaleGuide({
   const stepAnim = useSharedValue(1);
   const stepStyle = useAnimatedStyle(() => ({
     opacity: stepAnim.value,
-    transform: [{ translateY: (1 - stepAnim.value) * 14 }],
+    transform: [{ translateY: (1 - stepAnim.value) * theme.space.md }],
   }));
 
   useEffect(() => {

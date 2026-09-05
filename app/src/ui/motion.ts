@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Platform } from 'react-native';
-import { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import { useSharedValue, useAnimatedStyle, withSpring, withTiming, cancelAnimation } from 'react-native-reanimated';
 import type { WithSpringConfig, WithTimingConfig } from 'react-native-reanimated';
 import { easing, motion } from '../theme';
 
@@ -264,6 +264,9 @@ export function useStatusPulse(active: boolean) {
 
   useEffect(() => {
     if (!active || reduced) {
+      // Cancel any in-flight animations before resetting to avoid stale springs
+      cancelAnimation(opacity);
+      cancelAnimation(scale);
       opacity.value = 1;
       scale.value = 1;
       return;
@@ -271,17 +274,22 @@ export function useStatusPulse(active: boolean) {
 
     // Pulse loop: subtle scale + opacity
     const pulse = () => {
-      opacity.value = withSpring(0.5, SPRING_CONFIGS.gentle, () => {
-        opacity.value = withSpring(1, SPRING_CONFIGS.gentle);
+      opacity.value = withSpring(0.5, SPRING_CONFIGS.gentle, (finished) => {
+        if (finished) opacity.value = withSpring(1, SPRING_CONFIGS.gentle);
       });
-      scale.value = withSpring(1.05, SPRING_CONFIGS.gentle, () => {
-        scale.value = withSpring(1, SPRING_CONFIGS.gentle);
+      scale.value = withSpring(1.05, SPRING_CONFIGS.gentle, (finished) => {
+        if (finished) scale.value = withSpring(1, SPRING_CONFIGS.gentle);
       });
     };
 
     pulse();
     const interval = setInterval(pulse, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      // Cancel springs on cleanup to prevent stale animations
+      cancelAnimation(opacity);
+      cancelAnimation(scale);
+    };
   }, [active, reduced, opacity, scale]);
 
   return useAnimatedStyle(() => ({

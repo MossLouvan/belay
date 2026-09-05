@@ -83,9 +83,9 @@ export function ToolPanel({ children, testID }: ToolPanelProps) {
         </Pressable>
       </View>
       {/* The bar above has already spent the top inset (real on Android's
-          full-screen slide-up, zero inside iOS's native sheet). The tool
-          screens still pad themselves with `insets.top`, so hand them a
-          zeroed top inset rather than editing every header. */}
+          full-screen slide-up, zero inside iOS's native sheet). Provide a
+          zeroed top inset to tool screens so they don't double-pad — the bar
+          owns the status-bar clearance, not the children. */}
       <SafeAreaInsetsContext.Provider value={{ ...insets, top: 0 }}>
         <View style={{ flex: 1, overflow: 'hidden' }}>{children}</View>
       </SafeAreaInsetsContext.Provider>

@@ -64,6 +64,10 @@ export function HostAudio({ enabled, connected }: HostAudioProps) {
   // down without the parent knowing about AppState.
   const foregroundRef = useRef(AppState.currentState === 'active');
   const [foreground, setForeground] = React.useState(foregroundRef.current);
+  // Track whether the WebView has loaded and __belayAudio is available
+  const loadedRef = useRef(false);
+  // Defer start() until the WebView signals ready
+  const pendingStartRef = useRef(false);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
@@ -79,14 +83,29 @@ export function HostAudio({ enabled, connected }: HostAudioProps) {
   // a thrown bridge error.
   const inject = (body: string): void => {
     const web = webRef.current;
-    if (!web) return;
+    if (!web || !loadedRef.current) return;
     web.injectJavaScript(`window.__belayAudio&&${body};true;`);
+  };
+
+  // Called once the WebView has loaded and __belayAudio is available
+  const onWebViewLoad = (): void => {
+    loadedRef.current = true;
+    // If audio was already toggled on, start now
+    if (pendingStartRef.current) {
+      pendingStartRef.current = false;
+      inject('__belayAudio.start()');
+    }
   };
 
   const active = enabled && connected && foreground && Platform.OS !== 'web';
 
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      // Audio disabled: mark no pending start
+      pendingStartRef.current = false;
+      loadedRef.current = false;
+      return;
+    }
 
     let disposed = false;
     let socket: WebSocket | null = null;
@@ -95,9 +114,13 @@ export function HostAudio({ enabled, connected }: HostAudioProps) {
     // buffer's reset heuristic keys off seq bases within one receiver's life.
     const receiver = new AudioReceiver();
 
-    // Resume the audio context off the user's toggle gesture before any audio
-    // arrives, so the first frames are not dropped by a suspended context.
-    inject('__belayAudio.start()');
+    // Resume the audio context off the user's toggle gesture. If the WebView
+    // is loaded, start now; otherwise defer until onLoad.
+    if (loadedRef.current) {
+      inject('__belayAudio.start()');
+    } else {
+      pendingStartRef.current = true;
+    }
 
     const open = async (): Promise<void> => {
       let url: string;
@@ -187,6 +210,8 @@ export function HostAudio({ enabled, connected }: HostAudioProps) {
       // the app-level toggle is the gesture, and start() resumes the context.
       mediaPlaybackRequiresUserAction={false}
       allowsInlineMediaPlayback
+      // onLoad: the document has parsed and __belayAudio is available
+      onLoad={onWebViewLoad}
       // onMessage is what turns on the RN↔page bridge injectJavaScript rides;
       // the page only posts diagnostic log lines, which carry no control data
       // and are intentionally ignored here.

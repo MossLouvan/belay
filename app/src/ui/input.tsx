@@ -163,12 +163,14 @@ export function Input({
         />
         {trailing ? <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{trailing}</View> : null}
         {/* The focus rope: a 2pt accentGraphic track along the bottom edge,
-            grown over motion.fast on focus (REVAMP-SPEC §5.10). Decorative —
-            focus state is already announced by the field itself. */}
+            grown over motion.fast on focus (REVAMP-SPEC §5.10). Grows from
+            left edge (transformOrigin left) to match the caret position.
+            Decorative — focus state is already announced by the field itself. */}
         <Animated.View
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
-          style={{ pointerEvents: 'none',
+          style={{
+            pointerEvents: 'none',
             position: 'absolute',
             left: 0,
             right: 0,
@@ -177,6 +179,7 @@ export function Input({
             backgroundColor: theme.colors.accentGraphic,
             opacity: rope,
             transform: [{ scaleX: reducedMotion ? 1 : rope }],
+            transformOrigin: 'left',
           }}
         />
       </View>

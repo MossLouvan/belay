@@ -15,6 +15,7 @@ import type { StyleProp, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { easing, useTheme } from '../theme';
 import { IconButton } from './button';
+import { haptic } from './haptics';
 import { Row } from './layout';
 import { Txt } from './text';
 import { useReducedMotion } from './motion';
@@ -75,7 +76,14 @@ export function Sheet({
           accessibilityRole="button"
           accessibilityLabel="Close"
           disabled={!dismissOnBackdropPress}
-          onPress={dismissOnBackdropPress ? onClose : undefined}
+          onPress={
+            dismissOnBackdropPress
+              ? () => {
+                  haptic('light');
+                  onClose();
+                }
+              : undefined
+          }
           style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.overlay }]}
         />
         <Animated.View
@@ -109,7 +117,7 @@ export function Sheet({
             }}
           />
           {title || !hideClose ? (
-            <Row justify="space-between" style={{ marginBottom: theme.space.sm }}>
+            <Row justify="space-between">
               <Txt variant="label" tone="dim" heading>
                 {title ?? ''}
               </Txt>
