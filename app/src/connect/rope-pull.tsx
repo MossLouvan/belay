@@ -21,8 +21,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
-import { Carabiner, useReducedMotion } from '../ui';
-import { RopeStrand } from '../ui/rope-strand';
+import { Carabiner, useReducedMotion, RopeStrand } from '../ui';
 
 /** How far the rope hangs at the first step, carabiner included. */
 const ROPE_FULL = 120;
@@ -130,13 +129,6 @@ export function RopePull({ progress }: RopePullProps) {
     transform: [{ translateY: carabinerBounce.value }],
   }));
 
-  // Calculate visible dash count based on current rope height
-  const dashHeight = ROPE_WIDTH * 2.5;
-  const dashGap = ROPE_WIDTH * 2;
-  const totalSegment = dashHeight + dashGap;
-  const currentRopeHeight = ROPE_FULL - (ROPE_FULL - ROPE_TAKEN_IN) * progress;
-  const visibleDashCount = Math.floor(currentRopeHeight / totalSegment);
-
   return (
     <Animated.View
       style={[{ alignItems: 'center' }, containerStyle]}
@@ -145,12 +137,12 @@ export function RopePull({ progress }: RopePullProps) {
       pointerEvents="none"
     >
       <Animated.View style={[{ alignItems: 'center' }, columnStyle]}>
-        {/* Braided rope with helical strand pattern - uses shared RopeStrand */}
+        {/* Braided rope with helical strand pattern and fiber optic flow */}
         <RopeStrand
           width={ROPE_WIDTH}
           color={theme.colors.accentGraphic}
           animatedStyle={ropeStyle}
-          currentHeight={currentRopeHeight}
+          enableFlow={true}
         />
         {/* Carabiner clipped to the rope's end, gate up, showing load with subtle physics. */}
         <Animated.View style={[{ marginTop: -4 }, carabinerStyle]}>
