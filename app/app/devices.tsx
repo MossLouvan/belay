@@ -4,18 +4,21 @@
 // see the Mac and the Windows PC, tap one, and it connects. No addresses, no
 // pairing codes, no walking to the machine.
 //
-// Ledger anatomy: title, a mono status line, the header rule, then the
-// machines as hairline-separated rows — every row tappable, reachability
-// carried by the dot and the mono status word, no card around any of it.
+// Sweep anatomy (Next Terminal): title, a mono status line, the header rule,
+// then each machine as its own clean bordered Card row — name, one dim status
+// line, a small status dot, a tracked FORGET. The active computer carries the
+// soft accent fill, the reference's sidebar-active treatment. Advisories are
+// subtle bordered cards with a 2pt status edge, never saturated fills.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { router } from 'expo-router';
 
 import {
-  Screen, Row, Heading, Label, Caption, Txt, Button, IconButton, ListItem, Dot,
-  Banner, EmptyState, LedgerRow, Rule, Sheet, haptic,
+  Screen, Row, Heading, Label, Caption, Txt, Button, IconButton, Card,
+  EmptyState, LedgerRow, Rule, Sheet, TrackLabel, haptic, StatusBadge,
 } from '../src/ui';
+import { StatusNotice } from '../src/devices/notice';
 import { useTheme } from '../src/theme';
 import { useConnection } from '../src/connection';
 import { isReachableFromAnywhere } from '../src/devices/model';
@@ -32,16 +35,88 @@ function platformLabel(device: SavedDevice): string {
   return 'Computer';
 }
 
-function statusFor(state: Reachability | undefined): 'good' | 'bad' | 'neutral' {
-  if (state === 'online') return 'good';
-  if (state === 'offline') return 'bad';
-  return 'neutral';
+function statusLabel(state: Reachability | undefined): string | null {
+  if (state === 'online') return 'Online';
+  if (state === 'offline') return 'Offline';
+  return null; // checking state
 }
 
 function statusText(state: Reachability | undefined, isActive: boolean): string {
   if (state === 'checking' || state === undefined) return 'Checking…';
   if (state === 'offline') return 'Asleep or off';
   return isActive ? 'Connected' : 'Ready';
+}
+
+/**
+ * One saved computer as a clean bordered card row: status dot, name, one dim
+ * status line, a tracked FORGET. The active computer's card takes the soft
+ * accent fill — the reference's sidebar-active treatment — and nothing else
+ * on the row carries colour beyond the small dot.
+ */
+function DeviceCard({
+  device,
+  isActive,
+  connected,
+  state,
+  disabled,
+  onPick,
+  onForget,
+}: {
+  device: SavedDevice;
+  isActive: boolean;
+  connected: boolean;
+  state: Reachability | undefined;
+  disabled: boolean;
+  onPick: () => void;
+  onForget: () => void;
+}) {
+  const theme = useTheme();
+  const subtitle = `${platformLabel(device)} · ${statusText(state, connected)}`;
+
+  return (
+    <Card
+      flush
+      style={{
+        overflow: 'hidden',
+        backgroundColor: isActive ? theme.colors.accentSoft : theme.colors.surface,
+      }}
+    >
+      {/* Pressable row + trailing control as siblings: nesting the FORGET
+          button inside the row's Pressable is invalid HTML on web and double
+          fires on native (same split ListItem uses). */}
+      <Row gap="sm" style={{ paddingLeft: theme.space.md, paddingRight: theme.space.md }}>
+        <Pressable
+          testID={`device-${device.id}`}
+          accessibilityRole="button"
+          accessibilityLabel={`${device.label}, ${subtitle}`}
+          accessibilityHint={`Control ${device.label}`}
+          accessibilityState={{ disabled, selected: isActive }}
+          disabled={disabled}
+          onPress={onPick}
+          style={({ pressed }) => ({
+            flex: 1,
+            minHeight: theme.layout.rowHeight,
+            justifyContent: 'center',
+            paddingVertical: theme.space.sm,
+            opacity: disabled ? 0.45 : pressed ? theme.motion.pressOpacity : 1,
+          })}
+        >
+          <View style={{ flex: 1, gap: 4 }}>
+            <Row gap="xs" align="center">
+              <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>{device.label}</Txt>
+              {statusLabel(state) ? <StatusBadge label={statusLabel(state)!} variant="quiet" /> : null}
+            </Row>
+            <Txt variant="caption" tone="dim" numberOfLines={1}>{subtitle}</Txt>
+          </View>
+        </Pressable>
+        <TrackLabel
+          label="Forget"
+          accessibilityLabel={`Forget ${device.label}`}
+          onPress={onForget}
+        />
+      </Row>
+    </Card>
+  );
 }
 
 export default function Devices() {
@@ -79,7 +154,7 @@ export default function Devices() {
    */
   const onDiscoveredAdd = useCallback(async (device: SavedDevice) => {
     await addDevice(device);
-    router.replace('/(tabs)/screen');
+    router.replace('/(home)/screen');
   }, [addDevice]);
 
   const onPick = useCallback(async (device: SavedDevice) => {
@@ -95,7 +170,7 @@ export default function Devices() {
     setSwitching(device.id);
     try {
       await switchTo(device.id);
-      router.replace('/(tabs)/screen');
+      router.replace('/(home)/screen');
     } finally {
       setSwitching(null);
     }
@@ -171,7 +246,7 @@ export default function Devices() {
 
         {active && (phase === 'unreachable' || (keepTrying && phase === 'connecting')) ? (
           keepTrying ? (
-            <Banner
+            <StatusNotice
               testID="reconnect-banner"
               status="warn"
               title={`Reconnecting to ${active.label}…`}
@@ -183,7 +258,7 @@ export default function Devices() {
               action={{ label: 'Stop', onPress: () => setKeepTrying(false) }}
             />
           ) : (
-            <Banner
+            <StatusNotice
               testID="unreachable-banner"
               status="bad"
               title={`Could not reach ${active.label}`}
@@ -193,35 +268,19 @@ export default function Devices() {
           )
         ) : null}
 
-        <View>
-          {devices.map((device) => {
-            const isActive = active?.id === device.id;
-            const state = byId[device.id];
-            return (
-              <View key={device.id}>
-                <ListItem
-                  testID={`device-${device.id}`}
-                  title={device.label}
-                  subtitle={`${platformLabel(device)} · ${statusText(state, isActive && phase === 'connected')}`}
-                  selected={isActive}
-                  disabled={switching !== null}
-                  leading={<Dot status={statusFor(state)} />}
-                  accessibilityHint={`Control ${device.label}`}
-                  onPress={() => void onPick(device)}
-                  trailing={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      label="Forget"
-                      accessibilityLabel={`Forget ${device.label}`}
-                      onPress={() => setPendingForget(device)}
-                    />
-                  }
-                />
-                <Rule bleed={margin} />
-              </View>
-            );
-          })}
+        <View style={{ gap: theme.space.sm }}>
+          {devices.map((device) => (
+            <DeviceCard
+              key={device.id}
+              device={device}
+              isActive={active?.id === device.id}
+              connected={active?.id === device.id && phase === 'connected'}
+              state={byId[device.id]}
+              disabled={switching !== null}
+              onPick={() => void onPick(device)}
+              onForget={() => setPendingForget(device)}
+            />
+          ))}
         </View>
 
         {isActiveConnected(phase) && activeUrl ? (
@@ -239,7 +298,7 @@ export default function Devices() {
         />
 
         {lanOnly.length > 0 ? (
-          <Banner
+          <StatusNotice
             status="warn"
             title={lanOnly.length === 1
               ? `${lanOnly[0].label} only works on your home network`

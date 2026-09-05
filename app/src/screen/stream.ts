@@ -6,8 +6,12 @@
 // Screen Recording / Accessibility permission flags.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
+import { AppState } from 'react-native';
+import { api, checkHost, getConnection, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
+import { ReattachLink, shouldReattachOnForeground } from '../foreground';
 import { buildConfigMessage, messageOf, numberOf, PERMISSION_PATTERN, QualityPreset, STREAM, VirtualRequest } from './model';
+import { PROBE_INTERVAL_MS, shouldProbeDuringBackoff } from './retry';
+import { bytesToBase64, decodeBinaryFrame, isBinaryFramePayload } from './frame-codec';
 
 export type Phase = 'idle' | 'connecting' | 'live' | 'stalled' | 'reconnecting' | 'error';
 
@@ -53,8 +57,32 @@ type StreamMessage =
   | { readonly type: 'frame'; readonly frame: FramePayload }
   | { readonly type: 'error'; readonly error: string };
 
-/** Parses an untrusted socket payload. Returns null for anything unrecognised. */
+/**
+ * Parses an untrusted socket payload. Returns null for anything unrecognised.
+ *
+ * Two wire shapes arrive on one socket. A binary message is a pixel frame in
+ * the compact layout of frame-codec.ts (the host only sends these once we ask
+ * with `?bin=1`, so an old host that keeps sending JSON still works); a string
+ * is the JSON envelope — still the carrier for errors and, from old hosts,
+ * for frames. The codec bounds-checks every header field before slicing, so a
+ * malformed or truncated buffer degrades to "unrecognised", never a crash.
+ */
 export function parseStreamMessage(raw: unknown): StreamMessage | null {
+  if (isBinaryFramePayload(raw)) {
+    const decoded = decodeBinaryFrame(raw);
+    if (!decoded) return null;
+    return {
+      type: 'frame',
+      frame: {
+        data: bytesToBase64(decoded.jpeg),
+        w: decoded.w,
+        h: decoded.h,
+        sw: decoded.sw,
+        sh: decoded.sh,
+        bytes: decoded.jpeg.length,
+      },
+    };
+  }
   if (typeof raw !== 'string') return null;
   let parsed: unknown;
   try {
@@ -89,7 +117,13 @@ export interface StreamState {
   readonly frameUri: string | null;
   readonly stats: StreamStats;
   readonly error: string | null;
-  readonly attempt: number;
+  /**
+   * When the current outage began (epoch ms), or null while the picture is
+   * healthy. The panel phrases this as elapsed time ("Still trying · 9m") —
+   * an attempt counter is an implementation confession, not a fact a user
+   * can act on.
+   */
+  readonly retryingSinceMs: number | null;
   readonly retry: () => void;
   /**
    * Set while the host is streaming H.264 over UDP. When it is non-null the
@@ -136,11 +170,7 @@ const newCounters = (): FrameCounters => ({
 
 const SOCKET_OPEN = 1;
 
-/**
- * Delay before reconnect attempt N (1-based). Exported because the panel's
- * "RETRYING IN 4S" countdown must agree with the socket's actual schedule —
- * one formula, two readers.
- */
+/** Delay before reconnect attempt N (1-based). */
 export const backoffDelayMs = (attempt: number): number =>
   Math.min(STREAM.backoffMaxMs, STREAM.backoffBaseMs * 2 ** Math.max(0, attempt - 1));
 
@@ -194,7 +224,7 @@ export function useScreenStream(
   const [frameUri, setFrameUri] = useState<string | null>(null);
   const [stats, setStats] = useState<StreamStats>(EMPTY_STATS);
   const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
+  const [retryingSinceMs, setRetryingSinceMs] = useState<number | null>(null);
   const [generation, setGeneration] = useState(0);
   const [bwp, setBwp] = useState<BwpSource | null>(null);
   const [bwpStats, setBwpStats] = useState<BwpStats | null>(null);
@@ -236,11 +266,11 @@ export function useScreenStream(
   useEffect(() => {
     if (!active) {
       // The previous run's cleanup has already closed the socket and cleared
-      // both timers. Clearing the attempt counter and the last fault as well
+      // every timer. Clearing the outage clock and the last fault as well
       // means a refocus starts from a clean "connecting", never mid-backoff and
       // never showing a stale error banner for a socket that no longer exists.
       setPhase('idle');
-      setAttempt(0);
+      setRetryingSinceMs(null);
       setError(null);
       counters.current = newCounters();
       setStats(EMPTY_STATS);
@@ -254,6 +284,8 @@ export function useScreenStream(
 
     let disposed = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let probeTimer: ReturnType<typeof setInterval> | undefined;
+    let probeInFlight = false;
     // Local to this effect run, so every resume restarts the backoff at zero.
     let tries = 0;
 
@@ -270,8 +302,9 @@ export function useScreenStream(
       setFrameUri(`data:image/jpeg;base64,${frame.data}`);
       // Reset the backoff only once a real frame arrives — not on socket open,
       // which an accept-then-immediately-close host also triggers, pinning the
-      // retry at the 1s floor forever.
-      if (tries !== 0) { tries = 0; setAttempt(0); }
+      // retry at the 1s floor forever. The outage clock stops for the same
+      // reason: only a picture proves the outage is over.
+      if (tries !== 0) { tries = 0; setRetryingSinceMs(null); }
       // Functional updates so a steady stream of identical values bails out of
       // re-rendering rather than churning at the frame rate.
       setPhase((prev) => (prev === 'live' ? prev : 'live'));
@@ -300,7 +333,9 @@ export function useScreenStream(
             setBwpSize({ width: bwpMsg.offer.width, height: bwpMsg.offer.height });
             setPhase('live');
             setError(null);
-            if (tries !== 0) { tries = 0; setAttempt(0); }
+            // An offer is proof the host is answering, so the outage is over —
+            // the same reset onFrame does when a JPEG frame lands.
+            if (tries !== 0) { tries = 0; setRetryingSinceMs(null); }
             break;
           }
           case 'stats':
@@ -339,13 +374,92 @@ export function useScreenStream(
       onFrame(msg.frame);
     };
 
+    const stopProbe = (): void => {
+      if (probeTimer === undefined) return;
+      clearInterval(probeTimer);
+      probeTimer = undefined;
+    };
+
+    // While a long backoff wait is pending, shadow it with a cheap `/health`
+    // probe so the stream reconnects the instant the host answers — a Mac
+    // waking from sleep should not sit out the rest of a 15s tick. A probe
+    // failure changes nothing: the backoff timer is still armed and remains
+    // the plan of record.
+    const startProbe = (): void => {
+      if (probeTimer !== undefined) return;
+      probeTimer = setInterval(() => {
+        if (probeInFlight) return;
+        const host = getConnection()?.host;
+        if (!host) return;
+        probeInFlight = true;
+        void checkHost(host).then((check) => {
+          probeInFlight = false;
+          // `probeTimer === undefined` means this probe was stopped (retry
+          // fired, or teardown) while the request was in flight — its answer
+          // no longer speaks for anyone.
+          if (disposed || probeTimer === undefined || !check.ok) return;
+          stopProbe();
+          clearTimeout(retryTimer);
+          retryTimer = undefined;
+          void open().catch(() => scheduleRetry());
+        });
+      }, PROBE_INTERVAL_MS);
+    };
+
     const scheduleRetry = (): void => {
       if (disposed) return;
       tries += 1;
-      setAttempt(tries);
+      // The outage clock starts at the FIRST failure and keeps running across
+      // every retry until a frame arrives; later failures are the same outage.
+      if (tries === 1) setRetryingSinceMs(Date.now());
       setPhase('reconnecting');
-      retryTimer = setTimeout(() => void open().catch(() => scheduleRetry()), backoffDelayMs(tries));
+      const delay = backoffDelayMs(tries);
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        stopProbe();
+        void open().catch(() => scheduleRetry());
+      }, delay);
+      if (shouldProbeDuringBackoff(delay)) startProbe();
     };
+
+    // Return-to-foreground reattach (backlog item `auto-reattach-foreground`).
+    // iOS kills the socket while the app is backgrounded, so whatever backoff
+    // wait was pending on return was scheduled for an outage that is stale
+    // news. Abandon the wait, reset the backoff and the outage clock, and race
+    // a fresh `/health` probe + reconnect right now — the same probe-then-open
+    // shape the in-backoff probe uses, so a dead host still costs one cheap
+    // HTTP round trip, not a WebSocket ticket dance.
+    const reattachNow = (): void => {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+      stopProbe();
+      tries = 0;
+      setRetryingSinceMs(null);
+      const host = getConnection()?.host;
+      // No paired host on record: skip the probe, let open() surface the truth.
+      if (!host) { void open().catch(() => scheduleRetry()); return; }
+      void checkHost(host)
+        .then((check) => {
+          if (disposed) return;
+          if (check.ok) { void open().catch(() => scheduleRetry()); return; }
+          // Host still down — re-arm the loop from a fresh, fast backoff.
+          scheduleRetry();
+        })
+        .catch(() => { if (!disposed) scheduleRetry(); });
+    };
+
+    // Fire only when a backoff wait is actually pending: a live socket must
+    // not be torn down, an open()/probe already in flight must not be stacked
+    // on, and a terminal error (unpaired) must stay terminal. The distinction
+    // is pure and unit-tested in ../foreground.ts; this listener only reads
+    // the effect's own state into it.
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      if (disposed) return;
+      const link: ReattachLink =
+        retryTimer !== undefined ? 'waiting' : socketRef.current ? 'live' : 'in-flight';
+      if (!shouldReattachOnForeground(next, link)) return;
+      reattachNow();
+    });
 
     // Async because the upgrade URL now needs a ticket fetched over HTTP first.
     // The `disposed` check is repeated after the await: the effect can be torn
@@ -385,6 +499,9 @@ export function useScreenStream(
             w: preset.w,
             q: preset.q,
             fps: preset.fps,
+            // Ask for binary pixel frames. An old host ignores the param and
+            // keeps sending JSON, which parseStreamMessage still accepts.
+            bin: 1,
             // Only named when a monitor was actually chosen; older hosts
             // ignore unknown query params, so this is safe either way.
             ...(screenIndex === undefined ? {} : { screen: screenIndex }),
@@ -403,6 +520,9 @@ export function useScreenStream(
         return;
       }
       if (disposed) { socket.close(); return; }
+      // Binary frames must arrive as ArrayBuffer (the default is Blob on some
+      // platforms, which the codec cannot read synchronously).
+      socket.binaryType = 'arraybuffer';
       socketRef.current = socket;
       socketUrl.current = url;
       socket.onopen = () => {
@@ -492,7 +612,9 @@ export function useScreenStream(
 
     return () => {
       disposed = true;
+      appStateSub.remove();
       clearTimeout(retryTimer);
+      stopProbe();
       clearInterval(ticker);
       const socket = socketRef.current;
       socketRef.current = null;
@@ -513,7 +635,7 @@ export function useScreenStream(
 
   const retry = useCallback(() => {
     setError(null);
-    setAttempt(0);
+    setRetryingSinceMs(null);
     setGeneration((g) => g + 1);
   }, []);
 
@@ -522,7 +644,7 @@ export function useScreenStream(
     frameUri,
     stats,
     error,
-    attempt,
+    retryingSinceMs,
     retry,
     bwp,
     bwpStats,

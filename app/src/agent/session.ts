@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { api, wsUrl } from '../api';
+import { NO_APPROVALS_WAITING, parseApprovalsWaiting, setApprovalsWaiting } from './approval-queue';
 import { INITIAL_SESSION, parseAgentMessage, reduceSession } from './model';
 import type { SessionState } from './model';
 
@@ -58,6 +59,11 @@ export function useAgentSession(id: string): AgentSession {
       wsRef.current = opened;
 
       opened.onmessage = (event: MessageEvent) => {
+        // The approval-queue depth travels on its own message type (and on the
+        // hello snapshot), which the reducer's parser deliberately does not
+        // know — it lands in the approval-queue store the card subscribes to.
+        const waiting = parseApprovalsWaiting(event.data);
+        if (waiting) setApprovalsWaiting(waiting);
         const message = parseAgentMessage(event.data);
         if (message) dispatch({ type: 'message', message });
       };
@@ -74,6 +80,9 @@ export function useAgentSession(id: string): AgentSession {
     void open();
     return () => {
       cancelled = true;
+      // The stack belongs to this socket; a stale count must not survive into
+      // the next session view (the next hello re-seeds the honest value).
+      setApprovalsWaiting(NO_APPROVALS_WAITING);
       if (!socket) return;
       socket.onmessage = null;
       socket.onerror = null;

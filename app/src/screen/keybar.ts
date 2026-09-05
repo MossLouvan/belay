@@ -76,13 +76,13 @@ export function buildKeyPages(keys: readonly KeySpec[]): readonly KeyBarPage[] {
       top: [key('Ctrl+T'), key('Ctrl+W'), key('Ctrl+S'), key('Search')],
       bottom: [key('Snip'), key('Shot'), key('Quit'), key('Lock')],
     },
-    // Desktop/space navigation. Sparse on purpose: three wide caps are easier
-    // to hit mid-task than seven narrow ones, and the page exists so the
-    // three-finger swipe never becomes the ONLY road to another desktop
-    // (docs/DESIGN.md §11).
+    // Desktop/space navigation — the visible twin of multi-finger swipes.
+    // Sparse on purpose: wide caps are easier to hit mid-task, and the page
+    // exists so gestures never become the ONLY road to another desktop or
+    // system panel (docs/DESIGN.md §11).
     {
       top: [key('DeskPrev'), key('DeskNext')],
-      bottom: [key('Overview')],
+      bottom: [key('Overview'), key('AppExpose'), key('NotifyCenter')],
     },
   ];
 }

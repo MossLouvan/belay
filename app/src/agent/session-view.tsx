@@ -16,6 +16,7 @@ import { Banner, Button, Caption, Dot, IconButton, Label, Micro, Row, Rule, Trac
 import { ApprovalCard } from './approval-card';
 import { EventRow } from './feed';
 import { buildFeed } from './feed-model';
+import { foldCosts, ledgerLine } from './cost-ledger';
 import { GrantList } from './grant-list';
 import { MicButton, openVoiceSettings, useVoice } from './mic';
 import { PhotoButton, usePhotoSend } from './photo-button';
@@ -56,10 +57,10 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     voice.start();
   }, [voice.start]);
 
-  // Photos ride the composer's own draft: whatever is typed becomes the note
-  // in the prompt that references them, so "send a screenshot with a
-  // question" is one gesture, not a mode. The feed showing the prompt land is
-  // the receipt.
+  // Pictures ride the composer's own draft: whatever is typed becomes the
+  // note in the prompt that references them, so "why is this dialog stuck?"
+  // plus the computer's screen — or a photo with a question — is one gesture,
+  // not a mode. The feed showing the prompt land is the receipt.
   const photos = usePhotoSend(id, setNote);
   const sendPhotos = useCallback((source: PhotoSource) => {
     void photos.send(source, inputNow.current.trim()).then((sent) => {
@@ -115,6 +116,11 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   // the calls that produced them; the pairing is pure and cheap, redone only
   // when the event list changes.
   const feed = useMemo(() => buildFeed(events), [events]);
+
+  // The session's running ledger: each turn's "$0.08" scrolls away with the
+  // feed, so the header keeps the sum. Recomputed only when events land,
+  // which is also the only moment the figure can change.
+  const spend = useMemo(() => ledgerLine(foldCosts(events)), [events]);
 
   const busy = isBusy(status);
   const composer = composerControls(composing, input, session);
@@ -196,6 +202,14 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
               other tab's header — this is the tab where the answer matters most. */}
           <SwitchComputerLink />
         </Row>
+        {spend ? (
+          // The session's cost ledger row: what the turns above have added up
+          // to, since each per-turn figure scrolls away with the feed.
+          <Row testID="agent-spend" justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+            <Label style={{ marginBottom: 0 }}>Spend</Label>
+            <Txt variant="monoSmall" tone="dim">{spend}</Txt>
+          </Row>
+        ) : null}
       </View>
       <Rule />
 

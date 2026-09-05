@@ -50,7 +50,10 @@ const rowMap = (rows) => Object.fromEntries(rows.map(([k, v]) => [k, v]));
 
 test('the JPEG readout is unchanged when H.264 is not carrying video', () => {
   const r = rowMap(hudRows(base));
-  assert.equal(r.fps, '11 / 12');
+  // Derived, not hard-coded: the preset's fps is a tunable the product team
+  // changes (it has already gone 12 -> 30), and a test that pins the number
+  // fails on a deliberate change while proving nothing about the readout.
+  assert.equal(r.fps, `11 / ${quality.fps}`);
   assert.equal(r.rate, '340 KB/s');
   assert.equal(r.frame, '82 KB');
   assert.equal(r.sent, '1024×576');
@@ -74,7 +77,7 @@ test('a live H.264 stream never reports the stale JPEG zeros', () => {
   assert.equal(r.rate, '1427 kbps');
   assert.equal(r.source, '1920×1080');
   assert.equal(r.codec, 'H.264 · GPU');
-  assert.notEqual(r.fps, '0 / 12');
+  assert.notEqual(r.fps, `0 / ${quality.fps}`);
   assert.equal(r.sent, undefined, 'the JPEG downscale row is meaningless here');
 });
 
@@ -120,14 +123,14 @@ test('isBwpLive is true from the offer, not only once stats arrive', () => {
 // ceiling that only existed because every JPEG frame cost full price.
 test('the quality description matches the path actually in use', () => {
   const jpeg = qualityDescription(quality, false);
-  assert.match(jpeg, /1024px wide/);
-  assert.match(jpeg, /up to 12 fps/);
+  assert.match(jpeg, new RegExp(`${quality.w}px wide`));
+  assert.match(jpeg, new RegExp(`up to ${quality.fps} fps`));
 
   const bwp = qualityDescription(quality, true);
   assert.match(bwp, /H\.264/);
-  assert.match(bwp, /up to 60 fps/);
-  assert.doesNotMatch(bwp, /1024px/, 'the downscale width is not what H.264 sends');
-  assert.doesNotMatch(bwp, /quality 50/, 'JPEG quality is not a knob here');
+  assert.match(bwp, new RegExp(`up to ${quality.bwpFps} fps`));
+  assert.doesNotMatch(bwp, new RegExp(`${quality.w}px`), 'the downscale width is not what H.264 sends');
+  assert.doesNotMatch(bwp, new RegExp(`quality ${quality.q}`), 'JPEG quality is not a knob here');
 });
 
 test('the now-line reports whichever path is live', () => {

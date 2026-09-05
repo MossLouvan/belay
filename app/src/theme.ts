@@ -15,7 +15,7 @@
 // `useTheme()` and read `theme.colors` instead.
 
 import { useCallback, useSyncExternalStore } from 'react';
-import { Appearance, Platform, StyleSheet } from 'react-native';
+import { Appearance, Easing, Platform, StyleSheet } from 'react-native';
 import type { TextStyle } from 'react-native';
 
 export type ColorScheme = 'light' | 'dark';
@@ -41,6 +41,21 @@ export interface Palette {
    * accent — the segmented-underline track and disabled primary buttons.
    */
   readonly accentDim: string;
+  /** The raised sheet/modal slab — one perceptible step off `bg` so a modal
+   *  reads as material, not the page folding over itself. */
+  readonly sheet: string;
+  /** THE ROPE AT REST. Neutral granite track under interactive labels/keys —
+   *  replaces `accentDim` in that role so the dock isn't an orange wall.
+   *  Loaded (selected/armed/pressed) tracks use `accentGraphic`. */
+  readonly trackRest: string;
+  /** Solid primary-button fill while pressed — fills darken under load. */
+  readonly accentPress: string;
+  /** Hairlines ON the machine glass (HUD separators, terminal gutter); paper
+   *  `border` never touches the dark surface. */
+  readonly machineLine: string;
+  /** Topographic garnish ink — decorative only, never carries meaning, always
+   *  hidden from accessibility. */
+  readonly contour: string;
   readonly good: string;
   readonly warn: string;
   readonly bad: string;
@@ -94,95 +109,96 @@ export interface Palette {
 
 /** Light — "paper". Warm grey ground, near-black ink, burnt-orange accent. */
 export const lightPalette: Palette = Object.freeze({
-  bg: '#EAE8E4',
-  surface: '#F2F1EE', // inputs only
-  surfaceAlt: '#E1DED9', // recessed: keys, tracks, pressed rows
-  border: '#C8C4BD', // hairlines (non-text)
-  borderStrong: '#8F8A82', // emphasis rules only where ink 2pt is too loud
-  text: '#161513', // >= 13.60:1
-  textDim: '#4F4B45', // >= 6.45:1
-  textFaint: '#615C55', // >= 4.94:1
-  accent: '#B03700', // >= 4.61:1 (text-safe burnt orange)
-  // Darkened from the spec's #E84A00, which passes 3:1 against bg (3.17) but
-  // falls to 2.89 against surfaceAlt — and surfaceAlt is exactly where these
-  // marks sit (the meter fill lives ON the surfaceAlt track). The spec's own
-  // worst-case rule wins over its quoted hex; #DE4400 is the nearest vivid
-  // orange that clears 3:1 on all three backdrops.
-  accentGraphic: '#DE4400', // >= 3.17:1 worst-case — non-text marks only (WCAG 1.4.11)
-  accentDim: 'rgba(176, 55, 0, 0.28)', // tracks/disabled fills, non-text
-  good: '#0B6040', // >= 5.67:1
-  warn: '#754C04', // >= 5.06:1
-  bad: '#A82028', // >= 5.39:1
-  black: '#0C0B0A', // alias of machine (legacy name)
-  machine: '#0C0B0A',
-  onMachine: '#ECEAE6', // 16.37:1 on machine
-  onMachineDim: '#A9A49C', // 7.94:1 on machine
-  onAccent: '#FFFFFF', // 5.9:1 on accent
-  onDanger: '#FFFFFF', // 5.6:1 on bad
-  accentSoft: 'rgba(176, 55, 0, 0.10)',
-  goodSoft: 'rgba(11, 96, 64, 0.10)',
-  warnSoft: 'rgba(117, 76, 4, 0.10)',
-  badSoft: 'rgba(168, 32, 40, 0.10)',
-  onAccentSoft: '#9A3000', // >= 4.85:1 composited over surfaceAlt
-  onGoodSoft: '#095538', // >= 5.66:1
-  onWarnSoft: '#6D4603', // >= 5.36:1
-  onBadSoft: '#961E25', // >= 5.33:1
-  overlay: 'rgba(22, 21, 19, 0.40)',
-  focus: '#B03700',
-  skeleton: '#DBD8D2',
-  shadow: '#000000', // dead — see the Palette note
+  bg: '#F6F8FB',            // clean off-white page
+  surface: '#FFFFFF',        // CARDS + inputs (bordered)
+  surfaceAlt: '#EEF1F6',     // recessed rows/keys/pressed
+  border: '#E2E6ED',         // the card hairline border (signature clean-card look)
+  borderStrong: '#C2C9D6',
+  text: '#0F1728',
+  textDim: '#5A6473',
+  textFaint: '#8A93A3',
+  accent: '#1D6FE0',         // electric blue, text-safe on light
+  accentGraphic: '#2E7CF6',  // marks / fills / charts
+  accentDim: 'rgba(29, 111, 224, 0.28)',
+  sheet: '#FFFFFF',
+  trackRest: '#D3D9E2',      // muted resting track
+  accentPress: '#155ABF',
+  machineLine: 'rgba(230, 234, 242, 0.10)',
+  contour: 'rgba(15, 23, 40, 0.04)',
+  good: '#0B7A55',
+  warn: '#8A5A00',
+  bad: '#C4342E',
+  black: '#06080D',
+  machine: '#06080D',        // terminal/stream glass stays deep-dark in both themes
+  onMachine: '#E6EAF2',
+  onMachineDim: '#8B95A7',
+  onAccent: '#FFFFFF',
+  onDanger: '#FFFFFF',
+  accentSoft: 'rgba(46, 124, 246, 0.10)',  // active-row / selected fill
+  goodSoft: 'rgba(11, 122, 85, 0.10)',
+  warnSoft: 'rgba(138, 90, 0, 0.10)',
+  badSoft: 'rgba(196, 52, 46, 0.10)',
+  onAccentSoft: '#1A63C9',
+  onGoodSoft: '#0A6B4A',
+  onWarnSoft: '#7A5000',
+  onBadSoft: '#B12F29',
+  overlay: 'rgba(15, 23, 40, 0.40)',
+  focus: '#1D6FE0',
+  skeleton: '#E8EBF0',
+  shadow: '#000000',
 });
 
-/** Dark — "ink". Warm near-black, not blue-black; the accent survives untamed. */
+/** Dark — "ink". Premium near-black with soft glass surfaces and restrained accent. */
 export const darkPalette: Palette = Object.freeze({
-  bg: '#121110',
-  surface: '#1A1917',
-  surfaceAlt: '#232120',
-  border: '#2E2C29',
-  borderStrong: '#4A4741',
-  text: '#ECEAE6', // >= 13.34:1
-  textDim: '#A9A49C', // >= 6.47:1
-  textFaint: '#928D84', // >= 4.86:1
-  accent: '#FF5C1A', // >= 5.19:1
-  accentGraphic: '#FF4D00', // >= 4.82:1 (non-text marks)
-  accentDim: 'rgba(255, 92, 26, 0.30)',
-  good: '#3DDC97', // >= 9.07:1 (kept from the previous palette, known-good)
-  warn: '#F7B32B', // >= 8.73:1 (kept)
-  bad: '#FF7A70', // >= 6.31:1 (lifted from #FF6B6B)
-  black: '#0C0B0A',
-  machine: '#0C0B0A',
-  onMachine: '#ECEAE6', // 16.37:1
-  onMachineDim: '#A9A49C', // 7.94:1
-  onAccent: '#121110', // 6.1:1 on accent
-  onDanger: '#121110', // 6.9:1
-  accentSoft: 'rgba(255, 92, 26, 0.14)',
-  goodSoft: 'rgba(61, 220, 151, 0.14)',
-  warnSoft: 'rgba(247, 179, 43, 0.14)',
-  badSoft: 'rgba(255, 122, 112, 0.14)',
-  onAccentSoft: '#FF7A3D', // >= 5.17:1 composited over surfaceAlt
-  onGoodSoft: '#3DDC97', // >= 6.77:1
-  onWarnSoft: '#F7B32B', // >= 6.51:1
-  onBadSoft: '#FF7A70', // >= 5.13:1
-  overlay: 'rgba(0, 0, 0, 0.60)',
-  focus: '#FF5C1A',
-  skeleton: '#262421',
-  shadow: '#000000', // dead — see the Palette note
+  bg: '#0A0A0C',            // premium near-black canvas, neutral (not blue-tinted)
+  surface: '#141418',        // soft glass panels, minimal lift for premium feel
+  surfaceAlt: '#1A1A1E',     // recessed rows/keys/pressed — subtle depth
+  border: '#1F1F23',         // hairline borders — whisper-quiet, glass-like
+  borderStrong: '#2A2A30',   // emphasis borders — still restrained
+  text: '#F5F5F7',           // crisp white, high contrast for readability
+  textDim: '#9B9BA3',        // muted secondary text, neutral grey
+  textFaint: '#67676E',      // tertiary text, quiet but legible
+  accent: '#3B82F6',         // electric blue — the one chromatic accent (restrained)
+  accentGraphic: '#5B9CF8',  // lighter blue for marks/graphics
+  accentDim: 'rgba(59, 130, 246, 0.25)',  // muted accent track
+  sheet: '#101014',          // modals/sheets — one step darker than bg for depth
+  trackRest: '#2E2E34',      // neutral resting track (not accent-tinted)
+  accentPress: '#2563EB',    // darker blue for pressed state
+  machineLine: 'rgba(255, 255, 255, 0.06)',  // ultra-subtle machine panel rules
+  contour: 'rgba(255, 255, 255, 0.03)',      // barely-there topographic garnish
+  good: '#3DDC97',           // success green — kept from original
+  warn: '#F7B32B',           // warning amber
+  bad: '#FF6B6B',            // error red
+  black: '#000000',          // true black for machine glass
+  machine: '#000000',        // terminal/video — true black, not lifted
+  onMachine: '#F5F5F7',      // white on machine glass
+  onMachineDim: '#9B9BA3',   // muted on machine
+  onAccent: '#FFFFFF',       // white on blue
+  onDanger: '#FFFFFF',       // white on red
+  accentSoft: 'rgba(59, 130, 246, 0.12)',    // soft accent fill — more subtle
+  goodSoft: 'rgba(61, 220, 151, 0.12)',
+  warnSoft: 'rgba(247, 179, 43, 0.12)',
+  badSoft: 'rgba(255, 107, 107, 0.12)',
+  onAccentSoft: '#7FB0FF',   // text on soft accent
+  onGoodSoft: '#3DDC97',
+  onWarnSoft: '#F7B32B',
+  onBadSoft: '#FF6B6B',
+  overlay: 'rgba(0, 0, 0, 0.75)',  // deeper overlay for modals
+  focus: '#3B82F6',
+  skeleton: '#1A1A1E',
+  shadow: '#000000',
 });
 
 /**
- * Square corners are the system: 2pt standard, 4pt only on key-bar keys.
- * The larger steps are deprecated aliases so unmigrated screens compile —
- * their values collapse to what the design allows, not what the name implies.
+ * Rounded, calm chrome inspired by premium SaaS UIs. More generous than the
+ * original system but still restrained — no extreme rounding.
  */
 export const radius = Object.freeze({
-  xs: 2, // standard: inputs, buttons, soft-fill bands
-  sm: 4, // key-bar keys only
-  /** @deprecated Alias of `sm`. Migrate call sites to xs/sm, then delete. */
-  md: 4,
-  /** @deprecated Card radius; the card is dead. Delete after migration. */
-  lg: 0,
-  /** @deprecated Delete after migration. */
-  xl: 0,
+  xs: 4,  // standard: inputs, buttons, soft-fill bands — bumped from 2
+  sm: 6,  // interactive elements, key-bar keys
+  md: 8,  // cards, panels — now a real value
+  lg: 12, // larger panels, sheets — premium feel
+  xl: 16, // hero elements when needed
   /** @deprecated Pills are banned (docs/DESIGN.md §12). Delete after migration. */
   pill: 999,
 });
@@ -200,10 +216,10 @@ export const space = Object.freeze({
 });
 
 export const font = Object.freeze({
-  // Sans is the platform default (undefined fontFamily). Named here so a
-  // future custom-font swap (Archivo Black / Space Mono, docs/DESIGN.md §4.1)
-  // is one edit rather than a component sweep.
-  sans: undefined as string | undefined,
+  // Outfit from Google Fonts as the primary UI typeface. Loaded in app/_layout.tsx
+  // with weights 400 (Regular), 500 (Medium), 600 (SemiBold), and 700 (Bold).
+  // The font is specified by weight via the type scale below.
+  sans: 'Outfit' as string,
   mono: Platform.select({
     ios: 'Menlo',
     default: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
@@ -219,19 +235,19 @@ export const font = Object.freeze({
  * or the page turns into a shouting match (docs/DESIGN.md §4.3).
  */
 export const type = Object.freeze({
-  display: { fontSize: 40, lineHeight: 42, fontWeight: '900', letterSpacing: -1.5, textTransform: 'uppercase' },
-  title: { fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.6, textTransform: 'uppercase' },
-  heading: { fontSize: 19, lineHeight: 24, fontWeight: '800', letterSpacing: -0.3 },
-  subheading: { fontSize: 16, lineHeight: 21, fontWeight: '700' },
-  body: { fontSize: 15, lineHeight: 21, fontWeight: '400' },
-  bodyStrong: { fontSize: 15, lineHeight: 21, fontWeight: '600' },
-  caption: { fontSize: 13, lineHeight: 17, fontWeight: '400' },
+  display: { fontFamily: font.sans, fontSize: 40, lineHeight: 42, fontWeight: '900', letterSpacing: -1.5, textTransform: 'uppercase' },
+  title: { fontFamily: font.sans, fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.6, textTransform: 'uppercase' },
+  heading: { fontFamily: font.sans, fontSize: 19, lineHeight: 24, fontWeight: '800', letterSpacing: -0.3 },
+  subheading: { fontFamily: font.sans, fontSize: 16, lineHeight: 21, fontWeight: '700' },
+  body: { fontFamily: font.sans, fontSize: 15, lineHeight: 21, fontWeight: '400' },
+  bodyStrong: { fontFamily: font.sans, fontSize: 15, lineHeight: 21, fontWeight: '600' },
+  caption: { fontFamily: font.sans, fontSize: 13, lineHeight: 17, fontWeight: '400' },
   // Hero stats ("39%"). Tabular numerals so live values do not jitter.
-  numeral: { fontSize: 34, lineHeight: 38, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
-  label: { fontFamily: font.mono, fontSize: 11, lineHeight: 14, fontWeight: '400', letterSpacing: 1.5, textTransform: 'uppercase' },
-  micro: { fontFamily: font.mono, fontSize: 10, lineHeight: 13, fontWeight: '400', letterSpacing: 1.2, textTransform: 'uppercase' },
-  mono: { fontFamily: font.mono, fontSize: 13, lineHeight: 19 },
-  monoSmall: { fontFamily: font.mono, fontSize: 11, lineHeight: 16 },
+  numeral: { fontFamily: font.sans, fontSize: 34, lineHeight: 38, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
+  label: { fontFamily: font.mono, fontSize: 11, lineHeight: 14, fontWeight: '400', letterSpacing: 1.5, textTransform: 'uppercase', fontVariant: ['tabular-nums'] },
+  micro: { fontFamily: font.mono, fontSize: 10, lineHeight: 13, fontWeight: '400', letterSpacing: 1.2, textTransform: 'uppercase', fontVariant: ['tabular-nums'] },
+  mono: { fontFamily: font.mono, fontSize: 13, lineHeight: 19, fontVariant: ['tabular-nums'] },
+  monoSmall: { fontFamily: font.mono, fontSize: 11, lineHeight: 16, fontVariant: ['tabular-nums'] },
 }) satisfies Readonly<Record<string, TextStyle>>;
 
 export type TypeVariant = keyof typeof type;
@@ -273,16 +289,29 @@ export const motion = Object.freeze({
   slow: 240, // sheet slide; nothing may exceed this
   /** Press feedback is opacity, not scale — editorial surfaces do not squish. */
   pressOpacity: 0.55,
-  /** Live-dot pulse loop duration. */
-  pulse: 1200,
-  /** Streaming-cursor blink. */
-  blink: 600,
+  /** The one sanctioned hero animation: the clip-in rope draw on connect. */
+  draw: 400,
+  /** @deprecated Pulsing is banned (founder directive). Pinned to 0 so
+   *  `usePulse` degrades to a steady value — status is shape (ring→fill) +
+   *  colour, never a blink. */
+  pulse: 0,
+  /** @deprecated Blinking is banned. The streaming cursor is a steady block. */
+  blink: 0,
   /** @deprecated Scale-transform presses are banned; pinned to 1 so legacy
    * animations still run but no longer move anything. Use `pressOpacity`. */
   pressScale: 1,
   /** @deprecated Springs are retired (ease-out only). Kept, values unchanged,
    * so unmigrated call sites compile; new code uses timing + the durations. */
   spring: Object.freeze({ damping: 18, stiffness: 240, mass: 0.6 }),
+});
+
+/** The two curves the whole app moves on. Entrances/fades/slides use
+ *  `standard`; exits (sheet down, HUD hide) use `exit`; clocks/progress use
+ *  `linear`. One easing vocabulary keeps motion feeling like one product. */
+export const easing = Object.freeze({
+  standard: Easing.bezier(0.2, 0, 0, 1),
+  exit: Easing.bezier(0.3, 0, 0.8, 0.15),
+  linear: Easing.linear,
 });
 
 /** @deprecated The design is flat; kept only so unmigrated screens compile. */
@@ -414,7 +443,13 @@ export function useThemeMode(): ThemeMode {
 // Appearance is not guaranteed to be functional on every platform/runtime
 // (react-native-web in particular), so both reads are defensive: an unavailable
 // API resolves to the dark default rather than throwing during render.
+// Belay is DARK-FIRST: the product identity is the deep-navy Next Terminal
+// look, so the app commits to dark rather than following the phone's light
+// setting. The full light palette is retained (lightPalette) for a future
+// in-app theme toggle — flip DARK_FIRST to restore system-follow.
+const DARK_FIRST = true;
 const readSystemScheme = (): ColorScheme => {
+  if (DARK_FIRST) return 'dark';
   try {
     return Appearance.getColorScheme() === 'light' ? 'light' : 'dark';
   } catch {

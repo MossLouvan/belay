@@ -10,6 +10,7 @@ import type { StyleProp, ViewStyle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Edge } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
+import { Label } from './text';
 
 export type SpaceKey = 'none' | 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
 
@@ -92,24 +93,58 @@ export type Elevation = 'none' | 'sm' | 'md' | 'lg';
 export interface CardProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
-  /** @deprecated Ignored — the design is flat. */
+  /** @deprecated Ignored — elevation is a border + fill, not a shadow. */
   elevation?: Elevation;
   padding?: SpaceKey;
-  /** @deprecated Ignored — there is no raised surface any more. */
+  /** @deprecated Ignored. */
   raised?: boolean;
+  /** Optional header: a short uppercase label (left) + optional trailing node
+   *  (an icon/glyph), the reference's stat-card anatomy. */
+  title?: string;
+  trailing?: React.ReactNode;
+  /** Flush card with no inner padding — for cards that hold their own rows. */
+  flush?: boolean;
   testID?: string;
 }
 
 /**
- * @deprecated The card is dead (docs/DESIGN.md §7): no fill, no border, no
- * radius, no shadow. This shim renders a plain padded group so the unmigrated
- * screens keep compiling and rendering while they move to Section / LedgerRow /
- * MeterSection (see ledger.tsx). Do not use in new code.
+ * The signature surface of the Next Terminal-inspired revamp: a navy card with
+ * a thin hairline border and a soft radius. Groups related content into the
+ * clean bordered tiles the reference is built from. Optional `title`/`trailing`
+ * render the stat-card header (LABEL … icon); `flush` drops padding for cards
+ * that own their own rows (tables, lists).
  */
-export function Card({ children, style, padding = 'md', testID }: CardProps) {
+export function Card({ children, style, padding = 'md', title, trailing, flush = false, testID }: CardProps) {
   const theme = useTheme();
   return (
-    <View testID={testID} style={[{ padding: theme.space[padding] }, style]}>
+    <View
+      testID={testID}
+      style={[
+        {
+          backgroundColor: theme.colors.surface,
+          borderWidth: theme.layout.hairline,
+          borderColor: theme.colors.border,
+          borderRadius: theme.radius.lg,
+          padding: flush ? 0 : theme.space[padding],
+        },
+        style,
+      ]}
+    >
+      {title !== undefined || trailing !== undefined ? (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: title !== undefined ? theme.space.sm : 0,
+            paddingHorizontal: flush ? theme.space[padding] : 0,
+            paddingTop: flush ? theme.space[padding] : 0,
+          }}
+        >
+          {title !== undefined ? <Label tone="dim">{title}</Label> : <View />}
+          {trailing}
+        </View>
+      ) : null}
       {children}
     </View>
   );

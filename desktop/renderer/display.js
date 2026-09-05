@@ -185,6 +185,10 @@ wake();
  */
 async function socketUrl() {
   const url = new URL(socketOrigin(host) + '/ws/screen');
+  // Ask for binary pixel frames (see server/src/frame-codec.ts for the wire
+  // layout). An old host ignores the param and keeps sending JSON, which the
+  // message handler below still accepts — the two shapes share one socket.
+  url.searchParams.set('bin', '1');
   url.searchParams.set('w', String(STREAM.w));
   url.searchParams.set('q', String(STREAM.q));
   url.searchParams.set('fps', String(STREAM.fps));
@@ -212,7 +216,8 @@ setInterval(() => {
   bytes = 0;
 }, 1000);
 
-function draw(frame) {
+/** Paint one JPEG onto the canvas from any URI (data: or blob:). */
+function paint(src, revoke) {
   const image = new Image();
   image.onload = () => {
     if (canvas.width !== image.width || canvas.height !== image.height) {
@@ -220,8 +225,49 @@ function draw(frame) {
       canvas.height = image.height;
     }
     context.drawImage(image, 0, 0);
+    if (revoke) URL.revokeObjectURL(src);
   };
-  image.src = 'data:image/jpeg;base64,' + frame.data;
+  image.onerror = () => { if (revoke) URL.revokeObjectURL(src); };
+  image.src = src;
+}
+
+function draw(frame) {
+  paint('data:image/jpeg;base64,' + frame.data, false);
+}
+
+// ---- Binary frames -------------------------------------------------------
+//
+// The compact layout of server/src/frame-codec.ts, version 1, big-endian:
+// magic 0xBF, version, u16 metaLen, u32 w/h/sw/sh, u32 jpegLen, then metaLen
+// bytes of JSON meta (unused for a screen stream) and exactly jpegLen JPEG
+// bytes. Every field is bounds-checked before any slice; anything malformed
+// returns null and the message is skipped — same contract as unparseable JSON.
+
+const BINARY_FRAME = { magic: 0xbf, version: 0x01, header: 24, maxDimension: 1048576 };
+
+/** @param {ArrayBuffer} buffer @returns {{ jpeg: Uint8Array } | null} */
+function decodeBinaryFrame(buffer) {
+  if (buffer.byteLength < BINARY_FRAME.header + 1) return null;
+  const view = new DataView(buffer);
+  if (view.getUint8(0) !== BINARY_FRAME.magic || view.getUint8(1) !== BINARY_FRAME.version) return null;
+  const metaLen = view.getUint16(2);
+  for (const offset of [4, 8, 12, 16]) {
+    if (view.getUint32(offset) > BINARY_FRAME.maxDimension) return null;
+  }
+  const jpegLen = view.getUint32(20);
+  const jpegStart = BINARY_FRAME.header + metaLen;
+  // Exact framing: truncation and trailing garbage are both rejected.
+  if (jpegLen < 1 || jpegStart + jpegLen !== buffer.byteLength) return null;
+  return { jpeg: new Uint8Array(buffer, jpegStart, jpegLen) };
+}
+
+function drawBinary(buffer) {
+  const frame = decodeBinaryFrame(buffer);
+  if (!frame) return;
+  frames += 1;
+  bytes += frame.jpeg.length;
+  // A blob URL skips the base64 detour entirely; paint() revokes it on load.
+  paint(URL.createObjectURL(new Blob([frame.jpeg], { type: 'image/jpeg' })), true);
 }
 
 // Reconnects back off to a ceiling rather than hammering a host that is asleep,
@@ -239,8 +285,11 @@ async function connect() {
     return;
   }
 
+  // Binary frames must arrive as ArrayBuffer, not the default Blob.
+  socket.binaryType = 'arraybuffer';
   socket.addEventListener('open', () => { attempt = 0; setStatus('live', false, true); });
   socket.addEventListener('message', (event) => {
+    if (event.data instanceof ArrayBuffer) { drawBinary(event.data); return; }
     let message;
     try { message = JSON.parse(event.data); } catch { return; }
     if (message?.type === 'frame' && typeof message.data === 'string') {

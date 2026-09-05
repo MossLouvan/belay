@@ -26,6 +26,8 @@ export interface SegmentedControlProps<T extends string> {
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  /** When true, every segment is non-interactive. */
+  disabled?: boolean;
 }
 
 /**
@@ -50,6 +52,7 @@ export function SegmentedControl<T extends string>({
   accessibilityLabel,
   style,
   testID,
+  disabled = false,
 }: SegmentedControlProps<T>) {
   const theme = useTheme();
   // Split the shortfall evenly above and below so the effective target is
@@ -66,16 +69,17 @@ export function SegmentedControl<T extends string>({
     >
       {options.map((option) => {
         const selected = option.value === value;
+        const optionDisabled = disabled || Boolean(option.disabled);
         return (
           <Pressable
             key={option.value}
             accessibilityRole="tab"
             accessibilityLabel={option.label}
-            accessibilityState={{ selected, disabled: Boolean(option.disabled) }}
-            disabled={option.disabled}
+            accessibilityState={{ selected, disabled: optionDisabled }}
+            disabled={optionDisabled}
             hitSlop={segmentHitSlop}
             onPress={() => {
-              if (selected || option.disabled) return;
+              if (selected || optionDisabled) return;
               haptic('selection');
               onChange(option.value);
             }}
@@ -85,7 +89,7 @@ export function SegmentedControl<T extends string>({
               alignItems: 'center',
               justifyContent: 'center',
               paddingHorizontal: theme.space.xs,
-              opacity: option.disabled ? 0.4 : pressed ? theme.motion.pressOpacity : 1,
+              opacity: optionDisabled ? 0.4 : pressed ? theme.motion.pressOpacity : 1,
             })}
           >
             <Txt

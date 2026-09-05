@@ -57,6 +57,9 @@ export interface TxtProps {
   accessibilityLabel?: string;
   /** Marks the text as a heading for screen readers. */
   heading?: boolean;
+  /** Shrink the font to fit its box on one line instead of truncating. */
+  adjustsFontSizeToFit?: boolean;
+  minimumFontScale?: number;
 }
 
 /** The base text component. Prefer the named wrappers below where they fit. */
@@ -72,6 +75,8 @@ export function Txt({
   testID,
   accessibilityLabel,
   heading,
+  adjustsFontSizeToFit,
+  minimumFontScale,
 }: TxtProps) {
   const theme = useTheme();
   const tones: Record<TextTone, string> = {
@@ -93,6 +98,8 @@ export function Txt({
       accessibilityRole={heading ? 'header' : undefined}
       accessibilityLabel={accessibilityLabel}
       numberOfLines={numberOfLines}
+      adjustsFontSizeToFit={adjustsFontSizeToFit}
+      minimumFontScale={minimumFontScale}
       selectable={selectable}
       maxFontSizeMultiplier={MAX_SCALE[variant]}
       style={[theme.type[variant] as TextStyle, { color: color ?? tones[tone], textAlign: align }, style]}

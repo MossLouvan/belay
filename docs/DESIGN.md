@@ -10,6 +10,34 @@ equal weight with the aesthetic. Where they conflict, §11 says which wins and w
 
 ---
 
+## 0. 2026 Premium Redesign — Grok Bot Inspiration
+
+**Context:** September 2026 redesign inspired by Grok Bot's premium dark aesthetic while
+maintaining Belay's existing Ledger design system structure.
+
+**Key visual changes:**
+- **Near-black canvas** (`#0A0A0C`) — premium neutral black, not blue-tinted
+- **Soft glass panels** — translucent surfaces with hairline borders for elevated content
+- **Generous radius** — bumped from 2pt/4pt to 4pt/6pt/8pt/12pt for calmer, rounded chrome
+- **Restrained accent** — blue accent used sparingly (one per screen rule enforced)
+- **High contrast** — crisp white text (`#F5F5F7`) vs muted secondary (`#9B9BA3`)
+- **Softer borders** — ultra-subtle hairlines (`#1F1F23`) for glass-like quality
+
+**New components:**
+- `GlassPanel` — soft translucent surfaces with elevation levels (low/medium/high)
+- Spring-based motion hooks (see §10 Motion)
+
+**What stayed the same:**
+- Ledger design principles (typography hierarchy, mono voice, flat structure)
+- One accent rule, findability doctrine, accessibility requirements
+- Existing component APIs (migration path preserved)
+
+**Inspiration sources:** Grok Bot website UI, Linear, Vercel, Framer — the 2026
+developer-tool SaaS pattern: dark-first, one accent, hierarchy from typography + hairlines,
+motion with meaning.
+
+---
+
 ## 1. Reading the reference
 
 The reference is a designer-portfolio landing page: warm paper-grey ground, an ultra-heavy
@@ -177,30 +205,29 @@ terminal from an ANSI-on-light-background palette nobody maintains.
 
 ## 4. Type
 
-### 4.1 The face decision: system fonts, no `expo-font` — for v1
+### 4.1 The face decision: Outfit from Google Fonts
 
-Recommendation: **do not bundle custom fonts yet.**
+**Outfit** is now the primary UI typeface for all sans-serif text across the app.
 
-- The display style uses the system sans at weight `'900'` — SF Pro Black on iOS, Roboto
-  900 on Android, `-apple-system / Helvetica Neue / Arial` heavy weights on web. SF Pro
-  Black with tight tracking is genuinely close to the reference's heavy grotesque at
-  phone sizes; the resemblance gap only opens at poster sizes we never use.
-- The mono style uses the platform mono the app already ships: Menlo on iOS,
-  `ui-monospace / SFMono-Regular / Menlo / Consolas` on web, `monospace` on Android.
-  Wide-tracked uppercase Menlo at 10–11pt is a convincing match for the reference's
-  micro-labels, and Menlo is a proven terminal face — which matters because our terminal
-  is real.
-- Honest costs of this choice: web and Android renderings will be *good* but not
-  *identical* to iOS; Roboto Black is squarer than SF Black. And no system face has the
-  reference's slightly-quirky mono personality.
-- Why it still wins: zero bundle weight, zero licence work, zero `expo-font` loading
-  states, Dynamic Type keeps working natively, and per §2 the aesthetic here is carried
-  by layout, rules and tracking more than by the exact cut of the font.
-- **Named upgrade path** if the owner wants closer fidelity later: bundle exactly two
-  OFL families via `expo-font` — *Archivo Black* (display) and *Space Mono* (labels
-  only, terminal stays Menlo). ~350KB, licence-clean. This is a token-level swap
-  (`font.display`, `font.mono` in DESIGN-TOKENS.md) touching no component code. Decide
-  after seeing v1 on device.
+- **Sans-serif UI:** Outfit (weights 400, 500, 600, 700) replaces system fonts for all
+  UI chrome: titles, body text, buttons, labels, captions, tabs, connect/setup screens,
+  and all other interface elements. Loaded via `@expo-google-fonts/outfit` and
+  `expo-font` in the root layout.
+- **Monospace (machine voice):** Platform defaults unchanged. Menlo on iOS,
+  `ui-monospace / SFMono-Regular / Menlo / Consolas` on web. Used for all machine data:
+  paths, hostnames, terminal output, stats, timestamps, and the micro-labels that mark
+  sections (`label` and `micro` variants).
+- **Why Outfit:** Modern geometric sans with excellent weight coverage (400–700 in
+  variable font), clean at all sizes, works beautifully with the Ledger design system's
+  heavy display weights and tracked uppercase labels. Better cross-platform consistency
+  than system fonts. OFL-licensed, zero licensing friction.
+- **Bundle impact:** ~50–70KB gzipped for the four required weights. Fonts load before
+  app render (splash screen held) to prevent FOUT/FOIT. Dynamic Type still works — all
+  type variants have `maxFontSizeMultiplier` caps.
+- **Migration note:** This replaces the original recommendation to stay on system fonts.
+  The aesthetic carried by Outfit's consistent rendering across platforms outweighs the
+  previous "zero bundle weight" argument. The alternative path to Archivo Black + Space
+  Mono (mentioned in earlier docs) is no longer needed.
 
 ### 4.2 The scale
 
@@ -493,18 +520,38 @@ input dock: mono input on `surface`, the accent "RUN" label-button at right. The
 prompt-continuation `>` indicator stays. This screen changes least — it is already the
 closest to the target aesthetic; the work is deleting the card around the output.
 
-**Motion:** small, fast, honest.
+**Motion:** Intentional, spring-based, premium feel (2026 redesign).
 
-- Durations: `fast 120ms` (state flips: selection underline slide, dot pulse step),
-  `base 180ms` (row press, sheet content fade), `slow 240ms` (sheet slide-up). Nothing
-  longer. Easing: standard ease-out; springs are retired (`motion.spring` deleted).
-- Distances: translations max 8pt (list item entrance: 8pt up + fade). Sheets slide from
-  the bottom edge only.
-- Press feedback: opacity 1 → 0.55 on the pressed element. **No scale transforms** —
-  editorial surfaces do not squish. `motion.pressScale` is deleted.
-- The live dot pulses opacity 1 → 0.4, 1.2s loop. The streaming cursor blinks 600ms.
-- `useReducedMotion()`: all translations become pure opacity fades; pulse/blink stop at
-  full opacity; durations halve.
+The new motion system uses physics-based springs for natural, interruptible motion that
+means something — not decorative fades on every element.
+
+**Principles:**
+- **Motion with intent:** Animations signal state changes, pairing success, attention,
+  live status — never for decoration
+- **Spring physics:** Gentle, snappy, or bouncy springs (via Reanimated) for natural,
+  interruptible motion
+- **Morphing transitions:** Shared-layout style transitions between pairing stages
+  (host → code → success) for spatial continuity
+- **Status pulse with meaning:** Live indicators pulse scale + opacity (not generic blink) —
+  only for "LIVE" badges, streaming activity, pairing in progress
+- **Press feedback:** Subtle spring scale (0.96) for interactive elements — feels premium,
+  not squished
+- **Success celebration:** One-time bouncy spring on pairing success, connection established
+- **Reduced motion:** All springs collapse to instant state changes, respecting accessibility
+
+**Implementation hooks (app/src/ui/motion.ts):**
+- `useSpringPress(pressed)` — spring-based scale for press feedback
+- `useMorphTransition(active)` — opacity + scale morph between states
+- `useStatusPulse(active)` — intentional pulse for live indicators
+- `useSuccessCelebration()` — bouncy entrance for success states
+- `useReducedMotion()` — system accessibility check
+
+**What changed from original:**
+- Springs replace ease-out timing curves for more natural feel
+- Scale-based press feedback (not opacity-only) for premium interaction
+- Morphing transitions between states (not slide+fade)
+- Purpose-driven pulse (not constant blink) for status
+- All decorative list-entrance fades removed — motion must earn its presence
 
 ---
 
@@ -631,7 +678,73 @@ allowed one `display`-weight word as the landing point on otherwise-empty screen
 
 ---
 
-## 12. Never do this
+## 12. Setup flow and onboarding
+
+### 12.1 Apple-style first-run experience
+
+First-time users (no saved devices) see a minimal, typography-first intro carousel before
+the connect flow:
+
+1. **Welcome** — huge "welcome to BELAY" headline, centered, lowercase-friendly, with
+   enormous negative space. Single tagline: "Control your computer from your phone. No
+   cloud, no middleman." One button: "Get started".
+2. **How it works** — clean vertical step list (01–04), each with mono ordinal,
+   heading, and detail. Minimal copy explaining: start host → connect phone → pair
+   once → control computer. "Connect now" button advances to the connect flow.
+3. **Connect** — the existing host/scan/code/success stages, simplified with flatter
+   styling (no glass panels, more negative space).
+
+Returning users (have recent hosts) skip straight to the connect flow. The intro is
+only shown once.
+
+### 12.2 Fade transitions between stages
+
+All setup stage transitions (welcome → how-it-works → connect, host → scan → code →
+success) use crossfade animations:
+- Fade out (120ms) → change stage → fade in (180ms)
+- Reduced motion: instant cuts, no animation
+- Uses `Animated` for smooth opacity transitions
+
+### 12.3 Seamless Tailscale return
+
+When Tailscale is needed but off, the flow opens the Tailscale app via deep link. An
+`AppState` listener detects when the user returns to Belay and automatically rechecks
+the tailnet connection — no manual "Retry" button press needed in the happy path.
+
+Implementation: when "Open Tailscale" is tapped, a flag is set. The `AppState` listener
+watches for transitions to `active` state; if the flag is set and we're on the code
+stage, it automatically calls the retry handler. This makes the Tailscale path feel
+seamless: open Tailscale → sign in → switch back → Belay continues pairing.
+
+The manual "I turned it on — connect" button remains as a fallback (shown after opening
+Tailscale), but most users never need it.
+
+### 12.4 Rope+carabiner brand splash
+
+The boot splash shows:
+- Blue curved rope (using `theme.colors.accentGraphic`) hanging across the top third
+- Carabiner clipped at the rope's sag point (center)
+- "BELAY" wordmark + "HOLD THE LINE" tagline at bottom-right
+- Animation sequence: rope drops down → carabiner slides in → wordmark fades up
+- Drawn with React Native Views and SVG for clean scaling and theme recoloring
+- Replaces the old two-square tether LogoMark on boot
+
+### 12.5 Notification carabiner
+
+Notifications (NeedsYou toasts, banners, or future native notifications) drop from
+the top-right with the carabiner mark:
+- Short rope segment above the carabiner
+- Carabiner drops down with spring animation (bouncy config)
+- Notification card hangs below
+- Auto-dismisses after 4 seconds (configurable)
+- Component: `NotificationCarabiner` in `app/src/ui/notification-carabiner.tsx`
+
+Brand consistency: the same carabiner design used in splash and notifications creates a
+cohesive visual language.
+
+---
+
+## 13. Never do this
 
 - No cards: no closed border boxes, no fills behind grouped content, no corner radius
   above 4pt anywhere (2pt standard; 4pt only on key-bar keys), no shadows/elevation.

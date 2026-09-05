@@ -111,7 +111,7 @@ test('the bar has five pages; the fourth is app and system shortcuts', () => {
 
 test('the fifth page is desktop navigation — the three-finger swipe made visible', () => {
   const ids = cellsOf(KEY_PAGES[4]).map((cell) => (cell.kind === 'key' ? cell.spec.id : `mod:${cell.mod}`));
-  assert.deepEqual(ids, ['DeskPrev', 'DeskNext', 'Overview']);
+  assert.deepEqual(ids, ['DeskPrev', 'DeskNext', 'Overview', 'AppExpose', 'NotifyCenter']);
 });
 
 test('desktop caps send the native chord for each platform', () => {

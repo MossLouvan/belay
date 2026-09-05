@@ -19,9 +19,9 @@ import { parseClaudeLine } from './agent-events.js';
 import type { AgentEvent } from './agent-events.js';
 import { loadClaudeHistory } from './transcript.js';
 import {
-  flowAnswer, flowCancelQueued, flowDropQueued, flowExpire, flowInterrupt,
-  flowPrompt, flowRequestApproval, flowTurnDone, flowRevokeGrant,
-  grantSummary, pendingWire,
+  approvalsWaitingWire, flowAnswer, flowCancelQueued, flowDenyAll, flowDropQueued,
+  flowExpire, flowInterrupt, flowPrompt, flowRequestApproval, flowTurnDone,
+  flowRevokeGrant, grantSummary, pendingWire,
 } from './agent-flow.js';
 import type { FlowIO, PendingState, QueuedPrompt } from './agent-flow.js';
 import type { ApprovalGrant } from './approval-scopes.js';
@@ -92,6 +92,10 @@ interface Session extends SessionMeta {
   mcpConfigPath?: string; // 0600 temp file holding that secret; unlinked on exit
   buffer: string;      // partial stdout line
   pending?: PendingState;
+  // Asks that arrived while `pending` waited — Claude's parallel tool use
+  // makes that routine. FIFO, each on its own fail-closed clock; agent-flow.ts
+  // owns the lifecycle.
+  approvalQueue: readonly PendingState[];
   queued?: QueuedPrompt;
   // Scoped standing permissions, this session only — see approval-scopes.ts.
   // Deliberately not persisted: trust granted to a live session dies with it,
@@ -120,7 +124,7 @@ export function loadAgentState(): void {
   for (const meta of persisted.sessions) {
     sessions.set(meta.id, {
       ...meta, status: 'idle', events: loadEventTail(meta.id), buffer: '',
-      grants: [], subscribers: new Set(),
+      approvalQueue: [], grants: [], subscribers: new Set(),
     });
   }
 }
@@ -193,8 +197,31 @@ function spawnClaude(args: string[], cwd: string, extraEnv: Record<string, strin
 
 // ---- session lifecycle ----------------------------------------------------
 
+// ---- change notifications for the attention push channel -------------------
+//
+// agent-attention.ts fans a per-session summary out to every /ws/attention
+// socket, and needs one signal: "something about some session may have
+// changed". Every state transition in this file funnels through broadcast()
+// (status flips, pending asks, feed events — the flow layer speaks only
+// through FlowIO), so hooking broadcast plus the two paths that change the
+// *set* of sessions covers everything. Listeners are expected to be cheap
+// and to do their own coalescing/diffing; this side just announces.
+
+const changeListeners = new Set<() => void>();
+
+/** Subscribe to "the session list may look different now". Returns unhook. */
+export function onSessionsChanged(fn: () => void): () => void {
+  changeListeners.add(fn);
+  return () => { changeListeners.delete(fn); };
+}
+
+function emitSessionsChanged(): void {
+  for (const fn of changeListeners) { try { fn(); } catch { /* listener's problem */ } }
+}
+
 function broadcast(s: Session, msg: object): void {
   for (const send of s.subscribers) { try { send(msg); } catch { /* subscriber gone */ } }
+  emitSessionsChanged();
 }
 
 function setStatus(s: Session, status: AgentStatus): void {
@@ -330,7 +357,8 @@ function ensureProcess(s: Session): void {
     if (s.mcpConfigPath) { try { unlinkSync(s.mcpConfigPath); } catch { /* already gone */ } s.mcpConfigPath = undefined; }
     if (s.proc !== proc) return;
     s.proc = undefined;
-    if (s.pending) answerApproval(s.id, s.pending.id, false, 'session process exited');
+    // Every waiting ask — the card and the stack behind it — fails closed.
+    flowDenyAll(s, flowIO(s), 'session process exited');
     // A queued prompt must not fire into whatever process comes next — the
     // context it was written against died with this one.
     flowDropQueued(s, flowIO(s), 'the session process exited');
@@ -356,7 +384,12 @@ export function listSessions() {
     .map((s) => ({
       id: s.id, title: s.title, cwd: s.cwd, status: s.status, lastUsed: s.lastUsed, createdAt: s.createdAt,
       pending: s.pending
-        ? { id: s.pending.id, tool: s.pending.tool, detail: s.pending.detail, expiresAt: s.pending.expiresAt }
+        ? {
+            id: s.pending.id, tool: s.pending.tool, detail: s.pending.detail, expiresAt: s.pending.expiresAt,
+            // How many more asks stand behind this one, so list surfaces can
+            // say "…and 2 more" without carrying every queued input.
+            waiting: s.approvalQueue.length,
+          }
         : null,
     }));
 }
@@ -398,11 +431,12 @@ function newSession(cwd: string, title?: string, claudeSessionId?: string): Sess
     id, cwd: resolved, claudeSessionId,
     title: title || resolved.split(/[\\/]/).filter(Boolean).pop() || 'session',
     createdAt: Date.now(), lastUsed: Date.now(),
-    status: 'idle', events: [], buffer: '', grants: [], subscribers: new Set(),
+    status: 'idle', events: [], buffer: '', approvalQueue: [], grants: [], subscribers: new Set(),
   };
   sessions.set(id, s);
   rememberProject(resolved);
   saveMeta();
+  emitSessionsChanged(); // a new row, before it ever broadcasts anything
   return s;
 }
 
@@ -456,6 +490,8 @@ export function getSnapshot(id: string) {
     createdAt: s.createdAt, lastUsed: s.lastUsed,
     events: s.events,
     pending: s.pending ? pendingWire(s.pending) : null,
+    // The stack behind the card, so a fresh socket's hello starts honest.
+    approvalsWaiting: approvalsWaitingWire(s),
     queued: s.queued ?? null,
     grants: s.grants.map(grantSummary),
   };
@@ -466,8 +502,10 @@ export function deleteSession(id: string): boolean {
   if (!s) return false;
   s.proc?.kill();
   if (s.pending) clearTimeout(s.pending.timer);
+  for (const p of s.approvalQueue) clearTimeout(p.timer);
   sessions.delete(id);
   saveMeta();
+  emitSessionsChanged(); // the row is gone; deletion broadcasts nothing itself
   return true;
 }
 
@@ -500,7 +538,7 @@ export function cancelQueuedPrompt(id: string): boolean {
 export function stopSession(id: string): void {
   const s = sessions.get(id);
   if (!s) throw new Error('no such session');
-  if (s.pending) answerApproval(id, s.pending.id, false, 'stopped from phone');
+  flowDenyAll(s, flowIO(s), 'stopped from phone');
   flowDropQueued(s, flowIO(s), 'stopped from phone');
   if (s.proc) { s.proc.kill(); s.proc = undefined; }
   if (s.status !== 'idle') {

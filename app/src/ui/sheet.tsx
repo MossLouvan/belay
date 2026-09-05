@@ -1,17 +1,21 @@
 // Bottom sheet built on RN's Modal so it works identically in Expo Go and on
 // web without pulling in a gesture/reanimated-based sheet library.
 //
-// Ledger treatment: the sheet is a slab of the page (`bg`, square corners,
-// hairline top rule) sliding up from the bottom edge — the scrim, not a
-// shadow, is what separates it from the screen behind. Slide distance is the
-// spec's 8pt translation cap plus fade; reduced motion snaps.
+// Ledger treatment (REVAMP-SPEC §5.7): the sheet is a raised slab (`sheet`
+// fill — one perceptible step off `bg` so the modal reads as material, not the
+// page folding over itself; critical on dark), square corners, hairline top
+// rule, sliding up from the bottom edge — the scrim, not a shadow, is what
+// separates it from the screen behind. Slide distance is the spec's 8pt
+// translation cap plus fade; motion per §3.5 (standard in, exit out);
+// reduced motion snaps.
 
 import React, { useEffect, useRef } from 'react';
 import { Animated, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../theme';
+import { easing, useTheme } from '../theme';
 import { IconButton } from './button';
+import { haptic } from './haptics';
 import { Row } from './layout';
 import { Txt } from './text';
 import { useReducedMotion } from './motion';
@@ -50,9 +54,13 @@ export function Sheet({
       slide.setValue(target);
       return;
     }
+    // §3.5 motion language: entrances decelerate over `slow` (240ms), exits
+    // accelerate away over `fast` (120ms) — the sheet leaves quicker than it
+    // arrives, and never lingers on the way out.
     const animation = Animated.timing(slide, {
       toValue: target,
       duration: visible ? theme.motion.slow : theme.motion.fast,
+      easing: visible ? easing.standard : easing.exit,
       useNativeDriver: Platform.OS !== 'web',
     });
     animation.start();
@@ -68,19 +76,29 @@ export function Sheet({
           accessibilityRole="button"
           accessibilityLabel="Close"
           disabled={!dismissOnBackdropPress}
-          onPress={dismissOnBackdropPress ? onClose : undefined}
+          onPress={
+            dismissOnBackdropPress
+              ? () => {
+                  haptic('light');
+                  onClose();
+                }
+              : undefined
+          }
           style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.overlay }]}
         />
         <Animated.View
           accessibilityViewIsModal
           style={[
             {
-              backgroundColor: theme.colors.bg,
+              // §5.7: the slab fills with the raised `sheet` token, not `bg`,
+              // so it reads as material lifted off the page (a bg-colored slab
+              // disappears against the page on dark).
+              backgroundColor: theme.colors.sheet,
               borderTopWidth: theme.layout.hairline,
               borderColor: theme.colors.border,
               paddingHorizontal: theme.layout.margin,
               paddingTop: theme.space.sm,
-              paddingBottom: insets.bottom + theme.space.md,
+              paddingBottom: Math.max(insets.bottom, theme.space.xs) + theme.space.md,
               opacity: slide,
               transform: [{ translateY }],
             },
@@ -99,7 +117,7 @@ export function Sheet({
             }}
           />
           {title || !hideClose ? (
-            <Row justify="space-between" style={{ marginBottom: theme.space.sm }}>
+            <Row justify="space-between">
               <Txt variant="label" tone="dim" heading>
                 {title ?? ''}
               </Txt>

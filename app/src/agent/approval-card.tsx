@@ -12,7 +12,7 @@
 // the host offered, each labelled with exactly what it will permit: the
 // label is the contract, and tapping it grants that and nothing wider.
 
-import React, { useState } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { TextStyle } from 'react-native';
 import type { PendingApproval } from '../api';
@@ -21,6 +21,7 @@ import { Button, Micro, Row, TrackLabel, Txt, haptic } from '../ui';
 import { DiffBody } from '../changes/diff-body';
 import { editDiff, writeDiff } from '../changes/diff-format';
 import { alwaysSectionLabel, approvalHeading, isDanger, previewPath, renderApproval } from './approval-model';
+import { getApprovalsWaiting, subscribeApprovalsWaiting, waitingLabel } from './approval-queue';
 import { countdown, expiryUrgent } from './attention';
 
 /** Tallest the diff / content panel may stand before it scrolls in place. */
@@ -77,6 +78,10 @@ export function ApprovalCard({ pending, now, onAnswer }: ApprovalCardProps) {
   const theme = useTheme();
   const [showInput, setShowInput] = useState(false);
   const [showChoices, setShowChoices] = useState(false);
+  // Asks queued behind this one (Claude's parallel tool use). Fed by the
+  // session socket via the approval-queue store; the card is its one reader.
+  const stacked = useSyncExternalStore(subscribeApprovalsWaiting, getApprovalsWaiting, getApprovalsWaiting);
+  const stackLine = waitingLabel(stacked);
 
   const danger = isDanger(pending.risk);
   const render = renderApproval(pending, GEN);
@@ -173,6 +178,23 @@ export function ApprovalCard({ pending, now, onAnswer }: ApprovalCardProps) {
           <Button testID="agent-allow" label="Allow" size="sm" onPress={() => onAnswer(true)} style={{ flex: 1 }} />
         )}
       </Row>
+
+      {/* The stack: asks waiting behind this card, answered in order. A rule
+          above the line makes it read as the edge of the next card peeking
+          out, not as commentary on this one. */}
+      {stackLine ? (
+        <View
+          testID="agent-ask-stack"
+          style={{
+            marginTop: theme.space.xs,
+            paddingTop: theme.space.xs,
+            borderTopWidth: theme.layout.hairline,
+            borderTopColor: band.edge,
+          }}
+        >
+          <Micro tone="dim">{stackLine}</Micro>
+        </View>
+      ) : null}
 
       {/* Scoped standing permission: the host offered these exact scopes and
           will mint nothing wider. testID kept from the old whole-tool button. */}

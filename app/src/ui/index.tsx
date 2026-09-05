@@ -23,13 +23,19 @@ export type { TrackLabelProps } from './track-label';
 export { trackInks, DISABLED_TRACK_OPACITY } from './track';
 export type { TrackInkSet, TrackInks, TrackState } from './track';
 
+export { Contours } from './contours';
+export type { ContoursProps } from './contours';
+
+export { GlassState } from './glass-state';
+export type { GlassStateProps, GlassStateAction, GlassStatus } from './glass-state';
+
 export { Dot, Meter, Badge, Banner, Toast, EmptyState, Skeleton } from './feedback';
 export type { Status } from './feedback';
 
 export { ConnectionStatus } from './connection-status';
 export type { ConnectionStatusProps } from './connection-status';
-export { describeConnection } from './connection-view';
-export type { ConnectionPhase, ConnectionView } from './connection-view';
+export { describeConnection, describeSurface } from './connection-view';
+export type { ConnectionPhase, ConnectionView, SurfaceExtras, SurfacePhase, SurfaceView } from './connection-view';
 
 export { Input, TextField } from './input';
 export type { InputProps } from './input';
@@ -43,8 +49,20 @@ export type { SheetProps } from './sheet';
 export { haptic, setHapticsEnabled, areHapticsEnabled } from './haptics';
 export type { HapticTone } from './haptics';
 
-export { useReducedMotion, useToggleAnimation, usePulse } from './motion';
-export type { PressAnimation } from './motion';
+export { useReducedMotion, useToggleAnimation, useEntrance, usePulse, useSpringPress, useMorphTransition, useStatusPulse, useSuccessCelebration } from './motion';
+export { Carabiner } from './carabiner';
+export type { CarabinerProps } from './carabiner';
+export { RopeStrand } from './rope-strand';
+export type { RopeStrandProps } from './rope-strand';
+export { NotificationCarabiner, useNotificationCarabiner } from './notification-carabiner';
+export type { NotificationCarabinerProps } from './notification-carabiner';
+export type { PressAnimation, EntranceStyle } from './motion';
+
+export { GlassPanel, PillCTA } from './glass';
+export type { GlassPanelProps, PillCTAProps } from './glass';
+
+export { StatusBadge, TransitionRing } from './status-badge';
+export type { StatusBadgeProps, StatusBadgeVariant } from './status-badge';
 
 export { useKeyboardLift } from './keyboard-lift';
 export type { KeyboardLift } from './keyboard-lift';

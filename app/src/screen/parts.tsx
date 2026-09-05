@@ -60,7 +60,7 @@ export const HUD = Object.freeze({
 
 // --- view-drawn glyphs -------------------------------------------------------
 // All built from 2pt bars with borderRadius 1, exactly like `CloseGlyph` in
-// ui/sheet.tsx and the tab glyphs in app/(tabs)/_layout.tsx.
+// ui/sheet.tsx and the tool glyphs in src/home/tool-glyphs.tsx.
 
 const glyphBar = (color: string): ViewStyle => ({
   position: 'absolute',
@@ -186,23 +186,24 @@ export function StageButton({ glyph, label, onPress, accessibilityLabel, active 
       onPress={() => { haptic('light'); onPress(); }}
       style={({ pressed }) => [
         {
-          minWidth: theme.layout.minTouch,
+          // De-boxed (REVAMP-SPEC §5.6): a low, quiet inline strip on the HUD
+          // scrim — no border crate on the picture. Glyph + label sit on one
+          // row; the active state is carried by the accent, not a frame.
           minHeight: theme.layout.minTouch,
-          paddingHorizontal: theme.space.xxs,
+          flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
+          paddingHorizontal: theme.space.sm,
           gap: theme.space.xxs,
           borderRadius: theme.radius.xs,
           backgroundColor: HUD.scrim,
-          borderWidth: theme.layout.hairline,
-          borderColor: active ? getTheme('dark').colors.accent : HUD.hairline,
-          opacity: pressed ? 0.85 : 1,
+          opacity: pressed ? 0.7 : 1,
         },
         style,
       ]}
     >
       {glyph}
-      <Micro style={{ color: active ? getTheme('dark').colors.accent : HUD.inkDim }}>{label}</Micro>
+      <Micro style={{ color: active ? getTheme('dark').colors.accent : HUD.ink }}>{label}</Micro>
     </Pressable>
   );
 }
@@ -288,9 +289,9 @@ export interface KeyCapProps {
 }
 
 /**
- * A recessed `surfaceAlt` key, 4pt corners — the one place that radius is
- * allowed — with an un-bold mono label (bold mono is banned, §12). Only the
- * latch states draw a border; a resting key is a fill, not a box.
+ * A recessed `surfaceAlt` key, theme.radius.sm corners (§12: the one place
+ * radius is allowed) — with an un-bold mono label (bold mono is banned, §12).
+ * Only the latch states draw a border; a resting key is a fill, not a box.
  */
 export function KeyCap({ spec, onPress, onRepeat, mac, glyph, sticky = false, latched = false, locked = false, style }: KeyCapProps) {
   const theme = useTheme();
@@ -490,6 +491,8 @@ export function KeyBar({ mac, mods, onKey, onRepeat, onMod, floating = false, te
           onScroll={Platform.OS === 'web' ? settle : undefined}
           scrollEventThrottle={64}
           accessibilityLabel={`Keyboard keys, ${KEY_PAGES.length} pages`}
+          nestedScrollEnabled
+          directionalLockEnabled
         >
           {KEY_PAGES.map((keyPage, index) => (
             <Column key={index} gap="xs" style={{ width: pageWidth }}>
@@ -541,10 +544,20 @@ export interface StreamHudProps {
   bwp?: BwpStats | null;
   bwpSize?: { readonly width: number; readonly height: number } | null;
   bwpPath?: string | null;
+  topInset?: number;
 }
 
 /** Connection-quality readout. Decorative overlay — never intercepts touches. */
-export function StreamHud({ stats, pingMs, quality, zoom, bwp = null, bwpSize = null, bwpPath = null }: StreamHudProps) {
+export function StreamHud({
+  stats,
+  pingMs,
+  quality,
+  zoom,
+  bwp = null,
+  bwpSize = null,
+  bwpPath = null,
+  topInset = 0,
+}: StreamHudProps) {
   const theme = useTheme();
   // Which rows make sense depends on which video path is live, and the JPEG
   // counters read zero throughout an H.264 stream. See ./hud.
@@ -552,12 +565,11 @@ export function StreamHud({ stats, pingMs, quality, zoom, bwp = null, bwpSize = 
   return (
     <View
       testID="hud"
-      pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={{
+      style={{ pointerEvents: 'none',
         position: 'absolute',
-        top: theme.space.xs,
+        top: topInset + theme.space.xs,
         left: theme.space.xs,
         minWidth: 132,
         backgroundColor: HUD.scrim,
@@ -587,8 +599,7 @@ export function Crosshair({ x, y, color }: { x: Animated.Value; y: Animated.Valu
   const arm: ViewStyle = { position: 'absolute', backgroundColor: color, borderRadius: 1 };
   return (
     <Animated.View
-      pointerEvents="none"
-      style={{
+      style={{ pointerEvents: 'none',
         position: 'absolute',
         top: -11,
         left: -11,

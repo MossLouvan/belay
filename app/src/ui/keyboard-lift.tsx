@@ -31,6 +31,38 @@ export interface KeyboardLift {
   readonly shown: boolean;
 }
 
+/**
+ * Subscribes to the platform's keyboard frame events. One iOS event covers
+ * show, hide AND frame changes (undock, QuickType row); Android only has the
+ * did-show/hide pair. Returns the unsubscribe.
+ */
+function subscribeToKeyboardFrames(onFrame: (event: KeyboardEvent) => void): () => void {
+  const subscriptions =
+    Platform.OS === 'ios'
+      ? [Keyboard.addListener('keyboardWillChangeFrame', onFrame)]
+      : [Keyboard.addListener('keyboardDidShow', onFrame), Keyboard.addListener('keyboardDidHide', onFrame)];
+  return () => subscriptions.forEach((subscription) => subscription.remove());
+}
+
+/**
+ * Just the boolean: is a software keyboard on screen right now? For surfaces
+ * that only need to show or hide a dismiss affordance (docs/DESIGN.md §11.2 —
+ * every keyboard needs a visible exit) without floating anything, so the full
+ * measured lift would be waste. Hardware keyboards report no frame and count
+ * as hidden, which is right — there is nothing to dismiss.
+ */
+export function useKeyboardShown(): boolean {
+  const [shown, setShown] = useState(false);
+  useEffect(
+    () =>
+      subscribeToKeyboardFrames((event) =>
+        setShown(keyboardShown(event?.endCoordinates, Dimensions.get('window').height))
+      ),
+    []
+  );
+  return shown;
+}
+
 export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
   const lift = useRef(new Animated.Value(0)).current;
   const [shown, setShown] = useState(false);
@@ -41,12 +73,18 @@ export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
 
   useEffect(() => {
     const settle = (overlap: number, event: KeyboardEvent) => {
+      // Guard: never apply negative or unreasonable lifts — these indicate
+      // measurement errors that would shift the entire UI. Cap at sensible
+      // keyboard height (screen height) to prevent layout corruption.
+      const windowHeight = Dimensions.get('window').height;
+      const safeOverlap = Math.max(0, Math.min(overlap, windowHeight));
+      
       if (reducedRef.current) {
-        lift.setValue(overlap);
+        lift.setValue(safeOverlap);
         return;
       }
       Animated.timing(lift, {
-        toValue: overlap,
+        toValue: safeOverlap,
         duration: event.duration > 0 ? event.duration : FALLBACK_DURATION_MS,
         // Close to UIKit's keyboard curve; translateY-only, so the native
         // driver keeps the row glued to the keyboard even under JS load.
@@ -70,16 +108,20 @@ export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
         settle(end.height, event);
         return;
       }
-      node.measureInWindow((_x, y, _w, h) => settle(keyboardOverlap(y + h, end.screenY), event));
+      node.measureInWindow((_x, y, _w, h) => {
+        // Guard against stale measurements: if y is negative or absurdly large,
+        // the view has been unmounted or the measurement is stale. Fall back
+        // to safe values to prevent layout corruption.
+        const windowHeight = Dimensions.get('window').height;
+        if (!Number.isFinite(y) || !Number.isFinite(h) || y < 0 || y > windowHeight * 2) {
+          settle(0, event);
+          return;
+        }
+        settle(keyboardOverlap(y + h, end.screenY), event);
+      });
     };
 
-    // One iOS event covers show, hide AND frame changes (undock, QuickType
-    // row); Android only has the did-show/hide pair.
-    const subscriptions =
-      Platform.OS === 'ios'
-        ? [Keyboard.addListener('keyboardWillChangeFrame', onFrame)]
-        : [Keyboard.addListener('keyboardDidShow', onFrame), Keyboard.addListener('keyboardDidHide', onFrame)];
-    return () => subscriptions.forEach((subscription) => subscription.remove());
+    return subscribeToKeyboardFrames(onFrame);
   }, [anchor, lift]);
 
   return { lift, shown };

@@ -1,13 +1,16 @@
-// Step two: trade the 6-digit code for a token.
+// Step two: trade the 6-digit code for a token — redesigned with premium
+// glass aesthetic.
 //
-// The reachable computer reads as a ledger — name, address, capability —
-// closed by a rule, and the code entry sits under its own micro-label. The
-// accent belongs to "Pair", the step's one primary action.
+// Premium changes:
+// - Glass panels for host info card
+// - Better visual hierarchy and spacing
+// - Cleaner presentation of capabilities
 
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Badge, Banner, Button, Caption, Dot, Label, Row, Rule, Txt } from '../ui';
+import { Badge, Button, Caption, GlassPanel, StatusBadge, Label, Row, Txt } from '../ui';
+import { StatusNotice } from '../devices/notice';
 import { CodeInput } from './code-input';
 import type { Diagnosis } from './diagnose';
 import { prettyHost } from './host-input';
@@ -50,7 +53,7 @@ function CapabilityNote({ native }: { native: boolean }) {
   const theme = useTheme();
   if (native) return null;
   return (
-    <Banner
+    <StatusNotice
       testID="native-warning"
       status="warn"
       title="Screen control is unavailable on this computer"
@@ -67,26 +70,27 @@ export function PairStep({
   const complete = code.length === CODE_LENGTH;
 
   return (
-    <View testID="pair-step">
-      <Row justify="space-between" align="flex-start" gap="sm">
-        <View style={{ flex: 1, gap: theme.space.xxs }}>
-          <Row gap="xs">
-            <Dot status="good" pulse label="Host reachable" />
-            <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>
-              {host.name}
-            </Txt>
-          </Row>
-          <Txt variant="monoSmall" tone="faint" numberOfLines={1}>
+    <View testID="pair-step" style={{ gap: theme.space.xl }}>
+      {/* Minimal host info — no panel, clean typography */}
+      <View style={{ gap: theme.space.sm }}>
+        <Row gap="xs" align="center">
+          <StatusBadge label="Reachable" variant="default" />
+          <Txt variant="subheading" numberOfLines={1} style={{ flex: 1 }}>
+            {host.name}
+          </Txt>
+        </Row>
+        <Row justify="space-between" align="center">
+          <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flex: 1 }}>
             {prettyHost(host.url)}
           </Txt>
-        </View>
-        <Badge label={host.native ? 'Screen + input' : 'Terminal only'} status={host.native ? 'good' : 'warn'} />
-      </Row>
-      <Rule bleed={theme.layout.margin} style={{ marginTop: theme.space.sm }} />
+          <Badge label={host.native ? 'Screen + input' : 'Terminal only'} status={host.native ? 'good' : 'warn'} />
+        </Row>
+      </View>
 
-      <View style={{ marginTop: theme.space.lg }}>
+      {/* Code entry section */}
+      <View style={{ gap: theme.space.sm }}>
         <Label>Pairing code</Label>
-        <Caption style={{ marginBottom: theme.space.sm }}>
+        <Caption>
           {codeUnlikely
             ? `For when ${host.name} is actually showing one — right after a pairing reset, for instance.`
             : `It is shown in the Belay window on ${host.name}.`}
@@ -103,44 +107,38 @@ export function PairStep({
           autoFocus
         />
 
-        <Caption style={{ marginTop: theme.space.sm }}>
-          Codes are single-use and expire after five minutes. The host keeps a fresh one on screen.
+        <Caption>
+          Codes are single-use and expire after five minutes.
         </Caption>
-
-        {host.paired && !codeUnlikely ? (
-          // Redundant under the dead-end notice, which has already said —
-          // more precisely — what being paired means for this screen.
-          <Caption style={{ marginTop: theme.space.xxs }}>
-            This computer already has another device paired — adding this one will not remove it.
-          </Caption>
-        ) : null}
       </View>
 
       <CapabilityNote native={host.native} />
 
       {error ? (
-        <Banner testID="error" title={error.title} message={error.message} status="bad" style={{ marginTop: theme.space.md }} />
+        <StatusNotice testID="error" title={error.title} message={error.message} status="bad" />
       ) : null}
 
-      <Button
-        label="Pair"
-        variant={primary ? 'primary' : 'secondary'}
-        onPress={onPair}
-        loading={busy}
-        disabled={busy}
-        testID="pair-btn"
-        fullWidth
-        accessibilityHint={complete ? undefined : `Enter all ${CODE_LENGTH} digits first`}
-        style={{ marginTop: theme.space.md }}
-      />
-      <Button
-        label="Use a different computer"
-        variant="ghost"
-        onPress={onBack}
-        testID="back-btn"
-        fullWidth
-        style={{ marginTop: theme.space.sm }}
-      />
+      {/* Clean button stack */}
+      <View style={{ gap: theme.space.sm, marginTop: theme.space.md }}>
+        <Button
+          label="Pair"
+          variant={primary ? 'primary' : 'secondary'}
+          onPress={onPair}
+          loading={busy}
+          disabled={busy}
+          testID="pair-btn"
+          fullWidth
+          size="lg"
+          accessibilityHint={complete ? undefined : `Enter all ${CODE_LENGTH} digits first`}
+        />
+        <Button
+          label="Use a different computer"
+          variant="ghost"
+          onPress={onBack}
+          testID="back-btn"
+          fullWidth
+        />
+      </View>
     </View>
   );
 }

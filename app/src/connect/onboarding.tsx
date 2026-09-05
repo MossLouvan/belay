@@ -9,7 +9,7 @@
 import React, { useCallback, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Caption, Label, Mono, Row, Rule, Section, Txt } from '../ui';
+import { Button, Caption, Label, Mono, Row, Rule, Section, Txt } from '../ui';
 
 interface StepProps {
   index: number;
@@ -58,22 +58,28 @@ const STEPS: readonly Omit<StepProps, 'index'>[] = [
   },
 ];
 
-/** Numbered setup checklist. */
+/** Minimal numbered setup checklist. */
 export function SetupSteps() {
   const theme = useTheme();
   return (
-    <Section label="Before you connect" bleed={theme.layout.margin}>
+    <View style={{ gap: theme.space.lg }}>
+      <Label>Before you connect</Label>
       <View style={{ gap: theme.space.md }}>
         {STEPS.map((step, i) => (
           <Step key={step.title} index={i + 1} {...step} />
         ))}
       </View>
-    </Section>
+    </View>
   );
 }
 
+interface AwayFromHomeNoteProps {
+  /** Opens the guided Tailscale setup. Rendered as the section's one action. */
+  readonly onSetUp?: () => void;
+}
+
 /** Collapsible explainer for reaching the PC from outside the house. */
-export function AwayFromHomeNote() {
+export function AwayFromHomeNote({ onSetUp }: AwayFromHomeNoteProps = {}) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
   const toggle = useCallback(() => setOpen((prev) => !prev), []);
@@ -108,6 +114,16 @@ export function AwayFromHomeNote() {
             100. and works from anywhere, encrypted end to end, with no port forwarding.
           </Txt>
           <Caption>Never expose the host agent directly to the internet.</Caption>
+          {onSetUp ? (
+            <Button
+              label="Set it up step by step"
+              variant="secondary"
+              onPress={onSetUp}
+              fullWidth
+              testID="away-set-up"
+              style={{ marginTop: theme.space.xs }}
+            />
+          ) : null}
         </View>
       ) : null}
       <Rule bleed={theme.layout.margin} />

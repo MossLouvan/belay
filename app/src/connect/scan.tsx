@@ -43,6 +43,8 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
       return;
     }
 
+    // Valid code found - clear any previous unknown-code banner and latch
+    setSawUnknownCode(false);
     handled.current = true;
     onScanned(link);
   }, [onScanned]);

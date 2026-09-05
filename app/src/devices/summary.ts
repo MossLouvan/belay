@@ -71,9 +71,13 @@ export function connectionSummary(
     };
   }
 
+  // Display name for the header chip: drop the mDNS/domain suffix so a long
+  // "Name.local" doesn't truncate. The full label stays in the a11y string.
+  const name = device.label.replace(/\.(local|lan|home)$/i, '');
+
   if (phase === 'connecting') {
     return {
-      text: `${device.label} · connecting`,
+      text: `${name} · connecting`,
       status: 'warn',
       pulse: true,
       accessibilityLabel: `Connecting to ${device.label}. Opens My Computers.`,
@@ -82,7 +86,7 @@ export function connectionSummary(
 
   if (phase === 'unreachable') {
     return {
-      text: `${device.label} · unreachable`,
+      text: `${name} · unreachable`,
       status: 'bad',
       pulse: false,
       accessibilityLabel: `Can't reach ${device.label}. Opens My Computers.`,
@@ -94,7 +98,7 @@ export function connectionSummary(
     return {
       // A URL that matches none of the saved addresses should not happen, but
       // guessing a path would be worse than admitting only the connection.
-      text: kind ? `${device.label} · ${kindLabel(kind)}` : device.label,
+      text: kind ? `${name} · ${kindLabel(kind)}` : name,
       status: 'good',
       pulse: false,
       accessibilityLabel: kind

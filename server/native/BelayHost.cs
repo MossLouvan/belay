@@ -10,7 +10,7 @@
 // PowerShell's AMSI heuristic when it is scanned as script text. A normal
 // compiled binary the user builds locally does not go through that path.
 //
-// Commands: info | capture | move | down | up | click | scroll | key | text | ping
+// Commands: info | capture | move | down | up | click | scroll | key | text | ping | idle
 //           audiostart | audiostop | audiostatus  (WASAPI loopback, BelayHostAudio.cs)
 
 using System;
@@ -48,11 +48,41 @@ static class Native
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
 
     [StructLayout(LayoutKind.Sequential)]
+    struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+    [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO pli);
+    [DllImport("kernel32.dll")] static extern uint GetTickCount();
+
+    /// <summary>
+    /// Milliseconds since the last keyboard or mouse event in this session,
+    /// or -1 when the OS will not say.
+    ///
+    /// GetLastInputInfo counts input we injected ourselves, so this number
+    /// alone cannot distinguish a human from a remote click — Node discounts
+    /// its own injections (server/src/input-floor.ts, isLocalActivity).
+    ///
+    /// Both counters are 32-bit millisecond tick counts that wrap every ~49
+    /// days, and they can wrap between the two calls. Unsigned subtraction in
+    /// uint space wraps identically, which is exactly the arithmetic that makes
+    /// the difference come out right across the boundary; the result is only
+    /// widened to a signed long afterwards.
+    /// </summary>
+    internal static long IdleMs()
+    {
+        var lii = new LASTINPUTINFO();
+        lii.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
+        if (!GetLastInputInfo(ref lii)) return -1;
+        return (long)(GetTickCount() - lii.dwTime);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct POINT { public int x; public int y; }
     [StructLayout(LayoutKind.Sequential)]
     public struct CURSORINFO { public int cbSize; public int flags; public IntPtr hCursor; public POINT ptScreenPos; }
     const int CURSOR_SHOWING = 0x0001, DI_NORMAL = 0x0003;
     [DllImport("user32.dll")] static extern bool GetCursorInfo(ref CURSORINFO pci);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] static extern bool GetClipCursor(out RECT r);
     [DllImport("user32.dll")] static extern IntPtr CopyIcon(IntPtr h);
     [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
     [DllImport("user32.dll")] static extern bool DrawIconEx(IntPtr hdc, int x, int y, IntPtr h, int cx, int cy, int step, IntPtr br, int flags);
@@ -61,6 +91,35 @@ static class Native
     static void Send(INPUT[] i) { SendInput((uint)i.Length, i, Size); }
 
     public static void Dpi() { SetProcessDPIAware(); }
+
+    // Some windows take the mouse for themselves: a Hyper-V virtual machine in
+    // basic session mode, a full-screen game, another remote-desktop viewer.
+    // While one of them holds it, Windows pens the pointer inside that window
+    // and the window reads the mouse as MOVEMENT — how far it travelled since
+    // last time — rather than as a position on the desktop. A move that says
+    // "go to this spot" therefore does nothing there: the pointer is already
+    // penned in and the spot means nothing to the window. That is the "my
+    // pointer is stuck inside the VM" bug — the picture keeps streaming, taps
+    // and drags land nowhere.
+    //
+    // So while the pointer is penned in, send how far it was asked to travel
+    // instead of where it was asked to be, which is what such a window is
+    // listening for. The pen is what Windows itself reports (GetClipCursor: a
+    // pen smaller than the desktop means a window is holding the mouse), so the
+    // moment the VM lets go we are back to exact positions — one cheap call per
+    // move, no guessing and nothing to unwind.
+    static readonly object moveLock = new object();
+    static bool wasPenned;
+    static POINT lastAsked;   // desktop pixel the previous move asked for
+
+    /// True when a window has the mouse: Windows is holding the pointer inside a
+    /// rectangle smaller than the desktop it would otherwise roam.
+    static bool PointerPennedIn(Rectangle v)
+    {
+        RECT c;
+        if (!GetClipCursor(out c)) return false;
+        return (c.Right - c.Left) < v.Width || (c.Bottom - c.Top) < v.Height;
+    }
 
     // Absolute coordinates run 0..65535 across the whole virtual desktop. The
     // phone sends nx/ny normalized against the frame it is LOOKING at, which is
@@ -81,6 +140,35 @@ static class Native
         if (v.Width <= 1 || v.Height <= 1) return;
         double vx = s.X + nx * s.Width;
         double vy = s.Y + ny * s.Height;
+        POINT target;
+        target.x = (int)Math.Round(vx);
+        target.y = (int)Math.Round(vy);
+
+        // Two moves in a row decide this together, so they cannot interleave:
+        // the stdio loop and the WebRTC input channel both land here.
+        lock (moveLock)
+        {
+            bool penned = PointerPennedIn(v);
+            if (!penned)
+            {
+                SendAbsolute(vx, vy, v);
+            }
+            else if (wasPenned)
+            {
+                int dx = target.x - lastAsked.x;
+                int dy = target.y - lastAsked.y;
+                if (dx != 0 || dy != 0) SendRelative(dx, dy);
+            }
+            // The first move after a window takes the mouse only takes a
+            // bearing: the gap between it and a point asked for while the
+            // pointer was still free is a jump, not a movement.
+            lastAsked = target;
+            wasPenned = penned;
+        }
+    }
+
+    static void SendAbsolute(double vx, double vy, Rectangle v)
+    {
         int dx = (int)Math.Round((vx - v.X) / (double)(v.Width - 1) * 65535.0);
         int dy = (int)Math.Round((vy - v.Y) / (double)(v.Height - 1) * 65535.0);
         if (dx < 0) dx = 0; else if (dx > 65535) dx = 65535;
@@ -90,6 +178,19 @@ static class Native
         i[0].U.mi.dx = dx;
         i[0].U.mi.dy = dy;
         i[0].U.mi.dwFlags = MOVE | ABSOLUTE | VIRTUALDESK;
+        Send(i);
+    }
+
+    // Travelled-this-far movement, in desktop pixels. Windows applies the
+    // pointer speed and acceleration settings to these, which is why it is the
+    // fallback and not the default.
+    static void SendRelative(int dx, int dy)
+    {
+        var i = new INPUT[1];
+        i[0].type = INPUT_MOUSE;
+        i[0].U.mi.dx = dx;
+        i[0].U.mi.dy = dy;
+        i[0].U.mi.dwFlags = MOVE;
         Send(i);
     }
 
@@ -232,6 +333,10 @@ static class BelayHost
                     case "capturewindow": DoCaptureWindow(stdout, idObj, c); break;
                     case "focuswindow": DoFocusWindow(stdout, idObj, c); break;
                     case "ping": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "pong", true } }); break;
+                    // How long since anyone touched this machine's own keyboard
+                    // or mouse. Node uses it to hand the desktop back to the
+                    // person sitting at it (server/src/input-floor.ts).
+                    case "idle": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "idleMs", Native.IdleMs() } }); break;
                     case "webrtc": DoWebrtc(stdout, idObj, c); break;
                     // Virtual display driver (opt-in; Node gates it behind
                     // BELAY_VIRTUAL_DISPLAY). Needs the BelayVDD driver from

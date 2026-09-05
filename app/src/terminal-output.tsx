@@ -1,5 +1,6 @@
 // The terminal transcript: the measuring probe, the virtualised line list, the
-// "nothing yet" hint and the jump-to-latest affordance.
+// glass state (empty / waiting / fault, via the shared GlassState anatomy),
+// the steady block cursor and the jump-to-latest affordance.
 //
 // The transcript is a machine panel (docs/DESIGN.md §3.4): true-dark in both
 // themes, full-bleed, no border box — the screen draws the separating
@@ -7,10 +8,11 @@
 // page's text colours, which are tuned for paper.
 
 import React, { useCallback } from 'react';
-import { FlatList, Platform, Pressable, Text, View } from 'react-native';
+import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
-import { useTheme } from './theme';
-import { Txt } from './ui';
+import { getTheme, useTheme } from './theme';
+import { GlassState, Txt } from './ui';
+import type { GlassStateProps } from './ui';
 import type { TermLine } from './terminal-ansi';
 import { TermRow } from './terminal-row';
 import { PROBE_TEXT } from './terminal-geometry';
@@ -26,9 +28,14 @@ export interface TerminalOutputProps {
   padding: number;
   /** Background of the transcript panel; the rows' inverse-video colour too. */
   canvas: string;
-  /** Shown over an empty transcript. */
-  placeholder: string;
-  blank: boolean;
+  /**
+   * The panel's glass state — empty, waiting or fault — rendered through the
+   * shared GlassState anatomy over the whole panel. Null while the transcript
+   * itself is the story.
+   */
+  glass?: Omit<GlassStateProps, 'style' | 'testID'> | null;
+  /** Where the shell's cursor sits; drawn as a steady block while live. */
+  cursor?: { readonly row: number; readonly col: number } | null;
   following: boolean;
   onFollow: () => void;
   onRowWidth: (event: LayoutChangeEvent) => void;
@@ -47,8 +54,8 @@ export function TerminalOutput({
   lineHeight,
   padding,
   canvas,
-  placeholder,
-  blank,
+  glass,
+  cursor,
   following,
   onFollow,
   onRowWidth,
@@ -76,8 +83,13 @@ export function TerminalOutput({
     [lineHeight]
   );
 
+  // The cursor is a steady block in the graphic accent — the "streaming
+  // cursor" role (theme.ts) — never a blink. It draws from the dark palette
+  // because it sits on the machine glass in both themes.
+  const cursorColor = getTheme('dark').colors.accentGraphic;
+
   const renderItem = useCallback(
-    ({ item }: { item: TermLine }) => (
+    ({ item, index }: { item: TermLine; index: number }) => (
       <TermRow
         line={item}
         ramp={ramp}
@@ -86,9 +98,11 @@ export function TerminalOutput({
         fontFamily={theme.font.mono}
         fontSize={fontSize}
         lineHeight={lineHeight}
+        cursorCol={cursor && index === cursor.row ? cursor.col : undefined}
+        cursorColor={cursorColor}
       />
     ),
-    [canvas, fontSize, lineHeight, ramp, theme.colors.onMachine, theme.font.mono]
+    [canvas, cursor, cursorColor, fontSize, lineHeight, ramp, theme.colors.onMachine, theme.font.mono]
   );
 
   return (
@@ -99,8 +113,7 @@ export function TerminalOutput({
         importantForAccessibility="no-hide-descendants"
         allowFontScaling={false}
         onLayout={onProbeWidth}
-        pointerEvents="none"
-        style={{
+        style={{ pointerEvents: 'none',
           position: 'absolute',
           top: 0,
           left: 0,
@@ -116,7 +129,9 @@ export function TerminalOutput({
         ref={listRef}
         testID="term-output"
         data={lines}
-        extraData={redraw}
+        // Rows also read the cursor position, which is not part of the line
+        // objects — fold it into the redraw key so the row it left repaints.
+        extraData={`${redraw}:${cursor ? `${cursor.row},${cursor.col}` : '-'}`}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
         getItemLayout={getItemLayout}
@@ -137,13 +152,13 @@ export function TerminalOutput({
         style={{ flex: 1, backgroundColor: canvas }}
       />
 
-      {/* The buffer always holds one empty line, so FlatList's own empty state
-          would never fire — this overlay is the honest "nothing yet" hint. */}
-      {blank ? (
-        <View pointerEvents="none" style={{ position: 'absolute', top: padding * 2, left: padding * 2 }}>
-          <Txt variant="mono" tone="onMachineDim" testID="term-placeholder">
-            {placeholder}
-          </Txt>
+      {/* Empty, waiting and fault states all live ON the glass, in the one
+          shared anatomy (GlassState) — never a coloured card over the page.
+          The overlay paints solid `canvas` so the panel reads as one calm
+          dark surface, whatever the buffer held before the state. */}
+      {glass ? (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: canvas }]}>
+          <GlassState testID="term-glass" {...glass} />
         </View>
       ) : null}
 

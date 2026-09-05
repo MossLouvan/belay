@@ -372,6 +372,28 @@ class NativeHost {
     return this.send({ cmd: 'click', button, x, y, double, screen, mods, window });
   }
 
+  /**
+   * How long since the host's own keyboard or mouse was last used, in ms.
+   *
+   * Feeds the input floor's rule that the person physically at the machine
+   * outranks everyone on a phone (input-floor.ts). The OS counters behind this
+   * count *injected* input too, so the caller must discount its own injections
+   * — `isLocalActivity` does exactly that.
+   *
+   * Null rather than throwing when the helper is older than this verb or the
+   * platform has no counter: a missing probe must degrade to "no local user
+   * detected", never to a desktop nobody can drive.
+   */
+  async idleMs(): Promise<number | null> {
+    try {
+      const reply = await this.send<{ idleMs?: unknown }>({ cmd: 'idle' });
+      const v = reply?.idleMs;
+      return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ---- Seamless windows -------------------------------------------------
   //
   // Enumerate, capture and raise individual windows on the host, so a client

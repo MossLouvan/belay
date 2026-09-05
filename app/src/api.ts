@@ -358,6 +358,8 @@ export interface ScreenInfo {
   displays?: number;
   platform?: string;
   permissions?: HostPermissions;
+  /** True when the host has BELAY_WEBRTC / hardware encode path available. */
+  webrtc?: boolean;
 }
 
 /**
@@ -561,6 +563,16 @@ export const api = {
   agentAttach: (claudeSessionId: string, cwd: string, title?: string) =>
     post<AgentSnapshot>('/agent/attach', { claudeSessionId, cwd, title }),
   agentDelete: (id: string) => del<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}`),
+  /**
+   * Send-screen: the host grabs its own display right now and hands the JPEG
+   * plus a prompt (with `note` as the ask) to the session. The pixels never
+   * cross to the phone — one small request out, counters back.
+   */
+  agentScreenshot: (id: string, note?: string) =>
+    post<{ ok: boolean; relDir?: string; file?: string }>(
+      `/agent/sessions/${encodeURIComponent(id)}/screenshot`,
+      { ...(note?.trim() ? { note: note.trim() } : {}) },
+    ),
 
   // Phone photos → a Claude session. Stage each image with `uploadImageBase64`
   // (below — it needs the long deadline), then commit or drop the batch here.

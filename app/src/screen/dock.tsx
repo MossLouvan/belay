@@ -1,12 +1,14 @@
-// The control dock under (or, in fullscreen, floating over) the stage.
+// The control bar under (or, when immersive, floating over) the desktop.
 //
-// Ledger restyle of the old glyph row: every control now carries its
+// Desktop-first IA: with the tab bar gone this is the app's ONE bar, so it
+// carries the two things the old layout hid — KEYS, now a labelled toggle in
+// the primary row instead of an eye buried on the stage, and TOOLS, the way
+// into Agent/Terminal/Files/System via the drawer. Every control keeps its
 // wide-tracked mono label — the discoverability doctrine forbids bare icons
 // outside the universal five (docs/DESIGN.md §11.1) — and the active state is
 // the accent label plus the 2pt underline, the same selection language as the
-// text tabs. The zoom stepper moved here from its overlay pill on the video,
-// so nothing tappable hides on top of the picture except the fullscreen
-// corner, which acts on the panel itself.
+// text tabs. The zoom stepper lives here rather than as an overlay pill on
+// the video, so nothing tappable hides on top of the picture.
 //
 // TOUCH/PAD are plain dock keys rather than the shared SegmentedControl: the
 // fullscreen dock sits on the fixed HUD scrim, where the themed control's dim
@@ -14,8 +16,8 @@
 // identical underline treatment.
 
 import React from 'react';
-import { View } from 'react-native';
-import { getTheme, useTheme } from '../theme';
+import { Text, View } from 'react-native';
+import { font, getTheme, useTheme } from '../theme';
 import { Row, TrackLabel } from '../ui';
 import { HUD } from './parts';
 import type { MonitorChoice } from './monitors';
@@ -110,11 +112,14 @@ export interface ControlDockProps {
   onInteract?: () => void;
   /** Opens the clipboard sync sheet. Optional so the key is purely additive. */
   onOpenClipboard?: () => void;
-  /** Current stream-quality preset label (e.g. "Balanced"), shown on the dock
-   *  key so the resolution is visible and one tap away instead of buried in the
-   *  overflow menu. Optional so the key stays additive. */
-  qualityLabel?: string;
-  onOpenQuality?: () => void;
+  /** The on-screen key bar: shown state + toggle. Lives in the primary row so
+   *  the keys are never again "the one thing hidden somewhere else". */
+  keysOn: boolean;
+  onToggleKeys: () => void;
+  /** Opens the tool drawer (Agent, Terminal, Files, System). */
+  onOpenTools: () => void;
+  /** Agent sessions blocked on an approval — the Tools key's count chip. */
+  toolsBadge?: number | null;
 }
 
 /**
@@ -143,8 +148,10 @@ export function ControlDock({
   floating = false,
   onInteract,
   onOpenClipboard,
-  qualityLabel,
-  onOpenQuality,
+  keysOn,
+  onToggleKeys,
+  onOpenTools,
+  toolsBadge = null,
 }: ControlDockProps) {
   const theme = useTheme();
   const wrap = (action: () => void) => () => {
@@ -207,22 +214,23 @@ export function ControlDock({
             onPress={wrap(() => onModeChange('scroll'))}
           />
         </View>
-        {/* The picture cluster: quality + the zoom stepper, abutting into one
-            continuous strip the way the mode trio does. With a gap of its own,
-            the quality key hung between the two clusters and read as a fourth
-            pointer mode; flush against the zoom keys it reads as what it is —
-            another control over how the picture looks, one tap to the sheet. */}
+        {/* KEYS, promoted to the primary row (founder's call: the on-screen
+            keys were the one control hidden somewhere else — an eye glyph on
+            the stage — and nobody found them). A labelled toggle here, lit
+            while the key bar is up, sits in the same strip as the pointer
+            modes so it cannot be missed. */}
+        <DockKey
+          testID="toggle-keys"
+          label="Keys"
+          accessibilityLabel={keysOn ? 'Hide the on-screen keys' : 'Show the on-screen keys'}
+          accessibilityHint="Esc, Tab, Ctrl, arrows and shortcuts for the computer"
+          active={keysOn}
+          floating={floating}
+          onPress={wrap(onToggleKeys)}
+        />
+        {/* The zoom stepper, abutting into one continuous strip the way the
+            mode trio does. */}
         <Row gap="none">
-          {qualityLabel && onOpenQuality ? (
-            <DockKey
-              testID="quality-key"
-              label={qualityLabel}
-              accessibilityLabel={`Stream quality: ${qualityLabel}`}
-              accessibilityHint="Change the streamed resolution and frame rate"
-              floating={floating}
-              onPress={wrap(onOpenQuality)}
-            />
-          ) : null}
           <DockKey
             testID="zoom-out"
             label="−"
@@ -319,6 +327,50 @@ export function ControlDock({
               onLongPress={wrap(onCycleMonitor)}
             />
           ) : null}
+          {/* TOOLS — the door to everything that used to be a tab. Bottom-right
+              corner, where every platform parks "more"; the drawer it opens
+              names and explains Agent, Terminal, Files and System. The chip is
+              the old Agent tab badge: sessions blocked on an approval. */}
+          <View>
+            <DockKey
+              testID="open-tools"
+              label="Tools ⋯"
+              accessibilityLabel={
+                toolsBadge !== null && toolsBadge > 0
+                  ? `Tools. Agent, terminal, files and system — ${toolsBadge} waiting for you`
+                  : 'Tools. Agent, terminal, files and system'
+              }
+              accessibilityHint="Opens the tool drawer"
+              floating={floating}
+              onPress={wrap(onOpenTools)}
+            />
+            {toolsBadge !== null && toolsBadge > 0 ? (
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: -2,
+                  minWidth: 15,
+                  maxWidth: 24,
+                  height: 15,
+                  paddingHorizontal: 3,
+                  borderRadius: 2,
+                  backgroundColor: theme.colors.accent,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text
+                  allowFontScaling={false}
+                  numberOfLines={1}
+                  style={{ color: theme.colors.onAccent, fontFamily: font.mono, fontSize: 9 }}
+                >
+                  {toolsBadge > 99 ? '99+' : String(toolsBadge)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </Row>
       </Row>
     </View>

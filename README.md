@@ -38,6 +38,7 @@ through anyone else's servers.
 | Desktop client — open the PC's displays as windows on another computer | ✅ Electron, `desktop/` |
 | Virtual monitor — work on a display nobody at the host can see | ✅ detected and preferred; you install the driver |
 | Seamless windows — the host's apps as individual windows on your desktop | ✅ Windows host; macOS host written, needs a Mac build |
+| Multiple people at once — a named, coloured cursor each | ✅ in the app; the host's own screen shows no overlay yet ([docs](docs/COLLABORATION.md)) |
 | Runs in a browser (same UI) | ✅ used for automated tests |
 | Windows host | ✅ |
 | macOS host | ✅ Apple silicon and Intel |

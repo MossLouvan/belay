@@ -44,7 +44,10 @@ export interface FlowSession {
   readonly id: string;
   readonly cwd: string;
   status: AgentStatus;
+  /** The ask on deck — the one the phone's card shows. */
   pending?: PendingState;
+  /** Asks behind it, FIFO. Each keeps its own fail-closed clock. */
+  approvalQueue: readonly PendingState[];
   queued?: QueuedPrompt;
   grants: readonly ApprovalGrant[];
 }
@@ -77,6 +80,14 @@ const sendGrants = (s: FlowSession, io: FlowIO): void =>
 
 const sendQueued = (s: FlowSession, io: FlowIO): void =>
   io.send({ type: 'queued', queued: s.queued ?? null });
+
+/** The queue-depth summary the phone renders as the "N more waiting" stack. */
+export function approvalsWaitingWire(s: FlowSession): { waiting: number; tools: string[] } {
+  return { waiting: s.approvalQueue.length, tools: s.approvalQueue.map((p) => p.tool) };
+}
+
+const sendApprovalsWaiting = (s: FlowSession, io: FlowIO): void =>
+  io.send({ type: 'approvals-waiting', ...approvalsWaitingWire(s) });
 
 // ---- prompts and the queue --------------------------------------------------
 
@@ -148,16 +159,26 @@ export function flowTurnDone(s: FlowSession, io: FlowIO): boolean {
 export function flowInterrupt(s: FlowSession, io: FlowIO, text: string): 'sent' | 'steered' | 'interrupted' {
   const pending = s.pending;
   if (s.status === 'waiting' && pending) {
-    clearTimeout(pending.timer);
+    // The interrupt IS the denial — for every waiting ask, not just the one
+    // on the card. New instructions supersede the whole stack, and each
+    // blocked tool call gets the steer in its denial message.
+    const stack = [pending, ...s.approvalQueue];
+    for (const p of stack) clearTimeout(p.timer);
     s.pending = undefined;
+    s.approvalQueue = [];
     io.push({ t: Date.now(), kind: 'user', text });
     io.push({
       t: Date.now(), kind: 'info',
-      text: `interrupted — denied ${pending.tool} so Claude reads the new instruction now`,
+      text: stack.length > 1
+        ? `interrupted — denied ${stack.length} waiting asks so Claude reads the new instruction now`
+        : `interrupted — denied ${pending.tool} so Claude reads the new instruction now`,
     });
+    sendApprovalsWaiting(s, io);
     io.send({ type: 'permission-clear' });
     io.setStatus('running');
-    pending.resolve(false, `The user interrupted with new instructions: ${text}\nStop the current approach and follow these instead.`);
+    for (const p of stack) {
+      p.resolve(false, `The user interrupted with new instructions: ${text}\nStop the current approach and follow these instead.`);
+    }
     return 'steered';
   }
   if (s.status === 'running') {
@@ -196,11 +217,6 @@ export function flowRequestApproval(
     });
     return Promise.resolve({ allow: true });
   }
-  if (s.pending) {
-    // claude asks one at a time; a second concurrent ask means something is
-    // off — fail closed rather than queue.
-    return Promise.resolve({ allow: false, message: 'another approval is already pending' });
-  }
   return new Promise((resolve) => {
     const id = newId();
     const pretty = JSON.stringify(input ?? {}, null, 2);
@@ -217,13 +233,76 @@ export function flowRequestApproval(
       resolve: (allow: boolean, message?: string) => resolve({ allow, message }),
       timer: timeoutMs ? setTimeout(() => onExpire(id), timeoutMs) : undefined,
     };
-    s.pending = pending;
-    io.setStatus('waiting');
-    io.send({ type: 'permission', request: pendingWire(pending) });
+    if (s.pending) {
+      // Claude's parallel tool use raises simultaneous asks routinely. The
+      // second waits its turn — FIFO, visibly, on its own fail-closed clock
+      // (started now, not at promotion: an ask nobody answers dies on
+      // schedule no matter how deep in the stack it sits).
+      s.approvalQueue = [...s.approvalQueue, pending];
+      sendApprovalsWaiting(s, io);
+      io.push({
+        t: Date.now(), kind: 'info',
+        text: `also waiting — ${pending.tool}${pending.detail ? ' (' + pending.detail.slice(0, 80) + ')' : ''}, queued behind the current ask`,
+        tool: pending.tool, detail: pending.detail,
+      });
+    } else {
+      s.pending = pending;
+      io.setStatus('waiting');
+      io.send({ type: 'permission', request: pendingWire(pending) });
+    }
     // After the ask is fully raised and waiting, so a webhook — however
     // broken — can only ever be in addition to the approval, never in its way.
     io.ping({ kind: 'approval', tool: pending.tool, detail: pending.detail, expiresAt: pending.expiresAt });
   });
+}
+
+/**
+ * The head ask resolved — bring up the next one, or clear the card. A queued
+ * ask that a just-minted grant now covers is auto-allowed here with the same
+ * visible "allowed without asking" line the front door leaves: approving
+ * "always allow npm test" answers its queued twin too, and the feed says so.
+ */
+function promoteNext(s: FlowSession, io: FlowIO): void {
+  let queue = s.approvalQueue;
+  while (queue.length > 0) {
+    const next = queue[0]!;
+    queue = queue.slice(1);
+    const covered = s.grants.find((g) => grantMatches(g, next.tool, next.rawInput, s.cwd));
+    if (covered) {
+      clearTimeout(next.timer);
+      io.push({
+        t: Date.now(), kind: 'info',
+        text: `allowed without asking — ${covered.label}`,
+        tool: next.tool, detail: next.detail,
+      });
+      next.resolve(true);
+      continue;
+    }
+    s.pending = next;
+    s.approvalQueue = queue;
+    sendApprovalsWaiting(s, io);
+    io.send({ type: 'permission', request: pendingWire(next) });
+    io.setStatus('waiting');
+    return;
+  }
+  s.pending = undefined;
+  s.approvalQueue = queue;
+  sendApprovalsWaiting(s, io);
+  io.send({ type: 'permission-clear' });
+  io.setStatus('running');
+}
+
+/** Pull the ask with this id out of the head slot or the queue, or nothing. */
+function takeApproval(s: FlowSession, approvalId: string): { pending: PendingState; wasHead: boolean } | null {
+  if (s.pending?.id === approvalId) {
+    const pending = s.pending;
+    s.pending = undefined;
+    return { pending, wasHead: true };
+  }
+  const pending = s.approvalQueue.find((p) => p.id === approvalId);
+  if (!pending) return null;
+  s.approvalQueue = s.approvalQueue.filter((p) => p.id !== approvalId);
+  return { pending, wasHead: false };
 }
 
 /** The pending ask as the phone sees it, on both the broadcast and the snapshot. */
@@ -241,16 +320,18 @@ export function pendingWire(p: PendingState) {
  * transcript, and claude is told the silence was absence, not refusal.
  */
 export function flowExpire(s: FlowSession, io: FlowIO, approvalId: string, timeoutMs: number): void {
-  if (!s.pending || s.pending.id !== approvalId) return;
-  const pending = s.pending;
-  s.pending = undefined;
+  const taken = takeApproval(s, approvalId);
+  if (!taken) return;
+  const { pending, wasHead } = taken;
   const mins = Math.max(1, Math.round(timeoutMs / 60000));
   io.push({
     t: Date.now(), kind: 'error',
     text: `nobody answered — ${pending.tool}${pending.detail ? ' (' + pending.detail.slice(0, 80) + ')' : ''} was denied after ${mins} min with no one there. Send a prompt to have Claude pick the work back up.`,
   });
-  io.send({ type: 'permission-clear' });
-  io.setStatus('running');
+  // A dead head promotes the next ask (or clears the card); a dead queued
+  // ask leaves the head untouched — it was never the one on the card.
+  if (wasHead) promoteNext(s, io);
+  else sendApprovalsWaiting(s, io);
   io.ping({ kind: 'expired', tool: pending.tool, detail: pending.detail, waitedMin: mins });
   pending.resolve(false, `No one answered the approval on the phone within ${mins} minutes. This is absence, not refusal — stop what you are doing cleanly and summarise what remains, so the user can resume and ask you to retry.`);
 }
@@ -266,10 +347,10 @@ export function flowAnswer(
   s: FlowSession, io: FlowIO, approvalId: string, allow: boolean,
   opts: { message?: string; legacyAlways?: boolean; choiceId?: string } = {},
 ): boolean {
-  if (!s.pending || s.pending.id !== approvalId) return false;
-  const pending = s.pending;
+  const taken = takeApproval(s, approvalId);
+  if (!taken) return false;
+  const { pending, wasHead } = taken;
   clearTimeout(pending.timer);
-  s.pending = undefined;
   if (allow) {
     const wanted = opts.choiceId ?? (opts.legacyAlways ? pending.choices[0]?.id : undefined);
     const grant = wanted
@@ -285,9 +366,36 @@ export function flowAnswer(
     t: Date.now(), kind: 'info',
     text: `${allow ? 'allowed' : 'denied'} ${pending.tool}${pending.detail ? ': ' + pending.detail.slice(0, 80) : ''}`,
   });
-  io.send({ type: 'permission-clear' });
-  io.setStatus('running');
+  // Answering the head brings up the next ask (or clears the card and goes
+  // back to running); answering a queued ask out of order just shortens the
+  // stack — the card the user is looking at does not change under them.
+  if (wasHead) promoteNext(s, io);
+  else sendApprovalsWaiting(s, io);
   pending.resolve(allow, opts.message || (allow ? undefined : 'The user denied this action from their phone.'));
+  return true;
+}
+
+/**
+ * Deny every waiting ask at once — the stop and process-exit path. Fail
+ * closed for the whole stack: a dying session must not leave a queued ask
+ * dangling with a live timer and no session behind it. Status is left to the
+ * caller, which knows whether this is a stop (idle) or a crash (error).
+ */
+export function flowDenyAll(s: FlowSession, io: FlowIO, message: string): boolean {
+  const all = [...(s.pending ? [s.pending] : []), ...s.approvalQueue];
+  if (all.length === 0) return false;
+  s.pending = undefined;
+  s.approvalQueue = [];
+  for (const p of all) {
+    clearTimeout(p.timer);
+    io.push({
+      t: Date.now(), kind: 'info',
+      text: `denied ${p.tool}${p.detail ? ': ' + p.detail.slice(0, 80) : ''} — ${message}`,
+    });
+  }
+  sendApprovalsWaiting(s, io);
+  io.send({ type: 'permission-clear' });
+  for (const p of all) p.resolve(false, message);
   return true;
 }
 

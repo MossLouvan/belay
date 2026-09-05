@@ -3,7 +3,7 @@
 // builds on.
 //
 // This lives under `src/` rather than next to the route because every file
-// inside `app/app/(tabs)/` is picked up by expo-router's route context and would
+// inside `app/app/(home)/` is picked up by expo-router's route context and would
 // register as an extra tab.
 
 export interface Size {
@@ -13,7 +13,7 @@ export interface Size {
 
 export const EMPTY_SIZE: Size = Object.freeze({ w: 0, h: 0 });
 
-export type QualityId = 'smooth' | 'balanced' | 'sharp';
+export type QualityId = 'smooth' | 'balanced' | 'sharp' | 'performance' | 'ultra';
 
 export interface QualityPreset {
   readonly id: QualityId;
@@ -50,7 +50,7 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     label: 'Smooth',
     w: 720,
     q: 35,
-    fps: 20,
+    fps: 30,
     hint: 'Softer picture, highest frame rate. Best on cellular or a slow Tailscale hop.',
     bwpPreset: 'data-saver',
     bwpFps: 60,
@@ -60,7 +60,7 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     label: 'Balanced',
     w: 1024,
     q: 50,
-    fps: 12,
+    fps: 30,
     hint: 'The default. Readable text at a comfortable frame rate.',
     bwpPreset: 'balanced',
     bwpFps: 60,
@@ -70,10 +70,34 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     label: 'Sharp',
     w: 1600,
     q: 78,
-    fps: 8,
-    hint: 'Crisp small text for code and terminals, at fewer frames per second.',
+    fps: 30,
+    hint: 'Crisp small text for code and terminals, at standard frame rate.',
     bwpPreset: 'high',
     bwpFps: 60,
+  },
+  {
+    id: 'performance',
+    label: 'Performance',
+    w: 1920,
+    q: 65,
+    fps: 60,
+    hint: 'High frame rate for smooth interaction. Requires WebRTC and hardware encoding.',
+    bwpPreset: 'high',
+    bwpFps: 60,
+  },
+  {
+    id: 'ultra',
+    label: 'Ultra',
+    w: 2560,
+    q: 70,
+    fps: 120,
+    hint: 'Maximum quality and frame rate for gaming and high-refresh displays. Requires WebRTC, hardware encoding, and high-speed connection.',
+    // The only preset that lifts the BWP ceiling to max, and the only one that
+    // asks for more than 60fps. H.264 makes 120 affordable in bandwidth terms;
+    // whether the host can encode that fast is a separate question the
+    // congestion controller and the encoder settle between them.
+    bwpPreset: 'max',
+    bwpFps: 120,
   },
 ]);
 
@@ -93,7 +117,18 @@ export const STREAM = Object.freeze({
 
 export const GESTURE = Object.freeze({
   tapSlopPx: 8,
-  longPressMs: 480,
+  /** Two taps within this window (ms) and this normalized distance become a
+   *  native double-click — no need to arm the 2×CLICK key. */
+  doubleTapMs: 260,
+  doubleTapSlop: 0.06,
+  longPressMs: 320, // faster hold-to-right-click
+  /** Two fingers down and up inside this window (ms) with no real travel is
+   *  a right-click at the pair's centroid — the Mac trackpad's secondary
+   *  click. Longer, or any movement, and the pair stays scroll/pinch. */
+  twoFingerTapMs: 250,
+  /** Centroid drift (px) the two-finger tap forgives. Kept ≥ scrollThresholdPx
+   *  so no drift band is too still to scroll yet too travelled to tap. */
+  twoFingerTapSlopPx: 12,
   minScale: 1,
   maxScale: 6,
   zoomStep: 1.6,
@@ -107,8 +142,8 @@ export const GESTURE = Object.freeze({
    * so a screen-height drag moves the page meaningfully further. "Still too
    * slow" and "too twitchy" are both answered here, in one edit.
    */
-  scrollGain: 1.6,
-  maxNotchesPerSend: 8,
+  scrollGain: 3.0, // faster wheel — a screen drag moves the page a long way
+  maxNotchesPerSend: 16,
   moveThrottleMs: 40,
   // Tuned down from 60 alongside scrollGain: a higher gain packs more notches
   // into each send, and stretching the same delta over fewer, larger events
@@ -123,13 +158,18 @@ export const GESTURE = Object.freeze({
   trackpadGain: 0.85,
   /** Frame budget assumed for the momentum decay, in ms. */
   frameMs: 16,
+  /** Edge detection thresholds for 2-finger gestures (Notification Center, etc). */
+  edgeThresholdPx: 60,
+  cornerThresholdPx: 80,
+  edgeSwipeThresholdPx: 40,
 });
 
 export interface KeySpec {
   /** Stable testID suffix. Never derived from the platform-dependent label. */
   readonly id: string;
   readonly label: string;
-  readonly key: string;
+  /** Optional: a few chords are macOS-only (macKey with no Windows key). */
+  readonly key?: string;
   readonly mods?: readonly string[];
   /** Label and modifiers used when the host reports macOS. */
   readonly macLabel?: string;
@@ -213,6 +253,15 @@ export const KEYS: readonly KeySpec[] = Object.freeze([
   { id: 'DeskPrev', label: 'Desk ←', key: 'left', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Previous desktop' },
   { id: 'DeskNext', label: 'Desk →', key: 'right', mods: ['win', 'ctrl'], macMods: ['rawctrl'], action: 'Next desktop' },
   { id: 'Overview', label: 'Views', key: 'tab', mods: ['win'], macKey: 'up', macMods: ['rawctrl'], action: 'See every window and desktop' },
+
+  // 3-finger down: App Exposé on Mac (shows windows of current app), unbound
+  // on Windows (Win+D is destructive toggle). Triggered by 3-finger swipe down.
+  { id: 'AppExpose', label: 'App Windows', macKey: 'down', macMods: ['rawctrl'], action: 'Show windows of current app' },
+
+  // 2-finger edge gesture: Notification Center / Action Center. Triggered by
+  // 2-finger swipe down from top edge. Windows only — macOS has no default
+  // hotkey for NC (user must configure one in System Settings).
+  { id: 'NotifyCenter', label: 'Notify', key: 'a', mods: ['win'], action: 'Open action center' },
 ]);
 
 /** Modifiers to send for a key, honouring the macOS variant when relevant. */
@@ -225,7 +274,7 @@ export const labelFor = (spec: KeySpec, mac: boolean): string =>
 
 /** The key name to send, honouring a chord that moves keys across platforms. */
 export const keyFor = (spec: KeySpec, mac: boolean): string =>
-  mac && spec.macKey ? spec.macKey : spec.key;
+  (mac && spec.macKey ? spec.macKey : spec.key) ?? spec.macKey ?? '';
 
 // --- macOS permission copy --------------------------------------------------
 
