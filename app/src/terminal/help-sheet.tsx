@@ -18,7 +18,7 @@ export function TerminalHelpSheet({ visible, onClose }: TerminalHelpSheetProps) 
   const theme = useTheme();
   return (
     <Sheet visible={visible} onClose={onClose} title="Terminal help" testID="term-help-sheet">
-      <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: theme.space.sm }}>
+      <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: theme.space.sm }} bounces={false}>
         <Txt variant="bodyStrong">Type and Run</Txt>
         <Caption>
           Type (also the keyboard&apos;s return key) sends exactly what is in the box, without pressing return — a
