@@ -647,6 +647,8 @@ export default function Connect() {
             }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            bounces={false}
+            alwaysBounceVertical={false}
           >
             <Brand />
 
