@@ -73,7 +73,7 @@ export function NeedsYouBanner({ bottom }: NeedsYouBannerProps) {
       style={{
         ...(bottom === undefined
           ? null
-          : { position: 'absolute' as const, left: 0, right: 0, bottom }),
+          : { position: 'absolute' as const, left: 0, right: 0, bottom, zIndex: 2 }),
         paddingHorizontal: theme.layout.margin,
         paddingVertical: theme.space.sm,
         gap: theme.space.xs,

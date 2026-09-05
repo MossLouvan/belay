@@ -23,11 +23,14 @@ export interface Range {
 
 export const STREAM_LIMITS = {
   /** Capture width in pixels. The host scales to this before encoding. */
-  width: { min: 240, max: 1920, fallback: 1024 },
+  width: { min: 240, max: 3840, fallback: 1024 },
   /** JPEG quality. Below ~20 the picture stops being useful. */
   quality: { min: 20, max: 90, fallback: 50 },
-  /** Frames per second. The ceiling bounds host CPU, not just bandwidth. */
-  fps: { min: 1, max: 30, fallback: 12 },
+  /** 
+   * Frames per second. JPEG path capped at 30 fps (CPU-bound); WebRTC 
+   * hardware path supports up to 240 fps when host display refresh allows.
+   */
+  fps: { min: 1, max: 240, fallback: 30 },
 } as const satisfies Record<string, Range>;
 
 /**

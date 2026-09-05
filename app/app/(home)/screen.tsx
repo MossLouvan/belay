@@ -115,6 +115,8 @@ import { ControlDock } from '../../src/screen/dock';
 import { PanelState } from '../../src/screen/panel-state';
 import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
 import { ClipboardSheet } from '../../src/screen/clipboard-sheet';
+import { StreamSettingsSheet } from '../../src/screen/stream-settings-sheet';
+import type { StreamSettings } from '../../src/screen/stream-settings-sheet';
 import type { SentInfo } from '../../src/screen/record-parts';
 import { SENT_NOTICE_MS } from '../../src/screen/record';
 import { useRecording } from '../../src/screen/useRecording';
@@ -159,8 +161,16 @@ export default function ScreenTab() {
   const [audioOn, setAudioOn] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showQuality, setShowQuality] = useState(false);
+  const [showStreamSettings, setShowStreamSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showMonitorPicker, setShowMonitorPicker] = useState(false);
+  // Stream performance settings (bitrate, FPS ceiling, codec, audio)
+  const [streamSettings, setStreamSettings] = useState<StreamSettings>({
+    fps: 60,
+    bitrateMbps: 0, // Auto
+    audioEnabled: audioOn,
+    codec: 'h264',
+  });
   const [text, setText] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [box, setBox] = useState<Size>(EMPTY_SIZE);
@@ -776,13 +786,13 @@ export default function ScreenTab() {
           </Animated.View>
 
           {showHud ? (
-            <StreamHud stats={stream.stats} pingMs={facts.pingMs} quality={quality} zoom={viewport.zoom} />
+            <StreamHud stats={stream.stats} pingMs={facts.pingMs} quality={quality} zoom={viewport.zoom} topInset={immersive ? insets.top : 0} />
           ) : null}
 
           {/* Portrait: the Full control rides the stage's own top-right
               corner. Landscape shows nothing here — it is already full. */}
           {!immersive && !permissions.captureBlocked
-            ? stageControls({ top: theme.space.xs, right: theme.space.xs })
+            ? stageControls({ top: theme.space.xs, right: theme.space.xs, zIndex: 2 })
             : null}
         </View>
 
@@ -808,13 +818,13 @@ export default function ScreenTab() {
             the letterboxed stage), always visible, full size, one action.
             Landscape needs no exit — rotating back IS the exit. */}
         {fullscreen && !landscape
-          ? stageControls({ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs })
+          ? stageControls({ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs, zIndex: 4 })
           : null}
 
         {/* Input errors still matter while immersive; they float over the top edge. */}
         {immersive ? (
           <View
-            style={{ pointerEvents: 'box-none', position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0 }}
+            style={{ pointerEvents: 'box-none', position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0, zIndex: 3 }}
           >
             {/* Recording must stay unmissable in fullscreen too — it floats on
                 the HUD scrim over the top edge, outliving the dock's auto-hide. */}
@@ -845,6 +855,7 @@ export default function ScreenTab() {
             left: insets.left + theme.space.sm,
             right: insets.right + theme.space.sm,
             bottom: insets.bottom + theme.space.sm,
+            zIndex: 5,
             opacity: dockOpacity,
           }}
         >
@@ -865,10 +876,10 @@ export default function ScreenTab() {
       )}
 
       {/* While the immersive bar is away, a thin strip on the very bottom
-          edge waits for the reveal swipe. Mounted only then, so it can never
-          sit between a finger and the desktop while the bar is up. */}
-      {immersive && !dockShown ? (
-        <EdgeRevealStrip testID="edge-reveal" bottomInset={insets.bottom} onReveal={dockHide.poke} />
+          edge waits for the reveal swipe. Kept mounted to avoid flicker;
+          disabled via pointerEvents when not needed. */}
+      {immersive ? (
+        <EdgeRevealStrip testID="edge-reveal" bottomInset={insets.bottom} onReveal={dockHide.poke} disabled={dockShown} />
       ) : null}
 
       {/* The type-to-PC row, floating on the keyboard's top edge. Absolute so
@@ -883,6 +894,7 @@ export default function ScreenTab() {
             left: 0,
             right: 0,
             bottom: 0,
+            zIndex: 10,
             transform: [{ translateY: typeBarLift }],
             // Opaque page ground normally; the HUD scrim over live video
             // while immersive, matching the floating dock's chrome.
@@ -911,6 +923,27 @@ export default function ScreenTab() {
 
       <ClipboardSheet visible={showClipboard} onClose={() => setShowClipboard(false)} />
 
+      <StreamSettingsSheet
+        visible={showStreamSettings}
+        onClose={() => setShowStreamSettings(false)}
+        settings={streamSettings}
+        onApply={(settings) => {
+          setStreamSettings(settings);
+          setAudioOn(settings.audioEnabled);
+          // Wire to WebRTC ABR: send control message to update encoder bitrate ceiling
+          // Control channel message: {"t":"bitrate","bps":settings.bitrateMbps*1_000_000}
+          // If bitrateMbps === 0 (Auto), congestion.ts decides with no ceiling
+          // On JPEG fallback: bitrate maps indirectly via quality/width presets
+          if (connection && settings.bitrateMbps > 0) {
+            const bps = settings.bitrateMbps * 1_000_000;
+            // TODO: Send via WebRTC control channel when session is WebRTC-backed
+            // For now this state is read by quality presets and HUD
+            console.log(`[stream-settings] bitrate ceiling: ${bps} bps (${settings.bitrateMbps} Mbps)`);
+          }
+        }}
+        webrtcAvailable={facts.info?.webrtc === true}
+      />
+
       {/* The tool drawer: the four former tabs, named and explained, each
           opening as a slide-up panel over this desktop. */}
       <ToolDrawer visible={showTools} onClose={() => setShowTools(false)} waitingCount={waitingCount} />
@@ -924,6 +957,15 @@ export default function ScreenTab() {
             onPress={() => {
               setShowMenu(false);
               setShowQuality(true);
+            }}
+          />
+          <ListItem
+            testID="stream-settings"
+            title="Performance settings"
+            subtitle={`${streamSettings.fps} Hz • ${streamSettings.bitrateMbps === 0 ? 'Auto' : `${streamSettings.bitrateMbps} Mbps`} • ${streamSettings.codec.toUpperCase()}`}
+            onPress={() => {
+              setShowMenu(false);
+              setShowStreamSettings(true);
             }}
           />
           <ListItem

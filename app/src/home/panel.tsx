@@ -87,7 +87,7 @@ export function ToolPanel({ children, testID }: ToolPanelProps) {
           screens still pad themselves with `insets.top`, so hand them a
           zeroed top inset rather than editing every header. */}
       <SafeAreaInsetsContext.Provider value={{ ...insets, top: 0 }}>
-        <View style={{ flex: 1 }}>{children}</View>
+        <View style={{ flex: 1, overflow: 'hidden' }}>{children}</View>
       </SafeAreaInsetsContext.Provider>
       {/* Approvals must reach you in every tool, not only on the desktop. */}
       <NeedsYouBanner bottom={0} />

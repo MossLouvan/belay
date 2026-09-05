@@ -352,6 +352,7 @@ export function ControlDock({
                   top: 0,
                   right: -2,
                   minWidth: 15,
+                  maxWidth: 24,
                   height: 15,
                   paddingHorizontal: 3,
                   borderRadius: 2,
@@ -362,9 +363,10 @@ export function ControlDock({
               >
                 <Text
                   allowFontScaling={false}
+                  numberOfLines={1}
                   style={{ color: theme.colors.onAccent, fontFamily: font.mono, fontSize: 9 }}
                 >
-                  {String(toolsBadge)}
+                  {toolsBadge > 99 ? '99+' : String(toolsBadge)}
                 </Text>
               </View>
             ) : null}

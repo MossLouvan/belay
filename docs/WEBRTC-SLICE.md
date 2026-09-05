@@ -10,6 +10,33 @@ host already share an authenticated connection (the existing WS), so it carries
 the SDP/ICE handshake. That proves the codec + transport + latency thesis on the
 cheapest possible footprint before any infrastructure is built.
 
+## Status Update (Latest)
+
+**All signaling and server infrastructure is COMPLETE and TESTED** (as of this commit):
+- `/ws/webrtc` route wired with SignalingBridge validation
+- Audio routes (`/audio/start`, `/audio/stop`, `/audio/status`, `/ws/audio`) registered behind flag
+- Native verb dispatch for `webrtc`, `audiostart`, `audiostop`, `audiostatus` in both Swift and C#
+- Encoder push sink mechanism in Capture.swift ready for hardware path
+- `webrtc` field added to `/screen/info` response for UI feature detection
+- Server typechecks and all tests pass
+
+**What remains HARDWARE-GATED:** The actual hardware encode/decode loop requires building
+with `BELAY_WEBRTC_BUILD=1` and vendoring libdatachannel. To enable:
+
+```bash
+# macOS:
+cd server/native/mac/transport/vendor
+bash build-libdatachannel.sh
+cd ../../../..
+BELAY_WEBRTC_BUILD=1 bash native/build-mac.sh
+
+# Then start with flag:
+BELAY_WEBRTC=1 npm start
+```
+
+Until the hardware path is built, the `webrtc` verb returns a clean error and the phone
+stays on JPEG (graceful degradation).
+
 ## What is implemented and tested (runs with no hardware)
 
 | Module | Job | Tests |

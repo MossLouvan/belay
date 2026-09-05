@@ -1,18 +1,15 @@
 // Wordmark and logo for the connect screen. Drawn from Views so there is no
 // image to decode and it recolours with the theme.
 //
-// The mark is a filled square (the computer) joined by a short rule to an
-// outlined one (the phone) — drawn for the app's original name, Tether, and
-// kept through the rename because it still says the true thing: two machines,
-// one line between them, nothing else in the picture. Flat, square, and
-// in `accentGraphic` — the reference's tiny vivid marks, not a badge. Centred
-// on purpose: the brand block is one of the two sanctioned centrings
-// (docs/DESIGN.md §2.6).
+// Brand fades in with a short upward settle (useEntrance). Rope/carabiner
+// motion lives in rope-splash / rope-pull — not a scribble of line segments here.
 
 import React from 'react';
 import { Animated, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Micro, Txt, useEntrance } from '../ui';
+import { Txt, useEntrance } from '../ui';
+
+const ROPE_BLUE = '#0066CC'; // Belay blue accent
 
 /** The link mark: a filled square joined to an outlined one. */
 export function LogoMark({ size = 20 }: { size?: number }) {
@@ -23,14 +20,14 @@ export function LogoMark({ size = 20 }: { size?: number }) {
       importantForAccessibility="no-hide-descendants"
       style={{ flexDirection: 'row', alignItems: 'center' }}
     >
-      <View style={{ width: size, height: size, backgroundColor: theme.colors.accentGraphic }} />
-      <View style={{ width: size, height: theme.layout.ruleEmphasis, backgroundColor: theme.colors.accentGraphic }} />
+      <View style={{ width: size, height: size, backgroundColor: ROPE_BLUE }} />
+      <View style={{ width: size, height: theme.layout.ruleEmphasis, backgroundColor: ROPE_BLUE }} />
       <View
         style={{
           width: size,
           height: size,
           borderWidth: theme.layout.ruleEmphasis,
-          borderColor: theme.colors.accentGraphic,
+          borderColor: ROPE_BLUE,
         }}
       />
     </View>
@@ -51,6 +48,7 @@ export function Brand() {
           lineHeight: 40,
           textTransform: 'none',
           letterSpacing: -1,
+          color: ROPE_BLUE,
         }}
       >
         Belay

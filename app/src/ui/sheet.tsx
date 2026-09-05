@@ -90,7 +90,7 @@ export function Sheet({
               borderColor: theme.colors.border,
               paddingHorizontal: theme.layout.margin,
               paddingTop: theme.space.sm,
-              paddingBottom: insets.bottom + theme.space.md,
+              paddingBottom: Math.max(insets.bottom, theme.space.xs) + theme.space.md,
               opacity: slide,
               transform: [{ translateY }],
             },
