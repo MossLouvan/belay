@@ -35,7 +35,7 @@ import type { PairingDeadEnd } from '../src/connect/dead-end';
 import { detectDeadEnd } from '../src/connect/dead-end';
 import { NoCodeStep } from '../src/connect/no-code-step';
 import { CODE_LENGTH, HostSummary, PairStep } from '../src/connect/pair-step';
-import { connectLanding, postPairDestination } from '../src/connect/landing';
+import { afterHowItWorks, connectLanding, postPairDestination } from '../src/connect/landing';
 import { WelcomeScreen, HowItWorksScreen } from '../src/connect/setup-intro';
 import { Animated } from 'react-native';
 import { useReducedMotion } from '../src/ui';
@@ -587,9 +587,19 @@ export default function Connect() {
     transitionToStage('how-it-works');
   }, [transitionToStage]);
 
+  /**
+   * Away-from-home is the app's main use case, so a first-time user's next
+   * stop after "how it works" is the guided Tailscale setup — install, sign
+   * in, connect — not the address box. The guide opens cold (no computer to
+   * watch yet), ends at the QR scanner, and its own "skip" drops anyone
+   * standing next to their computer straight onto the connect screen. The
+   * fork itself lives in connect/landing.ts, where node can test it.
+   */
   const onHowItWorksContinue = useCallback(() => {
-    transitionToStage('host');
-  }, [transitionToStage]);
+    const next = afterHowItWorks(recent.length > 0);
+    if (next === 'tailscale') setGuideHost(null);
+    transitionToStage(next);
+  }, [recent.length, transitionToStage]);
 
   const onHowItWorksBack = useCallback(() => {
     transitionToStage('welcome');

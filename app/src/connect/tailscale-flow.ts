@@ -119,3 +119,48 @@ export function readGuideDetection(
   if (outcome.kind === 'code-required') return { kind: 'code-required' };
   return { kind: 'waiting', detail: outcome.detail };
 }
+
+/**
+ * How long the connected confirmation stays on screen before the guide moves
+ * on by itself — long enough to read "you're connected", short enough that
+ * nobody wonders whether they were supposed to press something.
+ */
+export const AUTO_ADVANCE_DWELL_MS = 1000;
+
+/**
+ * The guide's hands-free ending, as a value a reducer can hold.
+ *
+ * The owner's question was "is there a way to not even need to press a
+ * button?" — so when the tailnet answers, the connect step advances on its
+ * own. But a network mid-way onto a tailnet can serve one lucky packet and
+ * then drop the next, and auto-advancing on that lucky packet would pair
+ * against an address that is about to vanish. So the machine demands two
+ * consecutive connected readings: the first lights the screen, the second —
+ * requested immediately, not a poll interval later — confirms it. A
+ * non-connected reading in between resets the streak; `ready` never demotes.
+ */
+export type AutoAdvance =
+  /** Nothing seen yet, or the streak was broken. */
+  | { readonly kind: 'idle' }
+  /** One connected reading — confirm it before moving anyone anywhere. */
+  | { readonly kind: 'confirming'; readonly url: string }
+  /** Confirmed twice over — the guide may advance without a tap. */
+  | { readonly kind: 'ready'; readonly url: string };
+
+/**
+ * Fold one raw poll reading into the auto-advance machine.
+ *
+ * Takes the reading *before* the screen's own "never demote a lit button"
+ * stickiness is applied — the debounce only means something against raw
+ * readings, since the sticky value can never disagree with itself.
+ */
+export function nextAutoAdvance(current: AutoAdvance, reading: GuideDetection): AutoAdvance {
+  if (current.kind === 'ready') return current;
+  if (reading.kind !== 'connected') {
+    // Idle stays the same value, not a fresh copy — a screen holding this in
+    // state should not re-render on every empty poll.
+    return current.kind === 'idle' ? current : { kind: 'idle' };
+  }
+  if (current.kind === 'confirming') return { kind: 'ready', url: reading.url };
+  return { kind: 'confirming', url: reading.url };
+}

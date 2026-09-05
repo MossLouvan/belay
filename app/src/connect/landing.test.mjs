@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { connectLanding, postPairDestination } from './landing.ts';
+import { afterHowItWorks, connectLanding, postPairDestination } from './landing.ts';
 
 const base = { ready: true, connected: false, deviceCount: 0, connecting: false, adding: false };
 
@@ -39,6 +39,16 @@ test('a fresh pair lands on Screen when the host can capture', () => {
 
 test('a host with no capture helper lands on System, not a black Screen', () => {
   assert.equal(postPairDestination(false), '/(home)/system');
+});
+
+test('a first-time user walks into the Tailscale guide after the intro', () => {
+  // Away-from-home is the main use case: the guided setup is the primary
+  // next step, not a side door behind a collapsed note.
+  assert.equal(afterHowItWorks(false), 'tailscale');
+});
+
+test('anyone with a remembered computer goes straight to connecting', () => {
+  assert.equal(afterHowItWorks(true), 'host');
 });
 
 test('an older host that reports neither way keeps the old Screen landing', () => {

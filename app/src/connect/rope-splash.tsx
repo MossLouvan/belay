@@ -16,7 +16,6 @@ import Animated, {
   withDelay,
   Easing,
 } from 'react-native-reanimated';
-import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '../theme';
 import { Txt, Micro, useReducedMotion } from '../ui';
 import { Carabiner } from '../ui/carabiner';
@@ -27,40 +26,40 @@ interface RopeSplashProps {
   animated?: boolean;
 }
 
+/** Stroke weight of the splash rope, in points. */
+const ROPE_STROKE = 4;
+
 /**
- * Curved rope using SVG Path — hangs from left and right edges,
- * sags in the middle where the carabiner clips on.
+ * Curved rope drawn without react-native-svg, which does not render under
+ * this Expo release's New Architecture — the visible sag is the bottom arc of
+ * a much larger circle: a plain bordered View, clipped by the container. The
+ * circle's radius comes from the sagitta formula, so the arc still enters at
+ * the container's edges and bottoms out at the same sag point the old bezier
+ * hit. Same curve, from geometry instead of a path string.
  */
 function Rope({ width, height, color }: { width: number; height: number; color: string }) {
-  // Rope starts at top-left, curves down in the middle (sag), ends at top-right
-  const startX = 0;
-  const startY = height * 0.15; // Start below top edge
-  const endX = width;
-  const endY = height * 0.15;
-  const sagX = width / 2;
-  const sagY = height * 0.45; // Sag point where carabiner hangs
-
-  // Quadratic bezier for smooth catenary-like curve
-  const path = `
-    M ${startX} ${startY}
-    Q ${sagX} ${sagY} ${endX} ${endY}
-  `;
+  const startY = height * 0.15; // Where the rope meets the screen edges
+  const sagY = height * 0.45; // Sag point where the carabiner hangs
+  const sag = sagY - startY;
+  const halfSpan = width / 2;
+  // Radius of the circle through both edge points and the sag point.
+  const radius = (halfSpan * halfSpan + sag * sag) / (2 * sag);
 
   return (
-    <Svg
-      width={width}
-      height={height}
-      style={StyleSheet.absoluteFill}
-      viewBox={`0 0 ${width} ${height}`}
-    >
-      <Path
-        d={path}
-        stroke={color}
-        strokeWidth={4}
-        fill="none"
-        strokeLinecap="round"
+    <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
+      <View
+        style={{
+          position: 'absolute',
+          left: width / 2 - radius,
+          top: sagY - radius * 2,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ROPE_STROKE,
+          borderColor: color,
+        }}
       />
-    </Svg>
+    </View>
   );
 }
 

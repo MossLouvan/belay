@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  AUTO_ADVANCE_DWELL_MS,
   GUIDE_CHECK_TIMEOUT_MS,
   GUIDE_POLL_MS,
   GUIDE_STEPS,
   guideProbeTarget,
   guideProgress,
   guideStepIndex,
+  nextAutoAdvance,
   nextGuideStep,
   prevGuideStep,
   readGuideDetection,
@@ -121,6 +123,52 @@ test('a host with no tailnet address at all is called out as such', () => {
     readGuideDetection({ ok: true, addresses: [lan] }, lanUrl, null),
     { kind: 'no-tailnet' },
   );
+});
+
+// ---- nextAutoAdvance ------------------------------------------------------
+
+const idle = { kind: 'idle' };
+const connected = (url) => ({ kind: 'connected', url });
+const waiting = { kind: 'waiting', detail: 'timed out' };
+
+test('one connected reading only starts the streak — never advances alone', () => {
+  assert.deepEqual(nextAutoAdvance(idle, connected(tsUrl)), { kind: 'confirming', url: tsUrl });
+});
+
+test('two connected readings in a row arm the auto-advance', () => {
+  const confirming = nextAutoAdvance(idle, connected(tsUrl));
+  assert.deepEqual(nextAutoAdvance(confirming, connected(tsUrl)), { kind: 'ready', url: tsUrl });
+});
+
+test('a miss between the two readings resets the streak — one lucky packet never advances', () => {
+  const confirming = nextAutoAdvance(idle, connected(tsUrl));
+  assert.deepEqual(nextAutoAdvance(confirming, waiting), idle);
+});
+
+test('non-connected readings leave idle alone — same value, not a fresh copy', () => {
+  // Identity matters: a screen holding this in state must not re-render on
+  // every empty poll.
+  assert.equal(nextAutoAdvance(idle, waiting), idle);
+  assert.equal(nextAutoAdvance(idle, { kind: 'no-tailnet' }), idle);
+  assert.equal(nextAutoAdvance(idle, { kind: 'code-required' }), idle);
+});
+
+test('ready never demotes, whatever a late poll says', () => {
+  const ready = { kind: 'ready', url: tsUrl };
+  assert.deepEqual(nextAutoAdvance(ready, waiting), ready);
+  assert.deepEqual(nextAutoAdvance(ready, { kind: 'code-required' }), ready);
+  assert.deepEqual(nextAutoAdvance(ready, connected(lanUrl)), ready);
+});
+
+test('the confirming read carries the freshest url forward', () => {
+  // The follow-up poll may discover a better address; ready keeps that one.
+  const confirming = nextAutoAdvance(idle, connected(lanUrl));
+  assert.deepEqual(nextAutoAdvance(confirming, connected(tsUrl)), { kind: 'ready', url: tsUrl });
+});
+
+test('the connected dwell is a readable beat, well under one poll interval', () => {
+  assert.ok(AUTO_ADVANCE_DWELL_MS >= 500);
+  assert.ok(AUTO_ADVANCE_DWELL_MS < GUIDE_POLL_MS);
 });
 
 test('checking the tailnet address itself and being asked for a code is code-required', () => {

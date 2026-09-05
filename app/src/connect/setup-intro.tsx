@@ -105,14 +105,16 @@ export function HowItWorksScreen({ onContinue, onBack }: HowItWorksScreenProps) 
       detail: 'A small program that lets Belay connect. Leave it running.',
     },
     {
+      // Away-from-home is the main use case, so Tailscale is a headline step
+      // of the setup, not fine print — the guided walk-through comes next.
       label: '02',
-      title: 'Connect your phone',
-      detail: 'Enter the address it prints, or scan the QR code.',
+      title: 'Set up Tailscale',
+      detail: 'A free app that lets your phone reach your computer from anywhere. Belay walks you through it next.',
     },
     {
       label: '03',
-      title: 'Pair once with a code',
-      detail: 'After that, your phone remembers this computer.',
+      title: 'Pair your phone once',
+      detail: 'Scan the QR code on your computer. After that, your phone remembers it.',
     },
     {
       label: '04',
@@ -201,7 +203,7 @@ export function HowItWorksScreen({ onContinue, onBack }: HowItWorksScreenProps) 
       {/* CTAs */}
       <View style={{ gap: theme.space.sm, marginTop: theme.space.lg }}>
         <Button
-          label="Connect now"
+          label="Continue"
           onPress={onContinue}
           fullWidth
           size="lg"
