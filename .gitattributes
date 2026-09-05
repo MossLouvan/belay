@@ -1,0 +1,15 @@
+# Shell scripts must keep LF endings whatever the checkout platform.
+#
+# This repo is developed on Windows, where core.autocrlf=true rewrites text
+# files to CRLF in the working tree. A .sh file that reaches macOS with CRLF
+# fails on its shebang with "bad interpreter: /usr/bin/env bash^M" — an error
+# that names the interpreter rather than the line endings, so it reads like a
+# broken toolchain rather than a checkout artifact.
+*.sh text eol=lf
+
+# Same reasoning for the podspec: CocoaPods evaluates it as Ruby on the Mac.
+*.podspec text eol=lf
+
+# Swift and the module map are consumed only by Xcode.
+*.swift text eol=lf
+*.modulemap text eol=lf
