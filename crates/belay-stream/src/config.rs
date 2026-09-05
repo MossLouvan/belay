@@ -31,6 +31,15 @@ pub struct Config {
     pub keyframe_interval_s: u32,
     /// Where pixels come from.
     pub source: Source,
+    /// Also mirror every coded frame to stdout as base64.
+    ///
+    /// For the debug harness only. A browser cannot open a UDP socket, so it
+    /// can never receive BWP directly; mirroring the coded frames up the pipe
+    /// the server already reads lets a WebCodecs decoder show the same picture
+    /// UDP would have carried. Off unless asked for: it costs a base64 encode
+    /// and a pipe write per frame, which is fine for a bench and pointless in
+    /// production.
+    pub debug_frames: bool,
 }
 
 /// The frame source.
@@ -139,7 +148,11 @@ impl Config {
             _ => Source::Desktop,
         };
 
-        Ok(Config { bind, peer, token, salt, preset, fps, monitor, keyframe_interval_s, source })
+        let debug_frames = matches!(field(json, "debugFrames"), Some("true") | Some("1"));
+
+        Ok(Config {
+            bind, peer, token, salt, preset, fps, monitor, keyframe_interval_s, source, debug_frames,
+        })
     }
 }
 
@@ -207,6 +220,17 @@ mod tests {
         assert!(Config::parse(r#"{"peer":"10.0.0.1:1"}"#).is_err());
         assert!(Config::parse("{}").is_err());
         assert!(Config::parse("not json at all").is_err());
+    }
+
+    #[test]
+    fn frame_mirroring_is_off_unless_explicitly_asked_for() {
+        assert!(!Config::parse(GOOD).unwrap().debug_frames);
+        let on = GOOD.replace("\"preset\"", "\"debugFrames\":true,\"preset\"");
+        assert!(Config::parse(&on).unwrap().debug_frames);
+        // Anything unrecognised means off. Mirroring every frame up a pipe
+        // because of a typo is a performance mystery nobody would look for.
+        let junk = GOOD.replace("\"preset\"", "\"debugFrames\":\"yes\",\"preset\"");
+        assert!(!Config::parse(&junk).unwrap().debug_frames);
     }
 
     #[test]

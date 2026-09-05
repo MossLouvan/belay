@@ -47,6 +47,13 @@ export interface BwpRequest {
   readonly preset?: string;
   readonly fps?: number;
   readonly monitor?: number;
+  /**
+   * Mirror coded frames back over the control socket.
+   *
+   * For the debug harness: a browser cannot bind a UDP socket, so it can never
+   * receive BWP directly. Off unless asked for.
+   */
+  readonly debugRelay?: boolean;
 }
 
 /** What the client needs in order to receive and decrypt the stream. */
@@ -62,6 +69,8 @@ export interface BwpOffer {
 
 export type BwpEvent =
   | { readonly type: 'ready'; readonly offer: BwpOffer }
+  /** A coded frame mirrored up the pipe, for the debug harness only. */
+  | { readonly type: 'h264'; readonly key: boolean; readonly b64: string }
   | { readonly type: 'stats'; readonly fps: number; readonly kbps: number; readonly bitrate: number }
   | { readonly type: 'bitrate'; readonly bps: number }
   | { readonly type: 'error'; readonly error: string }
@@ -155,6 +164,11 @@ export function parseStreamerLine(line: string): BwpEvent | null {
         kbps: Number(msg.kbps) || 0,
         bitrate: Number(msg.bitrate) || 0,
       };
+    case 'h264':
+      // Only shape-checked, not decoded: this is a debug mirror and the
+      // browser is the thing that has to make sense of the bytes.
+      if (typeof msg.b64 !== 'string' || msg.b64.length === 0) return null;
+      return { type: 'h264', key: msg.key === true, b64: msg.b64 };
     case 'bitrate':
       return { type: 'bitrate', bps: Number(msg.bps) || 0 };
     case 'error':
@@ -186,7 +200,10 @@ export class BwpSession {
     const exe = streamerPath();
     if (!exe) return Promise.reject(new Error('the host streamer is not built for this platform'));
 
-    const port = validPort(req.port);
+    // Port 0 is legal ONLY for a debug client asking purely for the mirror: a
+    // browser cannot bind a UDP socket, so there is nowhere to send. The
+    // streamer still encodes and still paces; the datagrams simply go nowhere.
+    const port = req.debugRelay === true && Number(req.port) === 0 ? 0 : validPort(req.port);
     if (port === null) return Promise.reject(new Error('a valid client UDP port is required'));
 
     const address = normalizeAddress(req.address);
@@ -204,12 +221,16 @@ export class BwpSession {
         // Taking it from the message would let a paired client redirect the
         // stream at a third party — an amplification primitive handed out for
         // free.
-        peer: `${address}:${port}`,
+        // Port 0 is not a routable destination; the discard port is, and makes
+        // the "sent nowhere" case explicit rather than relying on the OS to
+        // reject a zero port.
+        peer: `${address}:${port === 0 ? 9 : port}`,
         token: key,
         salt,
         preset: validPreset(req.preset),
         fps: validFps(req.fps),
         monitor: Math.max(0, Math.floor(Number(req.monitor) || 0)),
+        debugFrames: req.debugRelay === true,
       });
 
       const child = spawn(exe, [], { windowsHide: true });

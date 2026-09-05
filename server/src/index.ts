@@ -10,7 +10,8 @@ import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { hostname } from 'node:os';
-import { URL } from 'node:url';
+import { URL, fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import {
   loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices,
@@ -23,6 +24,10 @@ import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
 import { BwpSession } from './bwp-stream.js';
+import { debugUiEnabled } from './debug-ui.js';
+
+// This file is ESM, so __dirname does not exist; derive it once.
+const moduleDir = dirname(fileURLToPath(import.meta.url));
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { messageOf } from './errors.js';
@@ -491,6 +496,26 @@ app.post('/clipboard', auth, async (req, res) => {
     await native.clipboardSet(parsed.text);
     res.json({ ok: true, length: parsed.text.length });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ---- Debug harness (opt-in, BELAY_DEBUG_UI) -------------------------------
+//
+// A browser client for testing the host from Windows, so verifying a feature
+// does not require a Mac build. See server/debug/index.html for what it is and
+// why it exists.
+//
+// Behind a flag and unauthenticated ONLY as a static page: every API it calls
+// still needs a token, so the page grants nothing by itself. It is gated
+// anyway, because a debug console answering on the LAN is a hint about the
+// machine that a stranger has no business collecting.
+app.get('/debug', (_req, res) => {
+  if (!debugUiEnabled()) {
+    res.status(403).type('text/plain').send(
+      'The debug harness is off. Start the host with BELAY_DEBUG_UI=1 to enable it.',
+    );
+    return;
+  }
+  res.sendFile(join(moduleDir, '..', 'debug', 'index.html'));
 });
 
 app.get('/screen/info', auth, async (_req, res) => {
@@ -1363,6 +1388,15 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
         case 'bitrate':
           ws.send(JSON.stringify({ type: 'bwpBitrate', bps: event.bps }));
           break;
+        case 'h264':
+          // The debug mirror. Dropped rather than queued when the socket is
+          // already backed up: a debug view showing stale frames is worse than
+          // one showing fewer, and this must never grow the send buffer of a
+          // socket that also carries control messages.
+          if (ws.bufferedAmount < MAX_BUFFERED_BYTES) {
+            ws.send(JSON.stringify({ type: 'h264', key: event.key, b64: event.b64 }));
+          }
+          break;
         case 'error':
         case 'exit': {
           // The stream died. Say so and fall back to JPEG rather than leaving
@@ -1384,6 +1418,7 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
         preset: typeof msg.preset === 'string' ? msg.preset : undefined,
         fps: typeof msg.fps === 'number' ? msg.fps : undefined,
         monitor: params.screen,
+        debugRelay: msg.debugRelay === true,
       });
       if (!alive || ws.readyState !== ws.OPEN) { stopBwp(); return; }
       bwpActive = true;

@@ -1,0 +1,525 @@
+<!--
+  Belay VM debug harness.
+
+  WHY THIS EXISTS
+  ---------------
+  The iOS app can only be built on a Mac, and the host is built on Windows. That
+  gap means a feature can be finished, merged and running on the host for days
+  while the only client able to exercise it is a build somebody made last week.
+  That is precisely how "the virtual display isn't there, multi-cursor isn't
+  there" happens when both are, in fact, on main.
+
+  This page removes the Mac from the loop. It is a client that runs in Chrome or
+  Edge on Windows, talks to the real server over the real authenticated
+  protocol, and exposes every feature as a switch you can flip while watching
+  what the host actually does. It is not a product surface and never will be —
+  it is a bench instrument.
+
+  DESIGN, AND WHERE PARSEC INFORMED IT
+  ------------------------------------
+  Parsec's browser client (parsec.app/blog/game-streaming-tech-in-the-browser)
+  solved the same shape of problem in 2019 and their conclusions still hold in
+  the parts that matter:
+
+  * Browsers cannot open a raw UDP socket. Parsec wrapped UDP in SCTP in DTLS
+    via RTCDataChannel because they had to traverse NAT between strangers. We
+    are on one LAN talking to one known host, so a plain WebSocket does the same
+    job with none of the machinery. Their constraint was NAT; ours is nothing.
+
+  * For video they used MSE in Chrome's undocumented low-delay mode, because in
+    2019 that was the only way to get frames on screen without a playback
+    buffer. WebCodecs did not exist yet. It does now, and VideoDecoder takes
+    H.264 access units directly - no fMP4 boxing, no buffered-playback
+    semantics to fight. That is the one place where the modern answer is simply
+    better than theirs.
+
+  * Their input channel is binary and separate from video. Ours is separate too,
+    for the same reason: a pointer update must never queue behind a frame.
+
+  Everything here is deliberately dependency-free. No build step, no npm, no
+  bundler. Open it in a browser and it runs - which is the entire point of a
+  tool whose job is to prove the other toolchains are not the problem.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Belay VM debug harness</title>
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #141822; --line: #232838; --ink: #e6e9f0;
+    --dim: #8b93a7; --accent: #ff7a45; --ok: #3ecf8e; --bad: #ff5c5c; --warn: #ffc857;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+    display: grid; grid-template-columns: 340px 1fr; height: 100vh; overflow: hidden;
+  }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 14px; }
+  main { position: relative; display: flex; flex-direction: column; min-width: 0; }
+  h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: .2px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim);
+       margin: 18px 0 8px; padding-bottom: 5px; border-bottom: 1px solid var(--line); }
+  .sub { color: var(--dim); font-size: 12px; margin: 0 0 6px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .row > label { flex: 1; font-size: 13px; }
+  button {
+    background: #1d2432; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 11px; font: inherit; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #1a0f0a; font-weight: 600; }
+  select, input[type=text], input[type=number] {
+    background: #0f131c; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 8px; font: inherit; width: 100%;
+  }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+  .pill { font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 99px; border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); border-color: #1d5a41; }
+  .pill.bad { color: var(--bad); border-color: #5a1d1d; }
+  .pill.warn { color: var(--warn); border-color: #5a4a1d; }
+  #stage { flex: 1; position: relative; background: #000; overflow: hidden; min-height: 0; }
+  #frame, #canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  #cursors { position: absolute; inset: 0; pointer-events: none; }
+  #hud {
+    position: absolute; top: 10px; left: 10px; background: rgba(10,12,18,.82);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+    font-family: var(--mono); font-size: 11px; line-height: 1.7; min-width: 190px;
+  }
+  #hud .k { color: var(--dim); display: inline-block; width: 74px; }
+  #log {
+    height: 190px; overflow-y: auto; background: #080a0e; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11px; padding: 8px; white-space: pre-wrap;
+  }
+  #log .t { color: var(--dim); }
+  #log .e { color: var(--bad); }
+  #log .g { color: var(--ok); }
+  #log .w { color: var(--warn); }
+  .hint { font-size: 11px; color: var(--dim); margin: 4px 0 0; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Belay VM debug harness</h1>
+  <p class="sub">Chrome/Edge on Windows &rarr; the VM, over the real protocol.</p>
+
+  <h2>Host</h2>
+  <div class="row"><input type="text" id="host" value="192.168.0.126:8787"></div>
+  <div class="row">
+    <span class="pill" id="st-http">http ?</span>
+    <span class="pill" id="st-ws">ws ?</span>
+    <span class="pill" id="st-paired">unpaired</span>
+  </div>
+  <div class="row"><input type="text" id="code" placeholder="6-digit pairing code" maxlength="6"></div>
+  <div class="row">
+    <button id="pair" class="primary">Pair</button>
+    <button id="connect" disabled>Connect</button>
+    <button id="disconnect" disabled>Stop</button>
+  </div>
+  <p class="hint">The code is printed by the server in the VM. A token is kept in
+     localStorage, so pairing is a one-off.</p>
+
+  <h2>Virtual display</h2>
+  <div class="row"><select id="vd">
+    <option value="">Physical screen (no virtual display)</option>
+    <option value="1280x800">1280 &times; 800</option>
+    <option value="1920x1080">1920 &times; 1080</option>
+    <option value="1920x1200">1920 &times; 1200</option>
+    <option value="2560x1440">2560 &times; 1440</option>
+  </select></div>
+  <div class="row"><span class="pill" id="st-vd">driver ?</span><span class="pill" id="st-vdactive">inactive</span></div>
+  <p class="hint">Creates a driver-backed display on the host and captures THAT.
+     Watch the VM window: the desktop should extend.</p>
+
+  <h2>Capture</h2>
+  <div class="row"><label for="monitor">Monitor index</label><input type="number" id="monitor" value="0" min="0" max="7" style="width:64px"></div>
+  <div class="row"><label for="quality">Quality</label></div>
+  <div class="row"><select id="quality"></select></div>
+
+  <h2>Transport</h2>
+  <div class="row"><input type="checkbox" id="bwp"><label for="bwp">Request H.264 over BWP</label></div>
+  <div class="row"><input type="checkbox" id="decode" checked><label for="decode">Decode H.264 here (WebCodecs)</label></div>
+  <div class="row"><span class="pill" id="st-codec">codec ?</span><span class="pill" id="st-path">path -</span></div>
+  <p class="hint">BWP itself is UDP and a browser cannot open one. With the
+     debug relay on, the host also pushes coded frames down this socket so
+     WebCodecs can decode them. Without it you still see the negotiation.</p>
+
+  <h2>Multi-cursor</h2>
+  <div class="row"><input type="checkbox" id="cursors"><label for="cursors">Join the cursor channel</label></div>
+  <div class="row"><input type="checkbox" id="sendcursor"><label for="sendcursor">Publish my pointer</label></div>
+  <div class="row"><span class="pill" id="st-cursors">0 peers</span></div>
+
+  <h2>Diagnostics</h2>
+  <div class="row"><button id="probe">Probe host features</button></div>
+  <div class="row"><button id="clearlog">Clear log</button></div>
+</aside>
+
+<main>
+  <div id="stage">
+    <img id="frame" alt="">
+    <canvas id="canvas" hidden></canvas>
+    <svg id="cursors"></svg>
+    <div id="hud">
+      <div><span class="k">source</span><span id="h-src">-</span></div>
+      <div><span class="k">size</span><span id="h-size">-</span></div>
+      <div><span class="k">fps</span><span id="h-fps">-</span></div>
+      <div><span class="k">rate</span><span id="h-rate">-</span></div>
+      <div><span class="k">bitrate</span><span id="h-br">-</span></div>
+      <div><span class="k">decoded</span><span id="h-dec">-</span></div>
+    </div>
+  </div>
+  <div id="log"></div>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+
+function log(msg, cls = '') {
+  const t = new Date().toISOString().slice(11, 23);
+  const line = document.createElement('div');
+  line.innerHTML = `<span class="t">${t}</span> <span class="${cls}">${msg}</span>`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+  while (logEl.childElementCount > 400) logEl.removeChild(logEl.firstChild);
+}
+const ok = (m) => log(m, 'g');
+const bad = (m) => log(m, 'e');
+const warn = (m) => log(m, 'w');
+
+function pill(id, text, kind = '') {
+  const el = $(id);
+  el.textContent = text;
+  el.className = 'pill' + (kind ? ' ' + kind : '');
+}
+
+// ---- state ---------------------------------------------------------------
+const state = {
+  host: localStorage.getItem('belay.host') || '192.168.0.126:8787',
+  token: localStorage.getItem('belay.token') || null,
+  ws: null,
+  cursorWs: null,
+  decoder: null,
+  selfCursorId: null,
+  frames: 0, bytes: 0, decoded: 0,
+};
+$('host').value = state.host;
+if (state.token) pill('st-paired', 'paired', 'ok');
+
+const base = () => `http://${state.host}`;
+const wsBase = () => `ws://${state.host}`;
+
+// ---- pairing -------------------------------------------------------------
+// The same two-step the app does: POST /pair for a device token, then a
+// single-use ticket per socket, because a WebSocket upgrade cannot carry
+// an Authorization header.
+async function pair() {
+  state.host = $('host').value.trim();
+  localStorage.setItem('belay.host', state.host);
+  const code = $('code').value.trim();
+  try {
+    const res = await fetch(`${base()}/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: code || undefined, deviceName: 'debug-harness (windows)' }),
+    });
+    if (!res.ok) { bad(`pair failed ${res.status}: ${await res.text()}`); return; }
+    const body = await res.json();
+    state.token = body.token;
+    localStorage.setItem('belay.token', body.token);
+    pill('st-paired', 'paired', 'ok');
+    ok(`paired with ${body.name}${body.via ? ' via ' + body.via : ''}`);
+    $('connect').disabled = false;
+    probe();
+  } catch (e) { bad(`pair error: ${e.message}`); }
+}
+
+async function ticket() {
+  const res = await fetch(`${base()}/ws-ticket`, {
+    method: 'POST', headers: { authorization: `Bearer ${state.token}` },
+  });
+  if (!res.ok) throw new Error(`ticket ${res.status}`);
+  return (await res.json()).ticket;
+}
+
+// ---- host feature probe --------------------------------------------------
+// The question this whole page exists to answer: what does the host actually
+// support right now? Not what a client build from last week thinks it does.
+async function probe() {
+  try {
+    const h = await fetch(`${base()}/health`).then((r) => r.json()).catch(() => null);
+    pill('st-http', h ? 'http ok' : 'http down', h ? 'ok' : 'bad');
+    const res = await fetch(`${base()}/screen/info`, {
+      headers: { authorization: `Bearer ${state.token}` },
+    });
+    if (!res.ok) { warn(`/screen/info -> ${res.status}`); return; }
+    const info = await res.json();
+    const vd = info.virtualDisplay || {};
+    pill('st-vd', vd.supported ? 'driver present' : 'no driver', vd.supported ? 'ok' : 'bad');
+    log(`host: ${info.screens?.length ?? '?'} screen(s), virtual display ${vd.supported ? 'SUPPORTED' : 'unavailable'}`);
+    if (Array.isArray(info.screens)) {
+      info.screens.forEach((s, i) => log(`  screen[${i}] ${s.width}x${s.height}${s.primary ? ' primary' : ''}`));
+    }
+  } catch (e) { bad(`probe failed: ${e.message}`); pill('st-http', 'http down', 'bad'); }
+}
+
+// ---- quality presets -----------------------------------------------------
+// Mirrors app/src/screen/model.ts. Duplicated on purpose: this page has no
+// build step, and a bench instrument that cannot run without a bundler is not
+// a bench instrument.
+const QUALITY = [
+  { id: 'smooth', label: 'Smooth', w: 720, q: 35, fps: 30 },
+  { id: 'balanced', label: 'Balanced', w: 1024, q: 50, fps: 30 },
+  { id: 'sharp', label: 'Sharp', w: 1600, q: 78, fps: 30 },
+  { id: 'performance', label: 'Performance', w: 1920, q: 65, fps: 60 },
+  { id: 'ultra', label: 'Ultra', w: 2560, q: 70, fps: 120 },
+];
+$('quality').innerHTML = QUALITY.map((p) => `<option value="${p.id}">${p.label} — ${p.w}px q${p.q} ${p.fps}fps</option>`).join('');
+$('quality').value = 'balanced';
+const quality = () => QUALITY.find((p) => p.id === $('quality').value) || QUALITY[1];
+
+// ---- the screen socket ---------------------------------------------------
+function virtualRequest() {
+  const v = $('vd').value;
+  if (!v) return null;
+  const [w, h] = v.split('x').map(Number);
+  return { width: w, height: h, refreshHz: 60 };
+}
+
+function sendConfig() {
+  const ws = state.ws;
+  if (!ws || ws.readyState !== 1) return;
+  const q = quality();
+  const msg = {
+    type: 'config', w: q.w, q: q.q, fps: q.fps,
+    screen: Number($('monitor').value) || 0,
+    virtual: virtualRequest(),
+  };
+  ws.send(JSON.stringify(msg));
+  log(`config -> ${JSON.stringify(msg)}`);
+}
+
+async function connect() {
+  disconnect();
+  state.host = $('host').value.trim();
+  localStorage.setItem('belay.host', state.host);
+  try {
+    const t = await ticket();
+    const q = quality();
+    const url = `${wsBase()}/ws/screen?ticket=${t}&w=${q.w}&q=${q.q}&fps=${q.fps}&screen=${Number($('monitor').value) || 0}`;
+    const ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    state.ws = ws;
+
+    ws.onopen = () => {
+      pill('st-ws', 'ws open', 'ok');
+      ok('screen socket open');
+      $('disconnect').disabled = false;
+      sendConfig();
+      if ($('bwp').checked) startBwp();
+    };
+    ws.onmessage = (ev) => onScreenMessage(ev.data);
+    ws.onerror = () => { pill('st-ws', 'ws error', 'bad'); };
+    ws.onclose = (e) => {
+      pill('st-ws', `ws closed ${e.code}`, 'bad');
+      log(`screen socket closed (${e.code})`);
+      $('disconnect').disabled = true;
+    };
+  } catch (e) { bad(`connect failed: ${e.message}`); }
+}
+
+function disconnect() {
+  if (state.ws) { try { state.ws.close(); } catch {} state.ws = null; }
+  if (state.decoder) { try { state.decoder.close(); } catch {} state.decoder = null; }
+  pill('st-ws', 'ws -', '');
+  pill('st-path', 'path -', '');
+}
+
+function startBwp() {
+  const ws = state.ws;
+  if (!ws || ws.readyState !== 1) return;
+  // Port 0: a browser cannot bind a UDP socket, so there is nowhere for the
+  // host to send. Asking anyway exercises the whole negotiation and, with the
+  // debug relay on, the host mirrors coded frames down this socket instead.
+  const msg = { type: 'bwpStart', port: 0, preset: 'auto', fps: 60, debugRelay: true };
+  ws.send(JSON.stringify(msg));
+  log(`bwpStart -> ${JSON.stringify(msg)}`);
+}
+
+// ---- WebCodecs H.264 -----------------------------------------------------
+// Parsec used MSE in Chrome's low-delay mode because WebCodecs did not exist in
+// 2019. It does now: VideoDecoder takes access units directly, with no fMP4
+// boxing and no buffered-playback semantics to fight.
+const canvas = $('canvas');
+const ctx = canvas.getContext('2d');
+
+function ensureDecoder(description) {
+  if (state.decoder) return state.decoder;
+  if (!('VideoDecoder' in window)) {
+    pill('st-codec', 'no WebCodecs', 'bad');
+    warn('this browser has no WebCodecs; use Chrome or Edge');
+    return null;
+  }
+  const dec = new VideoDecoder({
+    output: (frame) => {
+      canvas.width = frame.displayWidth;
+      canvas.height = frame.displayHeight;
+      ctx.drawImage(frame, 0, 0);
+      frame.close();
+      state.decoded++;
+    },
+    error: (e) => { bad(`decoder: ${e.message}`); pill('st-codec', 'decode error', 'bad'); },
+  });
+  // avc1.42E028 = Baseline 4.0, which is what the host encoder emits.
+  // `annexb` means raw start-code delimited NALs — exactly what comes off the
+  // wire, so no description and no boxing is needed.
+  dec.configure({ codec: 'avc1.42E028', optimizeForLatency: true, ...(description ? { description } : {}) });
+  state.decoder = dec;
+  pill('st-codec', 'H.264 ready', 'ok');
+  return dec;
+}
+
+function decodeChunk(bytes, isKey) {
+  const dec = ensureDecoder();
+  if (!dec) return;
+  // A decoder cannot start mid-GOP; drop deltas until the first keyframe or it
+  // errors out permanently on the very first frame.
+  if (dec.state !== 'configured') return;
+  if (!state.sawKey && !isKey) return;
+  if (isKey) state.sawKey = true;
+  try {
+    dec.decode(new EncodedVideoChunk({
+      type: isKey ? 'key' : 'delta',
+      timestamp: performance.now() * 1000,
+      data: bytes,
+    }));
+  } catch (e) { bad(`decode: ${e.message}`); }
+}
+
+// ---- screen messages -----------------------------------------------------
+const img = $('frame');
+function onScreenMessage(data) {
+  let msg;
+  try { msg = JSON.parse(typeof data === 'string' ? data : new TextDecoder().decode(data)); }
+  catch { return; }
+
+  switch (msg.type) {
+    case 'frame': {
+      img.hidden = false; canvas.hidden = true;
+      img.src = `data:image/jpeg;base64,${msg.data}`;
+      state.frames++; state.bytes += msg.bytes || 0;
+      $('h-src').textContent = 'JPEG';
+      $('h-size').textContent = `${msg.w}x${msg.h} of ${msg.sw}x${msg.sh}`;
+      break;
+    }
+    case 'bwpOffer':
+      ok(`bwpOffer port=${msg.port} ${msg.width}x${msg.height} path=${msg.path}`);
+      pill('st-path', `path ${msg.path}`, msg.path === 'gpu' ? 'ok' : 'warn');
+      $('h-src').textContent = 'H.264 (BWP)';
+      $('h-size').textContent = `${msg.width}x${msg.height}`;
+      break;
+    case 'bwpStats':
+      $('h-fps').textContent = msg.fps?.toFixed?.(1) ?? msg.fps;
+      $('h-rate').textContent = `${msg.kbps} kbps`;
+      $('h-br').textContent = `${(msg.bitrate / 1e6).toFixed(1)} Mbps`;
+      break;
+    case 'bwpBitrate': $('h-br').textContent = `${(msg.bps / 1e6).toFixed(1)} Mbps`; break;
+    case 'bwpUnavailable': warn(`bwp unavailable: ${msg.error}`); pill('st-path', 'no bwp', 'bad'); break;
+    case 'bwpEnded': warn(`bwp ended: ${msg.error}`); pill('st-path', 'bwp ended', 'bad'); break;
+    case 'h264': {
+      // The debug relay: coded frames mirrored down this socket so a browser
+      // can decode what UDP would otherwise carry.
+      if (!$('decode').checked) break;
+      img.hidden = true; canvas.hidden = false;
+      const raw = atob(msg.b64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      decodeChunk(bytes, !!msg.key);
+      break;
+    }
+    case 'error': bad(`host error: ${msg.error}`); break;
+    default: break;
+  }
+}
+
+// ---- multi-cursor --------------------------------------------------------
+const svg = $('cursors');
+async function joinCursors() {
+  leaveCursors();
+  try {
+    const t = await ticket();
+    const ws = new WebSocket(`${wsBase()}/ws/cursors?ticket=${t}`);
+    state.cursorWs = ws;
+    ws.onopen = () => ok('cursor channel joined');
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.type === 'hello') { state.selfCursorId = m.id; log(`cursor id ${m.id} (${m.color})`); }
+      if (m.type === 'cursors') paintCursors(m.cursors || []);
+    };
+    ws.onclose = () => { pill('st-cursors', '0 peers'); svg.innerHTML = ''; };
+  } catch (e) { bad(`cursor channel: ${e.message}`); }
+}
+function leaveCursors() {
+  if (state.cursorWs) { try { state.cursorWs.close(); } catch {} state.cursorWs = null; }
+  svg.innerHTML = '';
+}
+function paintCursors(rows) {
+  pill('st-cursors', `${rows.length} peer${rows.length === 1 ? '' : 's'}`, rows.length ? 'ok' : '');
+  const r = svg.getBoundingClientRect();
+  svg.innerHTML = rows.map((c) => {
+    const x = (c.x ?? 0) * r.width, y = (c.y ?? 0) * r.height;
+    const me = c.id === state.selfCursorId;
+    return `<g transform="translate(${x},${y})" opacity="${me ? 0.55 : 1}">
+      <path d="M0,0 L0,15 L4,11 L7,17 L9,16 L6,10 L11,10 Z" fill="${c.color || '#fff'}" stroke="#000" stroke-width=".7"/>
+      <text x="14" y="17" font-size="11" fill="${c.color || '#fff'}" stroke="#000" stroke-width="2.5"
+            paint-order="stroke">${(c.name || '?')}${me ? ' (me)' : ''}</text>
+    </g>`;
+  }).join('');
+}
+$('stage').addEventListener('pointermove', (e) => {
+  if (!$('sendcursor').checked) return;
+  const ws = state.cursorWs;
+  if (!ws || ws.readyState !== 1) return;
+  const r = $('stage').getBoundingClientRect();
+  ws.send(JSON.stringify({
+    x: (e.clientX - r.left) / r.width,
+    y: (e.clientY - r.top) / r.height,
+    screen: Number($('monitor').value) || 0,
+  }));
+});
+
+// ---- stats ticker --------------------------------------------------------
+setInterval(() => {
+  if ($('h-src').textContent === 'JPEG') {
+    $('h-fps').textContent = String(state.frames);
+    $('h-rate').textContent = `${Math.round(state.bytes / 1024)} KB/s`;
+  }
+  $('h-dec').textContent = String(state.decoded);
+  state.frames = 0; state.bytes = 0;
+}, 1000);
+
+// ---- wiring --------------------------------------------------------------
+$('pair').onclick = pair;
+$('connect').onclick = connect;
+$('disconnect').onclick = disconnect;
+$('probe').onclick = probe;
+$('clearlog').onclick = () => { logEl.innerHTML = ''; };
+$('vd').onchange = () => {
+  sendConfig();
+  const v = $('vd').value;
+  pill('st-vdactive', v ? `requested ${v}` : 'inactive', v ? 'warn' : '');
+};
+$('quality').onchange = sendConfig;
+$('monitor').onchange = sendConfig;
+$('bwp').onchange = () => { if ($('bwp').checked) startBwp(); else state.ws?.send(JSON.stringify({ type: 'bwpStop' })); };
+$('cursors').onchange = () => ($('cursors').checked ? joinCursors() : leaveCursors());
+
+if (state.token) { $('connect').disabled = false; probe(); }
+log('ready. Pair with the code the VM prints, then Connect.');
+</script>
+</body>
+</html>

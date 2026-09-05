@@ -141,6 +141,36 @@ static class BelayVirtualDisplay
         SafeFileHandle device = TryOpenControlDevice();
         if (device == null)
         {
+            // Nothing has created the software device yet, so there is no
+            // control device to open — and that says nothing about whether the
+            // driver is installed.
+            //
+            // This used to report supported:false here, which deadlocked the
+            // whole feature: the client hides the resolution picker when the
+            // host says unsupported, and the only thing that would have made it
+            // supported was creating a display through that picker. The driver
+            // could be installed, signed, loaded and working, and the option
+            // would never appear.
+            //
+            // Creating the devnode is what Create() does first anyway. It is
+            // cheap, adds no monitor, changes no desktop, and is torn down when
+            // this process exits — so asking the question honestly costs
+            // nothing a create would not already have cost.
+            try
+            {
+                EnsureSoftwareDevice();
+                device = TryOpenControlDevice();
+            }
+            catch (Exception e)
+            {
+                return new Dictionary<string, object> {
+                    { "id", id }, { "ok", true }, { "active", false }, { "supported", false },
+                    { "reason", e.Message },
+                };
+            }
+        }
+        if (device == null)
+        {
             return new Dictionary<string, object> {
                 { "id", id }, { "ok", true }, { "active", false }, { "supported", false },
                 { "reason", "BelayVDD driver not installed or not running (see docs/VIRTUAL-DISPLAY.md)" },

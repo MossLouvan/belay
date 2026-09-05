@@ -35,6 +35,25 @@ use crate::synthetic::SyntheticSource;
 /// samples cannot be shown, so they would be bandwidth spent on nothing.
 const CURSOR_MAX_HZ: u32 = 120;
 
+/// Base64 for the debug frame mirror.
+///
+/// Hand-rolled rather than pulled in as a dependency: it is fifteen lines, it
+/// is used on one debug path, and a crate in the tree is a thing to keep
+/// updated forever.
+fn base64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { T[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
 /// How long to wait on Desktop Duplication before going round the loop again.
 ///
 /// Short enough that session polling and cursor updates stay responsive on a
@@ -269,6 +288,14 @@ pub fn run(
             session
                 .send_frame(Channel::Video, &frame.data, frame.keyframe)
                 .map_err(|e| format!("video send failed: {e:?}"))?;
+            // Mirror to the pipe for the debug harness. After the UDP send, not
+            // before: the real path must never wait on a debug convenience.
+            if config.debug_frames {
+                emit(
+                    "h264",
+                    &format!("\"key\":{},\"b64\":\"{}\"", frame.keyframe, base64(&frame.data)),
+                );
+            }
             frames += 1;
             sent_bytes += bytes as u64;
         }
