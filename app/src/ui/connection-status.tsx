@@ -62,7 +62,7 @@ export function ConnectionStatus({
       </Row>
       {/* The machine link (a place, not a status) yields the row to the status
           and truncates its own name rather than pushing the word off screen. */}
-      {trailing ? <View style={{ flexShrink: 1, minWidth: 0, maxWidth: '50%' }}>{trailing}</View> : null}
+      {trailing ? <View style={{ flexShrink: 1, minWidth: 0, maxWidth: '60%' }}>{trailing}</View> : null}
     </Row>
   );
 }

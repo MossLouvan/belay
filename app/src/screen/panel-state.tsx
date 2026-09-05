@@ -159,7 +159,7 @@ export function PanelState({
   const copy = panelCopyFor(connected, phase, streamError, captureBlocked, captureKnown, hostName);
 
   return (
-    <View testID={testID} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+    <View testID={testID} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 }}>
       <GlassState
         status={copy.severity}
         name={copy.name}
