@@ -16,58 +16,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
 import { Txt, Caption, useReducedMotion } from './index';
 import { Carabiner } from './carabiner';
+import { RopeStrand } from './rope-strand';
 import { SPRING_CONFIGS } from './motion';
 
 /**
- * Short rope segment with helical braid pattern.
- * Staggered dashes show twist construction, avoiding parallel tube appearance.
+ * Short rope segment with helical braid pattern - uses shared RopeStrand.
  */
 function RopeSegment({ height = 30, color }: { height?: number; color: string }) {
   const ropeWidth = 4;
-  const dashHeight = ropeWidth * 2.5;
-  const dashCount = Math.max(2, Math.floor(height / (dashHeight + ropeWidth)));
   
   return (
-    <View style={{ position: 'relative', width: ropeWidth, height, alignItems: 'center' }}>
-      {/* Shadow for depth */}
-      <View
-        style={{
-          position: 'absolute',
-          left: 1,
-          top: 0,
-          width: ropeWidth,
-          height,
-          backgroundColor: 'rgba(0, 0, 0, 0.15)',
-          borderRadius: ropeWidth / 2,
-        }}
+    <View style={{ width: ropeWidth * 3, height, justifyContent: 'center' }}>
+      <RopeStrand
+        width={ropeWidth}
+        color={color}
+        currentHeight={height}
       />
-      {/* Main rope body */}
-      <View
-        style={{
-          width: ropeWidth,
-          height,
-          backgroundColor: color,
-          borderRadius: ropeWidth / 2,
-        }}
-      />
-      {/* Helical braid: staggered dashes */}
-      {Array.from({ length: dashCount }).map((_, i) => {
-        const offset = i * (dashHeight + ropeWidth * 1.5);
-        return (
-          <View
-            key={`dash-${i}`}
-            style={{
-              position: 'absolute',
-              top: offset,
-              left: i % 2 === 0 ? ropeWidth * 0.15 : -ropeWidth * 0.05,
-              width: ropeWidth * 0.4,
-              height: Math.min(dashHeight, height - offset),
-              borderRadius: ropeWidth * 0.2,
-              backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
-            }}
-          />
-        );
-      })}
     </View>
   );
 }

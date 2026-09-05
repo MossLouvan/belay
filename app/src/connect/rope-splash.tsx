@@ -21,6 +21,7 @@ import Animated, {
 import { useTheme } from '../theme';
 import { Txt, Micro, useReducedMotion } from '../ui';
 import { Carabiner } from '../ui/carabiner';
+import { CurvedRopeStrand } from '../ui/rope-strand';
 import { SPRING_CONFIGS } from '../ui/motion';
 
 interface RopeSplashProps {
@@ -33,70 +34,12 @@ const ROPE_STROKE = 6;
 
 /**
  * Curved rope with helical braid pattern under tension.
- * The visible sag is the bottom arc of a large circle. Offset circles create
- * the helical twist pattern, avoiding parallel tube appearance.
+ * Uses shared CurvedRopeStrand for consistent rendering across the app.
  */
 function Rope({ width, height, color }: { width: number; height: number; color: string }) {
-  const startY = height * 0.15; // Where the rope meets the screen edges
-  const sagY = height * 0.45; // Sag point where the carabiner hangs
-  const sag = sagY - startY;
-  const halfSpan = width / 2;
-  // Radius of the circle through both edge points and the sag point.
-  const radius = (halfSpan * halfSpan + sag * sag) / (2 * sag);
-
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
-      {/* Shadow layer for depth */}
-      <View
-        style={{
-          position: 'absolute',
-          left: width / 2 - radius,
-          top: sagY - radius * 2 + 2,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE,
-          borderColor: 'rgba(0, 0, 0, 0.2)',
-        }}
-      />
-      {/* Main rope body */}
-      <View
-        style={{
-          position: 'absolute',
-          left: width / 2 - radius,
-          top: sagY - radius * 2,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE,
-          borderColor: color,
-        }}
-      />
-      {/* Helical braid pattern — offset circles create twist read */}
-      <View
-        style={{
-          position: 'absolute',
-          left: width / 2 - radius + ROPE_STROKE * 0.3,
-          top: sagY - radius * 2 - ROPE_STROKE * 0.2,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE * 0.25,
-          borderColor: 'rgba(255, 255, 255, 0.35)',
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: width / 2 - radius - ROPE_STROKE * 0.25,
-          top: sagY - radius * 2 + ROPE_STROKE * 0.3,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE * 0.2,
-          borderColor: 'rgba(255, 255, 255, 0.2)',
-        }}
-      />
+      <CurvedRopeStrand width={width} height={height} color={color} ropeStroke={ROPE_STROKE} />
     </View>
   );
 }

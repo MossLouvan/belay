@@ -9,25 +9,24 @@ import { Animated, View } from 'react-native';
 import { useTheme } from '../theme';
 import { Txt, useEntrance } from '../ui';
 
-const ROPE_BLUE = '#0066CC'; // Belay blue accent
-
 /** The link mark: a filled square joined to an outlined one. */
 export function LogoMark({ size = 20 }: { size?: number }) {
   const theme = useTheme();
+  const accentColor = theme.colors.accentGraphic;
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       style={{ flexDirection: 'row', alignItems: 'center' }}
     >
-      <View style={{ width: size, height: size, backgroundColor: ROPE_BLUE }} />
-      <View style={{ width: size, height: theme.layout.ruleEmphasis, backgroundColor: ROPE_BLUE }} />
+      <View style={{ width: size, height: size, backgroundColor: accentColor }} />
+      <View style={{ width: size, height: theme.layout.ruleEmphasis, backgroundColor: accentColor }} />
       <View
         style={{
           width: size,
           height: size,
           borderWidth: theme.layout.ruleEmphasis,
-          borderColor: ROPE_BLUE,
+          borderColor: accentColor,
         }}
       />
     </View>
@@ -48,7 +47,7 @@ export function Brand() {
           lineHeight: 40,
           textTransform: 'none',
           letterSpacing: -1,
-          color: ROPE_BLUE,
+          color: theme.colors.accentGraphic,
         }}
       >
         Belay

@@ -94,6 +94,7 @@ private func handle(_ command: Command) throws {
     case "scroll": try handleScroll(command)
     case "key": try handleKey(command)
     case "text": try handleText(command)
+    case "idle": try handleIdle(command)
     case "windows": replies.ok(id: command.id, ["windows": WindowList.all()])
     case "capturewindow": try handleCaptureWindow(command)
     case "focuswindow": try handleFocusWindow(command)
@@ -295,6 +296,34 @@ private func handleKey(_ command: Command) throws {
 private func handleText(_ command: Command) throws {
     try input.type(try command.string("text") ?? "")
     replies.ok(id: command.id)
+}
+
+/// How long the host has been idle, in milliseconds.
+///
+/// Used by the input floor to detect a human at the keyboard: when a local user
+/// is typing or moving the mouse, remote input is frozen for a few seconds so
+/// the person physically at the machine always wins. The Windows helper has had
+/// this since PR #15; the macOS equivalent is `CGEventSourceSecondsSinceLastEventType`,
+/// which is what this implements.
+///
+/// The probe counts injected input too, exactly like Windows `GetLastInputInfo`.
+/// The server records when it injects and discounts readings landing within 400 ms
+/// of that (see `isLocalActivity` in server/src/input-floor.ts), so a remote
+/// click does not freeze out the user who sent it.
+private func handleIdle(_ command: Command) throws {
+    // CGEventSourceSecondsSinceLastEventType: seconds (fractional) since the last
+    // event of the specified type. `.combinedSessionState` includes both the
+    // current user session and the system (vs `.hidSystemState` which is
+    // hardware-only and misses some input). We check both mouse and keyboard
+    // events and take the minimum — activity on either counts as "the human is here".
+    let mouseIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved)
+    let keyIdle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+    
+    // Take the minimum: if either is recent, the user is active
+    let idleSeconds = min(mouseIdle, keyIdle)
+    let idleMs = Int((idleSeconds * 1000).rounded())
+    
+    replies.ok(id: command.id, ["idleMs": idleMs])
 }
 
 /// Driver-backed virtual display management (opt-in; the Node side gates it
