@@ -559,6 +559,11 @@ app.get('/screen/virtual-display', auth, async (_req, res) => {
       available: reply?.supported === true,
       active: reply?.active === true,
       display: reply?.display ?? null,
+      // Why not, when not. Without this the client can only say "unavailable",
+      // which is the least useful thing it could tell someone whose driver is
+      // installed and working — the difference between "no driver", "not
+      // elevated" and "blocked by signing policy" is the whole diagnosis.
+      reason: typeof reply?.reason === 'string' ? reply.reason : undefined,
     });
   } catch (e: any) {
     // A helper without the backend says `unknown command`; surface it as

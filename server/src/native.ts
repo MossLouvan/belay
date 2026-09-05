@@ -437,7 +437,13 @@ class NativeHost {
   // macOS: the private CGVirtualDisplay API is present) — the signal the phone
   // needs to decide whether to OFFER true-resolution capture at all, separate
   // from whether one is currently `active`.
-  virtualDisplayStatus(): Promise<{ active?: boolean; supported?: boolean; display?: unknown }> {
+  virtualDisplayStatus(): Promise<{
+    active?: boolean;
+    supported?: boolean;
+    display?: unknown;
+    /** Why the driver could not be reached, when it could not. */
+    reason?: string;
+  }> {
     return this.send({ cmd: 'virtualdisplay', action: 'status' });
   }
 

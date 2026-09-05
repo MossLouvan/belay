@@ -253,17 +253,39 @@ async function probe() {
   try {
     const h = await fetch(`${base()}/health`).then((r) => r.json()).catch(() => null);
     pill('st-http', h ? 'http ok' : 'http down', h ? 'ok' : 'bad');
-    const res = await fetch(`${base()}/screen/info`, {
-      headers: { authorization: `Bearer ${state.token}` },
-    });
+    const auth = { authorization: `Bearer ${state.token}` };
+
+    // The virtual display lives on its own route, not on /screen/info. The two
+    // answer different questions: info is about the monitors that exist, this
+    // is about whether the host can make another one.
+    const vdRes = await fetch(`${base()}/screen/virtual-display`, { headers: auth });
+    if (vdRes.status === 403) {
+      pill('st-vd', 'flag off', 'bad');
+      warn('virtual display DISABLED on the host — start it with BELAY_VIRTUAL_DISPLAY=1');
+    } else if (vdRes.ok) {
+      const vd = await vdRes.json();
+      pill('st-vd', vd.available ? 'driver ready' : 'no driver', vd.available ? 'ok' : 'bad');
+      pill('st-vdactive', vd.active ? 'ACTIVE' : 'inactive', vd.active ? 'ok' : '');
+      log(`virtual display: enabled=${vd.enabled} available=${vd.available} active=${vd.active}`);
+      if (!vd.available) {
+        warn(`  the flag is on but the host cannot reach the driver`);
+        if (vd.reason) warn(`  host says: ${vd.reason}`);
+      }
+    } else {
+      pill('st-vd', `vd ${vdRes.status}`, 'bad');
+      warn(`/screen/virtual-display -> ${vdRes.status}`);
+    }
+
+    const res = await fetch(`${base()}/screen/info`, { headers: auth });
     if (!res.ok) { warn(`/screen/info -> ${res.status}`); return; }
     const info = await res.json();
-    const vd = info.virtualDisplay || {};
-    pill('st-vd', vd.supported ? 'driver present' : 'no driver', vd.supported ? 'ok' : 'bad');
-    log(`host: ${info.screens?.length ?? '?'} screen(s), virtual display ${vd.supported ? 'SUPPORTED' : 'unavailable'}`);
-    if (Array.isArray(info.screens)) {
-      info.screens.forEach((s, i) => log(`  screen[${i}] ${s.width}x${s.height}${s.primary ? ' primary' : ''}`));
-    }
+    const screens = info.screens || [];
+    log(`host: ${screens.length} screen(s), webrtc=${info.webrtc === true}`);
+    screens.forEach((s, i) => {
+      // The helper spells them W/H; classifyScreens adds the virtual flag.
+      const w = s.W ?? s.width, h = s.H ?? s.height;
+      log(`  screen[${i}] ${w}x${h}${s.primary ? ' primary' : ''}${s.virtualDisplay ? ' [VIRTUAL]' : ''}`);
+    });
   } catch (e) { bad(`probe failed: ${e.message}`); pill('st-http', 'http down', 'bad'); }
 }
 
@@ -297,7 +319,13 @@ function sendConfig() {
   const msg = {
     type: 'config', w: q.w, q: q.q, fps: q.fps,
     screen: Number($('monitor').value) || 0,
-    virtual: virtualRequest(),
+    // `virtualDisplay`, not `virtual`. The server has both words in play and
+    // they mean different things: `virtual` (on a capture call) means the union
+    // of the whole desktop, while `virtualDisplay` is the driver-backed display.
+    // Sending the wrong one is silently ignored — resolveVirtualRequest returns
+    // the current value when the key is absent, so nothing errors and nothing
+    // happens.
+    virtualDisplay: virtualRequest(),
   };
   ws.send(JSON.stringify(msg));
   log(`config -> ${JSON.stringify(msg)}`);

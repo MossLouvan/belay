@@ -159,7 +159,12 @@ static class BelayVirtualDisplay
             try
             {
                 EnsureSoftwareDevice();
-                device = TryOpenControlDevice();
+                // OpenControlDevice, not TryOpenControlDevice: a freshly created
+                // software device takes a moment to start, and the Try variant
+                // is a single shot. Create() has always used the retrying one
+                // for exactly this reason; probing with the other reported "not
+                // installed" for a driver that was merely still starting.
+                device = OpenControlDevice();
             }
             catch (Exception e)
             {
