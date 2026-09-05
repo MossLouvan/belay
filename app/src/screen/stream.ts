@@ -99,6 +99,17 @@ export interface StreamState {
   readonly bwp: BwpSource | null;
   /** Host-reported stream rate while BWP is carrying video. */
   readonly bwpStats: BwpStats | null;
+  /**
+   * 'gpu' or 'cpu' while H.264 is carrying video, else null.
+   *
+   * Separate from `bwp` because it is set the moment the offer arrives, about a
+   * second before the first stats line. The readout needs to say "H.264,
+   * starting" in that window rather than showing the JPEG counters' zeros.
+   */
+  readonly bwpPath: string | null;
+  /** The host's frame size from its offer. Zero until one arrives. */
+  readonly bwpWidth: number;
+  readonly bwpHeight: number;
 }
 
 interface FrameCounters {
@@ -187,6 +198,8 @@ export function useScreenStream(
   const [generation, setGeneration] = useState(0);
   const [bwp, setBwp] = useState<BwpSource | null>(null);
   const [bwpStats, setBwpStats] = useState<BwpStats | null>(null);
+  const [bwpPath, setBwpPath] = useState<string | null>(null);
+  const [bwpSize, setBwpSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   // A ref as well as state: the stall detector and the message handler both
   // need to know synchronously whether BWP is carrying video, and reading it
   // from state there would see the value from the render that installed them.
@@ -233,6 +246,8 @@ export function useScreenStream(
       setStats(EMPTY_STATS);
       setBwp(null);
       setBwpStats(null);
+      setBwpPath(null);
+      setBwpSize({ width: 0, height: 0 });
       bwpLive.current = false;
       return;
     }
@@ -281,6 +296,8 @@ export function useScreenStream(
               preset: qualityRef.current.bwpPreset,
               localPort: reservedPort.current,
             });
+            setBwpPath(bwpMsg.offer.path);
+            setBwpSize({ width: bwpMsg.offer.width, height: bwpMsg.offer.height });
             setPhase('live');
             setError(null);
             if (tries !== 0) { tries = 0; setAttempt(0); }
@@ -297,6 +314,7 @@ export function useScreenStream(
             // this, and the JPEG loop is already carrying the picture.
             bwpLive.current = false;
             setBwp(null);
+            setBwpPath(null);
             break;
           case 'ended':
             // The stream died mid-session. Drop back to JPEG rather than
@@ -304,6 +322,7 @@ export function useScreenStream(
             bwpLive.current = false;
             setBwp(null);
             setBwpStats(null);
+            setBwpPath(null);
             counters.current.lastFrameAt = 0;
             break;
         }
@@ -428,6 +447,7 @@ export function useScreenStream(
         bwpLive.current = false;
         setBwp(null);
         setBwpStats(null);
+        setBwpPath(null);
         if (event?.code === 4001) {
           // The host revoked this device mid-stream. Terminal — do not retry.
           setError('This phone is no longer paired with that computer.');
@@ -497,7 +517,19 @@ export function useScreenStream(
     setGeneration((g) => g + 1);
   }, []);
 
-  return { phase, frameUri, stats, error, attempt, retry, bwp, bwpStats };
+  return {
+    phase,
+    frameUri,
+    stats,
+    error,
+    attempt,
+    retry,
+    bwp,
+    bwpStats,
+    bwpPath,
+    bwpWidth: bwpSize.width,
+    bwpHeight: bwpSize.height,
+  };
 }
 
 // --- host facts -------------------------------------------------------------

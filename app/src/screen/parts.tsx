@@ -31,6 +31,8 @@ import type { Repeater } from './repeat';
 import { DIMMED_OPACITY } from './autohide';
 import type { ModsState, StickyMod } from './mods';
 import type { PermissionState, Phase, StreamStats } from './stream';
+import type { BwpStats } from './bwp';
+import { hudRows } from './hud';
 
 export const FILL = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const;
 
@@ -535,20 +537,18 @@ export interface StreamHudProps {
   pingMs: number | null;
   quality: QualityPreset;
   zoom: number;
+  /** Host-reported rate while H.264 carries the video, else null. */
+  bwp?: BwpStats | null;
+  bwpSize?: { readonly width: number; readonly height: number } | null;
+  bwpPath?: string | null;
 }
 
 /** Connection-quality readout. Decorative overlay — never intercepts touches. */
-export function StreamHud({ stats, pingMs, quality, zoom }: StreamHudProps) {
+export function StreamHud({ stats, pingMs, quality, zoom, bwp = null, bwpSize = null, bwpPath = null }: StreamHudProps) {
   const theme = useTheme();
-  const rows: readonly (readonly [string, string])[] = [
-    ['fps', `${stats.fps} / ${quality.fps}`],
-    ['rate', `${stats.kbps} KB/s`],
-    ['frame', `${Math.round(stats.frameBytes / 1024)} KB`],
-    ['sent', stats.width > 0 ? `${stats.width}×${stats.height}` : '—'],
-    ['source', stats.sourceWidth > 0 ? `${stats.sourceWidth}×${stats.sourceHeight}` : '—'],
-    ['ping', pingMs === null ? '—' : `${pingMs} ms`],
-    ['zoom', `${zoom.toFixed(1)}×`],
-  ];
+  // Which rows make sense depends on which video path is live, and the JPEG
+  // counters read zero throughout an H.264 stream. See ./hud.
+  const rows = hudRows({ stats, bwp, bwpSize, bwpPath, quality, pingMs, zoom });
   return (
     <View
       testID="hud"

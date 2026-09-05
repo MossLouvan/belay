@@ -71,6 +71,7 @@ import {
   useScreenStream,
 } from '../../src/screen/stream';
 import { BelayStreamView } from '../../modules/belay-stream/src';
+import { nowLine, qualityDescription } from '../../src/screen/hud';
 import { useViewport } from '../../src/screen/viewport';
 import type { PendingButton, PointerMode } from '../../src/screen/viewport';
 import { SWIPE_ACTION_ID } from '../../src/screen/swipe';
@@ -666,7 +667,15 @@ export default function ScreenTab() {
           </Animated.View>
 
           {showHud ? (
-            <StreamHud stats={stream.stats} pingMs={facts.pingMs} quality={quality} zoom={viewport.zoom} />
+            <StreamHud
+              stats={stream.stats}
+              pingMs={facts.pingMs}
+              quality={quality}
+              zoom={viewport.zoom}
+              bwp={stream.bwpStats}
+              bwpSize={stream.bwp ? { width: stream.bwpWidth, height: stream.bwpHeight } : null}
+              bwpPath={stream.bwpPath}
+            />
           ) : null}
 
           {/* Normal mode: the two stage controls (Keys eye + Full brackets)
@@ -855,11 +864,17 @@ export default function ScreenTab() {
             options={QUALITY.map((preset) => ({ value: preset.id, label: preset.label }))}
           />
           <Caption>{quality.hint}</Caption>
+          <Caption>{qualityDescription(quality, stream.bwpPath !== null)}</Caption>
           <Caption>
-            {`Sending ${quality.w}px wide at quality ${quality.q}, up to ${quality.fps} fps. Applied to the running stream — no reconnect.`}
-          </Caption>
-          <Caption>
-            {`Now: ${stream.stats.fps} fps · ${stream.stats.kbps} KB/s · ping ${facts.pingMs === null ? '—' : `${facts.pingMs} ms`}`}
+            {nowLine({
+              stats: stream.stats,
+              bwp: stream.bwpStats,
+              bwpSize: null,
+              bwpPath: stream.bwpPath,
+              quality,
+              pingMs: facts.pingMs,
+              zoom: viewport.zoom,
+            })}
           </Caption>
 
           {/* True-resolution picker — only when the host advertises the virtual
