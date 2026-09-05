@@ -358,6 +358,8 @@ export interface ScreenInfo {
   displays?: number;
   platform?: string;
   permissions?: HostPermissions;
+  /** True when the host has BELAY_WEBRTC / hardware encode path available. */
+  webrtc?: boolean;
 }
 
 /**
