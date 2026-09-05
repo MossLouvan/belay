@@ -43,6 +43,7 @@ export interface RopeStrandProps {
 
 /**
  * Curved rope strand for splash screen with fiber optic flow along the arc.
+ * Helical braid pattern with tilted dashes following the curve tangent.
  */
 export function CurvedRopeStrand({
   width,
@@ -123,6 +124,12 @@ export function CurvedRopeStrand({
   const packet2Style = getPacketStyle(packet2);
   const packet3Style = getPacketStyle(packet3);
 
+  // Calculate dashes along the arc with proper rotation
+  const dashCount = 14;
+  const dashWidth = width * 0.4;
+  const dashHeight = width * 2.5;
+  const arcSpan = Math.PI; // 180 degree arc
+
   return (
     <View style={[{ position: 'relative' }, animatedStyle]} pointerEvents="none">
       {/* Shadow layer */}
@@ -151,31 +158,42 @@ export function CurvedRopeStrand({
           borderColor: color,
         }}
       />
-      {/* Helical highlight pattern — offset circles create braid read */}
-      <View
-        style={{
-          position: 'absolute',
-          left: circleCenter.x - circleRadius + width * 0.3,
-          top: circleCenter.y - circleRadius * 2 - width * 0.2,
-          width: circleRadius * 2,
-          height: circleRadius * 2,
-          borderRadius: circleRadius,
-          borderWidth: width * 0.25,
-          borderColor: 'rgba(255, 255, 255, 0.35)',
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: circleCenter.x - circleRadius - width * 0.25,
-          top: circleCenter.y - circleRadius * 2 + width * 0.3,
-          width: circleRadius * 2,
-          height: circleRadius * 2,
-          borderRadius: circleRadius,
-          borderWidth: width * 0.2,
-          borderColor: 'rgba(255, 255, 255, 0.2)',
-        }}
-      />
+      
+      {/* Helical braid pattern — tilted dashes along the arc following tangent */}
+      {Array.from({ length: dashCount }).map((_, i) => {
+        const t = i / (dashCount - 1);
+        const angle = -Math.PI / 2 - arcSpan / 2 + arcSpan * t;
+        
+        const x = circleCenter.x + circleRadius * Math.cos(angle);
+        const y = circleCenter.y - circleRadius * 2 + circleRadius * Math.sin(angle);
+        
+        const side = i % 2 === 0 ? 1 : -1;
+        const offset = side * width * 0.25;
+        
+        const perpAngle = angle + Math.PI / 2;
+        const dashX = x + offset * Math.cos(perpAngle);
+        const dashY = y + offset * Math.sin(perpAngle);
+        
+        const tangentAngle = angle + Math.PI / 2;
+        const rotateDeg = (tangentAngle * 180) / Math.PI;
+        const dashOpacity = i % 2 === 0 ? 0.35 : 0.22;
+        
+        return (
+          <View
+            key={`dash-${i}`}
+            style={{
+              position: 'absolute',
+              left: dashX - dashWidth / 2,
+              top: dashY - dashHeight / 2,
+              width: dashWidth,
+              height: dashHeight,
+              borderRadius: dashWidth / 2,
+              backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
+              transform: [{ rotate: `${rotateDeg}deg` }],
+            }}
+          />
+        );
+      })}
 
       {/* Data packets traveling along the curved arc — sparse, subtle, clipped to strand */}
       {shouldAnimate && (
@@ -184,13 +202,13 @@ export function CurvedRopeStrand({
             style={[
               packet1Style,
               {
-                width: width * 0.5, // Smaller, subtle
+                width: width * 0.5,
                 height: width * 1.4,
                 borderRadius: width * 0.25,
-                backgroundColor: color, // Belay blue tint
+                backgroundColor: color,
                 shadowColor: color,
                 shadowRadius: width * 0.3,
-                shadowOpacity: 0.2, // Very subtle glow
+                shadowOpacity: 0.2,
               },
             ]}
           />
@@ -268,6 +286,9 @@ export function RopeStrand({
   const dashHeight = width * 2.5;
   const dashGap = width * 1.5;
 
+  // Determine effective rope height for packet travel scaling
+  const effectiveHeight = currentHeight || 100; // Default to 100 if no height specified
+
   // Data packet animations - 3 sparse packets with staggered timing (SUBTLE)
   const packet1 = useSharedValue(0);
   const packet2 = useSharedValue(0);
@@ -316,25 +337,25 @@ export function RopeStrand({
     );
   }, [shouldAnimate, packet1, packet2, packet3, flowGlow]);
 
-  // Animated styles for data packets - SUBTLE opacity
+  // Animated styles for data packets - SUBTLE opacity, scaled to actual rope height
   const packet1Style = useAnimatedStyle(() => ({
     opacity: packet1.value > 0 && packet1.value < 0.95 ? 0.25 : 0,
-    transform: [{ translateY: packet1.value * 100 }],
+    transform: [{ translateY: packet1.value * effectiveHeight }],
   }));
 
   const packet2Style = useAnimatedStyle(() => ({
     opacity: packet2.value > 0 && packet2.value < 0.95 ? 0.2 : 0,
-    transform: [{ translateY: packet2.value * 100 }],
+    transform: [{ translateY: packet2.value * effectiveHeight }],
   }));
 
   const packet3Style = useAnimatedStyle(() => ({
     opacity: packet3.value > 0 && packet3.value < 0.95 ? 0.22 : 0,
-    transform: [{ translateY: packet3.value * 100 }],
+    transform: [{ translateY: packet3.value * effectiveHeight }],
   }));
 
   // Flow glow style - very low amplitude, Belay blue core
   const flowGlowStyle = useAnimatedStyle(() => ({
-    opacity: shouldAnimate ? flowGlow.value * 0.05 + 0.02 : 0.03, // Static bloom or gentle pulse
+    opacity: shouldAnimate ? flowGlow.value * 0.04 + 0.02 : 0.03, // Kept ≤0.05 contribution
   }));
 
   return (
@@ -384,10 +405,14 @@ export function RopeStrand({
         ]}
       />
 
-      {/* Helical braid highlights — staggered dashes spiraling along rope */}
+      {/* Helical braid highlights — staggered dashes spiraling along rope with ~30° tilt */}
       {Array.from({ length: dashCount }).map((_, i) => {
         const offset = i * (dashHeight + dashGap);
-        const side = i % 2 === 0 ? width * 0.2 : -width * 0.15;
+        const side = i % 2 === 0 ? 1 : -1;
+        const xOffset = side * width * 0.15;
+        const tiltAngle = side * 30; // ~30° tilt alternating left/right for spiral read
+        const dashOpacity = i % 2 === 0 ? 0.35 : 0.22;
+        
         return (
           <Animated.View
             key={`dash-${i}`}
@@ -395,11 +420,12 @@ export function RopeStrand({
               {
                 position: 'absolute',
                 top: offset,
-                left: side,
+                left: xOffset,
                 width: width * 0.4,
                 height: dashHeight,
                 borderRadius: width * 0.2,
-                backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
+                backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
+                transform: [{ rotate: `${tiltAngle}deg` }],
               },
               animatedStyle,
             ]}
