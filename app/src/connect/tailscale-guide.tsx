@@ -203,19 +203,24 @@ export function TailscaleGuide({
     live.current = true;
     return () => {
       live.current = false;
+      if (stepTransitionTimer.current) clearTimeout(stepTransitionTimer.current);
     };
   }, []);
+
+  const stepTransitionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const goTo = useCallback(
     (next: GuideStep) => {
       haptic('light');
+      // Clear any pending transition
+      if (stepTransitionTimer.current) clearTimeout(stepTransitionTimer.current);
       if (reducedMotion) {
         setStep(next);
         return;
       }
       stepAnim.value = withTiming(0, { duration: theme.motion.fast, easing: EASE_STANDARD });
       // Swap content at the bottom of the fade, then rise back in.
-      setTimeout(() => {
+      stepTransitionTimer.current = setTimeout(() => {
         if (!live.current) return;
         setStep(next);
         stepAnim.value = withTiming(1, { duration: theme.motion.base, easing: EASE_STANDARD });

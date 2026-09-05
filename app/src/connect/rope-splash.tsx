@@ -89,7 +89,9 @@ export function RopeSplash({ animated = true }: RopeSplashProps) {
   const hasAnimated = useRef(false);
 
   useEffect(() => {
-    if (!shouldAnimate || hasAnimated.current) return;
+    if (!shouldAnimate) return;
+    // Allow re-animation on remount by checking if values are at their starting positions
+    if (hasAnimated.current && ropeY.value === 0) return;
     hasAnimated.current = true;
 
     // 1. Rope drops with weight (fast drop showing gravity)
@@ -140,7 +142,7 @@ export function RopeSplash({ animated = true }: RopeSplashProps) {
       350,
       withSpring(0, SPRING_CONFIGS.gentle)
     );
-  }, [shouldAnimate, ropeY, carabinerY, carabinerOpacity, carabinerRotate, carabinerScale, wordmarkY, wordmarkOpacity, theme.motion]);
+  }, [shouldAnimate, ropeY, carabinerY, carabinerOpacity, carabinerRotate, carabinerScale, wordmarkY, wordmarkOpacity, theme.motion.base]);
 
   const ropeStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: ropeY.value }],

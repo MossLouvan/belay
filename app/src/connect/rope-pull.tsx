@@ -99,6 +99,17 @@ export function RopePull({ progress }: RopePullProps) {
     );
   }, [progress, reducedMotion, p, dropIn, carabinerBounce, theme.motion.draw, theme.motion.fast, theme.motion.base]);
 
+  // Cancel any pending animations on unmount
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+      // Cancel animations by setting values directly (no animation)
+      p.value = progress;
+      dropIn.value = 1;
+      carabinerBounce.value = 0;
+    };
+  }, [p, dropIn, carabinerBounce, progress]);
+
   const containerStyle = useAnimatedStyle(() => ({
     height: interpolate(p.value, [0, 1], [ROPE_FULL, ROPE_TAKEN_IN]) + CARABINER_HEIGHT,
   }));

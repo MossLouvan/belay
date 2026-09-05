@@ -10,9 +10,9 @@
 // (docs/DESIGN.md §2.6).
 
 import React from 'react';
-import { View } from 'react-native';
+import { Animated, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Micro, Txt } from '../ui';
+import { Micro, Txt, useEntrance } from '../ui';
 
 /** The link mark: a filled square joined to an outlined one. */
 export function LogoMark({ size = 20 }: { size?: number }) {
@@ -37,11 +37,12 @@ export function LogoMark({ size = 20 }: { size?: number }) {
   );
 }
 
-/** Minimal logo plus name, centered. */
+/** Minimal logo plus name, centered. Fades in with 8pt upward settle on mount. */
 export function Brand() {
   const theme = useTheme();
+  const entrance = useEntrance();
   return (
-    <View style={{ alignItems: 'center', gap: theme.space.md, paddingBottom: theme.space.lg }}>
+    <Animated.View style={[{ alignItems: 'center', gap: theme.space.md, paddingBottom: theme.space.lg }, entrance]}>
       <LogoMark size={16} />
       <Txt
         variant="display"
@@ -54,6 +55,6 @@ export function Brand() {
       >
         Belay
       </Txt>
-    </View>
+    </Animated.View>
   );
 }

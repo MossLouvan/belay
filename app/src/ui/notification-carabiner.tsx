@@ -76,6 +76,7 @@ export function NotificationCarabiner({
     }
 
     // Auto-dismiss
+    let dismissTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
       if (reducedMotion) {
         opacity.value = 0;
@@ -83,10 +84,13 @@ export function NotificationCarabiner({
         translateY.value = withSpring(-150, SPRING_CONFIGS.snappy);
         opacity.value = withTiming(0, { duration: theme.motion.base });
       }
-      setTimeout(() => onDismiss?.(), theme.motion.base + 50);
+      dismissTimer = setTimeout(() => onDismiss?.(), theme.motion.base + 50);
     }, autoDismissMs);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (dismissTimer) clearTimeout(dismissTimer);
+    };
   }, [reducedMotion, translateY, opacity, theme.motion, autoDismissMs, onDismiss]);
 
   const animatedStyle = useAnimatedStyle(() => ({
