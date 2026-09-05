@@ -267,6 +267,13 @@ export default function Connect() {
     setDeadEnd(null);
     setTouched(true);
     const resolved = resolveHost(hostText);
+    
+    // Paste-to-pair: detect pasted belay://pair?... or tether: links.
+    if (resolved.ok === 'pair-link') {
+      await onScanned(resolved.link);
+      return;
+    }
+    
     if (!resolved.ok) {
       setHostError({ title: 'Check the address', message: resolved.reason });
       return;
