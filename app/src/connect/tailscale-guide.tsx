@@ -333,6 +333,7 @@ export function TailscaleGuide({
           <Txt
             variant="title"
             adjustsFontSizeToFit
+            minimumFontScale={0.7}
             numberOfLines={2}
             style={{ fontSize: 32, lineHeight: 36, textTransform: 'none' }}
           >
@@ -463,8 +464,11 @@ export function TailscaleGuide({
           onPress={retreat}
           accessibilityRole="button"
           accessibilityLabel={step === 'intro' ? 'Close Tailscale setup' : 'Go back a step'}
+          hitSlop={8}
           style={({ pressed }) => ({
             paddingVertical: theme.space.sm,
+            minHeight: 44,
+            justifyContent: 'center',
             opacity: pressed ? theme.motion.pressOpacity : 1,
           })}
         >

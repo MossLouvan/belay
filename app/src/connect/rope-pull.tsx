@@ -120,7 +120,7 @@ export function RopePull({ progress }: RopePullProps) {
 
   return (
     <Animated.View
-      style={[{ alignItems: 'center', overflow: 'visible' }, containerStyle]}
+      style={[{ alignItems: 'center' }, containerStyle]}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       pointerEvents="none"

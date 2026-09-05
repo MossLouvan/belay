@@ -131,13 +131,13 @@ export function RopeSplash({ animated = true }: RopeSplashProps) {
       )
     );
 
-    // 3. Wordmark fades in after the clip settles
+    // 3. Wordmark fades in while the clip is settling (overlapping, not sequential)
     wordmarkOpacity.value = withDelay(
-      550,
+      350,
       withTiming(1, { duration: theme.motion.base })
     );
     wordmarkY.value = withDelay(
-      550,
+      350,
       withSpring(0, SPRING_CONFIGS.gentle)
     );
   }, [shouldAnimate, ropeY, carabinerY, carabinerOpacity, carabinerRotate, carabinerScale, wordmarkY, wordmarkOpacity, theme.motion]);
