@@ -169,20 +169,18 @@ export function RopePull({ progress }: RopePullProps) {
             const dashGap = ROPE_WIDTH * 2;
             const totalSegment = dashHeight + dashGap;
             return (
-              <Animated.View
+              <View
                 key={`dash-${i}`}
-                style={[
-                  {
-                    position: 'absolute',
-                    top: i * totalSegment,
-                    left: i % 2 === 0 ? ROPE_WIDTH * 0.15 : -ROPE_WIDTH * 0.05,
-                    width: ROPE_WIDTH * 0.4,
-                    height: dashHeight,
-                    borderRadius: ROPE_WIDTH * 0.2,
-                    backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
-                  },
-                  { height: ropeStyle.height }, // Constrain to rope height
-                ]}
+                style={{
+                  position: 'absolute',
+                  top: i * totalSegment,
+                  left: i % 2 === 0 ? ROPE_WIDTH * 0.15 : -ROPE_WIDTH * 0.05,
+                  width: ROPE_WIDTH * 0.4,
+                  height: dashHeight,
+                  borderRadius: ROPE_WIDTH * 0.2,
+                  backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
+                  overflow: 'hidden',
+                }}
               />
             );
           })}
