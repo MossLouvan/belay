@@ -99,30 +99,60 @@ export function CurvedRopeStrand({
   }, [shouldAnimate, packet1, packet2, packet3]);
 
   // Convert packet progress to angle position along arc (180deg arc from left to right)
-  const getPacketStyle = (packetValue: SharedValue<number>) => {
-    return useAnimatedStyle(() => {
-      const progress = packetValue.value;
-      if (progress === 0 || progress > 0.95) {
-        return { opacity: 0 };
-      }
+  const packet1Style = useAnimatedStyle(() => {
+    const progress = packet1.value;
+    if (progress === 0 || progress > 0.95) {
+      return { opacity: 0 };
+    }
 
-      // Map 0->1 to angle 180deg -> 0deg (traveling clockwise along bottom arc)
-      const angle = Math.PI * (1 - progress);
-      const x = circleCenter.x + Math.cos(angle) * circleRadius;
-      const y = circleCenter.y - circleRadius * 2 + Math.sin(angle) * circleRadius;
+    // Map 0->1 to angle 180deg -> 0deg (traveling clockwise along bottom arc)
+    const angle = Math.PI * (1 - progress);
+    const x = circleCenter.x + Math.cos(angle) * circleRadius;
+    const y = circleCenter.y - circleRadius * 2 + Math.sin(angle) * circleRadius;
 
-      return {
-        opacity: 0.22, // SUBTLE - not bright
-        position: 'absolute',
-        left: x - width * 0.25, // Tighter to rope strand
-        top: y - width * 0.7,
-      };
-    });
-  };
+    return {
+      opacity: 0.22, // SUBTLE - not bright
+      position: 'absolute',
+      left: x - width * 0.25, // Tighter to rope strand
+      top: y - width * 0.7,
+    };
+  });
 
-  const packet1Style = getPacketStyle(packet1);
-  const packet2Style = getPacketStyle(packet2);
-  const packet3Style = getPacketStyle(packet3);
+  const packet2Style = useAnimatedStyle(() => {
+    const progress = packet2.value;
+    if (progress === 0 || progress > 0.95) {
+      return { opacity: 0 };
+    }
+
+    const angle = Math.PI * (1 - progress);
+    const x = circleCenter.x + Math.cos(angle) * circleRadius;
+    const y = circleCenter.y - circleRadius * 2 + Math.sin(angle) * circleRadius;
+
+    return {
+      opacity: 0.22,
+      position: 'absolute',
+      left: x - width * 0.25,
+      top: y - width * 0.7,
+    };
+  });
+
+  const packet3Style = useAnimatedStyle(() => {
+    const progress = packet3.value;
+    if (progress === 0 || progress > 0.95) {
+      return { opacity: 0 };
+    }
+
+    const angle = Math.PI * (1 - progress);
+    const x = circleCenter.x + Math.cos(angle) * circleRadius;
+    const y = circleCenter.y - circleRadius * 2 + Math.sin(angle) * circleRadius;
+
+    return {
+      opacity: 0.22,
+      position: 'absolute',
+      left: x - width * 0.25,
+      top: y - width * 0.7,
+    };
+  });
 
   // Calculate dashes along the arc with proper rotation
   const dashCount = 14;
