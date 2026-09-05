@@ -14,8 +14,9 @@
 # from outside the house. In Expo Go that fix is silently inert.
 #
 # Usage:
-#   npm run iphone            build, install and launch on the connected phone
-#   npm run iphone -- --list  show connected devices without building
+#   npm run iphone               build, install and launch on the connected phone
+#   npm run iphone -- --clean    force regenerate ios/ (use after icon changes)
+#   npm run iphone -- --list     show connected devices without building
 #
 # First run only: unlock the phone, tap Trust, and pick your Apple ID team when
 # Xcode asks. A free Apple ID works — it signs for 7 days, after which re-run
@@ -29,6 +30,13 @@ if [[ "${1:-}" == "--list" ]]; then
   echo "Connected devices:"
   xcrun xctrace list devices 2>/dev/null | sed -n '/^== Devices ==/,/^== /p' | grep -v "Simulator" || true
   exit 0
+fi
+
+if [[ "${1:-}" == "--clean" ]]; then
+  echo "==> Forcing clean iOS regeneration (use this after icon changes)"
+  rm -rf ios
+  npx expo prebuild --platform ios
+  echo "✓ iOS project regenerated. Proceeding with build..."
 fi
 
 if ! command -v xcodebuild >/dev/null 2>&1; then
