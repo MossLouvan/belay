@@ -944,9 +944,10 @@ app.post('/agent/approval-request', (req, res) => {
 registerRecordingRoutes(app, auth);
 registerAgentApprovalRoutes(app, auth);
 registerImageRoutes(app, auth);
-// Audio control routes exist ONLY behind the flag, exactly like /ws/webrtc:
-// with BELAY_WEBRTC off this feature has no REST or WS surface at all.
-if (webrtcEnabled()) registerAudioRoutes(app, auth);
+// Audio routes are always registered: the native helpers support audio capture
+// in the default build (not gated by BELAY_WEBRTC_BUILD), so the REST and WS
+// surface is always available. The phone toggles audio on-demand per session.
+registerAudioRoutes(app, auth);
 
 // ---- server + websockets -------------------------------------------------
 
@@ -985,8 +986,12 @@ heartbeat.unref?.();
 // redeemed — so a half-finished signaling path can never be reached, let alone
 // regress the shipping JPEG-over-WebSocket transport, unless it is deliberately
 // enabled. JPEG (/ws/screen) stays the default and the fallback.
-const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention', '/ws/cursors']);
-if (webrtcEnabled()) { WS_ROUTES.add('/ws/webrtc'); WS_ROUTES.add('/ws/audio'); }
+//
+// /ws/audio is always available: audio capture works in the default native
+// build and is separate from the WebRTC signaling path. The phone enables audio
+// per-session via the stream settings toggle.
+const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention', '/ws/cursors', '/ws/audio']);
+if (webrtcEnabled()) { WS_ROUTES.add('/ws/webrtc'); }
 
 server.on('upgrade', (req, socket, head) => {
   // Parse first, guarded: a malformed request target (e.g. "///") makes
@@ -1067,8 +1072,8 @@ server.on('upgrade', (req, socket, head) => {
     // relay only — Node never sees media.
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleWebrtc(ws, url); });
   } else if (url.pathname === '/ws/audio') {
-    // Only reachable when BELAY_WEBRTC is on (WS_ROUTES gate above). The
-    // interim system-audio transport — binary wire frames, audio-routes.ts.
+    // System-audio transport: binary wire frames streamed from the native
+    // helper to the phone. Always available (audio-routes.ts).
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAudioSocket(ws); });
     }
   } catch (e) {

@@ -7,9 +7,6 @@ for finishing verification on real devices. The reverse direction (phone mic →
 host) reuses the same wire format and jitter policy and is explicitly out of
 scope for this slice.
 
-Everything here is behind `BELAY_WEBRTC` — with the flag off there is no audio
-REST surface, no `/ws/audio` route, and the shipping JPEG/input paths are
-byte-for-byte untouched.
 
 ---
 
@@ -49,7 +46,7 @@ media in the target architecture anyway (PERFORMANCE-PLAN §2).
 | `app/src/stream/webrtc/channels.ts` | New `audio` data channel spec (unreliable, unordered — a retransmit past the playout deadline is wasted) + `audioframe` routing. |
 | `app/src/stream/webrtc/peer-adapter.ts` | `sendBytesOn(channel, bytes)` — the binary path onto a data channel, no JSON wrapper. Tested with the fake peer connection. |
 | `server/src/audio.ts` | Helper-push validation (caps, base64 shape, codec whitelist) and the server-side wire encoder. **Golden-vector test pins the exact bytes on both sides** — `server/test/audio.test.ts` and `audio-frames.test.mjs` carry the same 13-byte vector; change the layout and both fail. |
-| `server/src/audio-routes.ts` | REST `POST /audio/start`, `POST /audio/stop`, `GET /audio/status` + the `/ws/audio` binary relay with refcounted capture lifecycle and shed-on-congestion (`shouldDropAudioFrame`). Registered by `index.ts` **only when `BELAY_WEBRTC` is on**. |
+| `server/src/audio-routes.ts` | REST `POST /audio/start`, `POST /audio/stop`, `GET /audio/status` + the `/ws/audio` binary relay with refcounted capture lifecycle and shed-on-congestion (`shouldDropAudioFrame`). Always registered by `index.ts`. |
 | `server/src/native.ts` | `audiostart`/`audiostop`/`audiostatus` verbs and the `type:'audio'` push subscription (mirrors the webrtc push shape). |
 
 `cd app && npx tsc --noEmit && npm test` and
