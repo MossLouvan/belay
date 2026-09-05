@@ -29,6 +29,8 @@ export interface RopeStrandProps {
   readonly color: string;
   /** Optional animated style for height/position (Reanimated) */
   readonly animatedStyle?: any;
+  /** Static height for non-animated callers (e.g. notification rope segment). */
+  readonly currentHeight?: number;
   /** For curved ropes: render as border on circle. Requires circleRadius. */
   readonly curved?: boolean;
   /** Circle radius for curved rope (splash screen arc) */
@@ -42,7 +44,7 @@ export interface RopeStrandProps {
 /**
  * Curved rope strand for splash screen with fiber optic flow along the arc.
  */
-function CurvedRopeStrand({
+export function CurvedRopeStrand({
   width,
   color,
   animatedStyle,
@@ -52,7 +54,7 @@ function CurvedRopeStrand({
 }: {
   width: number;
   color: string;
-  animatedStyle: any;
+  animatedStyle?: any;
   circleRadius: number;
   circleCenter: { x: number; y: number };
   shouldAnimate: boolean;
@@ -239,6 +241,7 @@ export function RopeStrand({
   width, 
   color, 
   animatedStyle, 
+  currentHeight,
   curved = false, 
   circleRadius, 
   circleCenter,
@@ -246,6 +249,7 @@ export function RopeStrand({
 }: RopeStrandProps) {
   const reducedMotion = useReducedMotion();
   const shouldAnimate = enableFlow && !reducedMotion;
+  const heightStyle = currentHeight != null ? { height: currentHeight } : null;
 
   if (curved && circleRadius && circleCenter) {
     // Curved rope for splash screen — data packets travel along the arc
@@ -345,6 +349,7 @@ export function RopeStrand({
             borderRadius: width / 2,
             backgroundColor: 'rgba(0, 0, 0, 0.15)',
           },
+          heightStyle,
           animatedStyle,
         ]}
       />
@@ -356,6 +361,7 @@ export function RopeStrand({
             borderRadius: width / 2,
             backgroundColor: color,
           },
+          heightStyle,
           animatedStyle,
         ]}
       />
@@ -372,6 +378,7 @@ export function RopeStrand({
             shadowRadius: width * 0.6,
             shadowOpacity: 0.15, // Very subtle
           },
+          heightStyle,
           animatedStyle,
           flowGlowStyle,
         ]}

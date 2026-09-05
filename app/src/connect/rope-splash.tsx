@@ -21,7 +21,7 @@ import Animated, {
 import { useTheme } from '../theme';
 import { Txt, Micro, useReducedMotion } from '../ui';
 import { Carabiner } from '../ui/carabiner';
-import { CurvedRopeStrand } from '../ui/rope-strand';
+import { RopeStrand } from '../ui/rope-strand';
 import { SPRING_CONFIGS } from '../ui/motion';
 
 interface RopeSplashProps {
@@ -37,9 +37,24 @@ const ROPE_STROKE = 6;
  * Uses shared CurvedRopeStrand for consistent rendering across the app.
  */
 function Rope({ width, height, color }: { width: number; height: number; color: string }) {
+  // Geometry for the splash sag arc (same math as the pre-fiber CurvedRopeStrand).
+  const startY = height * 0.15;
+  const sagY = height * 0.45;
+  const sag = sagY - startY;
+  const halfSpan = width / 2;
+  const radius = (halfSpan * halfSpan + sag * sag) / (2 * sag);
+  const centerX = width / 2;
+  const centerY = sagY - radius;
+
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
-      <CurvedRopeStrand width={width} height={height} color={color} ropeStroke={ROPE_STROKE} />
+      <RopeStrand
+        width={ROPE_STROKE}
+        color={color}
+        curved
+        circleRadius={radius}
+        circleCenter={{ x: centerX, y: centerY }}
+      />
     </View>
   );
 }
