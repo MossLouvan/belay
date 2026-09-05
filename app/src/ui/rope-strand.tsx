@@ -1,23 +1,19 @@
-// Shared rope rendering with helical braid pattern — actual climbing rope texture.
+// Shared rope rendering with electric fiber-optic helical braid pattern + data flow.
 //
-// Climbing ropes have twisted/braided construction visible as diagonal patterns
-// wrapping around the core. Short staggered highlight dashes create this helical
-// read without needing complex path rendering. Used across splash (curved),
-// setup/pull (straight), and notifications.
-//
-// Fiber optic flow: gentle traveling highlights and discrete data packets move
-// along the rope to convey live connectivity (phone↔PC data link). Respects
-// reduced motion by freezing all flow when accessibility preferences require it.
+// Real climbing rope construction: braided/twisted strands spiraling around
+// the core with dark recesses between peaks. Self-lit electric blue with soft
+// bloom halo + subtle data packets drifting along (phone↔PC connectivity).
+// Used across splash (curved), pull/setup (straight), and notifications.
 
 import React, { useEffect } from 'react';
-import { View, ViewStyle } from 'react-native';
+import { View } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
   withTiming,
-  Easing,
   withDelay,
+  Easing,
   type SharedValue,
 } from 'react-native-reanimated';
 import { useReducedMotion } from './motion';
@@ -29,18 +25,20 @@ export interface RopeStrandProps {
   readonly color: string;
   /** Optional animated style for height/position (Reanimated) */
   readonly animatedStyle?: any;
-  /** For curved ropes: render as border on circle. Requires circleRadius. */
+  /** Current height for straight ropes (affects dash clipping and packet travel) */
+  readonly currentHeight?: number;
+  /** Enable fiber optic flow and data packet animations (default: true) */
+  readonly enableFlow?: boolean;
+  /** For curved ropes: render as arc. Requires circleRadius. */
   readonly curved?: boolean;
   /** Circle radius for curved rope (splash screen arc) */
   readonly circleRadius?: number;
   /** Circle center offset for curved rope */
   readonly circleCenter?: { x: number; y: number };
-  /** Enable fiber optic flow and data packet animations (default: true) */
-  readonly enableFlow?: boolean;
 }
 
 /**
- * Curved rope strand for splash screen with fiber optic flow along the arc.
+ * Curved rope strand for splash screen with helical dashes along the arc + fiber flow.
  */
 function CurvedRopeStrand({
   width,
@@ -57,21 +55,21 @@ function CurvedRopeStrand({
   circleCenter: { x: number; y: number };
   shouldAnimate: boolean;
 }) {
-  // Data packets traveling along the curved arc - SUBTLE
+  // Data packets traveling along the curved arc - SUBTLE (2-3 visible)
   const packet1 = useSharedValue(0);
   const packet2 = useSharedValue(0);
   const packet3 = useSharedValue(0);
 
   useEffect(() => {
     if (!shouldAnimate) {
-      // Reduced motion: no traveling packets
       packet1.value = 0;
       packet2.value = 0;
       packet3.value = 0;
       return;
     }
 
-    const packetDuration = 3800; // Slower, more gentle
+    // Slower timing for gentle flow
+    const packetDuration = 3800;
     packet1.value = withRepeat(
       withTiming(1, { duration: packetDuration, easing: Easing.linear }),
       -1,
@@ -95,7 +93,7 @@ function CurvedRopeStrand({
     );
   }, [shouldAnimate, packet1, packet2, packet3]);
 
-  // Convert packet progress to angle position along arc (180deg arc from left to right)
+  // Packet position along arc
   const getPacketStyle = (packetValue: SharedValue<number>) => {
     return useAnimatedStyle(() => {
       const progress = packetValue.value;
@@ -109,9 +107,9 @@ function CurvedRopeStrand({
       const y = circleCenter.y - circleRadius * 2 + Math.sin(angle) * circleRadius;
 
       return {
-        opacity: 0.22, // SUBTLE - not bright
+        opacity: 0.22, // SUBTLE
         position: 'absolute',
-        left: x - width * 0.25, // Tighter to rope strand
+        left: x - width * 0.25,
         top: y - width * 0.7,
       };
     });
@@ -120,6 +118,34 @@ function CurvedRopeStrand({
   const packet1Style = getPacketStyle(packet1);
   const packet2Style = getPacketStyle(packet2);
   const packet3Style = getPacketStyle(packet3);
+
+  // Helical dashes along the arc (not concentric rings)
+  const dashCount = Math.floor((Math.PI * circleRadius) / (width * 3)); // Space along arc
+  const helicalDashes = Array.from({ length: dashCount }).map((_, i) => {
+    // Position along 180° arc from left to right
+    const angleProgress = i / dashCount;
+    const angle = Math.PI * (1 - angleProgress); // 180° to 0°
+    
+    const x = circleCenter.x + Math.cos(angle) * circleRadius;
+    const y = circleCenter.y - circleRadius * 2 + Math.sin(angle) * circleRadius;
+    
+    // Alternate sides for helical spiral
+    const side = i % 2 === 0 ? 1 : -1;
+    const offsetX = side * width * 0.15;
+    const offsetY = side * width * 0.1;
+    
+    // Rotate dash to be tangent to arc
+    const tangentAngle = angle - Math.PI / 2; // Perpendicular to radius
+    const tiltDeg = (tangentAngle * 180 / Math.PI) + (side * 15); // Add spiral tilt
+    
+    return {
+      key: `dash-${i}`,
+      x: x + offsetX,
+      y: y + offsetY,
+      rotation: tiltDeg,
+      opacity: i % 2 === 0 ? 0.4 : 0.25,
+    };
+  });
 
   return (
     <View style={[{ position: 'relative' }, animatedStyle]} pointerEvents="none">
@@ -149,46 +175,38 @@ function CurvedRopeStrand({
           borderColor: color,
         }}
       />
-      {/* Helical highlight pattern — offset circles create braid read */}
-      <View
-        style={{
-          position: 'absolute',
-          left: circleCenter.x - circleRadius + width * 0.3,
-          top: circleCenter.y - circleRadius * 2 - width * 0.2,
-          width: circleRadius * 2,
-          height: circleRadius * 2,
-          borderRadius: circleRadius,
-          borderWidth: width * 0.25,
-          borderColor: 'rgba(255, 255, 255, 0.35)',
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: circleCenter.x - circleRadius - width * 0.25,
-          top: circleCenter.y - circleRadius * 2 + width * 0.3,
-          width: circleRadius * 2,
-          height: circleRadius * 2,
-          borderRadius: circleRadius,
-          borderWidth: width * 0.2,
-          borderColor: 'rgba(255, 255, 255, 0.2)',
-        }}
-      />
+      
+      {/* Helical braid dashes along the arc (not concentric rings) */}
+      {helicalDashes.map((dash) => (
+        <View
+          key={dash.key}
+          style={{
+            position: 'absolute',
+            left: dash.x - width * 0.2,
+            top: dash.y - width * 0.6,
+            width: width * 0.4,
+            height: width * 1.2,
+            borderRadius: width * 0.2,
+            backgroundColor: `rgba(255, 255, 255, ${dash.opacity})`,
+            transform: [{ rotate: `${dash.rotation}deg` }],
+          }}
+        />
+      ))}
 
-      {/* Data packets traveling along the curved arc — sparse, subtle, clipped to strand */}
+      {/* Data packets — sparse, clipped to arc */}
       {shouldAnimate && (
         <>
           <Animated.View
             style={[
               packet1Style,
               {
-                width: width * 0.5, // Smaller, subtle
+                width: width * 0.5,
                 height: width * 1.4,
                 borderRadius: width * 0.25,
-                backgroundColor: color, // Belay blue tint
+                backgroundColor: color,
                 shadowColor: color,
                 shadowRadius: width * 0.3,
-                shadowOpacity: 0.2, // Very subtle glow
+                shadowOpacity: 0.2,
               },
             ]}
           />
@@ -227,28 +245,31 @@ function CurvedRopeStrand({
 }
 
 /**
- * Braided climbing rope with helical strand pattern and fiber optic flow.
- * Renders shadow + main body + staggered highlight dashes that suggest
- * twisted construction, avoiding the "parallel tube" read of full-length strips.
+ * Electric fiber-optic climbing rope with helical braided strand pattern + data flow.
  * 
- * Flow effects: gentle traveling light pulses along the rope with discrete
- * data packet elements that travel along the path, creating a live data-link
- * aesthetic (phone↔PC connectivity).
+ * Renders:
+ * - Soft bloom glow layers (self-lit appearance on dark backgrounds)
+ * - Main rope core body
+ * - Tilted spiral dashes showing helical twist (~30° alternating)
+ * - Shadow for depth
+ * - SUBTLE data packets drifting along (2-3 visible, ~0.2 opacity)
+ * - Gentle flowing light pulse (reduced motion: static bloom)
  */
 export function RopeStrand({ 
   width, 
   color, 
   animatedStyle, 
-  curved = false, 
-  circleRadius, 
-  circleCenter,
+  currentHeight,
   enableFlow = true,
+  curved = false,
+  circleRadius,
+  circleCenter,
 }: RopeStrandProps) {
   const reducedMotion = useReducedMotion();
   const shouldAnimate = enableFlow && !reducedMotion;
 
+  // Curved rope for splash screen
   if (curved && circleRadius && circleCenter) {
-    // Curved rope for splash screen — data packets travel along the arc
     return <CurvedRopeStrand 
       width={width}
       color={color}
@@ -259,29 +280,33 @@ export function RopeStrand({
     />;
   }
 
-  // Straight rope with helical dashes and fiber optic flow
-  const dashCount = 8;
+  // Straight rope with tilted dashes and fiber flow
   const dashHeight = width * 2.5;
   const dashGap = width * 1.5;
+  const totalSegment = dashHeight + dashGap;
+  
+  // Calculate visible dash count based on current rope height
+  const height = currentHeight ?? 120; // Default for static usage
+  const visibleDashCount = Math.floor(height / totalSegment);
 
-  // Data packet animations - 3 sparse packets with staggered timing (SUBTLE)
+  // Data packet animations - 3 sparse packets, scaled to actual rope height
   const packet1 = useSharedValue(0);
   const packet2 = useSharedValue(0);
   const packet3 = useSharedValue(0);
-  const flowGlow = useSharedValue(shouldAnimate ? 0 : 0.3); // Static bloom for reduced motion
+  const flowGlow = useSharedValue(shouldAnimate ? 0 : 0.3);
 
   useEffect(() => {
     if (!shouldAnimate) {
-      // Reduced motion: static soft bloom, no traveling packets
+      // Reduced motion: static soft bloom
       packet1.value = 0;
       packet2.value = 0;
       packet3.value = 0;
-      flowGlow.value = 0.3; // Static subtle glow
+      flowGlow.value = 0.3;
       return;
     }
 
-    // Continuous flow: sparse packets travel down the rope at staggered intervals
-    const packetDuration = 2800; // Slower, more gentle
+    // Packets travel the full rope height
+    const packetDuration = 2800;
     packet1.value = withRepeat(
       withTiming(1, { duration: packetDuration, easing: Easing.linear }),
       -1,
@@ -304,37 +329,60 @@ export function RopeStrand({
       )
     );
 
-    // Gentle flowing glow effect - very subtle
+    // Gentle flowing glow
     flowGlow.value = withRepeat(
       withTiming(1, { duration: 3500, easing: Easing.inOut(Easing.ease) }),
       -1,
       true
     );
-  }, [shouldAnimate, packet1, packet2, packet3, flowGlow]);
+  }, [shouldAnimate, height, packet1, packet2, packet3, flowGlow]);
 
-  // Animated styles for data packets - SUBTLE opacity
+  // Packet styles - travel full height
   const packet1Style = useAnimatedStyle(() => ({
     opacity: packet1.value > 0 && packet1.value < 0.95 ? 0.25 : 0,
-    transform: [{ translateY: packet1.value * 100 }],
+    transform: [{ translateY: packet1.value * height }],
   }));
 
   const packet2Style = useAnimatedStyle(() => ({
     opacity: packet2.value > 0 && packet2.value < 0.95 ? 0.2 : 0,
-    transform: [{ translateY: packet2.value * 100 }],
+    transform: [{ translateY: packet2.value * height }],
   }));
 
   const packet3Style = useAnimatedStyle(() => ({
     opacity: packet3.value > 0 && packet3.value < 0.95 ? 0.22 : 0,
-    transform: [{ translateY: packet3.value * 100 }],
+    transform: [{ translateY: packet3.value * height }],
   }));
 
-  // Flow glow style - very low amplitude, Belay blue core
   const flowGlowStyle = useAnimatedStyle(() => ({
-    opacity: shouldAnimate ? flowGlow.value * 0.05 + 0.02 : 0.03, // Static bloom or gentle pulse
+    opacity: shouldAnimate ? flowGlow.value * 0.05 + 0.02 : 0.03,
   }));
 
   return (
     <View style={{ position: 'relative', alignItems: 'center' }} pointerEvents="none">
+      {/* Outer glow/bloom layers for fiber-optic self-lit effect */}
+      <Animated.View
+        style={[
+          {
+            position: 'absolute',
+            width: width * 3.5,
+            borderRadius: width * 1.75,
+            backgroundColor: `${color}12`,
+          },
+          animatedStyle,
+        ]}
+      />
+      <Animated.View
+        style={[
+          {
+            position: 'absolute',
+            width: width * 2,
+            borderRadius: width,
+            backgroundColor: `${color}35`,
+          },
+          animatedStyle,
+        ]}
+      />
+      
       {/* Shadow for depth */}
       <Animated.View
         style={[
@@ -343,12 +391,13 @@ export function RopeStrand({
             left: 1,
             width: width,
             borderRadius: width / 2,
-            backgroundColor: 'rgba(0, 0, 0, 0.15)',
+            backgroundColor: 'rgba(0, 0, 0, 0.2)',
           },
           animatedStyle,
         ]}
       />
-      {/* Main rope body */}
+      
+      {/* Main rope body - electric blue core */}
       <Animated.View
         style={[
           {
@@ -360,47 +409,65 @@ export function RopeStrand({
         ]}
       />
       
-      {/* Fiber optic flow glow — soft traveling light along the braid core, Belay blue */}
+      {/* Fiber optic flow glow — soft traveling light */}
       <Animated.View
         style={[
           {
             position: 'absolute',
-            width: width * 0.9, // Narrower to stay within strand
+            width: width * 0.9,
             borderRadius: width * 0.45,
-            backgroundColor: color, // Belay blue / accentGraphic
+            backgroundColor: color,
             shadowColor: color,
             shadowRadius: width * 0.6,
-            shadowOpacity: 0.15, // Very subtle
+            shadowOpacity: 0.15,
           },
           animatedStyle,
           flowGlowStyle,
         ]}
       />
 
-      {/* Helical braid highlights — staggered dashes spiraling along rope */}
-      {Array.from({ length: dashCount }).map((_, i) => {
-        const offset = i * (dashHeight + dashGap);
-        const side = i % 2 === 0 ? width * 0.2 : -width * 0.15;
+      {/* Helical braid: tilted spiral dashes wrapping the core with dark recesses */}
+      {Array.from({ length: visibleDashCount }).map((_, i) => {
+        const yPos = i * totalSegment;
+        const side = i % 2 === 0 ? 1 : -1;
+        const xOffset = side * width * 0.15;
+        const tiltAngle = side * 30; // ~30° tilt alternating left/right for spiral read
+        const dashOpacity = i % 2 === 0 ? 0.65 : 0.45;
+        const clippedHeight = Math.min(dashHeight, height - yPos);
+        
         return (
-          <Animated.View
-            key={`dash-${i}`}
-            style={[
-              {
+          <React.Fragment key={`dash-${i}`}>
+            {/* Dash glow halo */}
+            <View
+              style={{
                 position: 'absolute',
-                top: offset,
-                left: side,
+                top: yPos,
+                left: xOffset,
+                width: width * 0.6,
+                height: clippedHeight,
+                borderRadius: width * 0.3,
+                backgroundColor: `rgba(255, 255, 255, ${dashOpacity * 0.3})`,
+                transform: [{ rotate: `${tiltAngle}deg` }],
+              }}
+            />
+            {/* Solid dash core */}
+            <View
+              style={{
+                position: 'absolute',
+                top: yPos,
+                left: xOffset,
                 width: width * 0.4,
-                height: dashHeight,
+                height: clippedHeight,
                 borderRadius: width * 0.2,
-                backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
-              },
-              animatedStyle,
-            ]}
-          />
+                backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
+                transform: [{ rotate: `${tiltAngle}deg` }],
+              }}
+            />
+          </React.Fragment>
         );
       })}
 
-      {/* Data packets — sparse bright dashes drifting along rope (2-3 visible), clipped to strand */}
+      {/* Data packets — sparse bright dashes drifting along rope (2-3 visible) */}
       {shouldAnimate && (
         <>
           <Animated.View
@@ -408,13 +475,13 @@ export function RopeStrand({
               {
                 position: 'absolute',
                 top: 0,
-                width: width * 0.5, // Smaller, subtle
+                width: width * 0.5,
                 height: width * 1.4,
                 borderRadius: width * 0.25,
-                backgroundColor: color, // Belay blue tint
+                backgroundColor: color,
                 shadowColor: color,
                 shadowRadius: width * 0.3,
-                shadowOpacity: 0.2, // Very subtle glow
+                shadowOpacity: 0.2,
               },
               packet1Style,
             ]}
