@@ -597,7 +597,7 @@ export default function ScreenTab() {
     ) : null;
 
   const controls = (
-    <Column gap="xs">
+    <Column gap="sm">
       {/* The cross-surface "needs you" band, inline so it rides directly on
           top of the control bar wherever that bar happens to be. */}
       <NeedsYouBanner />
@@ -845,7 +845,9 @@ export default function ScreenTab() {
       {!immersive ? (
         <View style={{ paddingHorizontal: theme.layout.margin }}>
           <Rule bleed={theme.layout.margin} />
-          <View style={{ paddingTop: theme.space.xs, paddingBottom: insets.bottom + theme.space.sm }}>{controls}</View>
+          {/* Additional vertical spacing to prevent bottom text overlap on Android
+              and ensure adequate clearance above system navigation/taskbar. */}
+          <View style={{ paddingTop: theme.space.xs, paddingBottom: Math.max(insets.bottom, theme.space.xs) + theme.space.sm }}>{controls}</View>
         </View>
       ) : (
         <Animated.View
