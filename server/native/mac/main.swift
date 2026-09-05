@@ -104,6 +104,7 @@ private func handle(_ command: Command) throws {
     case "audiostop": audio.stop(); replies.ok(id: command.id)
     case "audiostatus": handleAudioStatus(command)
     case "ping": replies.ok(id: command.id, ["pong": true])
+    case "idle": handleIdle(command)
     case "webrtc":
         #if BELAY_WEBRTC_BUILD
         try webrtc.handle(command)
@@ -405,6 +406,32 @@ private func handleAudioStatus(_ command: Command) {
     var payload: [String: Any] = ["capturing": audio.isCapturing, "codec": "pcm16"]
     if let reason = audio.lastStopReason { payload["stopReason"] = reason }
     replies.ok(id: command.id, payload)
+}
+
+/// Milliseconds since the last user input event (mouse or keyboard).
+///
+/// Mirrors the Windows helper's `GetLastInputInfo` behaviour: returns how long
+/// it has been since the OS saw any input, including both the user's own
+/// activity and input this helper injected. The server discounts its own
+/// injections via `isLocalActivity` (input-floor.ts).
+///
+/// Uses `CGEventSourceSecondsSinceLastEventType` for both mouse and keyboard
+/// events on `.combinedSessionState`, which includes user session + system
+/// input. Takes the minimum (activity on either counts as activity).
+private func handleIdle(_ command: Command) {
+    let mouseIdle = CGEventSource.secondsSinceLastEventType(
+        .combinedSessionState,
+        eventType: .mouseMoved
+    )
+    let keyboardIdle = CGEventSource.secondsSinceLastEventType(
+        .combinedSessionState,
+        eventType: .keyDown
+    )
+    // Minimum of the two: activity on either device counts as activity.
+    // Convert seconds to milliseconds to match the Windows helper's format.
+    let idleSeconds = min(mouseIdle, keyboardIdle)
+    let idleMs = Int((idleSeconds * 1000).rounded())
+    replies.ok(id: command.id, ["idleMs": idleMs])
 }
 
 // MARK: - Argument helpers

@@ -67,12 +67,22 @@ movement.
 Cursors keep moving through a freeze. Collaborators can still point and follow
 along; they just cannot click. Pointing was never the thing that interfered.
 
+<<<<<<< HEAD
 The `idle` verb is implemented in both helpers: `BelayHost.cs` for Windows
 (`GetLastInputInfo`) and the macOS helper (`CGEventSourceSecondsSinceLastEventType`).
 Both count injected input, so `isLocalActivity` treats input landing within
 400 ms of the server's own injection as its own. The cost is bounded and
 one-sided — a human who touches the mouse in the same 400 ms window as a remote
 click is missed once, and caught on their next movement.
+=======
+**Implemented on Windows and macOS.** The `idle` verb is implemented in both
+`BelayHost.cs` (Windows, using `GetLastInputInfo`) and `main.swift` (macOS,
+using `CGEventSourceSecondsSinceLastEventType`). Both return milliseconds since
+the last input event (mouse or keyboard), and `isLocalActivity` treats a
+missing or invalid probe as *no evidence of a local user* — so the degradation
+is deliberate and one-directional: freezing on no evidence would leave a desktop
+nobody could drive.
+>>>>>>> f5660e7 (Fix macOS idle probe and setup page UI issues)
 
 ### 2. Otherwise, one driver at a time
 
