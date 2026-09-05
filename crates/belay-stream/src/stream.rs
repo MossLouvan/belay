@@ -53,7 +53,9 @@ pub fn run(
     // the test path and the real path quietly drift apart.
     let mut capture = match config.source {
         Source::Desktop => Some(
-            DesktopCapture::new(0, config.monitor)
+            // for_monitor, not new(0, n): the virtual display is an adapter of
+            // its own, so an output index scoped to adapter 0 can never name it.
+            DesktopCapture::for_monitor(config.monitor)
                 .map_err(|e| format!("cannot duplicate display {}: {e}", config.monitor))?,
         ),
         Source::Synthetic => None,
