@@ -173,7 +173,7 @@ export function CodeInput({
             top: 0,
             left: 0,
             right: 0,
-            height: BOX_HEIGHT,
+            bottom: 0,
             // Transparent glyphs: the boxes underneath are what the user reads.
             color: 'transparent',
             backgroundColor: 'transparent',

@@ -1064,7 +1064,7 @@ export default function ScreenTab() {
       </Sheet>
 
       <Sheet visible={showHelp} onClose={() => setShowHelp(false)} title="Controls & permissions" testID="help-sheet">
-        <ScrollView style={{ maxHeight: 400 }} contentContainerStyle={{ gap: theme.space.sm }}>
+        <ScrollView style={{ maxHeight: 400 }} contentContainerStyle={{ gap: theme.space.sm }} bounces={false}>
           <Txt variant="bodyStrong">Touch mode</Txt>
           <Caption>
             Tap to click, long press to right-click. At 1× a drag becomes a mouse drag on the PC; once you zoom in, a

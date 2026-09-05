@@ -18,7 +18,7 @@
 // included, and the race picks the one that works.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, View } from 'react-native';
+import { AppState, Pressable, View } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 import Animated, {
   Easing,
@@ -203,19 +203,24 @@ export function TailscaleGuide({
     live.current = true;
     return () => {
       live.current = false;
+      if (stepTransitionTimer.current) clearTimeout(stepTransitionTimer.current);
     };
   }, []);
+
+  const stepTransitionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const goTo = useCallback(
     (next: GuideStep) => {
       haptic('light');
+      // Clear any pending transition
+      if (stepTransitionTimer.current) clearTimeout(stepTransitionTimer.current);
       if (reducedMotion) {
         setStep(next);
         return;
       }
       stepAnim.value = withTiming(0, { duration: theme.motion.fast, easing: EASE_STANDARD });
       // Swap content at the bottom of the fade, then rise back in.
-      setTimeout(() => {
+      stepTransitionTimer.current = setTimeout(() => {
         if (!live.current) return;
         setStep(next);
         stepAnim.value = withTiming(1, { duration: theme.motion.base, easing: EASE_STANDARD });
@@ -310,17 +315,16 @@ export function TailscaleGuide({
   const connected = detection.kind === 'connected';
 
   return (
-    <ScrollView
-      contentContainerStyle={{
+    <View
+      style={{
+        flex: 1,
         paddingHorizontal: theme.layout.margin * 1.5,
         paddingTop: insets.top,
         paddingBottom: insets.bottom + theme.space.xl,
-        flexGrow: 1,
         width: '100%',
         maxWidth: theme.layout.contentMaxWidth,
         alignSelf: 'center',
       }}
-      showsVerticalScrollIndicator={false}
       testID="tailscale-guide"
     >
       {/* The rope is taken in as the climb progresses; everything below it
@@ -334,6 +338,7 @@ export function TailscaleGuide({
           <Txt
             variant="title"
             adjustsFontSizeToFit
+            minimumFontScale={0.7}
             numberOfLines={2}
             style={{ fontSize: 32, lineHeight: 36, textTransform: 'none' }}
           >
@@ -464,8 +469,11 @@ export function TailscaleGuide({
           onPress={retreat}
           accessibilityRole="button"
           accessibilityLabel={step === 'intro' ? 'Close Tailscale setup' : 'Go back a step'}
+          hitSlop={8}
           style={({ pressed }) => ({
             paddingVertical: theme.space.sm,
+            minHeight: 44,
+            justifyContent: 'center',
             opacity: pressed ? theme.motion.pressOpacity : 1,
           })}
         >
@@ -474,6 +482,6 @@ export function TailscaleGuide({
           </Txt>
         </Pressable>
       </View>
-    </ScrollView>
+    </View>
   );
 }

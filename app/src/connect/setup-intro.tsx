@@ -214,8 +214,11 @@ export function HowItWorksScreen({ onContinue, onBack }: HowItWorksScreenProps) 
             onPress={onBack}
             accessibilityRole="button"
             accessibilityLabel="Go back"
+            hitSlop={8}
             style={({ pressed }) => ({
               paddingVertical: theme.space.sm,
+              minHeight: 44,
+              justifyContent: 'center',
               opacity: pressed ? theme.motion.pressOpacity : 1,
             })}
           >
