@@ -776,13 +776,13 @@ export default function ScreenTab() {
           </Animated.View>
 
           {showHud ? (
-            <StreamHud stats={stream.stats} pingMs={facts.pingMs} quality={quality} zoom={viewport.zoom} />
+            <StreamHud stats={stream.stats} pingMs={facts.pingMs} quality={quality} zoom={viewport.zoom} topInset={immersive ? insets.top : 0} />
           ) : null}
 
           {/* Portrait: the Full control rides the stage's own top-right
               corner. Landscape shows nothing here — it is already full. */}
           {!immersive && !permissions.captureBlocked
-            ? stageControls({ top: theme.space.xs, right: theme.space.xs })
+            ? stageControls({ top: theme.space.xs, right: theme.space.xs, zIndex: 2 })
             : null}
         </View>
 
@@ -808,13 +808,13 @@ export default function ScreenTab() {
             the letterboxed stage), always visible, full size, one action.
             Landscape needs no exit — rotating back IS the exit. */}
         {fullscreen && !landscape
-          ? stageControls({ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs })
+          ? stageControls({ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs, zIndex: 4 })
           : null}
 
         {/* Input errors still matter while immersive; they float over the top edge. */}
         {immersive ? (
           <View
-            style={{ pointerEvents: 'box-none', position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0 }}
+            style={{ pointerEvents: 'box-none', position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0, zIndex: 3 }}
           >
             {/* Recording must stay unmissable in fullscreen too — it floats on
                 the HUD scrim over the top edge, outliving the dock's auto-hide. */}
@@ -845,6 +845,7 @@ export default function ScreenTab() {
             left: insets.left + theme.space.sm,
             right: insets.right + theme.space.sm,
             bottom: insets.bottom + theme.space.sm,
+            zIndex: 5,
             opacity: dockOpacity,
           }}
         >
@@ -865,10 +866,10 @@ export default function ScreenTab() {
       )}
 
       {/* While the immersive bar is away, a thin strip on the very bottom
-          edge waits for the reveal swipe. Mounted only then, so it can never
-          sit between a finger and the desktop while the bar is up. */}
-      {immersive && !dockShown ? (
-        <EdgeRevealStrip testID="edge-reveal" bottomInset={insets.bottom} onReveal={dockHide.poke} />
+          edge waits for the reveal swipe. Kept mounted to avoid flicker;
+          disabled via pointerEvents when not needed. */}
+      {immersive ? (
+        <EdgeRevealStrip testID="edge-reveal" bottomInset={insets.bottom} onReveal={dockHide.poke} disabled={dockShown} />
       ) : null}
 
       {/* The type-to-PC row, floating on the keyboard's top edge. Absolute so
@@ -883,6 +884,7 @@ export default function ScreenTab() {
             left: 0,
             right: 0,
             bottom: 0,
+            zIndex: 10,
             transform: [{ translateY: typeBarLift }],
             // Opaque page ground normally; the HUD scrim over live video
             // while immersive, matching the floating dock's chrome.

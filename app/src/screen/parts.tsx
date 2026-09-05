@@ -489,6 +489,8 @@ export function KeyBar({ mac, mods, onKey, onRepeat, onMod, floating = false, te
           onScroll={Platform.OS === 'web' ? settle : undefined}
           scrollEventThrottle={64}
           accessibilityLabel={`Keyboard keys, ${KEY_PAGES.length} pages`}
+          nestedScrollEnabled
+          directionalLockEnabled
         >
           {KEY_PAGES.map((keyPage, index) => (
             <Column key={index} gap="xs" style={{ width: pageWidth }}>
@@ -536,10 +538,11 @@ export interface StreamHudProps {
   pingMs: number | null;
   quality: QualityPreset;
   zoom: number;
+  topInset?: number;
 }
 
 /** Connection-quality readout. Decorative overlay — never intercepts touches. */
-export function StreamHud({ stats, pingMs, quality, zoom }: StreamHudProps) {
+export function StreamHud({ stats, pingMs, quality, zoom, topInset = 0 }: StreamHudProps) {
   const theme = useTheme();
   const rows: readonly (readonly [string, string])[] = [
     ['fps', `${stats.fps} / ${quality.fps}`],
@@ -557,7 +560,7 @@ export function StreamHud({ stats, pingMs, quality, zoom }: StreamHudProps) {
       importantForAccessibility="no-hide-descendants"
       style={{ pointerEvents: 'none',
         position: 'absolute',
-        top: theme.space.xs,
+        top: topInset + theme.space.xs,
         left: theme.space.xs,
         minWidth: 132,
         backgroundColor: HUD.scrim,
