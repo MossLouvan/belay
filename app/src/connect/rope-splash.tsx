@@ -21,6 +21,7 @@ import Animated, {
 import { useTheme } from '../theme';
 import { Txt, Micro, useReducedMotion } from '../ui';
 import { Carabiner } from '../ui/carabiner';
+import { CurvedRopeStrand } from '../ui/rope-strand';
 import { SPRING_CONFIGS } from '../ui/motion';
 
 interface RopeSplashProps {
@@ -33,134 +34,12 @@ const ROPE_STROKE = 6;
 
 /**
  * Curved rope with helical braid pattern under tension.
- * The visible sag is the bottom arc of a large circle. Staggered dashes along
- * the arc create the helical/braided appearance, not concentric glow rings.
+ * Uses shared CurvedRopeStrand for consistent rendering across the app.
  */
 function Rope({ width, height, color }: { width: number; height: number; color: string }) {
-  const startY = height * 0.15; // Where the rope meets the screen edges
-  const sagY = height * 0.45; // Sag point where the carabiner hangs
-  const sag = sagY - startY;
-  const halfSpan = width / 2;
-  // Radius of the circle through both edge points and the sag point.
-  const radius = (halfSpan * halfSpan + sag * sag) / (2 * sag);
-  const centerX = width / 2;
-  const centerY = sagY - radius;
-
-  // Calculate dashes along the arc
-  const dashCount = 14;
-  const dashWidth = ROPE_STROKE * 0.4;
-  const dashHeight = ROPE_STROKE * 2.5;
-  const arcSpan = Math.atan2(halfSpan, radius - sag) * 2; // Total arc angle in radians
-
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
-      {/* Outer glow/bloom for fiber-optic energy effect */}
-      <View
-        style={{
-          position: 'absolute',
-          left: centerX - radius,
-          top: centerY,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE * 3,
-          borderColor: `${color}15`,
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: centerX - radius,
-          top: centerY,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE * 1.8,
-          borderColor: `${color}40`,
-        }}
-      />
-      {/* Shadow layer for depth */}
-      <View
-        style={{
-          position: 'absolute',
-          left: centerX - radius,
-          top: centerY + 2,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE,
-          borderColor: 'rgba(0, 0, 0, 0.25)',
-        }}
-      />
-      {/* Main rope body - electric blue core */}
-      <View
-        style={{
-          position: 'absolute',
-          left: centerX - radius,
-          top: centerY,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE,
-          borderColor: color,
-        }}
-      />
-      {/* Helical braid pattern — staggered glowing dashes along the arc */}
-      {Array.from({ length: dashCount }).map((_, i) => {
-        // Angle along the arc from left to right
-        const t = i / (dashCount - 1);
-        const angle = -Math.PI / 2 - arcSpan / 2 + arcSpan * t;
-        
-        // Position on the arc centerline
-        const x = centerX + radius * Math.cos(angle);
-        const y = centerY + radius * Math.sin(angle);
-        
-        // Stagger left/right for helical effect
-        const side = i % 2 === 0 ? 1 : -1;
-        const offset = side * ROPE_STROKE * 0.25;
-        
-        // Perpendicular offset from arc (cross tangent)
-        const perpAngle = angle + Math.PI / 2;
-        const dashX = x + offset * Math.cos(perpAngle);
-        const dashY = y + offset * Math.sin(perpAngle);
-        
-        // Rotation to align with arc tangent
-        const tangentAngle = angle + Math.PI / 2;
-        const rotateDeg = (tangentAngle * 180) / Math.PI;
-        
-        const dashOpacity = i % 2 === 0 ? 0.65 : 0.45;
-        
-        return (
-          <React.Fragment key={`dash-${i}`}>
-            {/* Dash glow halo */}
-            <View
-              style={{
-                position: 'absolute',
-                left: dashX - dashWidth,
-                top: dashY - dashHeight,
-                width: dashWidth * 2,
-                height: dashHeight * 2,
-                borderRadius: dashWidth,
-                backgroundColor: `rgba(255, 255, 255, ${dashOpacity * 0.15})`,
-                transform: [{ rotate: `${rotateDeg}deg` }],
-              }}
-            />
-            {/* Dash core - bright strand highlight */}
-            <View
-              style={{
-                position: 'absolute',
-                left: dashX - dashWidth / 2,
-                top: dashY - dashHeight / 2,
-                width: dashWidth,
-                height: dashHeight,
-                borderRadius: dashWidth / 2,
-                backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
-                transform: [{ rotate: `${rotateDeg}deg` }],
-              }}
-            />
-          </React.Fragment>
-        );
-      })}
+      <CurvedRopeStrand width={width} height={height} color={color} ropeStroke={ROPE_STROKE} />
     </View>
   );
 }

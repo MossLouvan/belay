@@ -22,6 +22,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
 import { Carabiner, useReducedMotion } from '../ui';
+import { RopeStrand } from '../ui/rope-strand';
 
 /** How far the rope hangs at the first step, carabiner included. */
 const ROPE_FULL = 120;
@@ -144,98 +145,13 @@ export function RopePull({ progress }: RopePullProps) {
       pointerEvents="none"
     >
       <Animated.View style={[{ alignItems: 'center' }, columnStyle]}>
-        {/* Braided rope with helical strand pattern and fiber-optic glow */}
-        <View style={{ position: 'relative', alignItems: 'center' }}>
-          {/* Outer glow/bloom layers for energy effect */}
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                width: ROPE_WIDTH * 3.5,
-                borderRadius: ROPE_WIDTH * 1.75,
-                backgroundColor: `${theme.colors.accentGraphic}12`,
-              },
-              ropeStyle,
-            ]}
-          />
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                width: ROPE_WIDTH * 2,
-                borderRadius: ROPE_WIDTH,
-                backgroundColor: `${theme.colors.accentGraphic}35`,
-              },
-              ropeStyle,
-            ]}
-          />
-          {/* Shadow for depth */}
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                left: 1,
-                width: ROPE_WIDTH,
-                borderRadius: ROPE_WIDTH / 2,
-                backgroundColor: 'rgba(0, 0, 0, 0.2)',
-              },
-              ropeStyle,
-            ]}
-          />
-          {/* Main rope body - electric blue core */}
-          <Animated.View
-            style={[
-              {
-                width: ROPE_WIDTH,
-                borderRadius: ROPE_WIDTH / 2,
-                backgroundColor: theme.colors.accentGraphic,
-              },
-              ropeStyle,
-            ]}
-          />
-          {/* Helical braid: tilted glowing dashes showing spiral twist, clipped to rope height */}
-          {Array.from({ length: visibleDashCount }).map((_, i) => {
-            const yPos = i * totalSegment;
-            const side = i % 2 === 0 ? 1 : -1;
-            const xOffset = side * ROPE_WIDTH * 0.15;
-            const tiltAngle = side * 30; // ~30° tilt alternating left/right for spiral read
-            const dashOpacity = i % 2 === 0 ? 0.65 : 0.45;
-            const clippedHeight = Math.min(dashHeight, currentRopeHeight - yPos);
-            
-            return (
-              <React.Fragment key={`dash-${i}`}>
-                {/* Dash glow halo */}
-                <View
-                  style={{
-                    position: 'absolute',
-                    top: yPos,
-                    left: xOffset,
-                    width: ROPE_WIDTH * 0.9,
-                    height: clippedHeight,
-                    borderRadius: ROPE_WIDTH * 0.45,
-                    backgroundColor: `rgba(255, 255, 255, ${dashOpacity * 0.2})`,
-                    transform: [{ rotate: `${tiltAngle}deg` }],
-                    overflow: 'hidden',
-                  }}
-                />
-                {/* Dash core - bright strand highlight */}
-                <View
-                  style={{
-                    position: 'absolute',
-                    top: yPos,
-                    left: xOffset,
-                    width: ROPE_WIDTH * 0.4,
-                    height: clippedHeight,
-                    borderRadius: ROPE_WIDTH * 0.2,
-                    backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
-                    transform: [{ rotate: `${tiltAngle}deg` }],
-                    overflow: 'hidden',
-                  }}
-                />
-              </React.Fragment>
-            );
-          })}
-        </View>
+        {/* Braided rope with helical strand pattern - uses shared RopeStrand */}
+        <RopeStrand
+          width={ROPE_WIDTH}
+          color={theme.colors.accentGraphic}
+          animatedStyle={ropeStyle}
+          currentHeight={currentRopeHeight}
+        />
         {/* Carabiner clipped to the rope's end, gate up, showing load with subtle physics. */}
         <Animated.View style={[{ marginTop: -4 }, carabinerStyle]}>
           <Carabiner size={CARABINER_SIZE} color={theme.colors.accentGraphic} />
