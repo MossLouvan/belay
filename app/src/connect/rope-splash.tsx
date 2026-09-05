@@ -33,8 +33,8 @@ const ROPE_STROKE = 6;
 
 /**
  * Curved rope with helical braid pattern under tension.
- * The visible sag is the bottom arc of a large circle. Offset circles create
- * the helical twist pattern, avoiding parallel tube appearance.
+ * The visible sag is the bottom arc of a large circle. Staggered dashes along
+ * the arc create the helical/braided appearance, not concentric glow rings.
  */
 function Rope({ width, height, color }: { width: number; height: number; color: string }) {
   const startY = height * 0.15; // Where the rope meets the screen edges
@@ -43,6 +43,14 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
   const halfSpan = width / 2;
   // Radius of the circle through both edge points and the sag point.
   const radius = (halfSpan * halfSpan + sag * sag) / (2 * sag);
+  const centerX = width / 2;
+  const centerY = sagY - radius;
+
+  // Calculate dashes along the arc
+  const dashCount = 14;
+  const dashWidth = ROPE_STROKE * 0.4;
+  const dashHeight = ROPE_STROKE * 2.5;
+  const arcSpan = Math.atan2(halfSpan, radius - sag) * 2; // Total arc angle in radians
 
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
@@ -50,8 +58,8 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
       <View
         style={{
           position: 'absolute',
-          left: width / 2 - radius,
-          top: sagY - radius * 2 + 2,
+          left: centerX - radius,
+          top: centerY + 2,
           width: radius * 2,
           height: radius * 2,
           borderRadius: radius,
@@ -63,8 +71,8 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
       <View
         style={{
           position: 'absolute',
-          left: width / 2 - radius,
-          top: sagY - radius * 2,
+          left: centerX - radius,
+          top: centerY,
           width: radius * 2,
           height: radius * 2,
           borderRadius: radius,
@@ -72,31 +80,45 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
           borderColor: color,
         }}
       />
-      {/* Helical braid pattern — offset circles create twist read */}
-      <View
-        style={{
-          position: 'absolute',
-          left: width / 2 - radius + ROPE_STROKE * 0.3,
-          top: sagY - radius * 2 - ROPE_STROKE * 0.2,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE * 0.25,
-          borderColor: 'rgba(255, 255, 255, 0.35)',
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: width / 2 - radius - ROPE_STROKE * 0.25,
-          top: sagY - radius * 2 + ROPE_STROKE * 0.3,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE * 0.2,
-          borderColor: 'rgba(255, 255, 255, 0.2)',
-        }}
-      />
+      {/* Helical braid pattern — staggered dashes along the arc */}
+      {Array.from({ length: dashCount }).map((_, i) => {
+        // Angle along the arc from left to right
+        const t = i / (dashCount - 1);
+        const angle = -Math.PI / 2 - arcSpan / 2 + arcSpan * t;
+        
+        // Position on the arc centerline
+        const x = centerX + radius * Math.cos(angle);
+        const y = centerY + radius * Math.sin(angle);
+        
+        // Stagger left/right for helical effect
+        const side = i % 2 === 0 ? 1 : -1;
+        const offset = side * ROPE_STROKE * 0.25;
+        
+        // Perpendicular offset from arc (cross tangent)
+        const perpAngle = angle + Math.PI / 2;
+        const dashX = x + offset * Math.cos(perpAngle);
+        const dashY = y + offset * Math.sin(perpAngle);
+        
+        // Rotation to align with arc tangent
+        const tangentAngle = angle + Math.PI / 2;
+        const rotateDeg = (tangentAngle * 180) / Math.PI;
+        
+        return (
+          <View
+            key={`dash-${i}`}
+            style={{
+              position: 'absolute',
+              left: dashX - dashWidth / 2,
+              top: dashY - dashHeight / 2,
+              width: dashWidth,
+              height: dashHeight,
+              borderRadius: dashWidth / 2,
+              backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
+              transform: [{ rotate: `${rotateDeg}deg` }],
+            }}
+          />
+        );
+      })}
     </View>
   );
 }

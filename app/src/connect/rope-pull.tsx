@@ -129,6 +129,13 @@ export function RopePull({ progress }: RopePullProps) {
     transform: [{ translateY: carabinerBounce.value }],
   }));
 
+  // Calculate visible dash count based on current rope height
+  const dashHeight = ROPE_WIDTH * 2.5;
+  const dashGap = ROPE_WIDTH * 2;
+  const totalSegment = dashHeight + dashGap;
+  const currentRopeHeight = ROPE_FULL - (ROPE_FULL - ROPE_TAKEN_IN) * progress;
+  const visibleDashCount = Math.floor(currentRopeHeight / totalSegment);
+
   return (
     <Animated.View
       style={[{ alignItems: 'center' }, containerStyle]}
@@ -163,22 +170,25 @@ export function RopePull({ progress }: RopePullProps) {
               ropeStyle,
             ]}
           />
-          {/* Helical braid: staggered dashes showing twist (not parallel strips) */}
-          {[0, 1, 2, 3, 4, 5].map((i) => {
-            const dashHeight = ROPE_WIDTH * 2.5;
-            const dashGap = ROPE_WIDTH * 2;
-            const totalSegment = dashHeight + dashGap;
+          {/* Helical braid: tilted dashes showing spiral twist, clipped to rope height */}
+          {Array.from({ length: visibleDashCount }).map((_, i) => {
+            const yPos = i * totalSegment;
+            const side = i % 2 === 0 ? 1 : -1;
+            const xOffset = side * ROPE_WIDTH * 0.15;
+            const tiltAngle = side * 30; // ~30° tilt alternating left/right for spiral read
+            
             return (
               <View
                 key={`dash-${i}`}
                 style={{
                   position: 'absolute',
-                  top: i * totalSegment,
-                  left: i % 2 === 0 ? ROPE_WIDTH * 0.15 : -ROPE_WIDTH * 0.05,
+                  top: yPos,
+                  left: xOffset,
                   width: ROPE_WIDTH * 0.4,
-                  height: dashHeight,
+                  height: Math.min(dashHeight, currentRopeHeight - yPos), // Clip to rope end
                   borderRadius: ROPE_WIDTH * 0.2,
                   backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
+                  transform: [{ rotate: `${tiltAngle}deg` }],
                   overflow: 'hidden',
                 }}
               />
