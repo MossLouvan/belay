@@ -18,6 +18,7 @@ import Animated, {
   withTiming,
   Easing,
   withDelay,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { useReducedMotion } from './motion';
 
@@ -94,7 +95,7 @@ function CurvedRopeStrand({
   }, [shouldAnimate, packet1, packet2, packet3]);
 
   // Convert packet progress to angle position along arc (180deg arc from left to right)
-  const getPacketStyle = (packetValue: Animated.SharedValue<number>) => {
+  const getPacketStyle = (packetValue: SharedValue<number>) => {
     return useAnimatedStyle(() => {
       const progress = packetValue.value;
       if (progress === 0 || progress > 0.95) {
