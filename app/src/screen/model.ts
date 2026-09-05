@@ -42,6 +42,14 @@ export interface QualityPreset {
    * JPEG presets drop to 8fps is cost per frame, which no longer applies.
    */
   readonly bwpFps: number;
+  /**
+   * True when the preset is only honourable on a host with a hardware encoder.
+   *
+   * A flag rather than a phrase parsed out of `hint`: the hint is prose meant
+   * for a person, and deciding whether to show a control by pattern-matching
+   * English breaks the moment someone rewords it.
+   */
+  readonly requiresHardwareEncode?: boolean;
 }
 
 export const QUALITY: readonly QualityPreset[] = Object.freeze([
@@ -81,9 +89,10 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     w: 1920,
     q: 65,
     fps: 60,
-    hint: 'High frame rate for smooth interaction. Requires WebRTC and hardware encoding.',
+    hint: 'High frame rate for smooth interaction.',
     bwpPreset: 'high',
     bwpFps: 60,
+    requiresHardwareEncode: true,
   },
   {
     id: 'ultra',
@@ -91,15 +100,52 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     w: 2560,
     q: 70,
     fps: 120,
-    hint: 'Maximum quality and frame rate for gaming and high-refresh displays. Requires WebRTC, hardware encoding, and high-speed connection.',
+    hint: 'Maximum quality and frame rate, for gaming and high-refresh displays.',
     // The only preset that lifts the BWP ceiling to max, and the only one that
     // asks for more than 60fps. H.264 makes 120 affordable in bandwidth terms;
     // whether the host can encode that fast is a separate question the
     // congestion controller and the encoder settle between them.
     bwpPreset: 'max',
     bwpFps: 120,
+    requiresHardwareEncode: true,
   },
 ]);
+
+/**
+ * The presets THIS host can actually honour.
+ *
+ * Hick's Law, and the same discipline the resolution picker already applies:
+ * it hides the virtual-display sizes entirely until the host advertises the
+ * driver, rather than offering sizes that would fail. Quality was not doing
+ * that — it offered five presets, two of which needed a hardware encoder the
+ * host might not have, and told the user so in prose they had to read and then
+ * evaluate against a capability they cannot see.
+ *
+ * An option that cannot work is worse than a missing one: it costs a decision
+ * AND the disappointment of making it wrong.
+ *
+ * `bwpPath` is the host's own report — 'gpu' when it is capturing and encoding
+ * on the GPU, 'cpu' when it has no hardware encoder, null before H.264 is up.
+ * Only 'gpu' can keep the promise Performance and Ultra make.
+ */
+export function availableQuality(bwpPath: string | null): readonly QualityPreset[] {
+  if (bwpPath === 'gpu') return QUALITY;
+  return QUALITY.filter((preset) => !preset.requiresHardwareEncode);
+}
+
+/**
+ * Keep a selection valid when the host's capability changes under it.
+ *
+ * The picker can be showing Ultra when the stream falls back to the CPU path —
+ * a reconnect to a different host, or a hardware encoder that stopped
+ * answering. Silently leaving an unhonourable preset selected means the app
+ * displays one thing and does another, so fall back to the closest preset that
+ * still exists rather than to an arbitrary default.
+ */
+export function resolveQualityId(id: QualityId, available: readonly QualityPreset[]): QualityId {
+  if (available.some((preset) => preset.id === id)) return id;
+  return available.length > 0 ? available[available.length - 1].id : DEFAULT_QUALITY;
+}
 
 export const DEFAULT_QUALITY: QualityId = 'balanced';
 

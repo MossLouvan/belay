@@ -55,10 +55,12 @@ import {
   useToggleAnimation,
 } from '../../src/ui';
 import {
+  availableQuality,
   DEFAULT_QUALITY,
   EMPTY_SIZE,
   fitBox,
   findQuality,
+  resolveQualityId,
   findResolution,
   GESTURE,
   keyFor,
@@ -248,6 +250,22 @@ export default function ScreenTab() {
   );
 
   const stream = useScreenStream(active, quality, screenIndex, virtualRequest);
+
+  // Only the presets this host can actually honour. Performance and Ultra need
+  // a hardware encoder; offering them to a host without one costs the user a
+  // decision and then disappoints it — the same discipline the resolution
+  // picker already applies with vdAvailable.
+  //
+  // Derived AFTER the stream, because the capability is something the host
+  // reports once connected. The selection is then corrected as state rather
+  // than around it: `quality` feeds useScreenStream, so deriving it back out of
+  // the stream would be circular. Correcting the id converges on the next
+  // render instead.
+  const qualityChoices = useMemo(() => availableQuality(stream.bwpPath), [stream.bwpPath]);
+  useEffect(() => {
+    const supported = resolveQualityId(qualityId, qualityChoices);
+    if (supported !== qualityId) setQualityId(supported);
+  }, [qualityId, qualityChoices]);
 
   // Probe once per active session whether this host can render at a chosen
   // resolution. A 403 (flag off) or an unreachable host resolves to false
@@ -1066,7 +1084,7 @@ export default function ScreenTab() {
             accessibilityLabel="Stream quality"
             value={qualityId}
             onChange={setQualityId}
-            options={QUALITY.map((preset) => ({ value: preset.id, label: preset.label }))}
+            options={qualityChoices.map((preset) => ({ value: preset.id, label: preset.label }))}
           />
           <Caption>{quality.hint}</Caption>
           <Caption>{qualityDescription(quality, stream.bwpPath !== null)}</Caption>
