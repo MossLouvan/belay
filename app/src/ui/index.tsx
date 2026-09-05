@@ -52,7 +52,7 @@ export type { HapticTone } from './haptics';
 export { useReducedMotion, useToggleAnimation, useEntrance, usePulse, useSpringPress, useMorphTransition, useStatusPulse, useSuccessCelebration } from './motion';
 export { Carabiner } from './carabiner';
 export type { CarabinerProps } from './carabiner';
-export { RopeStrand } from './rope-strand';
+export { RopeStrand, CurvedRopeStrand } from './rope-strand';
 export type { RopeStrandProps } from './rope-strand';
 export { NotificationCarabiner, useNotificationCarabiner } from './notification-carabiner';
 export type { NotificationCarabinerProps } from './notification-carabiner';

@@ -29,32 +29,34 @@ export interface RopeStrandProps {
   readonly currentHeight?: number;
   /** Enable fiber optic flow and data packet animations (default: true) */
   readonly enableFlow?: boolean;
-  /** For curved ropes: render as arc. Requires circleRadius. */
-  readonly curved?: boolean;
-  /** Circle radius for curved rope (splash screen arc) */
-  readonly circleRadius?: number;
-  /** Circle center offset for curved rope */
-  readonly circleCenter?: { x: number; y: number };
 }
 
 /**
  * Curved rope strand for splash screen with helical dashes along the arc + fiber flow.
  */
-function CurvedRopeStrand({
+export function CurvedRopeStrand({
   width,
+  height,
   color,
-  animatedStyle,
-  circleRadius,
-  circleCenter,
-  shouldAnimate,
+  ropeStroke = 6,
 }: {
   width: number;
+  height: number;
   color: string;
-  animatedStyle: any;
-  circleRadius: number;
-  circleCenter: { x: number; y: number };
-  shouldAnimate: boolean;
+  ropeStroke?: number;
 }) {
+  const reducedMotion = useReducedMotion();
+  const shouldAnimate = !reducedMotion;
+
+  // Calculate circle parameters from width/height
+  const startY = height * 0.15;
+  const sagY = height * 0.45;
+  const sag = sagY - startY;
+  const halfSpan = width / 2;
+  const radius = (halfSpan * halfSpan + sag * sag) / (2 * sag);
+  const centerX = width / 2;
+  const centerY = sagY - radius;
+
   // Data packets traveling along the curved arc - SUBTLE (2-3 visible)
   const packet1 = useSharedValue(0);
   const packet2 = useSharedValue(0);
@@ -101,16 +103,17 @@ function CurvedRopeStrand({
         return { opacity: 0 };
       }
 
-      // Map 0->1 to angle 180deg -> 0deg (traveling clockwise along bottom arc)
-      const angle = Math.PI * (1 - progress);
-      const x = circleCenter.x + Math.cos(angle) * circleRadius;
-      const y = circleCenter.y - circleRadius * 2 + Math.sin(angle) * circleRadius;
+      // Map 0->1 along the arc
+      const arcSpan = Math.atan2(halfSpan, radius - sag) * 2;
+      const angle = -Math.PI / 2 - arcSpan / 2 + arcSpan * progress;
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
 
       return {
         opacity: 0.22, // SUBTLE
         position: 'absolute',
-        left: x - width * 0.25,
-        top: y - width * 0.7,
+        left: x - ropeStroke * 0.3,
+        top: y - ropeStroke * 0.7,
       };
     });
   };
@@ -120,78 +123,115 @@ function CurvedRopeStrand({
   const packet3Style = getPacketStyle(packet3);
 
   // Helical dashes along the arc (not concentric rings)
-  const dashCount = Math.floor((Math.PI * circleRadius) / (width * 3)); // Space along arc
-  const helicalDashes = Array.from({ length: dashCount }).map((_, i) => {
-    // Position along 180° arc from left to right
-    const angleProgress = i / dashCount;
-    const angle = Math.PI * (1 - angleProgress); // 180° to 0°
-    
-    const x = circleCenter.x + Math.cos(angle) * circleRadius;
-    const y = circleCenter.y - circleRadius * 2 + Math.sin(angle) * circleRadius;
-    
-    // Alternate sides for helical spiral
-    const side = i % 2 === 0 ? 1 : -1;
-    const offsetX = side * width * 0.15;
-    const offsetY = side * width * 0.1;
-    
-    // Rotate dash to be tangent to arc
-    const tangentAngle = angle - Math.PI / 2; // Perpendicular to radius
-    const tiltDeg = (tangentAngle * 180 / Math.PI) + (side * 15); // Add spiral tilt
-    
-    return {
-      key: `dash-${i}`,
-      x: x + offsetX,
-      y: y + offsetY,
-      rotation: tiltDeg,
-      opacity: i % 2 === 0 ? 0.4 : 0.25,
-    };
-  });
+  const dashCount = 14;
+  const dashWidth = ropeStroke * 0.4;
+  const dashHeight = ropeStroke * 2.5;
+  const arcSpan = Math.atan2(halfSpan, radius - sag) * 2;
 
   return (
-    <View style={[{ position: 'relative' }, animatedStyle]} pointerEvents="none">
+    <View style={{ position: 'absolute', width, height }} pointerEvents="none">
+      {/* Outer glow/bloom layers */}
+      <View
+        style={{
+          position: 'absolute',
+          left: centerX - radius,
+          top: centerY,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ropeStroke * 3,
+          borderColor: `${color}15`,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          left: centerX - radius,
+          top: centerY,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ropeStroke * 1.8,
+          borderColor: `${color}40`,
+        }}
+      />
       {/* Shadow layer */}
       <View
         style={{
           position: 'absolute',
-          left: circleCenter.x - circleRadius,
-          top: circleCenter.y - circleRadius * 2 + 2,
-          width: circleRadius * 2,
-          height: circleRadius * 2,
-          borderRadius: circleRadius,
-          borderWidth: width,
-          borderColor: 'rgba(0, 0, 0, 0.2)',
+          left: centerX - radius,
+          top: centerY + 2,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ropeStroke,
+          borderColor: 'rgba(0, 0, 0, 0.25)',
         }}
       />
-      {/* Main rope body */}
+      {/* Main rope body - electric blue core */}
       <View
         style={{
           position: 'absolute',
-          left: circleCenter.x - circleRadius,
-          top: circleCenter.y - circleRadius * 2,
-          width: circleRadius * 2,
-          height: circleRadius * 2,
-          borderRadius: circleRadius,
-          borderWidth: width,
+          left: centerX - radius,
+          top: centerY,
+          width: radius * 2,
+          height: radius * 2,
+          borderRadius: radius,
+          borderWidth: ropeStroke,
           borderColor: color,
         }}
       />
       
       {/* Helical braid dashes along the arc (not concentric rings) */}
-      {helicalDashes.map((dash) => (
-        <View
-          key={dash.key}
-          style={{
-            position: 'absolute',
-            left: dash.x - width * 0.2,
-            top: dash.y - width * 0.6,
-            width: width * 0.4,
-            height: width * 1.2,
-            borderRadius: width * 0.2,
-            backgroundColor: `rgba(255, 255, 255, ${dash.opacity})`,
-            transform: [{ rotate: `${dash.rotation}deg` }],
-          }}
-        />
-      ))}
+      {Array.from({ length: dashCount }).map((_, i) => {
+        const t = i / (dashCount - 1);
+        const angle = -Math.PI / 2 - arcSpan / 2 + arcSpan * t;
+        
+        const x = centerX + radius * Math.cos(angle);
+        const y = centerY + radius * Math.sin(angle);
+        
+        const side = i % 2 === 0 ? 1 : -1;
+        const offset = side * ropeStroke * 0.25;
+        
+        const perpAngle = angle + Math.PI / 2;
+        const dashX = x + offset * Math.cos(perpAngle);
+        const dashY = y + offset * Math.sin(perpAngle);
+        
+        const tangentAngle = angle + Math.PI / 2;
+        const rotateDeg = (tangentAngle * 180) / Math.PI;
+        const dashOpacity = i % 2 === 0 ? 0.65 : 0.45;
+
+        return (
+          <React.Fragment key={`dash-${i}`}>
+            {/* Dash glow halo */}
+            <View
+              style={{
+                position: 'absolute',
+                left: dashX - dashWidth * 0.75,
+                top: dashY - dashHeight / 2,
+                width: dashWidth * 1.5,
+                height: dashHeight,
+                borderRadius: dashWidth * 0.75,
+                backgroundColor: `rgba(255, 255, 255, ${dashOpacity * 0.3})`,
+                transform: [{ rotate: `${rotateDeg}deg` }],
+              }}
+            />
+            {/* Solid dash core */}
+            <View
+              style={{
+                position: 'absolute',
+                left: dashX - dashWidth / 2,
+                top: dashY - dashHeight / 2,
+                width: dashWidth,
+                height: dashHeight,
+                borderRadius: dashWidth / 2,
+                backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
+                transform: [{ rotate: `${rotateDeg}deg` }],
+              }}
+            />
+          </React.Fragment>
+        );
+      })}
 
       {/* Data packets — sparse, clipped to arc */}
       {shouldAnimate && (
@@ -200,12 +240,12 @@ function CurvedRopeStrand({
             style={[
               packet1Style,
               {
-                width: width * 0.5,
-                height: width * 1.4,
-                borderRadius: width * 0.25,
+                width: ropeStroke * 0.8,
+                height: ropeStroke * 2.2,
+                borderRadius: ropeStroke * 0.4,
                 backgroundColor: color,
                 shadowColor: color,
-                shadowRadius: width * 0.3,
+                shadowRadius: ropeStroke * 0.5,
                 shadowOpacity: 0.2,
               },
             ]}
@@ -214,12 +254,12 @@ function CurvedRopeStrand({
             style={[
               packet2Style,
               {
-                width: width * 0.45,
-                height: width * 1.2,
-                borderRadius: width * 0.225,
+                width: ropeStroke * 0.7,
+                height: ropeStroke * 1.9,
+                borderRadius: ropeStroke * 0.35,
                 backgroundColor: color,
                 shadowColor: color,
-                shadowRadius: width * 0.25,
+                shadowRadius: ropeStroke * 0.4,
                 shadowOpacity: 0.18,
               },
             ]}
@@ -228,12 +268,12 @@ function CurvedRopeStrand({
             style={[
               packet3Style,
               {
-                width: width * 0.48,
-                height: width * 1.3,
-                borderRadius: width * 0.24,
+                width: ropeStroke * 0.75,
+                height: ropeStroke * 2.1,
+                borderRadius: ropeStroke * 0.375,
                 backgroundColor: color,
                 shadowColor: color,
-                shadowRadius: width * 0.28,
+                shadowRadius: ropeStroke * 0.45,
                 shadowOpacity: 0.19,
               },
             ]}
@@ -261,24 +301,9 @@ export function RopeStrand({
   animatedStyle, 
   currentHeight,
   enableFlow = true,
-  curved = false,
-  circleRadius,
-  circleCenter,
 }: RopeStrandProps) {
   const reducedMotion = useReducedMotion();
   const shouldAnimate = enableFlow && !reducedMotion;
-
-  // Curved rope for splash screen
-  if (curved && circleRadius && circleCenter) {
-    return <CurvedRopeStrand 
-      width={width}
-      color={color}
-      animatedStyle={animatedStyle}
-      circleRadius={circleRadius}
-      circleCenter={circleCenter}
-      shouldAnimate={shouldAnimate}
-    />;
-  }
 
   // Straight rope with tilted dashes and fiber flow
   const dashHeight = width * 2.5;
