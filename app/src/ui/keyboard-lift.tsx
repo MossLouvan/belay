@@ -73,12 +73,18 @@ export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
 
   useEffect(() => {
     const settle = (overlap: number, event: KeyboardEvent) => {
+      // Guard: never apply negative or unreasonable lifts — these indicate
+      // measurement errors that would shift the entire UI. Cap at sensible
+      // keyboard height (screen height) to prevent layout corruption.
+      const windowHeight = Dimensions.get('window').height;
+      const safeOverlap = Math.max(0, Math.min(overlap, windowHeight));
+      
       if (reducedRef.current) {
-        lift.setValue(overlap);
+        lift.setValue(safeOverlap);
         return;
       }
       Animated.timing(lift, {
-        toValue: overlap,
+        toValue: safeOverlap,
         duration: event.duration > 0 ? event.duration : FALLBACK_DURATION_MS,
         // Close to UIKit's keyboard curve; translateY-only, so the native
         // driver keeps the row glued to the keyboard even under JS load.
@@ -102,7 +108,17 @@ export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
         settle(end.height, event);
         return;
       }
-      node.measureInWindow((_x, y, _w, h) => settle(keyboardOverlap(y + h, end.screenY), event));
+      node.measureInWindow((_x, y, _w, h) => {
+        // Guard against stale measurements: if y is negative or absurdly large,
+        // the view has been unmounted or the measurement is stale. Fall back
+        // to safe values to prevent layout corruption.
+        const windowHeight = Dimensions.get('window').height;
+        if (!Number.isFinite(y) || !Number.isFinite(h) || y < 0 || y > windowHeight * 2) {
+          settle(0, event);
+          return;
+        }
+        settle(keyboardOverlap(y + h, end.screenY), event);
+      });
     };
 
     return subscribeToKeyboardFrames(onFrame);

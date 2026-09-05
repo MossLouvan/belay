@@ -1,12 +1,14 @@
 // Blue rope + carabiner brand splash — the startup composition.
 //
-// Black canvas, blue curved rope hanging from top, carabiner at sag point,
-// BELAY wordmark + tagline bottom-right. Animated sequence: rope drops →
-// carabiner slides in → wordmark fades up. Matches reference composition
-// exactly but with blue (accent) rope instead of orange.
+// Black canvas, blue rope under tension, carabiner being pulled/clipped,
+// BELAY wordmark + tagline bottom-right. Animated sequence: rope drops with
+// weight → carabiner clips on under load (pull/tension physics) → wordmark
+// fades up. The motion shows a real climbing carabiner being clipped and
+// loaded, not an ornament hanging idle.
 
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -30,10 +32,9 @@ interface RopeSplashProps {
 const ROPE_STROKE = 6;
 
 /**
- * Realistic curved climbing rope with twisted strands, shadows, and highlights.
- * The visible sag is the bottom arc of a much larger circle: multiple layered
- * bordered Views create the rope's depth and texture. The circle's radius comes
- * from the sagitta formula, matching the geometry of a rope under tension.
+ * Curved rope with helical braid pattern under tension.
+ * The visible sag is the bottom arc of a large circle. Offset circles create
+ * the helical twist pattern, avoiding parallel tube appearance.
  */
 function Rope({ width, height, color }: { width: number; height: number; color: string }) {
   const startY = height * 0.15; // Where the rope meets the screen edges
@@ -45,7 +46,7 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
 
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
-      {/* Shadow layer for depth underneath the rope */}
+      {/* Shadow layer for depth */}
       <View
         style={{
           position: 'absolute',
@@ -56,19 +57,6 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
           borderRadius: radius,
           borderWidth: ROPE_STROKE,
           borderColor: 'rgba(0, 0, 0, 0.2)',
-        }}
-      />
-      {/* Dark strand (creates twisted rope appearance) */}
-      <View
-        style={{
-          position: 'absolute',
-          left: width / 2 - radius - 1,
-          top: sagY - radius * 2,
-          width: radius * 2,
-          height: radius * 2,
-          borderRadius: radius,
-          borderWidth: ROPE_STROKE,
-          borderColor: `${color}CC`, // Slightly transparent for layering
         }}
       />
       {/* Main rope body */}
@@ -84,30 +72,29 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
           borderColor: color,
         }}
       />
-      {/* Highlight strand (top-left, creates 3D appearance) */}
+      {/* Helical braid pattern — offset circles create twist read */}
       <View
         style={{
           position: 'absolute',
-          left: width / 2 - radius + 1,
-          top: sagY - radius * 2 - 1,
+          left: width / 2 - radius + ROPE_STROKE * 0.3,
+          top: sagY - radius * 2 - ROPE_STROKE * 0.2,
           width: radius * 2,
           height: radius * 2,
           borderRadius: radius,
-          borderWidth: ROPE_STROKE * 0.4,
-          borderColor: 'rgba(255, 255, 255, 0.3)',
+          borderWidth: ROPE_STROKE * 0.25,
+          borderColor: 'rgba(255, 255, 255, 0.35)',
         }}
       />
-      {/* Secondary highlight for rope texture */}
       <View
         style={{
           position: 'absolute',
-          left: width / 2 - radius - 1,
-          top: sagY - radius * 2 + 1,
+          left: width / 2 - radius - ROPE_STROKE * 0.25,
+          top: sagY - radius * 2 + ROPE_STROKE * 0.3,
           width: radius * 2,
           height: radius * 2,
           borderRadius: radius,
-          borderWidth: ROPE_STROKE * 0.3,
-          borderColor: 'rgba(255, 255, 255, 0.15)',
+          borderWidth: ROPE_STROKE * 0.2,
+          borderColor: 'rgba(255, 255, 255, 0.2)',
         }}
       />
     </View>
@@ -117,48 +104,83 @@ function Rope({ width, height, color }: { width: number; height: number; color: 
 /**
  * Full rope + carabiner + wordmark splash composition.
  * Animation sequence:
- * 1. Rope drops down (translateY from -100)
- * 2. Carabiner slides in along rope to sag point
- * 3. Wordmark fades in upwards from below
+ * 1. Rope drops down with weight (shows tension)
+ * 2. Carabiner clips onto rope with pull/load physics (not hanging idle)
+ * 3. Brief settle as the system comes under tension
+ * 4. Wordmark fades in upwards from below
  */
 export function RopeSplash({ animated = true }: RopeSplashProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   const shouldAnimate = animated && !reducedMotion;
 
   // Animation values
   const ropeY = useSharedValue(shouldAnimate ? -100 : 0);
-  const carabinerY = useSharedValue(shouldAnimate ? -50 : 0);
+  const carabinerY = useSharedValue(shouldAnimate ? -80 : 0);
   const carabinerOpacity = useSharedValue(shouldAnimate ? 0 : 1);
+  const carabinerRotate = useSharedValue(shouldAnimate ? 15 : 0);
+  const carabinerScale = useSharedValue(shouldAnimate ? 0.8 : 1);
   const wordmarkY = useSharedValue(shouldAnimate ? 30 : 0);
   const wordmarkOpacity = useSharedValue(shouldAnimate ? 0 : 1);
 
   const hasAnimated = useRef(false);
 
   useEffect(() => {
-    if (!shouldAnimate || hasAnimated.current) return;
+    if (!shouldAnimate) return;
+    // Allow re-animation on remount by checking if values are at their starting positions
+    if (hasAnimated.current && ropeY.value === 0) return;
     hasAnimated.current = true;
 
-    // 1. Rope drops down
-    ropeY.value = withSpring(0, SPRING_CONFIGS.gentle);
+    // 1. Rope drops with weight (fast drop showing gravity)
+    ropeY.value = withSpring(0, {
+      damping: 18,
+      stiffness: 400,
+      mass: 0.5,
+      overshootClamping: false,
+    });
 
-    // 2. Carabiner slides in (delayed after rope starts)
-    carabinerOpacity.value = withDelay(150, withTiming(1, { duration: 100 }));
+    // 2. Carabiner clips on with pull physics (rotation + scale + position)
+    // Shows the carabiner being clipped onto the rope under load
+    carabinerOpacity.value = withDelay(100, withTiming(1, { duration: 150 }));
+    
+    // Clip motion: starts rotated, snaps to vertical as it clips on
+    carabinerRotate.value = withDelay(
+      100,
+      withSequence(
+        withTiming(8, { duration: 100 }), // Brief swing as it approaches
+        withSpring(0, { damping: 12, stiffness: 400, mass: 0.5 }) // Snap to load-bearing position
+      )
+    );
+    
+    // Scale shows the impact/clip moment
+    carabinerScale.value = withDelay(
+      100,
+      withSequence(
+        withTiming(1.05, { duration: 100 }), // Brief expansion as it clips
+        withSpring(1, SPRING_CONFIGS.snappy) // Settle under load
+      )
+    );
+    
+    // Drop down and settle (pulled by weight, not just sliding)
     carabinerY.value = withDelay(
-      150,
-      withSpring(0, SPRING_CONFIGS.snappy)
+      100,
+      withSequence(
+        withSpring(5, { damping: 8, stiffness: 250, mass: 0.7 }), // Drop with bounce (under load)
+        withSpring(0, { damping: 15, stiffness: 300, mass: 0.8 }) // Settle to rest under tension
+      )
     );
 
-    // 3. Wordmark fades in upwards (after rope + carabiner settle)
+    // 3. Wordmark fades in while the clip is settling (overlapping, not sequential)
     wordmarkOpacity.value = withDelay(
-      500,
+      350,
       withTiming(1, { duration: theme.motion.base })
     );
     wordmarkY.value = withDelay(
-      500,
+      350,
       withSpring(0, SPRING_CONFIGS.gentle)
     );
-  }, [shouldAnimate, ropeY, carabinerY, carabinerOpacity, wordmarkY, wordmarkOpacity, theme.motion]);
+  }, [shouldAnimate, ropeY, carabinerY, carabinerOpacity, carabinerRotate, carabinerScale, wordmarkY, wordmarkOpacity, theme.motion.base]);
 
   const ropeStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: ropeY.value }],
@@ -166,7 +188,11 @@ export function RopeSplash({ animated = true }: RopeSplashProps) {
 
   const carabinerStyle = useAnimatedStyle(() => ({
     opacity: carabinerOpacity.value,
-    transform: [{ translateY: carabinerY.value }],
+    transform: [
+      { translateY: carabinerY.value },
+      { rotate: `${carabinerRotate.value}deg` },
+      { scale: carabinerScale.value },
+    ],
   }));
 
   const wordmarkStyle = useAnimatedStyle(() => ({
@@ -211,12 +237,12 @@ export function RopeSplash({ animated = true }: RopeSplashProps) {
         <Carabiner size={40} color={theme.colors.accentGraphic} />
       </Animated.View>
 
-      {/* BELAY wordmark + tagline bottom-right */}
+      {/* BELAY wordmark + tagline bottom-right, with safe area inset */}
       <Animated.View
         style={[
           {
             position: 'absolute',
-            bottom: theme.space.xxl + theme.space.lg,
+            bottom: insets.bottom + theme.space.xxl + theme.space.lg,
             right: theme.layout.margin,
             alignItems: 'flex-end',
             gap: theme.space.xxs,

@@ -6,6 +6,7 @@
 // - More generous spacing and negative space
 // - Refined borders and subtle backgrounds
 // - Cleaner button layout with primary/secondary hierarchy
+// - Paste button for IP-first, paste-friendly UX (not QR-forced)
 
 import React from 'react';
 import { View } from 'react-native';
@@ -35,6 +36,21 @@ export interface HostStepProps {
 /** "Will connect to http://…" preview, or the reason we cannot build one. */
 function ResolutionPreview({ resolution }: { resolution: HostResolution }) {
   const theme = useTheme();
+  
+  // Pair link detected: show clear message
+  if (resolution.ok === 'pair-link') {
+    return (
+      <View style={{ marginTop: theme.space.xs, gap: theme.space.xs }}>
+        <Txt variant="caption" tone="good">
+          ✓ Pairing link detected — will connect and pair automatically
+        </Txt>
+        <Txt variant="monoSmall" tone="dim">
+          {`${resolution.link.addresses.length} address${resolution.link.addresses.length > 1 ? 'es' : ''} • ${resolution.link.label}`}
+        </Txt>
+      </View>
+    );
+  }
+  
   if (!resolution.ok) {
     return (
       <Txt variant="caption" tone="bad" style={{ marginTop: theme.space.xs }}>
@@ -116,6 +132,20 @@ export function HostStep({
   onForgetRecent,
 }: HostStepProps) {
   const theme = useTheme();
+  
+  // Handle paste from clipboard
+  const handlePaste = React.useCallback(async () => {
+    try {
+      const { default: Clipboard } = await import('expo-clipboard');
+      const text = await Clipboard.getStringAsync();
+      if (text) {
+        onChangeText(text);
+      }
+    } catch (e) {
+      // Clipboard unavailable or denied — paste button was offered but failed.
+      // The input's own paste still works, so this is not blocking.
+    }
+  }, [onChangeText]);
 
   return (
     <View testID="host-step" style={{ gap: theme.space.xl }}>
@@ -126,7 +156,7 @@ export function HostStep({
           label="Computer address"
           value={value}
           onChangeText={onChangeText}
-          placeholder="192.168.1.20"
+          placeholder="192.168.1.20 or 100.x IP"
           mono
           autoCapitalize="none"
           autoCorrect={false}
@@ -135,10 +165,24 @@ export function HostStep({
           onSubmitEditing={onSubmit}
           editable={!busy}
           accessibilityLabel="Computer address"
-          accessibilityHint="The address printed by the host agent on your computer"
+          accessibilityHint="The Tailscale IP or local address — paste-friendly"
+          trailing={
+            <IconButton
+              testID="paste-address"
+              accessibilityLabel="Paste address from clipboard"
+              variant="plain"
+              onPress={handlePaste}
+            >
+              <Txt variant="label" tone="dim">Paste</Txt>
+            </IconButton>
+          }
         />
         {showResolution ? <ResolutionPreview resolution={resolution} /> : (
-          <Caption style={{ marginTop: theme.space.xs }}>Port 8787 is added for you if you leave it off.</Caption>
+          <View style={{ marginTop: theme.space.xs }}>
+            <Caption>
+              Copy the Tailscale 100.x IP from your computer and paste it here. Port 8787 is added automatically.
+            </Caption>
+          </View>
         )}
       </View>
 

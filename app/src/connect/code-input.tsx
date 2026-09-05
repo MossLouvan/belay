@@ -43,20 +43,35 @@ const NO_WEB_OUTLINE: TextStyle | null =
 function Caret({ color, visible }: { color: string; visible: boolean }) {
   const reduced = useReducedMotion();
   const opacity = useRef(new Animated.Value(1)).current;
+  const loopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
+    // Stop any existing loop before starting a new one
+    if (loopRef.current) {
+      loopRef.current.stop();
+      loopRef.current = null;
+    }
+
     if (!visible || reduced) {
       opacity.setValue(visible ? 1 : 0);
       return;
     }
+    
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 0, duration: CARET_BLINK_MS, useNativeDriver: Platform.OS !== 'web' }),
         Animated.timing(opacity, { toValue: 1, duration: CARET_BLINK_MS, useNativeDriver: Platform.OS !== 'web' }),
       ])
     );
+    loopRef.current = loop;
     loop.start();
-    return () => loop.stop();
+    
+    return () => {
+      if (loopRef.current) {
+        loopRef.current.stop();
+        loopRef.current = null;
+      }
+    };
   }, [visible, reduced, opacity]);
 
   if (!visible) return null;
@@ -173,7 +188,7 @@ export function CodeInput({
             top: 0,
             left: 0,
             right: 0,
-            height: BOX_HEIGHT,
+            bottom: 0,
             // Transparent glyphs: the boxes underneath are what the user reads.
             color: 'transparent',
             backgroundColor: 'transparent',

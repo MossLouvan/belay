@@ -18,10 +18,12 @@ export interface EdgeRevealStripProps {
   readonly onReveal: () => void;
   /** Safe-area bottom inset; the strip covers at least the home-indicator band. */
   readonly bottomInset: number;
+  /** When true, the strip is disabled and won't respond to touches. */
+  readonly disabled?: boolean;
   readonly testID?: string;
 }
 
-export function EdgeRevealStrip({ onReveal, bottomInset, testID }: EdgeRevealStripProps) {
+export function EdgeRevealStrip({ onReveal, bottomInset, disabled = false, testID }: EdgeRevealStripProps) {
   const onRevealRef = useRef(onReveal);
   onRevealRef.current = onReveal;
 
@@ -48,6 +50,7 @@ export function EdgeRevealStrip({ onReveal, bottomInset, testID }: EdgeRevealStr
       accessibilityLabel="Show the controls"
       accessibilityHint="Swipe up from the bottom edge"
       {...handlers}
+      pointerEvents={disabled ? 'none' : 'box-only'}
       style={{
         position: 'absolute',
         left: 0,

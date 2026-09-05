@@ -8,6 +8,8 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { normalizeHost } from '../api';
+import { parsePairLink } from './pair-link';
+import type { ParsedPairLink } from './pair-link';
 
 /** Where the recent-host list lives. Distinct from the keys ../api owns. */
 // 'belay.*' since the bundle id moved and wiped the old container.
@@ -22,7 +24,11 @@ export type HostResolution =
       /** A non-blocking remark about what was discarded from the input. */
       readonly hint?: string;
     }
-  | { readonly ok: false; readonly reason: string };
+  | { readonly ok: false; readonly reason: string }
+  | {
+      readonly ok: 'pair-link';
+      readonly link: ParsedPairLink;
+    };
 
 /** A Tailscale address — reachable from anywhere the tailnet reaches. */
 export function isTailscaleAddress(url: string): boolean {
@@ -50,12 +56,25 @@ function hasEmbeddedCredentials(input: string): boolean {
 /**
  * Turn whatever the user typed into a base URL, or explain why it cannot be one.
  * Purely syntactic — it says nothing about whether the host is reachable.
+ * 
+ * Now also detects pasted pair links (belay://pair?... or tether:) and returns
+ * them directly — paste-to-pair, no scan required.
  */
 export function resolveHost(input: string): HostResolution {
   const trimmed = input.trim();
   if (!trimmed) {
     return { ok: false, reason: 'Enter your PC address, e.g. 192.168.1.20 or 100.64.0.1' };
   }
+  
+  // Detect pair links first: belay://pair?... or tether: — paste-to-pair.
+  if (trimmed.match(/^(belay|tether):/i)) {
+    const link = parsePairLink(trimmed);
+    if (link) {
+      return { ok: 'pair-link', link };
+    }
+    return { ok: false, reason: 'This looks like a pairing link, but it is incomplete or invalid.' };
+  }
+  
   if (/\s/.test(trimmed)) {
     return { ok: false, reason: 'An address cannot contain spaces.' };
   }

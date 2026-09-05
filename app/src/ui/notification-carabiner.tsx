@@ -19,11 +19,13 @@ import { Carabiner } from './carabiner';
 import { SPRING_CONFIGS } from './motion';
 
 /**
- * Realistic short rope segment with twisted strands and depth.
+ * Short rope segment with helical braid pattern.
+ * Staggered dashes show twist construction, avoiding parallel tube appearance.
  */
 function RopeSegment({ height = 30, color }: { height?: number; color: string }) {
   const ropeWidth = 4;
-  const highlightWidth = ropeWidth * 0.35;
+  const dashHeight = ropeWidth * 2.5;
+  const dashCount = Math.max(2, Math.floor(height / (dashHeight + ropeWidth)));
   
   return (
     <View style={{ position: 'relative', width: ropeWidth, height, alignItems: 'center' }}>
@@ -48,30 +50,24 @@ function RopeSegment({ height = 30, color }: { height?: number; color: string })
           borderRadius: ropeWidth / 2,
         }}
       />
-      {/* Left highlight strand */}
-      <View
-        style={{
-          position: 'absolute',
-          left: ropeWidth * 0.15,
-          top: 0,
-          width: highlightWidth,
-          height,
-          backgroundColor: 'rgba(255, 255, 255, 0.35)',
-          borderRadius: highlightWidth / 2,
-        }}
-      />
-      {/* Right subtle strand */}
-      <View
-        style={{
-          position: 'absolute',
-          right: ropeWidth * 0.2,
-          top: 0,
-          width: highlightWidth * 0.7,
-          height,
-          backgroundColor: 'rgba(255, 255, 255, 0.15)',
-          borderRadius: highlightWidth / 2,
-        }}
-      />
+      {/* Helical braid: staggered dashes */}
+      {Array.from({ length: dashCount }).map((_, i) => {
+        const offset = i * (dashHeight + ropeWidth * 1.5);
+        return (
+          <View
+            key={`dash-${i}`}
+            style={{
+              position: 'absolute',
+              top: offset,
+              left: i % 2 === 0 ? ropeWidth * 0.15 : -ropeWidth * 0.05,
+              width: ropeWidth * 0.4,
+              height: Math.min(dashHeight, height - offset),
+              borderRadius: ropeWidth * 0.2,
+              backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
+            }}
+          />
+        );
+      })}
     </View>
   );
 }
@@ -118,6 +114,7 @@ export function NotificationCarabiner({
     }
 
     // Auto-dismiss
+    let dismissTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
       if (reducedMotion) {
         opacity.value = 0;
@@ -125,10 +122,13 @@ export function NotificationCarabiner({
         translateY.value = withSpring(-150, SPRING_CONFIGS.snappy);
         opacity.value = withTiming(0, { duration: theme.motion.base });
       }
-      setTimeout(() => onDismiss?.(), theme.motion.base + 50);
+      dismissTimer = setTimeout(() => onDismiss?.(), theme.motion.base + 50);
     }, autoDismissMs);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (dismissTimer) clearTimeout(dismissTimer);
+    };
   }, [reducedMotion, translateY, opacity, theme.motion, autoDismissMs, onDismiss]);
 
   const animatedStyle = useAnimatedStyle(() => ({

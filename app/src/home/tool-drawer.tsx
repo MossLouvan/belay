@@ -9,7 +9,7 @@
 // drawer; the list itself comes from the pure model in tools.ts.
 
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { font, useTheme } from '../theme';
 import { Caption, Divider, Sheet, Txt, haptic } from '../ui';
@@ -106,7 +106,7 @@ export function ToolDrawer({ visible, onClose, waitingCount }: ToolDrawerProps) 
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Tools" testID="tool-drawer">
-      <View>
+      <ScrollView style={{ maxHeight: 400 }}>
         {TOOLS.map((tool, index) => (
           <View key={tool.id}>
             {index > 0 ? <Divider /> : null}
@@ -116,7 +116,7 @@ export function ToolDrawer({ visible, onClose, waitingCount }: ToolDrawerProps) 
         <Caption style={{ marginTop: theme.space.sm }}>
           Every tool opens over the desktop — close it and you are right back here.
         </Caption>
-      </View>
+      </ScrollView>
     </Sheet>
   );
 }

@@ -678,6 +678,14 @@ export function useViewport(options: ViewportOptions): Viewport {
       const center = centroidOf(trio.map((touch) => touchPoint(touch, origin)));
       const direction = detectSwipe(center.x - g.threeStartX, center.y - g.threeStartY, GESTURE);
       if (!direction) return;
+      // While connected, disable horizontal swipes (desktop switching) to prevent
+      // accidental navigation away from the active session. Vertical swipes (up/down
+      // for Overview/AppExpose) remain available. Desktop switching is still possible
+      // via the key bar (Desk ←/→ on the last page).
+      if (direction === 'left' || direction === 'right') {
+        g.kind = 'consumed';
+        return;
+      }
       g.kind = 'consumed';
       haptic('medium');
       onSwipeRef.current?.(direction);

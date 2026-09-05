@@ -3,10 +3,11 @@
 // A belayer takes in rope as the climber ascends, so the rope hanging from
 // the top of the screen gets shorter with every step completed, and because
 // the step content sits directly below it, shortening the rope visibly hauls
-// the next step up into place. Same carabiner as the splash and the
-// notifications; same single accent; ease-out timing only (springs are
-// retired — docs/DESIGN.md). Purely decorative, so it is hidden from
-// accessibility, and reduced motion renders it at rest with no travel.
+// the next step up into place. The carabiner shows load/tension: not hanging
+// ornamentally but clipped and bearing weight as the rope is taken in. Same
+// carabiner as the splash and notifications; same single accent; ease-out
+// timing. Purely decorative, so it is hidden from accessibility, and reduced
+// motion renders it at rest with no travel.
 
 import React, { useEffect, useRef } from 'react';
 import { View } from 'react-native';
@@ -16,6 +17,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
@@ -29,7 +31,6 @@ const CARABINER_SIZE = 32;
 /** The carabiner is drawn 1.3× taller than wide (see ui/carabiner). */
 const CARABINER_HEIGHT = CARABINER_SIZE * 1.3;
 const ROPE_WIDTH = 5;
-const ROPE_HIGHLIGHT = ROPE_WIDTH * 0.35;
 
 /** The bezier the rest of the app moves on (theme.easing.standard). */
 const EASE_STANDARD = Easing.bezier(0.2, 0, 0, 1);
@@ -58,7 +59,8 @@ export function ropePullHeight(progress: number): number {
  * On mount the rope drops in from above (the sanctioned hero move, same as
  * the splash). Afterwards, `progress` changes animate the rope length — and
  * with it the component's height, which is what "pulls" whatever the parent
- * renders below.
+ * renders below. The carabiner shows subtle physics: a slight bounce when
+ * the rope is taken in (load shift) to reinforce that it's bearing weight.
  */
 export function RopePull({ progress }: RopePullProps) {
   const theme = useTheme();
@@ -66,6 +68,7 @@ export function RopePull({ progress }: RopePullProps) {
 
   const p = useSharedValue(progress);
   const dropIn = useSharedValue(reducedMotion ? 1 : 0);
+  const carabinerBounce = useSharedValue(0); // Subtle bounce on rope changes
   const mounted = useRef(false);
 
   useEffect(() => {
@@ -86,8 +89,26 @@ export function RopePull({ progress }: RopePullProps) {
       p.value = progress;
       return;
     }
+    // Animate rope taking in with subtle carabiner load shift
     p.value = withTiming(progress, { duration: theme.motion.draw, easing: EASE_STANDARD });
-  }, [progress, reducedMotion, p, dropIn, theme.motion.draw]);
+    // Subtle bounce shows the load shifting as rope is taken in
+    carabinerBounce.value = withSequence(
+      withTiming(-2, { duration: theme.motion.fast * 0.6, easing: EASE_STANDARD }),
+      withTiming(1, { duration: theme.motion.fast * 0.4, easing: EASE_STANDARD }),
+      withTiming(0, { duration: theme.motion.base * 0.6, easing: EASE_STANDARD })
+    );
+  }, [progress, reducedMotion, p, dropIn, carabinerBounce, theme.motion.draw, theme.motion.fast, theme.motion.base]);
+
+  // Cancel any pending animations on unmount
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+      // Cancel animations by setting values directly (no animation)
+      p.value = progress;
+      dropIn.value = 1;
+      carabinerBounce.value = 0;
+    };
+  }, [p, dropIn, carabinerBounce, progress]);
 
   const containerStyle = useAnimatedStyle(() => ({
     height: interpolate(p.value, [0, 1], [ROPE_FULL, ROPE_TAKEN_IN]) + CARABINER_HEIGHT,
@@ -104,15 +125,19 @@ export function RopePull({ progress }: RopePullProps) {
     height: interpolate(p.value, [0, 1], [ROPE_FULL, ROPE_TAKEN_IN]),
   }));
 
+  const carabinerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: carabinerBounce.value }],
+  }));
+
   return (
     <Animated.View
-      style={[{ alignItems: 'center', overflow: 'visible' }, containerStyle]}
+      style={[{ alignItems: 'center' }, containerStyle]}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       pointerEvents="none"
     >
       <Animated.View style={[{ alignItems: 'center' }, columnStyle]}>
-        {/* The rope — realistic climbing rope with twisted strands and depth */}
+        {/* Braided rope with helical strand pattern */}
         <View style={{ position: 'relative', alignItems: 'center' }}>
           {/* Shadow for depth */}
           <Animated.View
@@ -120,7 +145,6 @@ export function RopePull({ progress }: RopePullProps) {
               {
                 position: 'absolute',
                 left: 1,
-                top: 0,
                 width: ROPE_WIDTH,
                 borderRadius: ROPE_WIDTH / 2,
                 backgroundColor: 'rgba(0, 0, 0, 0.15)',
@@ -139,39 +163,34 @@ export function RopePull({ progress }: RopePullProps) {
               ropeStyle,
             ]}
           />
-          {/* Left highlight strand (creates twisted appearance) */}
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                left: ROPE_WIDTH * 0.15,
-                top: 0,
-                width: ROPE_HIGHLIGHT,
-                borderRadius: ROPE_HIGHLIGHT / 2,
-                backgroundColor: 'rgba(255, 255, 255, 0.35)',
-              },
-              ropeStyle,
-            ]}
-          />
-          {/* Right subtle strand */}
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                right: ROPE_WIDTH * 0.2,
-                top: 0,
-                width: ROPE_HIGHLIGHT * 0.7,
-                borderRadius: ROPE_HIGHLIGHT / 2,
-                backgroundColor: 'rgba(255, 255, 255, 0.15)',
-              },
-              ropeStyle,
-            ]}
-          />
+          {/* Helical braid: staggered dashes showing twist (not parallel strips) */}
+          {[0, 1, 2, 3, 4, 5].map((i) => {
+            const dashHeight = ROPE_WIDTH * 2.5;
+            const dashGap = ROPE_WIDTH * 2;
+            const totalSegment = dashHeight + dashGap;
+            return (
+              <Animated.View
+                key={`dash-${i}`}
+                style={[
+                  {
+                    position: 'absolute',
+                    top: i * totalSegment,
+                    left: i % 2 === 0 ? ROPE_WIDTH * 0.15 : -ROPE_WIDTH * 0.05,
+                    width: ROPE_WIDTH * 0.4,
+                    height: dashHeight,
+                    borderRadius: ROPE_WIDTH * 0.2,
+                    backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
+                  },
+                  { height: ropeStyle.height }, // Constrain to rope height
+                ]}
+              />
+            );
+          })}
         </View>
-        {/* Carabiner clipped to the rope's end, gate up. */}
-        <View style={{ marginTop: -4 }}>
+        {/* Carabiner clipped to the rope's end, gate up, showing load with subtle physics. */}
+        <Animated.View style={[{ marginTop: -4 }, carabinerStyle]}>
           <Carabiner size={CARABINER_SIZE} color={theme.colors.accentGraphic} />
-        </View>
+        </Animated.View>
       </Animated.View>
     </Animated.View>
   );
