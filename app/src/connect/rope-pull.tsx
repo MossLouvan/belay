@@ -22,6 +22,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
 import { Carabiner, useReducedMotion } from '../ui';
+import { RopeStrand } from '../ui/rope-strand';
 
 /** How far the rope hangs at the first step, carabiner included. */
 const ROPE_FULL = 120;
@@ -129,6 +130,13 @@ export function RopePull({ progress }: RopePullProps) {
     transform: [{ translateY: carabinerBounce.value }],
   }));
 
+  // Calculate visible dash count based on current rope height
+  const dashHeight = ROPE_WIDTH * 2.5;
+  const dashGap = ROPE_WIDTH * 2;
+  const totalSegment = dashHeight + dashGap;
+  const currentRopeHeight = ROPE_FULL - (ROPE_FULL - ROPE_TAKEN_IN) * progress;
+  const visibleDashCount = Math.floor(currentRopeHeight / totalSegment);
+
   return (
     <Animated.View
       style={[{ alignItems: 'center' }, containerStyle]}
@@ -137,54 +145,13 @@ export function RopePull({ progress }: RopePullProps) {
       pointerEvents="none"
     >
       <Animated.View style={[{ alignItems: 'center' }, columnStyle]}>
-        {/* Braided rope with helical strand pattern */}
-        <View style={{ position: 'relative', alignItems: 'center' }}>
-          {/* Shadow for depth */}
-          <Animated.View
-            style={[
-              {
-                position: 'absolute',
-                left: 1,
-                width: ROPE_WIDTH,
-                borderRadius: ROPE_WIDTH / 2,
-                backgroundColor: 'rgba(0, 0, 0, 0.15)',
-              },
-              ropeStyle,
-            ]}
-          />
-          {/* Main rope body */}
-          <Animated.View
-            style={[
-              {
-                width: ROPE_WIDTH,
-                borderRadius: ROPE_WIDTH / 2,
-                backgroundColor: theme.colors.accentGraphic,
-              },
-              ropeStyle,
-            ]}
-          />
-          {/* Helical braid: staggered dashes showing twist (not parallel strips) */}
-          {[0, 1, 2, 3, 4, 5].map((i) => {
-            const dashHeight = ROPE_WIDTH * 2.5;
-            const dashGap = ROPE_WIDTH * 2;
-            const totalSegment = dashHeight + dashGap;
-            return (
-              <View
-                key={`dash-${i}`}
-                style={{
-                  position: 'absolute',
-                  top: i * totalSegment,
-                  left: i % 2 === 0 ? ROPE_WIDTH * 0.15 : -ROPE_WIDTH * 0.05,
-                  width: ROPE_WIDTH * 0.4,
-                  height: dashHeight,
-                  borderRadius: ROPE_WIDTH * 0.2,
-                  backgroundColor: i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.22)',
-                  overflow: 'hidden',
-                }}
-              />
-            );
-          })}
-        </View>
+        {/* Braided rope with helical strand pattern - uses shared RopeStrand */}
+        <RopeStrand
+          width={ROPE_WIDTH}
+          color={theme.colors.accentGraphic}
+          animatedStyle={ropeStyle}
+          currentHeight={currentRopeHeight}
+        />
         {/* Carabiner clipped to the rope's end, gate up, showing load with subtle physics. */}
         <Animated.View style={[{ marginTop: -4 }, carabinerStyle]}>
           <Carabiner size={CARABINER_SIZE} color={theme.colors.accentGraphic} />
