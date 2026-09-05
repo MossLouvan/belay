@@ -161,6 +161,7 @@ function RopeAnimation({ reducedMotion }: { reducedMotion: boolean }) {
 
 /** Carabiner that drops down and clips into position. */
 function CarabinerAnimation({ reducedMotion }: { reducedMotion: boolean }) {
+  const theme = useTheme();
   const carabinerY = useRef(new Animated.Value(-50)).current;
   const carabinerOpacity = useRef(new Animated.Value(0)).current;
 
