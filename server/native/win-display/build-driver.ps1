@@ -1,4 +1,4 @@
-# build-driver.ps1 — builds and test-signs the BelayVDD indirect display driver.
+﻿# build-driver.ps1 — builds and test-signs the BelayVDD indirect display driver.
 #
 # STATUS: WRITTEN-BUT-NOT-RUN. Authored on a machine with no Windows; every
 # step below is the documented WDK flow, not a verified one. Run it on a
@@ -93,8 +93,18 @@ cd /d "$shimOut"
 cl /nologo /W4 /O2 /LD /DUNICODE /D_UNICODE "$shimSrc" /Fe:BelayVddShim.dll /link SwDevice.lib cfgmgr32.lib
 "@ | Set-Content -Path $shimCmd -Encoding ASCII
 
-    & cmd /c $shimCmd
-    if ($LASTEXITCODE -ne 0) { throw "BelayVddShim.dll failed to build (exit $LASTEXITCODE)" }
+    # stderr is merged rather than left to surface as a NativeCommandError.
+    # vcvars64.bat writes "'vswhere.exe' is not recognized" to stderr during an
+    # optional lookup -- entirely harmless, the environment initialises fine and
+    # cl returns 0 -- but under $ErrorActionPreference='Stop' PowerShell turns
+    # that stray stderr line into a terminating error and the build dies having
+    # actually succeeded. Judge the compile by its exit code, not by whether a
+    # batch file was chatty.
+    $shimLog = & cmd /c "`"$shimCmd`" 2>&1"
+    if ($LASTEXITCODE -ne 0) {
+        $shimLog | ForEach-Object { Write-Host "  $_" }
+        throw "BelayVddShim.dll failed to build (exit $LASTEXITCODE)"
+    }
     Write-Host "Built shim: $(Join-Path $shimOut 'BelayVddShim.dll')"
 } else {
     Write-Warning 'vcvars64.bat not found; skipping BelayVddShim.dll (virtual display creation will fail from the C# host)'
