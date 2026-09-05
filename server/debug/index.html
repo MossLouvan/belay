@@ -148,6 +148,13 @@
      debug relay on, the host also pushes coded frames down this socket so
      WebCodecs can decode them. Without it you still see the negotiation.</p>
 
+  <h2>Input</h2>
+  <div class="row"><input type="checkbox" id="input"><label for="input">Send clicks and keys to the host</label></div>
+  <div class="row"><span class="pill" id="st-input">off</span></div>
+  <p class="hint">Click the picture to click the host. Type to send keys. The
+     coordinates are normalised and mapped onto the monitor selected above, so
+     capture and input always address the same screen.</p>
+
   <h2>Multi-cursor</h2>
   <div class="row"><input type="checkbox" id="cursors"><label for="cursors">Join the cursor channel</label></div>
   <div class="row"><input type="checkbox" id="sendcursor"><label for="sendcursor">Publish my pointer</label></div>
@@ -519,6 +526,92 @@ $('stage').addEventListener('pointermove', (e) => {
     screen: Number($('monitor').value) || 0,
   }));
 });
+
+// ---- input ---------------------------------------------------------------
+// Normalised coordinates against the STAGE, not the window: the picture is
+// letterboxed inside it (object-fit: contain), so a raw offset would be wrong
+// by the size of the bars whenever the aspect ratios differ. The host maps
+// 0..1 onto whichever monitor `screen` names, which is why capture and input
+// stay on the same display without either side knowing the geometry.
+async function post(path, body) {
+  const res = await fetch(`${base()}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${state.token}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) bad(`${path} -> ${res.status} ${await res.text()}`);
+  return res.ok;
+}
+
+function stagePoint(e) {
+  const el = img.hidden ? canvas : img;
+  const r = el.getBoundingClientRect();
+  // The element fills the stage but the IMAGE inside it is letterboxed, so
+  // work out where the picture actually sits before normalising.
+  const nw = el.naturalWidth || el.width || r.width;
+  const nh = el.naturalHeight || el.height || r.height;
+  const scale = Math.min(r.width / nw, r.height / nh);
+  const dw = nw * scale, dh = nh * scale;
+  const ox = r.left + (r.width - dw) / 2, oy = r.top + (r.height - dh) / 2;
+  const x = (e.clientX - ox) / dw, y = (e.clientY - oy) / dh;
+  return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)), inside: x >= 0 && x <= 1 && y >= 0 && y <= 1 };
+}
+
+const stage = $('stage');
+stage.addEventListener('click', async (e) => {
+  if (!$('input').checked) return;
+  const p = stagePoint(e);
+  if (!p.inside) return;
+  const screen = Number($('monitor').value) || 0;
+  if (await post('/input/click', { x: p.x, y: p.y, button: 'left', screen })) {
+    log(`click ${p.x.toFixed(3)},${p.y.toFixed(3)} on screen ${screen}`);
+  }
+});
+stage.addEventListener('contextmenu', async (e) => {
+  if (!$('input').checked) return;
+  e.preventDefault();
+  const p = stagePoint(e);
+  if (p.inside) await post('/input/click', { x: p.x, y: p.y, button: 'right', screen: Number($('monitor').value) || 0 });
+});
+stage.addEventListener('dblclick', async (e) => {
+  if (!$('input').checked) return;
+  const p = stagePoint(e);
+  if (p.inside) await post('/input/click', { x: p.x, y: p.y, button: 'left', double: true, screen: Number($('monitor').value) || 0 });
+});
+stage.addEventListener('wheel', (e) => {
+  if (!$('input').checked) return;
+  e.preventDefault();
+  // Wheel deltas are large and continuous; the host wants notches.
+  void post('/input/scroll', { dy: Math.round(-e.deltaY / 40), dx: Math.round(-e.deltaX / 40) });
+}, { passive: false });
+
+// Keys go to the window, not the stage, so focus does not have to be managed.
+window.addEventListener('keydown', async (e) => {
+  if (!$('input').checked) return;
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+  e.preventDefault();
+  const mods = [];
+  if (e.ctrlKey) mods.push('ctrl');
+  if (e.altKey) mods.push('alt');
+  if (e.shiftKey) mods.push('shift');
+  if (e.metaKey) mods.push('win');
+  // A single printable character with no modifiers is text; everything else is
+  // a named key. Sending "a" as a key name would be a keypress the host has to
+  // guess at, and sending Enter as text would type nothing.
+  if (e.key.length === 1 && mods.length === 0) await post('/input/text', { text: e.key });
+  else await post('/input/key', { key: NAMED_KEYS[e.key] || e.key.toLowerCase(), mods });
+});
+const NAMED_KEYS = {
+  ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+  Enter: 'enter', Escape: 'escape', Backspace: 'backspace', Delete: 'delete',
+  Tab: 'tab', ' ': 'space', Home: 'home', End: 'end', PageUp: 'pageup', PageDown: 'pagedown',
+};
+$('input').onchange = () => {
+  const on = $('input').checked;
+  pill('st-input', on ? 'INPUT LIVE' : 'off', on ? 'warn' : '');
+  stage.style.cursor = on ? 'crosshair' : 'default';
+  if (on) warn('input is live — clicks and keys now reach the host');
+};
 
 // ---- stats ticker --------------------------------------------------------
 setInterval(() => {

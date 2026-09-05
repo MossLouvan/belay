@@ -136,7 +136,10 @@ static class Native
     //   monitor, exactly where the frame showed the tap.
     public static void MoveAbsolute(double nx, double ny, Rectangle s)
     {
-        Rectangle v = SystemInformation.VirtualScreen;
+        // Live, not SystemInformation.VirtualScreen: that caches too, so input
+        // aimed at a monitor added after startup landed on the old desktop
+        // rectangle and therefore on the wrong screen entirely.
+        Rectangle v = LiveScreens.VirtualDesktop();
         if (v.Width <= 1 || v.Height <= 1) return;
         double vx = s.X + nx * s.Width;
         double vy = s.Y + ny * s.Height;
@@ -458,26 +461,32 @@ static class BelayHost
     }
 
     /// The monitor a normalized coordinate (or a capture) refers to. A valid
-    /// index picks that entry of Screen.AllScreens; absent or out-of-range
-    /// falls back to the primary, which keeps single-monitor hosts and older
-    /// phones (which never send an index) behaving exactly as before.
+    /// index picks that monitor; absent or out-of-range falls back to the
+    /// primary, which keeps single-monitor hosts and older phones (which never
+    /// send an index) behaving exactly as before.
+    ///
+    /// LiveScreens, not Screen.AllScreens — see BelayHostScreens.cs. This
+    /// process is long-lived with no message pump, so the Forms cache never
+    /// learns about a monitor added after startup, and a virtual display
+    /// created at runtime is exactly that. With the cache, asking for monitor 1
+    /// silently captured monitor 0.
     static Rectangle ScreenBounds(object screenIndex)
     {
-        if (screenIndex != null)
-        {
-            int i = Int(screenIndex);
-            if (i >= 0 && i < Screen.AllScreens.Length) return Screen.AllScreens[i].Bounds;
-        }
-        return Screen.PrimaryScreen.Bounds;
+        if (screenIndex != null) return LiveScreens.Bounds(Int(screenIndex));
+        return LiveScreens.Primary();
     }
 
     static void DoInfo(TextWriter w, object id)
     {
-        var b = Screen.PrimaryScreen.Bounds;
-        var v = SystemInformation.VirtualScreen;
-        var all = Screen.AllScreens;
+        // Enumerated live every time: a virtual display created a second ago
+        // must appear in this list, and the Forms cache would never show it.
+        // Reporting a stale monitor list is how the client ends up unable to
+        // select the display it just asked the host to create.
+        var all = LiveScreens.All();
+        var b = LiveScreens.Primary();
+        var v = LiveScreens.VirtualDesktop();
         var screens = new List<object>();
-        for (int i = 0; i < all.Length; i++)
+        for (int i = 0; i < all.Count; i++)
         {
             var sb = all[i].Bounds;
             var entry = new Dictionary<string, object> {
@@ -487,7 +496,7 @@ static class BelayHost
             // Identity strings (adapter/monitor/device path) so the client can
             // tell a virtual display from a physical one. Merged in rather than
             // nested so the shape stays flat across both platforms' helpers.
-            foreach (var kv in DisplayIdentity.Describe(all[i].DeviceName)) entry[kv.Key] = kv.Value;
+            foreach (var kv in DisplayIdentity.Describe(all[i].Device)) entry[kv.Key] = kv.Value;
             screens.Add(entry);
         }
         Reply(w, new Dictionary<string, object> {
@@ -614,7 +623,7 @@ static class BelayHost
 
         // The same monitor selection as input mapping (ScreenBounds), so the
         // frame the phone sees and the rectangle its taps land on always agree.
-        Rectangle b = virt ? SystemInformation.VirtualScreen : ScreenBounds(Get(c, "screen"));
+        Rectangle b = virt ? LiveScreens.VirtualDesktop() : ScreenBounds(Get(c, "screen"));
         EnsureSource(b.Width, b.Height);
         srcGfx.CopyFromScreen(b.X, b.Y, 0, 0, new Size(b.Width, b.Height), CopyPixelOperation.SourceCopy);
         Native.DrawCursor(srcGfx, b.X, b.Y);
