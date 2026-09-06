@@ -35,3 +35,22 @@ export function mascotAccessibilityLabel(state: OrientationLockState): string {
     ? 'Belay mascot — tap to flip and let the view rotate again'
     : 'Belay mascot — tap to flip and keep the view upright';
 }
+
+/**
+ * Taps closer together than this are one burst — the mascot being spun up
+ * for fun, not the latch being toggled. Longer than a single flip's wind-up
+ * feels, shorter than a deliberate "no, put it back" second tap.
+ */
+export const MASCOT_TAP_BURST_GAP_MS = 700;
+
+/**
+ * Whether a mascot tap at `now` should toggle the latch. The beluga spins
+ * faster the more you tap, so only the FIRST tap of a burst latches — the
+ * rest just add momentum. Any later tap arriving within the burst gap of
+ * the previous one (whether or not that one latched) is part of the burst.
+ * Pure: the caller keeps `previousTapAt` (null before the first tap).
+ */
+export function mascotTapLatches(previousTapAt: number | null, now: number): boolean {
+  if (previousTapAt === null) return true;
+  return now - previousTapAt >= MASCOT_TAP_BURST_GAP_MS;
+}

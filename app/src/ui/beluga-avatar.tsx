@@ -9,43 +9,60 @@
 //   - A slow vertical bob + a subtle rotational sway, phase-offset so the
 //     two never sync up — reads as treading water, not a metronome.
 //
-// ON PRESS (click/tap):
-//   - One-shot 360° flip with a small jump arc and an apex swell, driven by
-//     a single 0..1 progress value; on completion the beluga settles back
-//     into the idle swim. Double-taps mid-flip are ignored (the flip guard),
-//     but `onPress` still fires on the first tap — callers rely on it.
-//   - Reduced motion: no travel at all; `onPress` and the haptic still fire.
+// ON PRESS (click/tap) — a fidget toy, not a one-shot clip:
+//   - Every tap ADDS angular velocity. One tap is one clean flip with a hop
+//     and an apex swell; rapid taps wind the beluga up faster and faster
+//     (capped), the hop lifting into a hover that grows with speed. Stop
+//     tapping and friction bleeds it off, steering the last turn onto level
+//     so the idle sway carries on without a seam. Haptics climb with speed.
+//   - `onPress` fires on EVERY tap — callers own their own debouncing.
+//   - Reduced motion: no travel at all; `onPress` and a light haptic still fire.
 //
-// Choreography numbers + arc math live in ./beluga-motion.ts (pure, tested).
+// The spin is a pure model (./beluga-motion.ts, tested) integrated by a
+// Reanimated frame callback on the UI thread. Nothing here drives a shared
+// value from inside its own animation callback — that pattern cancels the
+// animation, re-enters the callback and overflows the UI-thread stack (seen
+// on device). A frame callback has no completion callback to trip over.
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  useFrameCallback,
   withRepeat,
   withSequence,
   withTiming,
   Easing,
   cancelAnimation,
+  runOnJS,
+  runOnUI,
 } from 'react-native-reanimated';
+import type { FrameCallback, FrameInfo } from 'react-native-reanimated';
 import { useTheme } from '../theme';
 import { haptic } from './haptics';
 import { useReducedMotion } from './motion';
 import {
   belugaImageBox,
-  flipJumpOffset,
-  flipRotation,
-  flipScale,
-  FLIP_DURATION_MS,
+  isSpinIdle,
+  spinHapticTier,
+  spinJumpOffset,
+  spinRotation,
+  spinScale,
+  stepSpin,
+  tapSpin,
   IDLE_BOB_HALF_CYCLE_MS,
   IDLE_BOB_TRAVEL_FRACTION,
   IDLE_SWAY_HALF_CYCLE_MS,
   IDLE_SWAY_DEGREES,
+  SPIN_AT_REST,
 } from './beluga-motion';
+import type { SpinHapticTier, SpinState } from './beluga-motion';
 
 const BELUGA_CUTOUT = require('../../assets/beluga-cutout.png');
+
+const MS_PER_SECOND = 1000;
 
 export interface BelugaAvatarProps {
   /** Avatar size in pixels (width of the cutout's bounding box). */
@@ -68,7 +85,7 @@ export interface BelugaAvatarProps {
  * Used in the stream HUD (48px, top-right) and tools drawer header (40px).
  *
  * IDLE: slow bob + subtle sway, looping (suppressed under reduced motion).
- * PRESS: one-shot 360° flip with a jump arc, then back to the idle swim.
+ * PRESS: taps add spin momentum; friction winds it down onto level.
  */
 export function BelugaAvatar({
   size,
@@ -84,10 +101,8 @@ export function BelugaAvatar({
   // Idle swim drivers: two independent loops, deliberately off-beat.
   const bob = useSharedValue(0);
   const sway = useSharedValue(0);
-  // Flip driver: 0..1 progress of the one-shot. Doubles as the tap guard —
-  // a flip is in flight whenever `flipping` is true.
-  const flipProgress = useSharedValue(0);
-  const flipping = useSharedValue(false);
+  // The spin: one immutable state, replaced (never mutated) every frame.
+  const spin = useSharedValue<SpinState>(SPIN_AT_REST);
 
   // Start (or stop) the idle swim. Reduced motion pins everything level.
   useEffect(() => {
@@ -123,48 +138,80 @@ export function BelugaAvatar({
     };
   }, [bob, sway, size, reducedMotion]);
 
-  // Idle swim rides on the outer view; the flip rides on the inner one. The
-  // two compose, so the flip launches from wherever the bob happens to be
+  // The spin integrator. Runs only while there is momentum to spend: the
+  // tap switches it on (JS side), and the frame that lands the beluga
+  // switches it off again via runOnJS — the one place JS is involved.
+  const spinFramesRef = useRef<FrameCallback | null>(null);
+  const stopIntegrating = useCallback(() => {
+    spinFramesRef.current?.setActive(false);
+  }, []);
+  const integrate = useCallback(
+    (frame: FrameInfo) => {
+      'worklet';
+      const dt = (frame.timeSincePreviousFrame ?? 0) / MS_PER_SECOND;
+      const next = stepSpin(spin.value, dt);
+      spin.value = next;
+      if (isSpinIdle(next)) runOnJS(stopIntegrating)();
+    },
+    [spin, stopIntegrating],
+  );
+  const spinFrames = useFrameCallback(integrate, false);
+  useEffect(() => {
+    spinFramesRef.current = spinFrames;
+  }, [spinFrames]);
+
+  // Reduced motion (or a switch to it mid-spin) drops the beluga level.
+  useEffect(() => {
+    if (!reducedMotion) return;
+    spinFrames.setActive(false);
+    spin.value = SPIN_AT_REST;
+  }, [reducedMotion, spin, spinFrames]);
+
+  // A tap has landed on the model (on the UI thread): buzz to match the new
+  // speed and make sure the integrator is running.
+  const onSpinTapped = useCallback(
+    (tier: SpinHapticTier) => {
+      haptic(tier);
+      spinFrames.setActive(true);
+    },
+    [spinFrames],
+  );
+
+  const handlePress = useCallback(() => {
+    // Every tap reaches the caller — the momentum model has no guard, and
+    // the Screen view debounces its orientation latch on its own terms.
+    onPress?.();
+
+    // Reduced motion: acknowledge the tap, skip the travel.
+    if (reducedMotion) {
+      haptic('light');
+      return;
+    }
+
+    // The tap is applied where the integrator lives, so it always stacks
+    // onto the velocity of THIS frame rather than a stale JS-side copy.
+    runOnUI(() => {
+      'worklet';
+      const next = tapSpin(spin.value);
+      spin.value = next;
+      runOnJS(onSpinTapped)(spinHapticTier(next.velocity));
+    })();
+  }, [onPress, onSpinTapped, reducedMotion, spin]);
+
+  // Idle swim rides on the outer view; the spin rides on the inner one. The
+  // two compose, so the spin launches from wherever the bob happens to be
   // and lands back into it without a visible seam.
   const idleStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: bob.value }, { rotate: `${sway.value}deg` }],
   }));
 
-  const flipStyle = useAnimatedStyle(() => ({
+  const spinStyle = useAnimatedStyle(() => ({
     transform: [
-      { translateY: flipJumpOffset(flipProgress.value, size) },
-      { rotate: `${flipRotation(flipProgress.value)}deg` },
-      { scale: flipScale(flipProgress.value) },
+      { translateY: spinJumpOffset(spin.value, size) },
+      { rotate: `${spinRotation(spin.value)}deg` },
+      { scale: spinScale(spin.value) },
     ],
   }));
-
-  const handlePress = useCallback(() => {
-    // The guard: one flip at a time. The tap still lands for the caller on
-    // the first press; mid-flip taps are swallowed entirely.
-    if (flipping.value) return;
-
-    haptic('light');
-    onPress?.();
-
-    // Reduced motion: acknowledge the tap, skip the travel.
-    if (reducedMotion) return;
-
-    flipping.value = true;
-    flipProgress.value = 0;
-    flipProgress.value = withTiming(
-      1,
-      { duration: FLIP_DURATION_MS, easing: Easing.inOut(Easing.cubic) },
-      () => {
-        // Drop the guard — this runs on cancellation too, so a stuck guard
-        // can never brick the mascot. Do NOT touch flipProgress here: 360°
-        // already reads as level, handlePress zeroes it before each flip,
-        // and assigning a shared value from inside its own completion
-        // callback cancels the animation → re-enters this callback → stack
-        // overflow on the UI thread (seen on device).
-        flipping.value = false;
-      },
-    );
-  }, [flipping, flipProgress, onPress, reducedMotion, size]);
 
   const box = belugaImageBox(size);
 
@@ -172,7 +219,7 @@ export function BelugaAvatar({
   // the accessible role/label/hint, so the image tree is hidden from AT.
   const avatar = (
     <Animated.View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, idleStyle]}>
-      <Animated.View style={flipStyle}>
+      <Animated.View style={spinStyle}>
         <Image
           source={BELUGA_CUTOUT}
           style={{ width: box.width, height: box.height }}
@@ -195,13 +242,13 @@ export function BelugaAvatar({
     );
   }
 
-  // Always animated (idle swim) + pressable for the flip.
+  // Always animated (idle swim) + pressable for the spin.
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityHint="Tap to play flip animation"
+      accessibilityHint="Tap to spin; keep tapping to spin faster"
       hitSlop={theme.layout.hitSlop}
       onPress={handlePress}
       style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }, style]}
