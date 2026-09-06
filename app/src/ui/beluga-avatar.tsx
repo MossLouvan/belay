@@ -1,21 +1,18 @@
 // The Belay beluga mascot — cohesive identity across stream HUD and tools drawer.
 //
 // IDLE (default, always):
-//   - Beluga is always animated with a soft idle loop: slight bob/float/breathing.
+//   - Always animated with Reanimated subtle bob/float/breathe on PNG (never frozen still).
 //   - Loops seamlessly while visible (no flip, no splash in idle).
+//   - Implementation: 2px Y-axis bob, 2s cycle, smooth sine easing.
+//   - Optional future: swap to `beluga-idle.mp4` if credits allow.
 //
 // ON PRESS (click/tap):
-//   - Play flip + water splash animation once, then return to idle loop.
-//   - No autoplay of the flip.
+//   - Play flip + splash animation once, then return to idle loop.
+//   - Implementation: 360° Y-axis rotation (600ms) as placeholder.
+//   - TODO: Replace with `beluga-flip-splash.mp4` (silent) once generated.
+//   - Pressable API ready for video drop-in.
 //
-// ASSET PATHS (TODO: supply video files):
-//   - `beluga-idle.mp4` — looping idle animation (bob/float/breathing)
-//   - `beluga-flip-splash.mp4` — play-once flip + splash on press
-//
-// Current implementation uses Reanimated placeholders:
-//   - Idle: subtle Y-axis bob (2px up/down, 2s loop)
-//   - Flip: 360° Y-axis rotation on press (600ms)
-// Once video assets are supplied, replace with Video component(s).
+// Credit-constrained: Idle stays Reanimated; flip video prioritized (7.5 credits).
 
 import React, { useCallback, useEffect } from 'react';
 import { Image, Pressable, View } from 'react-native';
