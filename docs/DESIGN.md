@@ -685,9 +685,13 @@ allowed one `display`-weight word as the landing point on otherwise-empty screen
 First-time users (no saved devices) see a minimal, typography-first intro carousel before
 the connect flow:
 
-1. **Welcome** — huge "welcome to BELAY" headline, centered, lowercase-friendly, with
-   enormous negative space. Single tagline: "Control your computer from your phone. No
-   cloud, no middleman." One button: "Get started".
+1. **Welcome** — the beluga hero. The mascot swims its idle loop inside a soft blue
+   halo on the `heroBg` ocean-tinted ground (tap it for the flip); "Welcome to Belay"
+   below in calm sentence case (weight 700, no uppercase — premium, not shouty);
+   tagline "Control your computer from your phone. No cloud, no middleman."; one
+   button: "Get started". Entrance staggers mascot → headline → CTA (400ms fade +
+   8pt rise; reduced motion renders in place). Hero tokens: `heroBg`, `heroGlow`,
+   `heroRing` in theme.ts.
 2. **How it works** — clean vertical step list (01–04), each with mono ordinal,
    heading, and detail. Minimal copy explaining: start host → connect phone → pair
    once → control computer. "Connect now" button advances to the connect flow.
