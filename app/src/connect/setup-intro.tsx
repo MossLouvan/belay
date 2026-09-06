@@ -32,8 +32,8 @@ interface WelcomeScreenProps {
   onContinue: () => void;
 }
 
-/** Mascot diameter, pt. Generous — this screen is the beluga's stage. */
-const MASCOT_SIZE = 168;
+/** Mascot width, pt. Generous — this screen is the beluga's stage. */
+const MASCOT_SIZE = 200;
 
 /** The one easing the app moves on (theme `easing.standard`), as a worklet. */
 const EASE_STANDARD = Easing.bezier(0.2, 0, 0, 1);
@@ -135,27 +135,14 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
           />
         ))}
 
-        {/* The rope clipped around the porthole: a 2pt ring with a breath of
-            space before the video edge. */}
-        <View
-          style={{
-            width: MASCOT_SIZE + 16,
-            height: MASCOT_SIZE + 16,
-            borderRadius: (MASCOT_SIZE + 16) / 2,
-            borderWidth: theme.layout.ruleEmphasis,
-            borderColor: theme.colors.heroRing,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <BelugaAvatar
-            size={MASCOT_SIZE}
-            onPress={NOOP}
-            backgroundColor={theme.colors.accentSoft}
-            accessibilityLabel="Belay's beluga mascot"
-            testID="welcome-beluga"
-          />
-        </View>
+        {/* The cutout floats straight on the glow — no ring, no porthole.
+            The beluga's own rope collar is the only outline it needs. */}
+        <BelugaAvatar
+          size={MASCOT_SIZE}
+          onPress={NOOP}
+          accessibilityLabel="Belay's beluga mascot"
+          testID="welcome-beluga"
+        />
       </Animated.View>
 
       {/* Headline + one line of what this is. */}

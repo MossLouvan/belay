@@ -1,8 +1,8 @@
 // Geometry and choreography for the welcome hero — the beluga's water.
 //
-// The welcome screen floats the mascot inside concentric translucent "glow"
-// circles so the video's water reads as part of the page instead of a hard
-// porthole punched into it. The circle math and the entrance stagger are pure
+// The welcome screen floats the transparent cutout over concentric translucent
+// "glow" circles — soft ambient light behind the beluga, never a hard edge or
+// a porthole around it. The circle math and the entrance stagger are pure
 // numbers, so they live here where node can test them; the screen itself only
 // maps the results onto Views.
 

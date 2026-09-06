@@ -106,9 +106,6 @@ export interface Palette {
   /** Translucent blue wash for the halo behind the mascot. Decorative only —
    *  never carries meaning, always hidden from accessibility. */
   readonly heroGlow: string;
-  /** The mascot's ring stroke — the rope clipped around the porthole. Non-text
-   *  UI mark; sits on `heroBg`, thicker than a hairline so alpha is safe. */
-  readonly heroRing: string;
   /** @deprecated Dead with elevation — the design is flat. Kept so unmigrated
    * screens compile; remove with the `elevation` shim. */
   readonly shadow: string;
@@ -160,7 +157,6 @@ export const lightPalette: Palette = Object.freeze({
   skeleton: '#E8EBF0',
   heroBg: '#EDF3FB',        // ice-blue page — daylight over the water
   heroGlow: 'rgba(46, 124, 246, 0.10)',
-  heroRing: 'rgba(29, 111, 224, 0.35)',
   shadow: '#000000',
 });
 
@@ -204,7 +200,6 @@ export const darkPalette: Palette = Object.freeze({
   skeleton: '#1A1A1E',
   heroBg: '#0A0E16',        // ocean blue-black — bg tilted toward the water
   heroGlow: 'rgba(91, 156, 248, 0.14)',
-  heroRing: 'rgba(91, 156, 248, 0.35)',
   shadow: '#000000',
 });
 

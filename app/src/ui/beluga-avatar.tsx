@@ -155,9 +155,12 @@ export function BelugaAvatar({
       1,
       { duration: FLIP_DURATION_MS, easing: Easing.inOut(Easing.cubic) },
       () => {
-        // Land exactly level (360° ≡ 0°) and drop the guard — this runs on
-        // cancellation too, so a stuck guard can never brick the mascot.
-        flipProgress.value = 0;
+        // Drop the guard — this runs on cancellation too, so a stuck guard
+        // can never brick the mascot. Do NOT touch flipProgress here: 360°
+        // already reads as level, handlePress zeroes it before each flip,
+        // and assigning a shared value from inside its own completion
+        // callback cancels the animation → re-enters this callback → stack
+        // overflow on the UI thread (seen on device).
         flipping.value = false;
       },
     );
