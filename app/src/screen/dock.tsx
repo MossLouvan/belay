@@ -258,8 +258,12 @@ export function ControlDock({
           style={{ minWidth: theme.layout.minTouch, paddingHorizontal: theme.space.xxs }}
         />
       </Row>
-      <Row justify="space-between" gap="xs">
-        <Row gap="xs" style={{ flexShrink: 1 }}>
+      {/* The second row wraps: seven full-size keys need more width than a
+          phone has, and a tracked label must never shrink or overlap its
+          neighbour (the keys are hardware, not text that can be squeezed).
+          Overflow drops to a third line, left-aligned, same rhythm. */}
+      <Row gap="xs" wrap style={{ rowGap: theme.space.sm }}>
+        <Row gap="xs" wrap style={{ rowGap: theme.space.sm, flexGrow: 1 }}>
           {/* BACK leads the row — the corner where every platform parks
               "leave" — as a labelled key like its neighbours, never a bare
               chevron over live video (docs/DESIGN.md §11.1). */}
@@ -314,7 +318,7 @@ export function ControlDock({
             onPress={wrap(onRecord)}
           />
         </Row>
-        <Row gap="xs">
+        <Row gap="xs" wrap style={{ rowGap: theme.space.sm, marginLeft: 'auto' }}>
           {onOpenClipboard ? (
             <DockKey
               testID="clipboard-key"
