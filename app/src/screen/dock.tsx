@@ -263,7 +263,6 @@ export function ControlDock({
           neighbour (the keys are hardware, not text that can be squeezed).
           Overflow drops to a third line, left-aligned, same rhythm. */}
       <Row gap="xs" wrap style={{ rowGap: theme.space.sm }}>
-        <Row gap="xs" wrap style={{ rowGap: theme.space.sm, flexGrow: 1 }}>
           {/* BACK leads the row — the corner where every platform parks
               "leave" — as a labelled key like its neighbours, never a bare
               chevron over live video (docs/DESIGN.md §11.1). */}
@@ -317,12 +316,10 @@ export function ControlDock({
             floating={floating}
             onPress={wrap(onRecord)}
           />
-        </Row>
-        <Row gap="xs" wrap style={{ rowGap: theme.space.sm, marginLeft: 'auto' }}>
           {onOpenClipboard ? (
             <DockKey
               testID="clipboard-key"
-              label="Clip"
+              label="Clipboard"
               accessibilityLabel="Clipboard sync"
               accessibilityHint="Pull the computer's clipboard onto this phone, or send this phone's clipboard to it"
               floating={floating}
@@ -402,7 +399,6 @@ export function ControlDock({
               </View>
             ) : null}
           </View>
-        </Row>
       </Row>
     </View>
   );
