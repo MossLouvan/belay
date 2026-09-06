@@ -64,6 +64,9 @@ export type { GlassPanelProps, PillCTAProps } from './glass';
 export { StatusBadge, TransitionRing } from './status-badge';
 export type { StatusBadgeProps, StatusBadgeVariant } from './status-badge';
 
+export { BelugaAvatar } from './beluga-avatar';
+export type { BelugaAvatarProps } from './beluga-avatar';
+
 export { useKeyboardLift } from './keyboard-lift';
 export type { KeyboardLift } from './keyboard-lift';
 export { keyboardOverlap, keyboardShown } from './keyboard';

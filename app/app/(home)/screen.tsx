@@ -28,7 +28,7 @@
 // expo-router's route context and would register as extra routes.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, Keyboard, Platform, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Animated, Image, Keyboard, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -37,6 +37,7 @@ import { useConnection } from '../../src/connection';
 import { api } from '../../src/api';
 import { useTheme } from '../../src/theme';
 import {
+  BelugaAvatar,
   Button,
   Caption,
   Column,
@@ -882,6 +883,30 @@ export default function ScreenTab() {
           <View
             style={{ pointerEvents: 'box-none', position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0, zIndex: 3 }}
           >
+            {/* Landscape HUD: Connected pill (top-left) and beluga avatar (top-right) */}
+            <View style={{ pointerEvents: 'box-none', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: theme.space.sm, marginBottom: theme.space.xs }}>
+              {/* Connected status pill */}
+              <View
+                style={{
+                  paddingHorizontal: theme.space.sm,
+                  paddingVertical: theme.space.xs,
+                  borderRadius: theme.radius.xs,
+                  backgroundColor: HUD.scrim,
+                  borderBottomWidth: 2,
+                  borderBottomColor: theme.colors.accentGraphic,
+                }}
+              >
+                <Txt variant="label" style={{ color: HUD.ink }}>Connected</Txt>
+              </View>
+              {/* Beluga avatar: clickable with flip animation */}
+              <BelugaAvatar
+                testID="stream-beluga-avatar"
+                size={48}
+                backgroundColor={HUD.scrim}
+                accessibilityLabel="Belay mascot — tap to play animation or open settings"
+                onPress={() => setShowMenu(true)}
+              />
+            </View>
             {/* Recording must stay unmissable in fullscreen too — it floats on
                 the HUD scrim over the top edge, outliving the dock's auto-hide. */}
             <View style={{ paddingHorizontal: theme.space.sm, gap: theme.space.xxs }}>
