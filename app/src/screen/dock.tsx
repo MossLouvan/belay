@@ -20,7 +20,7 @@
 // concern that ruled out the shared SegmentedControl is handled inside
 // ModeSwitch with the same dark-ink override DockKey uses.
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import { font, getTheme, useTheme } from '../theme';
 import { Row, TrackLabel } from '../ui';
@@ -28,6 +28,7 @@ import { HUD } from './parts';
 import { BoxedToggle, ModeSwitch } from './mode-switch';
 import type { MonitorChoice } from './monitors';
 import { recordKeyLabel } from './record';
+import { layoutDockKeys } from './dock-layout';
 import type { RecordPhase } from './record';
 import type { PendingButton, PointerMode } from './viewport';
 
@@ -92,6 +93,44 @@ function DockKey({
   );
 }
 
+function DockKeyRows({ children }: { children: React.ReactNode }) {
+  const theme = useTheme();
+  const [available, setAvailable] = useState(0);
+  const [measured, setMeasured] = useState<Record<string, number>>({});
+  const keys = React.Children.toArray(children);
+  const ids = keys.map((key) => String((key as React.ReactElement).key));
+  const widths = ids.map((id) => measured[id]);
+  const cells = available > 0 && widths.every((width) => width > 0)
+    ? layoutDockKeys(widths, available, theme.space.xs)
+    : [];
+
+  return (
+    <View onLayout={(event) => setAvailable(event.nativeEvent.layout.width)}>
+      <Row gap="xs" wrap style={{ rowGap: theme.space.xs }}>
+        {keys.map((key, index) => (
+          <View key={ids[index]} style={{ width: cells[index], alignItems: 'center', flexShrink: 0 }}>
+            {/* Measure natural hardware, independently of its allocated cell.
+                No width constraint or flex shrink reaches the tracked label;
+                font scaling, Rec/Stop/Send and monitor changes remeasure it.
+                Keeping one flat keyed tree also preserves press/track state
+                when the measured line breaks change. */}
+            <View
+              style={{ flexDirection: 'row', flexShrink: 0 }}
+              onLayout={(event) => {
+                const width = Math.ceil(event.nativeEvent.layout.width);
+                const id = ids[index];
+                setMeasured((previous) => previous[id] === width ? previous : { ...previous, [id]: width });
+              }}
+            >
+              {key}
+            </View>
+          </View>
+        ))}
+      </Row>
+    </View>
+  );
+}
+
 export interface ControlDockProps {
   mode: PointerMode;
   onModeChange: (mode: PointerMode) => void;
@@ -147,7 +186,7 @@ export interface ControlDockProps {
 }
 
 /**
- * Two labelled rows: pointer mode and zoom on top, the click arms and the
+ * Two labelled banks: pointer mode and zoom on top, the click arms and the
  * lesser toggles below. Everything the screen's core loop needs stays visible
  * without a single gesture or sheet (docs/DESIGN.md §11.2).
  */
@@ -266,11 +305,12 @@ export function ControlDock({
           style={{ minWidth: theme.layout.minTouch, paddingHorizontal: theme.space.xxs }}
         />
       </Row>
-      {/* The second row wraps: seven full-size keys need more width than a
-          phone has, and a tracked label must never shrink or overlap its
-          neighbour (the keys are hardware, not text that can be squeezed).
-          Overflow drops to a third line, left-aligned, same rhythm. */}
-      <Row gap="xs" wrap style={{ rowGap: theme.space.sm }}>
+      {/* Balanced hardware banks: use the fewest lines that fit real label
+          widths, balance their key counts, then spread each bank edge to edge.
+          This gives 375/390pt docks intentional full lines without hiding
+          controls or shrinking Ledger's 11pt tracked words (§11.1). The HUD
+          measures inside its scrim padding; larger type can add a bank. */}
+      <DockKeyRows>
           {/* BACK leads the row — the corner where every platform parks
               "leave" — as a labelled key like its neighbours, never a bare
               chevron over live video (docs/DESIGN.md §11.1). */}
@@ -421,7 +461,7 @@ export function ControlDock({
             floating={floating}
             onPress={wrap(onOpenTools)}
           />
-      </Row>
+      </DockKeyRows>
     </View>
   );
 }
