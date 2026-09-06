@@ -126,6 +126,10 @@ export interface ControlDockProps {
   onToggleKeys: () => void;
   /** Opens the tool drawer (Agent, Terminal, Files, System). */
   onOpenTools: () => void;
+  /** Opens the Agent surface directly — the product's real differentiator
+   *  gets its own key rather than living only behind Tools. Optional so a
+   *  host of the dock that has no agent route stays purely additive. */
+  onOpenAgent?: () => void;
   /** Opens the Screen options sheet. Rendered only while floating — in
    *  portrait the header's ⋯ button already owns that job, but the fullscreen
    *  HUD lost its way in when the mascot's tap became the orientation latch. */
@@ -135,8 +139,11 @@ export interface ControlDockProps {
    *  replaces the navigator's swipe-back, which is off on this route (it
    *  ran full-width on iOS 26 and swallowed trackpad drags). */
   onBack?: () => void;
-  /** Agent sessions blocked on an approval — the Tools key's count chip. */
-  toolsBadge?: number | null;
+  /**
+   * Agent sessions blocked on an approval — the Agent key's count chip.
+   * (Named for what it counts; it moved off Tools when Agent got a key.)
+   */
+  agentBadge?: number | null;
 }
 
 /**
@@ -168,9 +175,10 @@ export function ControlDock({
   keysOn,
   onToggleKeys,
   onOpenTools,
+  onOpenAgent,
   onOpenMenu,
   onBack,
-  toolsBadge = null,
+  agentBadge = null,
 }: ControlDockProps) {
   const theme = useTheme();
   // The zoom key shares DockKey's scrim-tuned inks while floating.
@@ -277,6 +285,53 @@ export function ControlDock({
               onPress={wrap(onBack)}
             />
           ) : null}
+          {/* AGENT leads the second row: Claude on the computer, one key from
+              the desktop. The chip is the old Agent tab badge — sessions
+              blocked on an approval — moved here from Tools so the count
+              sits on the thing it counts. */}
+          {onOpenAgent ? (
+            <View>
+              <DockKey
+                testID="dock-agent"
+                label="Agent"
+                accessibilityLabel={
+                  agentBadge !== null && agentBadge > 0
+                    ? `Agent — ${agentBadge} waiting for you`
+                    : 'Agent'
+                }
+                accessibilityHint="Opens Claude Code sessions on this computer"
+                floating={floating}
+                onPress={wrap(onOpenAgent)}
+              />
+              {agentBadge !== null && agentBadge > 0 ? (
+                <View
+                  testID="dock-agent-badge"
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    right: -2,
+                    minWidth: 15,
+                    maxWidth: 24,
+                    height: 15,
+                    paddingHorizontal: 3,
+                    borderRadius: 2,
+                    backgroundColor: theme.colors.accent,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text
+                    allowFontScaling={false}
+                    numberOfLines={1}
+                    style={{ color: theme.colors.onAccent, fontFamily: font.mono, fontSize: 9 }}
+                  >
+                    {agentBadge > 99 ? '99+' : String(agentBadge)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
           <DockKey
             testID="right-click"
             label="R-click"
@@ -360,48 +415,15 @@ export function ControlDock({
           ) : null}
           {/* TOOLS — the door to everything that used to be a tab. Bottom-right
               corner, where every platform parks "more"; the drawer it opens
-              names and explains Agent, Terminal, Files and System. The chip is
-              the old Agent tab badge: sessions blocked on an approval. */}
-          <View>
-            <DockKey
-              testID="open-tools"
-              label="Tools ⋯"
-              accessibilityLabel={
-                toolsBadge !== null && toolsBadge > 0
-                  ? `Tools. Agent, terminal, files and system — ${toolsBadge} waiting for you`
-                  : 'Tools. Agent, terminal, files and system'
-              }
-              accessibilityHint="Opens the tool drawer"
-              floating={floating}
-              onPress={wrap(onOpenTools)}
-            />
-            {toolsBadge !== null && toolsBadge > 0 ? (
-              <View
-                pointerEvents="none"
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  right: -2,
-                  minWidth: 15,
-                  maxWidth: 24,
-                  height: 15,
-                  paddingHorizontal: 3,
-                  borderRadius: 2,
-                  backgroundColor: theme.colors.accent,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text
-                  allowFontScaling={false}
-                  numberOfLines={1}
-                  style={{ color: theme.colors.onAccent, fontFamily: font.mono, fontSize: 9 }}
-                >
-                  {toolsBadge > 99 ? '99+' : String(toolsBadge)}
-                </Text>
-              </View>
-            ) : null}
-          </View>
+              names and explains Agent, Terminal, Files and System. */}
+          <DockKey
+            testID="open-tools"
+            label="Tools ⋯"
+            accessibilityLabel="Tools. Agent, terminal, files and system"
+            accessibilityHint="Opens the tool drawer"
+            floating={floating}
+            onPress={wrap(onOpenTools)}
+          />
         </Row>
       </Row>
     </View>

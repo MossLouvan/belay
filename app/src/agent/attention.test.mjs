@@ -7,7 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  applyAttentionPush, askSummary, countdown, expiryUrgent, parseAttentionMessage, waitingSessions,
+  applyAttentionPush, applyDiscoveredPush, askSummary, countdown, expiryUrgent, parseAttentionMessage,
+  parseDiscoveredPush, waitingSessions,
 } from './attention.ts';
 
 const meta = (over = {}) => ({
@@ -143,4 +144,63 @@ test('applyAttentionPush before any fetch leaves the store null and asks for one
   const { sessions, needsFetch } = applyAttentionPush(null, [{ id: 'a', status: 'waiting', pending: 1 }]);
   assert.equal(sessions, null);
   assert.equal(needsFetch, true);
+});
+
+// ---- discovered sessions on the push wire ----------------------------------
+
+const disc = (over = {}) => ({
+  claudeSessionId: 'c1', cwd: '/x', preview: 'p', mtime: 100, live: false, lastWriteAt: 100, ...over,
+});
+const push = (discovered) => JSON.stringify({ type: 'attention', sessions: [], discovered });
+
+test('parseDiscoveredPush: rows with id and a finite lastWriteAt; live strictly true', () => {
+  const rows = parseDiscoveredPush(push([{ id: 'a', live: true, lastWriteAt: 5 }, { id: 'b', lastWriteAt: 3 }]));
+  assert.deepEqual(rows, [{ id: 'a', live: true, lastWriteAt: 5 }, { id: 'b', live: false, lastWriteAt: 3 }]);
+});
+
+test('parseDiscoveredPush: null for an older host, a bad row, junk or the wrong type', () => {
+  assert.equal(parseDiscoveredPush(JSON.stringify({ type: 'attention', sessions: [] })), null);
+  assert.equal(parseDiscoveredPush(push([{ id: 'a', lastWriteAt: 'now' }])), null);
+  assert.equal(parseDiscoveredPush(push([{ live: true, lastWriteAt: 1 }])), null);
+  assert.equal(parseDiscoveredPush(push([{ id: 'a', lastWriteAt: Infinity }])), null);
+  assert.equal(parseDiscoveredPush(push('nope')), null);
+  assert.equal(parseDiscoveredPush('{'), null);
+  assert.equal(parseDiscoveredPush(JSON.stringify({ type: 'other', discovered: [] })), null);
+  assert.deepEqual(parseDiscoveredPush(push([])), []);
+});
+
+test('applyDiscoveredPush: null list always needs a fetch', () => {
+  assert.deepEqual(applyDiscoveredPush(null, [{ id: 'a', live: true, lastWriteAt: 1 }]), { discovered: null, needsFetch: true });
+});
+
+test('applyDiscoveredPush: unchanged rows keep identity, the list too', () => {
+  const current = [disc()];
+  const out = applyDiscoveredPush(current, [{ id: 'c1', live: false, lastWriteAt: 100 }]);
+  assert.equal(out.discovered, current);
+  assert.equal(out.needsFetch, false);
+});
+
+test('applyDiscoveredPush: a live flip or new write applies at once and re-sorts newest first', () => {
+  const a = disc({ claudeSessionId: 'a', lastWriteAt: 200, mtime: 200 });
+  const b = disc({ claudeSessionId: 'b', lastWriteAt: 100, mtime: 100 });
+  const out = applyDiscoveredPush([a, b], [
+    { id: 'a', live: false, lastWriteAt: 200 },
+    { id: 'b', live: true, lastWriteAt: 900 },
+  ]);
+  assert.equal(out.needsFetch, false);
+  assert.deepEqual(out.discovered.map((d) => d.claudeSessionId), ['b', 'a']);
+  assert.equal(out.discovered[1], a, 'untouched row keeps identity');
+  assert.equal(out.discovered[0].live, true);
+  assert.equal(out.discovered[0].lastWriteAt, 900);
+  assert.equal(out.discovered[0].mtime, 900);
+  assert.equal(b.live, false, 'input row not mutated');
+});
+
+test('applyDiscoveredPush: rows the push no longer lists drop; unknown ids ask for a fetch', () => {
+  const out = applyDiscoveredPush([disc({ claudeSessionId: 'gone' }), disc({ claudeSessionId: 'kept' })], [
+    { id: 'kept', live: false, lastWriteAt: 100 },
+    { id: 'brand-new', live: true, lastWriteAt: 500 },
+  ]);
+  assert.deepEqual(out.discovered.map((d) => d.claudeSessionId), ['kept']);
+  assert.equal(out.needsFetch, true);
 });

@@ -2,16 +2,18 @@
 // the open-session screen live in `src/agent/`; expo-router would turn a
 // helper module under `app/` into an extra tab.
 
-import React from 'react';
+import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
+import type { DiscoveredSession } from '../../src/api';
 import { useTheme } from '../../src/theme';
 import { Card, ConnectionStatus, EmptyState, Rule, Txt } from '../../src/ui';
 import { setOpenSession, useAgentAttention } from '../../src/agent/attention-store';
 import { SessionList } from '../../src/agent/session-list';
 import { SessionView } from '../../src/agent/session-view';
+import { TranscriptView } from '../../src/agent/transcript-view';
 import { ToolPanel } from '../../src/home/panel';
 
 /**
@@ -86,6 +88,10 @@ function AgentTab() {
   // is asking — and stand down once it is on screen.
   const { openId } = useAgentAttention();
   const setOpenId = setOpenSession;
+  // A terminal-started session being watched read-only. Local, not in the
+  // store: nothing else in the app needs to know, and the banner must not
+  // treat "watching" as "open" — the phone cannot answer anything here.
+  const [watching, setWatching] = useState<DiscoveredSession | null>(null);
 
   if (!connection) return <NotConnected />;
 
@@ -93,8 +99,17 @@ function AgentTab() {
     <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}>
       {openId ? (
         <SessionView id={openId} onBack={() => setOpenId(null)} />
+      ) : watching ? (
+        <TranscriptView
+          session={watching}
+          onBack={() => setWatching(null)}
+          onTakeOver={(id) => {
+            setWatching(null);
+            setOpenId(id);
+          }}
+        />
       ) : (
-        <SessionList onOpen={setOpenId} />
+        <SessionList onOpen={setOpenId} onWatch={setWatching} />
       )}
       <View style={{ height: theme.space.sm }} />
     </View>
