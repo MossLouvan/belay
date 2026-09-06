@@ -16,8 +16,11 @@ import { router } from 'expo-router';
 
 import {
   Screen, Row, Heading, Label, Caption, Txt, Button, IconButton, Card,
-  EmptyState, LedgerRow, Rule, Sheet, TrackLabel, haptic, StatusBadge,
+  EmptyState, LedgerRow, Rule, Sheet, TrackLabel, haptic, StatusBadge, Micro,
 } from '../src/ui';
+import { useAgentAttention } from '../src/agent/attention-store';
+import { fleetLine } from '../src/agent/fleet-line';
+import type { FleetLine } from '../src/agent/fleet-line';
 import { StatusNotice } from '../src/devices/notice';
 import { useTheme } from '../src/theme';
 import { useConnection } from '../src/connection';
@@ -60,16 +63,21 @@ function DeviceCard({
   connected,
   state,
   disabled,
+  agents,
   onPick,
   onForget,
+  onOpenAgent,
 }: {
   device: SavedDevice;
   isActive: boolean;
   connected: boolean;
   state: Reachability | undefined;
   disabled: boolean;
+  /** Live agent readout for this computer; null renders nothing at all. */
+  agents: FleetLine | null;
   onPick: () => void;
   onForget: () => void;
+  onOpenAgent: () => void;
 }) {
   const theme = useTheme();
   const subtitle = `${platformLabel(device)} · ${statusText(state, connected)}`;
@@ -116,6 +124,34 @@ function DeviceCard({
           onPress={onForget}
         />
       </Row>
+      {/* The agent readout — what Claude is doing on this computer right now.
+          Its own row under the card, not inside the pick Pressable (nesting
+          would double-fire); a tap lands on that computer's Agent surface
+          directly. Absent entirely when there is nothing to say. */}
+      {agents ? (
+        <Pressable
+          testID={`device-agents-${device.id}`}
+          accessibilityRole="button"
+          accessibilityLabel={`Agent on ${device.label}: ${agents.text.toLowerCase()}`}
+          accessibilityHint="Opens the Agent tab for this computer"
+          onPress={() => {
+            haptic('light');
+            onOpenAgent();
+          }}
+          style={({ pressed }) => ({
+            minHeight: theme.layout.minTouch,
+            justifyContent: 'center',
+            paddingHorizontal: theme.space.md,
+            borderTopWidth: theme.layout.hairline,
+            borderTopColor: theme.colors.border,
+            opacity: pressed ? theme.motion.pressOpacity : 1,
+          })}
+        >
+          <Micro testID={`device-agents-line-${device.id}`} tone={agents.warn ? 'accent' : 'dim'} numberOfLines={1}>
+            {agents.text}
+          </Micro>
+        </Pressable>
+      ) : null}
     </Card>
   );
 }
@@ -123,6 +159,11 @@ function DeviceCard({
 export default function Devices() {
   const theme = useTheme();
   const { devices, active, addDevice, switchTo, forget, reconnect, phase, activeUrl } = useConnection();
+  // The attention store is host-scoped (reset on switch), so its counts
+  // describe exactly one computer: the connected one. Every other card gets
+  // null and shows no line — no "0 running", no placeholder.
+  const { sessions: agentSessions, discovered: agentDiscovered } = useAgentAttention();
+  const agents = phase === 'connected' ? fleetLine(agentSessions, agentDiscovered) : null;
   const { byId, refresh } = useReachability(devices);
 
   const [pendingForget, setPendingForget] = useState<SavedDevice | null>(null);
@@ -278,8 +319,10 @@ export default function Devices() {
               connected={active?.id === device.id && phase === 'connected'}
               state={byId[device.id]}
               disabled={switching !== null}
+              agents={active?.id === device.id ? agents : null}
               onPick={() => void onPick(device)}
               onForget={() => setPendingForget(device)}
+              onOpenAgent={() => router.navigate('/agent')}
             />
           ))}
         </View>

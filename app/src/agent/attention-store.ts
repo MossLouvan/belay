@@ -30,12 +30,21 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import { api, getConnection, wsUrl } from '../api';
-import type { AgentSessionMeta } from '../api';
-import { ATTENTION_RETRY_MS, applyAttentionPush, parseAttentionMessage } from './attention';
+import type { AgentSessionMeta, DiscoveredSession } from '../api';
+import {
+  ATTENTION_RETRY_MS, applyAttentionPush, applyDiscoveredPush, parseAttentionMessage, parseDiscoveredPush,
+} from './attention';
 
 export interface AttentionState {
   /** Latest session list; null until the first successful fetch. */
   readonly sessions: readonly AgentSessionMeta[] | null;
+  /**
+   * Claude Code sessions found on the PC that Belay has not wrapped — the
+   * "On this PC" list — with their live state. Null until first fetched;
+   * kept current by the same push socket so a session started in a terminal
+   * shows on the phone within seconds.
+   */
+  readonly discovered: readonly DiscoveredSession[] | null;
   /** When `sessions` was last refreshed — the "now" its countdowns tick from. */
   readonly fetchedAt: number;
   /** Last fetch failure; empty while the host answers. */
@@ -44,7 +53,8 @@ export interface AttentionState {
   readonly openId: string | null;
 }
 
-let state: AttentionState = Object.freeze({ sessions: null, fetchedAt: 0, error: '', openId: null });
+const EMPTY: AttentionState = Object.freeze({ sessions: null, discovered: null, fetchedAt: 0, error: '', openId: null });
+let state: AttentionState = EMPTY;
 const listeners = new Set<() => void>();
 
 function setState(patch: Partial<AttentionState>): void {
@@ -76,7 +86,7 @@ export function setOpenSession(id: string | null): void {
  * the old host, is torn down and reopened against the new one.
  */
 export function resetAttention(): void {
-  setState({ sessions: null, fetchedAt: 0, error: '', openId: null });
+  setState(EMPTY);
   stopLoops();
   if (holders > 0 && AppState.currentState === 'active') start();
 }
@@ -93,6 +103,22 @@ export async function refreshAttention(): Promise<void> {
     setState({ sessions, fetchedAt: Date.now(), error: '' });
   } catch (e: unknown) {
     setState({ error: e instanceof Error ? e.message : 'could not reach the host' });
+  }
+}
+
+/**
+ * One fetch of the discovered list. A nicety, never a reason to mark the
+ * host unreachable: a host that cannot scan ~/.claude leaves the list as it
+ * was and the session list stands. Called alongside refreshAttention on
+ * start and whenever a push names a session the list has not seen.
+ */
+export async function refreshDiscovered(): Promise<void> {
+  if (!getConnection()) return;
+  try {
+    const { sessions } = await api.agentDiscovered();
+    setState({ discovered: sessions });
+  } catch {
+    if (state.discovered === null) setState({ discovered: [] });
   }
 }
 
@@ -143,6 +169,7 @@ function start(): void {
   generation += 1;
   const gen = generation;
   void refreshAttention();
+  void refreshDiscovered();
   void openSocket(gen);
 }
 
@@ -158,6 +185,7 @@ function scheduleFallback(gen: number): void {
     fallbackTimer = null;
     if (!running(gen)) return;
     void refreshAttention();
+    void refreshDiscovered();
     void openSocket(gen);
   }, ATTENTION_RETRY_MS);
 }
@@ -184,16 +212,26 @@ async function openSocket(gen: number): Promise<void> {
     // once, so titles/expiries are current from the first pushed summary.
     if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
     void refreshAttention();
+    void refreshDiscovered();
   };
   opened.onmessage = (event: MessageEvent) => {
     if (socket !== opened) return;
-    const rows = parseAttentionMessage(String(event.data));
+    const raw = String(event.data);
+    const rows = parseAttentionMessage(raw);
     if (!rows) return;
     const { sessions, needsFetch } = applyAttentionPush(state.sessions, rows);
     if (sessions !== state.sessions && sessions !== null) {
       setState({ sessions, fetchedAt: Date.now(), error: '' });
     }
     if (needsFetch) void refreshAttention();
+    // The same frame carries the discovered rows on newer hosts.
+    const found = parseDiscoveredPush(raw);
+    if (!found) return;
+    const merged = applyDiscoveredPush(state.discovered, found);
+    if (merged.discovered !== state.discovered && merged.discovered !== null) {
+      setState({ discovered: merged.discovered });
+    }
+    if (merged.needsFetch) void refreshDiscovered();
   };
   opened.onerror = () => { /* onclose follows and owns recovery */ };
   opened.onclose = () => {

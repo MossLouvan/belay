@@ -1,5 +1,6 @@
 // The Agent tab's home: Belay's own sessions, the "On this PC" list of Claude
-// Code sessions found on disk to resume, and the project picker for a new one.
+// Code sessions found on disk to watch or take over, and the project picker
+// for a new one.
 //
 // Structure (Next Terminal sweep): a small stat strip — RUNNING / WAITING /
 // SPEND as thin-bordered stat cards — then each list as hairline-divided rows
@@ -20,7 +21,7 @@ import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
 import { ago, groupDiscovered, statusLabel } from './model';
 import { askSummary, countdown } from './attention';
-import { getAttention, refreshAttention, useAgentAttention } from './attention-store';
+import { getAttention, refreshAttention, refreshDiscovered, useAgentAttention } from './attention-store';
 import { combineLedgers, foldCosts, ledgerLine } from './cost-ledger';
 import type { CostLedger } from './cost-ledger';
 import { NewProjectSheet } from './new-project-sheet';
@@ -37,17 +38,25 @@ interface Availability {
 
 // --- session list ------------------------------------------------------------
 
-export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
+export function SessionList({
+  onOpen,
+  onWatch,
+}: {
+  onOpen: (id: string) => void;
+  /** Open a terminal-started session read-only (TranscriptView). */
+  onWatch: (session: DiscoveredSession) => void;
+}) {
   const theme = useTheme();
   // Sessions come from the shared attention store, which polls while the app
   // is open — the status words and dots here are live, not a snapshot from
   // whenever the tab mounted. Fetching once and letting the badges go stale
   // was this screen's worst lie: it showed "running" over a session that had
   // been waiting on an approval for ten minutes.
-  const { sessions, fetchedAt, error: pollError } = useAgentAttention();
-  const [discovered, setDiscovered] = useState<readonly DiscoveredSession[]>([]);
+  // The discovered list rides the same store and the same push socket, so a
+  // session started in a terminal shows here within seconds of its first
+  // write — no 30-second wait, no pull.
+  const { sessions, discovered, fetchedAt, error: pollError } = useAgentAttention();
   const [availability, setAvailability] = useState<Availability | null>(null);
-  const [attaching, setAttaching] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -92,18 +101,16 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [status, found] = await Promise.all([
+      const [status] = await Promise.all([
         api.agentStatus(),
-        // Discovery is a nicety: a host that cannot scan ~/.claude must not
-        // take the session list down with it.
-        api.agentDiscovered().catch(() => ({ sessions: [] as DiscoveredSession[] })),
-        // The session list itself refreshes through the shared store, so this
-        // pull also snaps the badge and banner current.
+        // Both lists refresh through the shared store, so this pull also
+        // snaps the badge and banner current. Discovery is a nicety there: a
+        // host that cannot scan ~/.claude never takes the session list down.
         refreshAttention(),
+        refreshDiscovered(),
       ]);
       if (!live.current) return;
       setAvailability(status);
-      setDiscovered(found.sessions);
       setNow(Date.now());
       setError('');
     } catch (e: unknown) {
@@ -129,21 +136,6 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
     if (live.current) setRefreshing(false);
   }, [refresh, loadLedgers]);
 
-  // Resume a session Claude Code already has on disk: attach it to Belay
-  // (with the approval flow) and open it.
-  const attach = useCallback(async (d: DiscoveredSession) => {
-    if (attaching) return;
-    setAttaching(d.claudeSessionId);
-    try {
-      const snap = await api.agentAttach(d.claudeSessionId, d.cwd, d.preview || undefined);
-      if (live.current) onOpen(snap.id);
-    } catch (e: unknown) {
-      if (live.current) setError(messageOf(e, 'could not resume that session'));
-    } finally {
-      if (live.current) setAttaching(null);
-    }
-  }, [attaching, onOpen]);
-
   const remove = useCallback((id: string) => {
     haptic('warning');
     api.agentDelete(id)
@@ -164,7 +156,7 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   }
 
   const unavailable = availability?.available === false;
-  const groups = groupDiscovered(discovered);
+  const groups = groupDiscovered(discovered ?? []);
   const margin = theme.layout.margin;
   const running = sessions?.filter((s) => s.status === 'running').length ?? 0;
   const waiting = sessions?.filter((s) => s.status === 'waiting').length ?? 0;
@@ -285,7 +277,7 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
       {groups.length > 0 ? (
         <Section label="On this PC" rule={false} style={{ marginTop: theme.space.xl }}>
           <Caption style={{ marginBottom: theme.space.sm }}>
-            Past Claude Code sessions on the computer — tap to resume with full context.
+            Claude Code sessions on the computer — tap to watch; take over once the terminal is quiet.
           </Caption>
           <Card flush>
             {groups.map((g, gi) => (
@@ -300,22 +292,30 @@ export function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
                     key={d.claudeSessionId}
                     testID={`agent-resume-${d.claudeSessionId}`}
                     accessibilityRole="button"
-                    accessibilityLabel={`Resume ${d.preview || 'untitled session'}`}
-                    disabled={attaching !== null}
-                    onPress={() => void attach(d)}
+                    accessibilityLabel={`${d.live ? 'Watch' : 'Open'} ${d.preview || 'untitled session'}`}
+                    onPress={() => {
+                      haptic('light');
+                      onWatch(d);
+                    }}
                     style={({ pressed }) => ({
                       minHeight: theme.layout.minTouch,
                       justifyContent: 'center',
                       paddingHorizontal: theme.space.md,
                       paddingVertical: theme.space.xs,
-                      opacity: pressed || attaching === d.claudeSessionId ? theme.motion.pressOpacity : 1,
+                      opacity: pressed ? theme.motion.pressOpacity : 1,
                     })}
                   >
                     <Row justify="space-between" gap="sm">
                       <Txt variant="body" numberOfLines={1} style={{ flex: 1 }}>
                         {d.preview || 'untitled session'}
                       </Txt>
-                      <Micro>{ago(d.mtime, now)}</Micro>
+                      {/* A terminal is writing to it right now — the accent's
+                          one job on this list besides the primary. */}
+                      {d.live ? (
+                        <Micro testID={`agent-live-${d.claudeSessionId}`} tone="accent">● LIVE</Micro>
+                      ) : (
+                        <Micro>{ago(d.lastWriteAt ?? d.mtime, now)}</Micro>
+                      )}
                     </Row>
                   </Pressable>
                 ))}

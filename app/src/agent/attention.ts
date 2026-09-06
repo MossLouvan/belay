@@ -3,7 +3,7 @@
 // No React and no react-native, so `attention.test.mjs` runs it in plain Node —
 // same contract as model.ts.
 
-import type { AgentSessionMeta, AgentStatus } from '../api';
+import type { AgentSessionMeta, AgentStatus, DiscoveredSession } from '../api';
 
 /**
  * While the /ws/attention socket is down (host restarting, radio flapping, a
@@ -131,4 +131,68 @@ export function applyAttentionPush(
   });
   const changed = merged.some((s, i) => s !== sessions[i]);
   return { sessions: changed ? merged : sessions, needsFetch };
+}
+
+// ---- discovered sessions on the same wire ----------------------------------
+//
+// Newer hosts add `discovered: [{ id, live, lastWriteAt }]` to every push: the
+// terminal-started sessions the host's index knows about. Same idea as the
+// session rows — a status flip (here: live/quiet, or a new write) applies
+// immediately; anything the summary cannot carry (a brand-new session's cwd
+// and preview) is a cue to re-fetch /agent/discovered once.
+
+/** One pushed discovered row. */
+export interface DiscoveredPushRow {
+  readonly id: string;
+  readonly live: boolean;
+  readonly lastWriteAt: number;
+}
+
+/**
+ * The `discovered` half of a push. `null` means the host did not send one
+ * (older host, or a malformed list) — the store then leaves its discovered
+ * list alone. Never a partial list: one bad row voids the frame's half.
+ */
+export function parseDiscoveredPush(raw: string): readonly DiscoveredPushRow[] | null {
+  let msg: unknown;
+  try { msg = JSON.parse(raw); } catch { return null; }
+  if (typeof msg !== 'object' || msg === null) return null;
+  const { type, discovered } = msg as { type?: unknown; discovered?: unknown };
+  if (type !== 'attention' || !Array.isArray(discovered)) return null;
+  const rows: DiscoveredPushRow[] = [];
+  for (const r of discovered as { id?: unknown; live?: unknown; lastWriteAt?: unknown }[]) {
+    if (typeof r?.id !== 'string' || typeof r?.lastWriteAt !== 'number' || !Number.isFinite(r.lastWriteAt)) return null;
+    rows.push({ id: r.id, live: r.live === true, lastWriteAt: r.lastWriteAt });
+  }
+  return rows;
+}
+
+/**
+ * Fold pushed discovered rows into the last fetched discovered list. Rows the
+ * push no longer lists (attached, deleted) drop at once; live flips and new
+ * writes apply at once; unchanged rows keep identity. Ids the list has never
+ * seen — a session just started in a terminal — cannot be shown without
+ * their cwd and preview, so they come back as `needsFetch`. A null list
+ * (nothing fetched yet) always needs a fetch.
+ */
+export function applyDiscoveredPush(
+  current: readonly DiscoveredSession[] | null,
+  rows: readonly DiscoveredPushRow[],
+): { readonly discovered: readonly DiscoveredSession[] | null; readonly needsFetch: boolean } {
+  if (current === null) return { discovered: null, needsFetch: true };
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const known = new Set(current.map((d) => d.claudeSessionId));
+  const needsFetch = rows.some((r) => !known.has(r.id));
+
+  const merged: DiscoveredSession[] = [];
+  for (const d of current) {
+    const row = byId.get(d.claudeSessionId);
+    if (!row) continue;
+    if (d.live === row.live && d.lastWriteAt === row.lastWriteAt) { merged.push(d); continue; }
+    merged.push({ ...d, live: row.live, lastWriteAt: row.lastWriteAt, mtime: row.lastWriteAt });
+  }
+  // Newest write first, matching the host's own order.
+  merged.sort((a, b) => (b.lastWriteAt ?? b.mtime) - (a.lastWriteAt ?? a.mtime));
+  const changed = merged.length !== current.length || merged.some((d, i) => d !== current[i]);
+  return { discovered: changed ? merged : current, needsFetch };
 }

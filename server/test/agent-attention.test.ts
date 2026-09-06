@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  attentionRows, attentionWire, createAttentionHub, rowsEqual,
+  attentionRows, attentionWire, createAttentionHub, discoveredEqual, discoveredRows, rowsEqual,
 } from '../src/agent-attention.js';
 import type { AttentionSocket } from '../src/agent-attention.js';
 
@@ -129,4 +129,59 @@ test('hub fans one change out to every socket and unsubscribes after the last cl
   assert.equal(subscribed, 1);
   two.close();
   assert.equal(subscribed, 0);
+});
+
+// ---- discovered rows -------------------------------------------------------
+
+test('discoveredRows keeps id, live and lastWriteAt only', () => {
+  const rows = discoveredRows([
+    { claudeSessionId: 'u1', cwd: '/p', mtime: 5, preview: 'hi', live: true, lastWriteAt: 5 },
+  ]);
+  assert.deepEqual(rows, [{ id: 'u1', live: true, lastWriteAt: 5 }]);
+});
+
+test('discoveredEqual notices a live flip or a new write', () => {
+  const a = [{ id: 'u1', live: true, lastWriteAt: 5 }];
+  assert.equal(discoveredEqual(a, [{ id: 'u1', live: true, lastWriteAt: 5 }]), true);
+  assert.equal(discoveredEqual(a, [{ id: 'u1', live: false, lastWriteAt: 5 }]), false);
+  assert.equal(discoveredEqual(a, [{ id: 'u1', live: true, lastWriteAt: 6 }]), false);
+  assert.equal(discoveredEqual(a, []), false);
+});
+
+test('attentionWire omits discovered entirely when the hub has no source', () => {
+  assert.equal('discovered' in JSON.parse(attentionWire([])), false);
+  const wire = JSON.parse(attentionWire([], [{ id: 'u1', live: true, lastWriteAt: 1 }]));
+  assert.deepEqual(wire.discovered, [{ id: 'u1', live: true, lastWriteAt: 1 }]);
+});
+
+test('hub pushes when only a discovered row changed and unhooks the index with the last socket', async () => {
+  let found = [{ claudeSessionId: 'u1', cwd: '/p', mtime: 1, preview: '', live: true, lastWriteAt: 1 }];
+  let notifyFound: (() => void) | null = null;
+  let hooked = 0;
+  const hub = createAttentionHub({
+    list: () => [{ id: 'a', status: 'idle', pending: null }],
+    subscribe: () => () => {},
+    discovered: () => found,
+    subscribeDiscovered: (fn) => { hooked += 1; notifyFound = fn; return () => { hooked -= 1; notifyFound = null; }; },
+  });
+  const { ws, sent, close } = fakeSocket();
+  hub.handle(ws);
+  assert.equal(hooked, 1);
+  assert.deepEqual(JSON.parse(sent[0]).discovered, [{ id: 'u1', live: true, lastWriteAt: 1 }]);
+
+  // Nothing changed: silence.
+  notifyFound!();
+  await tick();
+  assert.equal(sent.length, 1);
+
+  // The terminal went quiet: one push, sessions untouched.
+  found = [{ ...found[0], live: false }];
+  notifyFound!();
+  await tick();
+  assert.equal(sent.length, 2);
+  assert.deepEqual(JSON.parse(sent[1]).discovered, [{ id: 'u1', live: false, lastWriteAt: 1 }]);
+  assert.deepEqual(JSON.parse(sent[1]).sessions, [{ id: 'a', status: 'idle', pending: 0 }]);
+
+  close();
+  assert.equal(hooked, 0);
 });

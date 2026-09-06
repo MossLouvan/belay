@@ -15,7 +15,8 @@
 // one call.
 
 import type { WebSocket } from 'ws';
-import { listSessions, onSessionsChanged } from './agent.js';
+import { attachedClaudeIds, listSessions, onSessionsChanged } from './agent.js';
+import { sessionIndex } from './discover.js';
 
 /** One session on the wire — the whole story the badge needs. */
 export interface AttentionRow {
@@ -23,6 +24,24 @@ export interface AttentionRow {
   readonly status: string;
   /** Pending approvals: the ask on the card plus everything queued behind it. */
   readonly pending: number;
+}
+
+/**
+ * One terminal-started session on the wire: enough for the list to add a
+ * row, mark it LIVE, and know when to re-fetch /agent/discovered for the
+ * preview and cwd it does not carry. `live` flips without any fetch.
+ */
+export interface DiscoveredRow {
+  readonly id: string;
+  readonly live: boolean;
+  readonly lastWriteAt: number;
+}
+
+/** What discoveredRows needs from a session-index row. */
+interface DiscoveredLike {
+  readonly claudeSessionId: string;
+  readonly live: boolean;
+  readonly lastWriteAt: number;
 }
 
 /** What attentionRows needs from a listSessions() row. */
@@ -55,9 +74,26 @@ export function rowsEqual(a: readonly AttentionRow[], b: readonly AttentionRow[]
     a.every((row, i) => row.id === b[i].id && row.status === b[i].status && row.pending === b[i].pending);
 }
 
-/** The envelope the phone parses (parseAttentionMessage on the app side). */
-export function attentionWire(rows: readonly AttentionRow[]): string {
-  return JSON.stringify({ type: 'attention', sessions: rows });
+/** Squeeze the discovered list down to id + live facts. */
+export function discoveredRows(found: readonly DiscoveredLike[]): readonly DiscoveredRow[] {
+  return found.map((d) => ({ id: d.claudeSessionId, live: d.live, lastWriteAt: d.lastWriteAt }));
+}
+
+/** Same discovered rows, same order — the second half of the wire diff. */
+export function discoveredEqual(a: readonly DiscoveredRow[], b: readonly DiscoveredRow[]): boolean {
+  return a.length === b.length &&
+    a.every((row, i) => row.id === b[i].id && row.live === b[i].live && row.lastWriteAt === b[i].lastWriteAt);
+}
+
+/**
+ * The envelope the phone parses (parseAttentionMessage on the app side).
+ * `discovered` is omitted entirely when the hub has no discovery source, so
+ * older phones and the existing tests see exactly the old shape.
+ */
+export function attentionWire(rows: readonly AttentionRow[], discovered?: readonly DiscoveredRow[]): string {
+  return discovered === undefined
+    ? JSON.stringify({ type: 'attention', sessions: rows })
+    : JSON.stringify({ type: 'attention', sessions: rows, discovered });
 }
 
 interface AttentionHubDeps {
@@ -65,6 +101,10 @@ interface AttentionHubDeps {
   readonly list: () => readonly SessionSummaryLike[];
   /** Change notifications — agent.ts's onSessionsChanged. Returns unhook. */
   readonly subscribe: (fn: () => void) => () => void;
+  /** Terminal-started sessions — the session index in production. Optional. */
+  readonly discovered?: () => readonly DiscoveredLike[];
+  /** Index change notifications (new file, growth, live flip). Returns unhook. */
+  readonly subscribeDiscovered?: (fn: () => void) => () => void;
 }
 
 export interface AttentionHub {
@@ -83,16 +123,25 @@ export interface AttentionHub {
 export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
   const sockets = new Set<AttentionSocket>();
   let lastRows: readonly AttentionRow[] | null = null;
+  let lastFound: readonly DiscoveredRow[] | null = null;
   let unhook: (() => void) | null = null;
+  let unhookFound: (() => void) | null = null;
   let flushTimer: NodeJS.Timeout | null = null;
+
+  const found = (): readonly DiscoveredRow[] | undefined =>
+    deps.discovered ? discoveredRows(deps.discovered()) : undefined;
 
   const flush = (): void => {
     flushTimer = null;
     if (sockets.size === 0) return;
     const rows = attentionRows(deps.list());
-    if (lastRows !== null && rowsEqual(lastRows, rows)) return;
+    const disc = found();
+    const sameRows = lastRows !== null && rowsEqual(lastRows, rows);
+    const sameFound = disc === undefined || (lastFound !== null && discoveredEqual(lastFound, disc));
+    if (sameRows && sameFound) return;
     lastRows = rows;
-    const wire = attentionWire(rows);
+    lastFound = disc ?? null;
+    const wire = attentionWire(rows, disc);
     for (const ws of sockets) {
       try { if (ws.readyState === ws.OPEN) ws.send(wire); } catch { /* socket on its way out */ }
     }
@@ -108,9 +157,12 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
     handle(ws: AttentionSocket): void {
       sockets.add(ws);
       if (unhook === null) unhook = deps.subscribe(scheduleFlush);
+      if (unhookFound === null && deps.subscribeDiscovered) unhookFound = deps.subscribeDiscovered(scheduleFlush);
       const rows = attentionRows(deps.list());
+      const disc = found();
       lastRows = rows;
-      try { ws.send(attentionWire(rows)); } catch { /* close will follow */ }
+      lastFound = disc ?? null;
+      try { ws.send(attentionWire(rows, disc)); } catch { /* close will follow */ }
       // One-way channel: anything the client says is ignored, not an error.
       ws.on('message', () => {});
       ws.on('close', () => {
@@ -118,7 +170,10 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
         if (sockets.size > 0) return;
         unhook?.();
         unhook = null;
+        unhookFound?.();
+        unhookFound = null;
         lastRows = null;
+        lastFound = null;
         if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null; }
       });
     },
@@ -131,6 +186,11 @@ let defaultHub: AttentionHub | null = null;
 
 /** index.ts's upgrade handler for /ws/attention. */
 export function handleAttention(ws: WebSocket): void {
-  defaultHub ??= createAttentionHub({ list: listSessions, subscribe: onSessionsChanged });
+  defaultHub ??= createAttentionHub({
+    list: listSessions,
+    subscribe: onSessionsChanged,
+    discovered: () => sessionIndex().list(attachedClaudeIds()),
+    subscribeDiscovered: (fn) => sessionIndex().onChange(fn),
+  });
   defaultHub.handle(ws as unknown as AttentionSocket);
 }
