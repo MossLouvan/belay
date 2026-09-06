@@ -1,23 +1,97 @@
-// Apple-style minimal setup intro screens — inspired by lunarOS mockups.
+// Setup intro screens — the beluga hero welcome + how it works, shown before
+// the connect flow on a fresh install.
 //
-// Pure black canvas, typography-first, huge negative space. Welcome + how it
-// works before the connect flow. Fade transitions between stages.
+// The welcome is the app's first frame, so it earns the one hero moment the
+// motion doctrine allows: the beluga mascot swims in its idle loop inside a
+// soft blue halo (tap it and it does a flip), "Welcome to Belay" sits below in
+// a calm sentence-case voice — deliberately not the 900-weight uppercase
+// display, premium here means quiet — and a single accent button leads on.
+// The page ground is the `heroBg` token, the ocean-tinted sibling of `bg`, so
+// the white-beluga-in-blue-water video and the blue-rope brand share one
+// palette instead of the mascot floating on a neutral page.
+//
+// Entrance: mascot → headline → CTA, each a 400ms fade with an 8pt rise
+// (choreography in welcome-hero.ts, testable under node). Reduced motion
+// renders everything in place with no animation.
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Pressable } from 'react-native';
+import type { TextStyle } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from 'react-native-reanimated';
 import { useTheme } from '../theme';
-import { Button, Txt } from '../ui';
+import { BelugaAvatar, Button, Txt, useReducedMotion } from '../ui';
+import { HERO_ENTRANCE, haloLayers } from './welcome-hero';
 
 interface WelcomeScreenProps {
   onContinue: () => void;
 }
 
+/** Mascot diameter, pt. Generous — this screen is the beluga's stage. */
+const MASCOT_SIZE = 168;
+
+/** The one easing the app moves on (theme `easing.standard`), as a worklet. */
+const EASE_STANDARD = Easing.bezier(0.2, 0, 0, 1);
+
 /**
- * Welcome screen — pure minimal aesthetic, lowercase friendly, huge type,
- * enormous negative space. First impression: calm, confident, premium.
+ * One block of the entrance choreography: fades in and rises 8pt into place
+ * after `delayMs`, or renders settled immediately under reduced motion.
+ */
+function useHeroEntrance(delayMs: number, reduced: boolean) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    if (reduced) {
+      progress.value = 1;
+      return;
+    }
+    progress.value = withDelay(
+      delayMs,
+      withTiming(1, { duration: HERO_ENTRANCE.durationMs, easing: EASE_STANDARD }),
+    );
+  }, [progress, delayMs, reduced]);
+
+  return useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ translateY: (1 - progress.value) * HERO_ENTRANCE.riseDistancePt }],
+  }));
+}
+
+// BelugaAvatar is only pressable when given a handler; the flip itself is the
+// whole payoff here, so the handler has nothing left to do.
+const NOOP = (): void => undefined;
+
+/**
+ * Welcome screen — the beluga hero. Mascot swimming in a blue halo (tap for a
+ * flip), "Welcome to Belay", one line of what the app is, one way forward.
  */
 export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
   const theme = useTheme();
+  const reduced = useReducedMotion();
+
+  const mascotStyle = useHeroEntrance(HERO_ENTRANCE.mascotDelayMs, reduced);
+  const headlineStyle = useHeroEntrance(HERO_ENTRANCE.headlineDelayMs, reduced);
+  const ctaStyle = useHeroEntrance(HERO_ENTRANCE.ctaDelayMs, reduced);
+
+  const halo = haloLayers(MASCOT_SIZE);
+  const stageSize = halo[0]?.diameter ?? MASCOT_SIZE;
+
+  // Sentence-case hero type: the display slot without the shouting — weight
+  // 700 instead of 900, no uppercase. Shared between the two headline spans so
+  // "Belay" differs from the rest by colour alone.
+  const headlineType: TextStyle = {
+    fontFamily: theme.font.sans,
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: '700',
+    letterSpacing: -0.8,
+    textAlign: 'center',
+  };
 
   return (
     <View
@@ -26,54 +100,86 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingHorizontal: theme.layout.margin * 2,
-        gap: theme.space.xxl * 2,
+        backgroundColor: theme.colors.heroBg,
+        paddingHorizontal: theme.layout.margin * 1.5,
+        gap: theme.space.xl,
       }}
     >
-      {/* Hero headline — huge, centered, minimal */}
-      <View style={{ alignItems: 'center', gap: theme.space.md }}>
-        <Txt
-          variant="display"
-          style={{
-            fontSize: 48,
-            lineHeight: 52,
-            textAlign: 'center',
-            color: theme.colors.text,
-            textTransform: 'none',
-          }}
-        >
-          welcome to
-        </Txt>
-        <Txt
-          variant="display"
-          style={{
-            fontSize: 56,
-            lineHeight: 60,
-            textAlign: 'center',
-            color: theme.colors.accentGraphic,
-            letterSpacing: -2,
-          }}
-        >
-          BELAY
-        </Txt>
-      </View>
-
-      {/* Minimal tagline */}
-      <Txt
-        variant="body"
-        tone="dim"
-        style={{
-          textAlign: 'center',
-          maxWidth: 280,
-          fontSize: 16,
-          lineHeight: 24,
-        }}
+      {/* The beluga's stage: glow rings behind, ring stroke around, mascot on
+          top. The rings are pure garnish — hidden from assistive tech. */}
+      <Animated.View
+        style={[
+          {
+            width: stageSize,
+            height: stageSize,
+            alignItems: 'center',
+            justifyContent: 'center',
+          },
+          mascotStyle,
+        ]}
       >
-        Control your computer from your phone. No cloud, no middleman.
-      </Txt>
+        {halo.map((layer) => (
+          <View
+            key={layer.diameter}
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              width: layer.diameter,
+              height: layer.diameter,
+              borderRadius: layer.diameter / 2,
+              backgroundColor: theme.colors.heroGlow,
+              opacity: layer.opacity,
+            }}
+          />
+        ))}
 
-      {/* Simple continue CTA */}
-      <View style={{ width: '100%', maxWidth: 280, marginTop: theme.space.xl }}>
+        {/* The rope clipped around the porthole: a 2pt ring with a breath of
+            space before the video edge. */}
+        <View
+          style={{
+            width: MASCOT_SIZE + 16,
+            height: MASCOT_SIZE + 16,
+            borderRadius: (MASCOT_SIZE + 16) / 2,
+            borderWidth: theme.layout.ruleEmphasis,
+            borderColor: theme.colors.heroRing,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <BelugaAvatar
+            size={MASCOT_SIZE}
+            onPress={NOOP}
+            backgroundColor={theme.colors.accentSoft}
+            accessibilityLabel="Belay's beluga mascot"
+            testID="welcome-beluga"
+          />
+        </View>
+      </Animated.View>
+
+      {/* Headline + one line of what this is. */}
+      <Animated.View style={[{ alignItems: 'center', gap: theme.space.sm }, headlineStyle]}>
+        <Txt variant="display" heading style={{ ...headlineType, textTransform: 'none', color: theme.colors.text }}>
+          Welcome to{' '}
+          <Txt variant="display" style={{ ...headlineType, textTransform: 'none', color: theme.colors.accent }}>
+            Belay
+          </Txt>
+        </Txt>
+        <Txt
+          variant="body"
+          tone="dim"
+          style={{ textAlign: 'center', maxWidth: 300, fontSize: 16, lineHeight: 24 }}
+        >
+          Control your computer from your phone. No cloud, no middleman.
+        </Txt>
+        <Txt variant="caption" tone="faint" style={{ textAlign: 'center', fontSize: 12 }}>
+          Tap the beluga.
+        </Txt>
+      </Animated.View>
+
+      {/* The way forward — the screen's single solid accent. */}
+      <Animated.View style={[{ width: '100%', maxWidth: 300, marginTop: theme.space.md }, ctaStyle]}>
         <Button
           label="Get started"
           onPress={onContinue}
@@ -81,7 +187,7 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
           size="lg"
           testID="welcome-continue"
         />
-      </View>
+      </Animated.View>
     </View>
   );
 }
