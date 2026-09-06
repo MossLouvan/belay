@@ -103,6 +103,13 @@ import {
 import type { ModsState, StickyMod } from '../../src/screen/mods';
 import { useAutoHide } from '../../src/screen/useAutoHide';
 import {
+  DEFAULT_ORIENTATION_LOCK,
+  mascotAccessibilityLabel,
+  nextOrientationLock,
+} from '../../src/screen/orientation-lock';
+import type { OrientationLockState } from '../../src/screen/orientation-lock';
+import { applyOrientationLock } from '../../src/screen/orientation-native';
+import {
   ChevronGlyph,
   Crosshair,
   DotsGlyph,
@@ -518,6 +525,30 @@ export default function ScreenTab() {
     if (immersive) dockHide.poke();
     setKeysOn((v) => !v);
   }, [immersive, dockHide, dismissHint]);
+  // The mascot's orientation latch. Tapping the beluga anywhere plays its
+  // flip (the avatar's own onPress delight) AND pins the app upright — from
+  // landscape that IS "switch the view to vertical"; a second tap lets the
+  // device drive rotation again. Pure decisions in orientation-lock.ts, the
+  // expo-screen-orientation calls in orientation-native.ts (best-effort:
+  // on web they no-op and rotation simply stays free).
+  const [orientationLock, setOrientationLock] = useState<OrientationLockState>(DEFAULT_ORIENTATION_LOCK);
+  const onMascotPress = useCallback(() => {
+    setOrientationLock((state) => {
+      const next = nextOrientationLock(state);
+      void applyOrientationLock(next);
+      return next;
+    });
+  }, []);
+  // Leaving the screen hands rotation back — the latch is a Screen-view
+  // stance, not an app-wide setting the other surfaces inherit.
+  useEffect(
+    () => () => {
+      void applyOrientationLock('free');
+    },
+    []
+  );
+  const mascotLabel = mascotAccessibilityLabel(orientationLock);
+
   const toggleFullscreen = useCallback(() => {
     // The floating type bar is anchored to this layout's bottom edge; the
     // fullscreen flip moves that edge without a keyboard event to re-measure
@@ -675,6 +706,7 @@ export default function ScreenTab() {
         keysOn={keysOn}
         onToggleKeys={toggleKeys}
         onOpenTools={openTools}
+        onOpenMenu={() => setShowMenu(true)}
         toolsBadge={waitingCount > 0 ? waitingCount : null}
       />
     </Column>
@@ -702,16 +734,29 @@ export default function ScreenTab() {
       {!immersive ? (
         <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
           <Row justify="space-between" gap="sm">
-            <Txt
-              variant="title"
-              heading
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.6}
-              style={{ flexShrink: 1 }}
-            >
-              {(connection?.hostName || 'Screen').replace(/\.local$/i, '')}
-            </Txt>
+            <Row gap="sm" align="center" style={{ flexShrink: 1 }}>
+              {/* The beluga lives here too — the same mascot the welcome hero
+                  and the fullscreen HUD carry, so the identity never appears
+                  and vanishes between states. Its water is the hero ground,
+                  and its tap is the orientation latch (plus the flip). */}
+              <BelugaAvatar
+                testID="screen-beluga-avatar"
+                size={36}
+                backgroundColor={theme.colors.heroBg}
+                accessibilityLabel={mascotLabel}
+                onPress={onMascotPress}
+              />
+              <Txt
+                variant="title"
+                heading
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
+                style={{ flexShrink: 1 }}
+              >
+                {(connection?.hostName || 'Screen').replace(/\.local$/i, '')}
+              </Txt>
+            </Row>
             <IconButton
               testID="screen-menu"
               accessibilityLabel="Screen options"
@@ -898,13 +943,15 @@ export default function ScreenTab() {
               >
                 <Txt variant="label" style={{ color: HUD.ink }}>Connected</Txt>
               </View>
-              {/* Beluga avatar: clickable with flip animation */}
+              {/* Beluga avatar: the flip plus the orientation latch — from
+                  landscape, tapping the mascot IS "take me back upright".
+                  Screen options moved to the dock's Menu key. */}
               <BelugaAvatar
                 testID="stream-beluga-avatar"
                 size={48}
                 backgroundColor={HUD.scrim}
-                accessibilityLabel="Belay mascot — tap to play animation or open settings"
-                onPress={() => setShowMenu(true)}
+                accessibilityLabel={mascotLabel}
+                onPress={onMascotPress}
               />
             </View>
             {/* Recording must stay unmissable in fullscreen too — it floats on

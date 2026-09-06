@@ -27,6 +27,7 @@
     "expo-linking": "~57.0.8",
     "expo-modules-core": "~57.0.14",
     "expo-router": "~57.0.17",
+    "expo-screen-orientation": "~57.0.2",
     "expo-secure-store": "~57.0.2",
     "expo-speech-recognition": "^57.0.0",
     "expo-splash-screen": "~57.0.5",

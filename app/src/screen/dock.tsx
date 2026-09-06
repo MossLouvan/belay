@@ -10,16 +10,21 @@
 // text tabs. The zoom stepper lives here rather than as an overlay pill on
 // the video, so nothing tappable hides on top of the picture.
 //
-// TOUCH/PAD are plain dock keys rather than the shared SegmentedControl: the
-// fullscreen dock sits on the fixed HUD scrim, where the themed control's dim
-// ink fails contrast in light mode, and the dock keys already carry the
-// identical underline treatment.
+// TOUCH/PAD/SCROLL are no longer tracked words: on-device testing showed the
+// underline trio reads as caption text and the founder could not find the
+// mode switch at all. They now render through ModeSwitch (src/screen/
+// mode-switch.tsx) — a bordered, full-height segmented strip with the active
+// mode solid-filled — and KEYS is the same boxed language beside it, so the
+// dock's primary row is unmistakably "the controls". The scrim-contrast
+// concern that ruled out the shared SegmentedControl is handled inside
+// ModeSwitch with the same dark-ink override DockKey uses.
 
 import React from 'react';
 import { Text, View } from 'react-native';
 import { font, getTheme, useTheme } from '../theme';
 import { Row, TrackLabel } from '../ui';
 import { HUD } from './parts';
+import { BoxedToggle, ModeSwitch } from './mode-switch';
 import type { MonitorChoice } from './monitors';
 import { recordKeyLabel } from './record';
 import type { RecordPhase } from './record';
@@ -31,8 +36,6 @@ interface DockKeyProps {
   onPress: () => void;
   onLongPress?: () => void;
   active?: boolean;
-  /** Radio-style option (TOUCH/PAD) rather than an independent toggle. */
-  radio?: boolean;
   floating?: boolean;
   accessibilityHint?: string;
   testID?: string;
@@ -52,7 +55,6 @@ function DockKey({
   onPress,
   onLongPress,
   active = false,
-  radio = false,
   floating = false,
   accessibilityHint,
   testID,
@@ -75,7 +77,6 @@ function DockKey({
       onPress={onPress}
       onLongPress={onLongPress}
       active={active}
-      radio={radio}
       inks={inks}
       align="center"
       hapticTone="selection"
@@ -118,6 +119,10 @@ export interface ControlDockProps {
   onToggleKeys: () => void;
   /** Opens the tool drawer (Agent, Terminal, Files, System). */
   onOpenTools: () => void;
+  /** Opens the Screen options sheet. Rendered only while floating — in
+   *  portrait the header's ⋯ button already owns that job, but the fullscreen
+   *  HUD lost its way in when the mascot's tap became the orientation latch. */
+  onOpenMenu?: () => void;
   /** Agent sessions blocked on an approval — the Tools key's count chip. */
   toolsBadge?: number | null;
 }
@@ -151,6 +156,7 @@ export function ControlDock({
   keysOn,
   onToggleKeys,
   onOpenTools,
+  onOpenMenu,
   toolsBadge = null,
 }: ControlDockProps) {
   const theme = useTheme();
@@ -178,48 +184,27 @@ export function ControlDock({
           : undefined
       }
     >
-      <Row justify="space-between" gap="xs">
-        {/* No gap between TOUCH, PAD and SCROLL: their resting tracks abut
-            into one continuous strip, so the trio reads as a three-position
-            switch — the segmented control's language, not three stray words.
-            Scroll sits here rather than as a separate toggle because all
-            three answer the same question, "what does one finger do", and
-            exactly one answer can hold at a time. */}
-        <View testID="pointer-mode" accessibilityRole="tablist" accessibilityLabel="Pointer mode" style={{ flexDirection: 'row' }}>
-          <DockKey
-            label="Touch"
-            accessibilityLabel="Touch mode"
-            accessibilityHint="Tap where you want to click"
-            radio
-            active={mode === 'touch'}
-            floating={floating}
-            onPress={wrap(() => onModeChange('touch'))}
-          />
-          <DockKey
-            label="Pad"
-            accessibilityLabel="Trackpad mode"
-            accessibilityHint="Drag anywhere to move a visible cursor"
-            radio
-            active={mode === 'trackpad'}
-            floating={floating}
-            onPress={wrap(() => onModeChange('trackpad'))}
-          />
-          <DockKey
-            label="Scroll"
-            accessibilityLabel="Scroll mode"
-            accessibilityHint="Drag one finger to scroll the page; taps still click"
-            radio
-            active={mode === 'scroll'}
-            floating={floating}
-            onPress={wrap(() => onModeChange('scroll'))}
-          />
-        </View>
-        {/* KEYS, promoted to the primary row (founder's call: the on-screen
-            keys were the one control hidden somewhere else — an eye glyph on
-            the stage — and nobody found them). A labelled toggle here, lit
-            while the key bar is up, sits in the same strip as the pointer
-            modes so it cannot be missed. */}
-        <DockKey
+      <Row justify="space-between" gap="xs" align="center">
+        {/* The mode strip owns the row's slack width: Touch, Pad and Scroll
+            answer the same question ("what does one finger do?"), exactly one
+            answer holds at a time, and switching between them is THE screen's
+            core loop — so it gets the widest, loudest control in the dock. */}
+        <ModeSwitch
+          testID="pointer-mode"
+          mode={mode}
+          onModeChange={(next) => {
+            onInteract?.();
+            onModeChange(next);
+          }}
+          floating={floating}
+          style={{ flex: 1 }}
+        />
+        {/* KEYS, in the same boxed language at the same height (founder's
+            call: the on-screen keys were the one control hidden somewhere
+            else — an eye glyph on the stage — and nobody found them). Filled
+            while the key bar is up, right beside the modes so it cannot be
+            missed. */}
+        <BoxedToggle
           testID="toggle-keys"
           label="Keys"
           accessibilityLabel={keysOn ? 'Hide the on-screen keys' : 'Show the on-screen keys'}
@@ -316,6 +301,16 @@ export function ControlDock({
             floating={floating}
             onPress={wrap(onToggleType)}
           />
+          {floating && onOpenMenu ? (
+            <DockKey
+              testID="dock-menu"
+              label="Menu"
+              accessibilityLabel="Screen options"
+              accessibilityHint="Stream quality, host audio and help"
+              floating={floating}
+              onPress={wrap(onOpenMenu)}
+            />
+          ) : null}
           {screens.length > 1 ? (
             <DockKey
               testID="monitor-switcher"
