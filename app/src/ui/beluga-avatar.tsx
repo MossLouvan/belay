@@ -1,7 +1,7 @@
 // The Belay beluga mascot — cohesive identity across stream HUD and tools drawer.
 //
 // IDLE (default, always):
-//   - Continuously loop `beluga-swim-idle.mp4` (expo-av Video, muted, isLooping).
+//   - Continuously loop `beluga-swim-idle.mp4` (expo-video, muted, looping).
 //   - Swimming-in-water look from Moss's Hailuo clip (~2.3s loop).
 //   - Fallback: Reanimated bob on PNG if video fails to load.
 //
@@ -11,12 +11,17 @@
 //   - No autoplay of flip animation.
 //
 // Assets: 512x512 silent MP4s from Hailuo, circular clipped to match avatar size.
+//
+// Player note: this used expo-av's <Video>, which does not compile on this Expo
+// release (it imports headers ExpoModulesCore no longer ships). expo-video is
+// the supported successor: players are objects from useVideoPlayer, driven
+// imperatively (play/pause/replay, no promises) and rendered through VideoView.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
-import type { AVPlaybackStatus } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
+import type { VideoPlayer, VideoPlayerStatus } from 'expo-video';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -60,13 +65,49 @@ export function BelugaAvatar({
   testID,
 }: BelugaAvatarProps) {
   const theme = useTheme();
-  const idleVideoRef = useRef<Video>(null);
-  const flipVideoRef = useRef<Video>(null);
   const [isFlipping, setIsFlipping] = useState(false);
   const [videoError, setVideoError] = useState(false);
-  
+
+  // The idle loop: muted, looping, and playing from the first frame.
+  const idlePlayer = useVideoPlayer(require('../../assets/beluga-swim-idle.mp4'), (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
+
+  // The flip: muted, single-shot. Armed here, fired on press.
+  const flipPlayer = useVideoPlayer(require('../../assets/beluga-flip-splash.mp4'), (player) => {
+    player.loop = false;
+    player.muted = true;
+  });
+
   // Fallback Reanimated bob if video fails
   const idleBob = useSharedValue(0);
+
+  // A load failure on either player drops us to the PNG fallback for good.
+  useEffect(() => {
+    const onStatus = ({ status, error }: { status: VideoPlayerStatus; error?: unknown }) => {
+      if (status === 'error') {
+        console.warn('[BelugaAvatar] Video failed to load, using Reanimated fallback', error);
+        setVideoError(true);
+      }
+    };
+    const subs = [idlePlayer, flipPlayer].map((p: VideoPlayer) =>
+      p.addListener('statusChange', onStatus),
+    );
+    return () => {
+      for (const s of subs) s.remove();
+    };
+  }, [idlePlayer, flipPlayer]);
+
+  // When the flip reaches its end, hide it and resume the idle loop.
+  useEffect(() => {
+    const sub = flipPlayer.addListener('playToEnd', () => {
+      setIsFlipping(false);
+      idlePlayer.play();
+    });
+    return () => sub.remove();
+  }, [flipPlayer, idlePlayer]);
 
   // Fallback idle animation: continuous subtle bob (2px up/down, 2s cycle)
   useEffect(() => {
@@ -90,43 +131,23 @@ export function BelugaAvatar({
     transform: [{ translateY: idleBob.value }],
   }));
 
-  const playFlipAnimation = useCallback(async () => {
+  const playFlipAnimation = useCallback(() => {
     if (isFlipping) return; // Prevent double-taps during flip
-    
+
     haptic('light');
     onPress?.();
     setIsFlipping(true);
-    
+
     try {
-      // Pause idle video
-      await idleVideoRef.current?.pauseAsync();
-      
-      // Play flip video from start
-      await flipVideoRef.current?.setPositionAsync(0);
-      await flipVideoRef.current?.playAsync();
+      idlePlayer.pause();
+      // `replay` seeks the flip to its first frame and plays it in one call.
+      flipPlayer.replay();
     } catch (error) {
       console.warn('[BelugaAvatar] Flip video error:', error);
       setIsFlipping(false);
+      idlePlayer.play();
     }
-  }, [isFlipping, onPress]);
-
-  const handleFlipPlaybackEnd = useCallback(async (status: AVPlaybackStatus) => {
-    if (status.isLoaded && status.didJustFinish) {
-      setIsFlipping(false);
-      
-      try {
-        // Return to idle loop
-        await idleVideoRef.current?.playAsync();
-      } catch (error) {
-        console.warn('[BelugaAvatar] Idle video resume error:', error);
-      }
-    }
-  }, []);
-
-  const handleVideoError = useCallback(() => {
-    console.warn('[BelugaAvatar] Video failed to load, using Reanimated fallback');
-    setVideoError(true);
-  }, []);
+  }, [isFlipping, onPress, idlePlayer, flipPlayer]);
 
   // Video-based avatar
   const videoAvatar = (
@@ -140,26 +161,28 @@ export function BelugaAvatar({
       }}
     >
       {/* Idle loop video (always playing unless flip is active) */}
-      <Video
-        ref={idleVideoRef}
-        source={require('../../assets/beluga-swim-idle.mp4')}
+      <VideoView
+        player={idlePlayer}
         style={{ width: size, height: size, display: isFlipping ? 'none' : 'flex' }}
-        resizeMode={ResizeMode.COVER}
-        isLooping
-        isMuted
-        shouldPlay
-        onError={handleVideoError}
+        contentFit="cover"
+        nativeControls={false}
+        pointerEvents="none"
       />
-      
+
       {/* Flip video (plays once on tap, then hides) */}
-      <Video
-        ref={flipVideoRef}
-        source={require('../../assets/beluga-flip-splash.mp4')}
-        style={{ width: size, height: size, display: isFlipping ? 'flex' : 'none' }}
-        resizeMode={ResizeMode.COVER}
-        isMuted
-        onPlaybackStatusUpdate={handleFlipPlaybackEnd}
-        onError={handleVideoError}
+      <VideoView
+        player={flipPlayer}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: size,
+          height: size,
+          display: isFlipping ? 'flex' : 'none',
+        }}
+        contentFit="cover"
+        nativeControls={false}
+        pointerEvents="none"
       />
     </View>
   );

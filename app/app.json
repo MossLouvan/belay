@@ -5,7 +5,10 @@
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
-    "scheme": ["belay", "tether"],
+    "scheme": [
+      "belay",
+      "tether"
+    ],
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0b0d12",
     "ios": {
@@ -76,7 +79,8 @@
           "photosPermission": "Belay lets you pick photos or screenshots to send to Claude on your computer.",
           "cameraPermission": "Belay uses the camera to take a photo to send to Claude on your computer."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": false
