@@ -22,7 +22,7 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Animated, Platform, Pressable, View } from 'react-native';
-import type { Insets, StyleProp, TextStyle, ViewStyle } from 'react-native';
+import type { AccessibilityActionEvent, AccessibilityActionInfo, AccessibilityValue, Insets, StyleProp, TextStyle, ViewStyle } from 'react-native';
 import { easing, useTheme } from '../theme';
 import { haptic } from './haptics';
 import type { HapticTone } from './haptics';
@@ -52,6 +52,12 @@ export interface TrackLabelProps {
   hapticTone?: HapticTone | null;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  /** Marks the key as a stepper for assistive tech: VoiceOver's swipe
+   *  up/down fires `onAccessibilityAction` with increment/decrement, and
+   *  `accessibilityValue` is what it announces. Role becomes `adjustable`. */
+  accessibilityActions?: readonly AccessibilityActionInfo[];
+  onAccessibilityAction?: (event: AccessibilityActionEvent) => void;
+  accessibilityValue?: AccessibilityValue;
   hitSlop?: Insets;
   testID?: string;
   style?: StyleProp<ViewStyle>;
@@ -71,6 +77,9 @@ export function TrackLabel({
   hapticTone = 'light',
   accessibilityLabel,
   accessibilityHint,
+  accessibilityActions,
+  onAccessibilityAction,
+  accessibilityValue,
   hitSlop,
   testID,
   style,
@@ -140,10 +149,13 @@ export function TrackLabel({
   return (
     <Pressable
       testID={testID}
-      accessibilityRole={radio ? 'tab' : 'button'}
+      accessibilityRole={radio ? 'tab' : accessibilityActions ? 'adjustable' : 'button'}
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ selected: active, disabled }}
+      accessibilityActions={accessibilityActions}
+      onAccessibilityAction={onAccessibilityAction}
+      accessibilityValue={accessibilityValue}
       disabled={disabled}
       onPress={handlePress}
       onPressIn={handlePressIn}

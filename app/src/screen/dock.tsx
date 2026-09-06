@@ -7,8 +7,9 @@
 // wide-tracked mono label — the discoverability doctrine forbids bare icons
 // outside the universal five (docs/DESIGN.md §11.1) — and the active state is
 // the accent label plus the 2pt underline, the same selection language as the
-// text tabs. The zoom stepper lives here rather than as an overlay pill on
-// the video, so nothing tappable hides on top of the picture.
+// text tabs. Zoom is one key here (tap = fit; pinch the picture to zoom)
+// rather than an overlay pill on the video, so nothing tappable hides on top
+// of the picture.
 //
 // TOUCH/PAD/SCROLL are no longer tracked words: on-device testing showed the
 // underline trio reads as caption text and the founder could not find the
@@ -29,6 +30,12 @@ import type { MonitorChoice } from './monitors';
 import { recordKeyLabel } from './record';
 import type { RecordPhase } from './record';
 import type { PendingButton, PointerMode } from './viewport';
+
+/** VoiceOver's stepper verbs on the zoom key — the old −/+ keys, as gestures. */
+const ZOOM_ACTIONS = Object.freeze([
+  Object.freeze({ name: 'increment', label: 'Zoom in' }),
+  Object.freeze({ name: 'decrement', label: 'Zoom out' }),
+]);
 
 interface DockKeyProps {
   label: string;
@@ -160,6 +167,15 @@ export function ControlDock({
   toolsBadge = null,
 }: ControlDockProps) {
   const theme = useTheme();
+  // The zoom key shares DockKey's scrim-tuned inks while floating.
+  const zoomInks = floating
+    ? {
+        restLabel: HUD.ink,
+        activeLabel: getTheme('dark').colors.accent,
+        restTrack: HUD.hairline,
+        activeTrack: getTheme('dark').colors.accentGraphic,
+      }
+    : undefined;
   const wrap = (action: () => void) => () => {
     onInteract?.();
     action();
@@ -213,31 +229,28 @@ export function ControlDock({
           floating={floating}
           onPress={wrap(onToggleKeys)}
         />
-        {/* The zoom stepper, abutting into one continuous strip the way the
-            mode trio does. */}
-        <Row gap="none">
-          <DockKey
-            testID="zoom-out"
-            label="−"
-            accessibilityLabel="Zoom out"
-            floating={floating}
-            onPress={wrap(onZoomOut)}
-          />
-          <DockKey
-            testID="zoom-level"
-            label={`${zoom.toFixed(1)}×`}
-            accessibilityLabel={`Zoom ${zoom.toFixed(1)} times. Tap to fit the whole screen.`}
-            floating={floating}
-            onPress={wrap(onZoomReset)}
-          />
-          <DockKey
-            testID="zoom-in"
-            label="+"
-            accessibilityLabel="Zoom in"
-            floating={floating}
-            onPress={wrap(onZoomIn)}
-          />
-        </Row>
+        {/* ZOOM is one key, not a −/×/+ stepper: two fingers on the picture
+            already zoom, and the three-key strip was what starved the mode
+            switch until "Scroll" truncated. Tap fits the whole screen; for
+            VoiceOver it is an adjustable control, so swipe up/down steps the
+            zoom exactly as the old −/+ keys did. */}
+        <TrackLabel
+          testID="zoom-level"
+          label={`${zoom.toFixed(1)}×`}
+          accessibilityLabel="Zoom"
+          accessibilityHint="Tap to fit the whole screen. Pinch the picture to zoom."
+          accessibilityValue={{ text: `${zoom.toFixed(1)} times` }}
+          accessibilityActions={ZOOM_ACTIONS}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'increment') wrap(onZoomIn)();
+            else if (event.nativeEvent.actionName === 'decrement') wrap(onZoomOut)();
+          }}
+          inks={zoomInks}
+          align="center"
+          hapticTone="selection"
+          onPress={wrap(onZoomReset)}
+          style={{ minWidth: theme.layout.minTouch, paddingHorizontal: theme.space.xxs }}
+        />
       </Row>
       <Row justify="space-between" gap="xs">
         <Row gap="xs" style={{ flexShrink: 1 }}>
