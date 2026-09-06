@@ -1,27 +1,26 @@
 // The Belay beluga mascot — cohesive identity across stream HUD and tools drawer.
 //
-// IDLE (default, always):
-//   - Continuously loop `beluga-swim-idle.mp4` (expo-video, muted, looping).
-//   - Swimming-in-water look from Moss's Hailuo clip (~2.3s loop).
-//   - Fallback: Reanimated bob on PNG if video fails to load.
+// This is the CUTOUT era: `beluga-cutout.png` is a transparent RGBA cutout
+// (642x537, rope collar + carabiner intact), so the mascot floats directly on
+// whatever surface hosts it. No circle, no water, no video — the old
+// expo-video swim/flip clips are retired (the files stay on disk, unused).
+//
+// IDLE (default, always, unless reduced motion):
+//   - A slow vertical bob + a subtle rotational sway, phase-offset so the
+//     two never sync up — reads as treading water, not a metronome.
 //
 // ON PRESS (click/tap):
-//   - Pause/hide idle video, play `beluga-flip-splash.mp4` once (muted).
-//   - On playback end: return to swim idle loop.
-//   - No autoplay of flip animation.
+//   - One-shot 360° flip with a small jump arc and an apex swell, driven by
+//     a single 0..1 progress value; on completion the beluga settles back
+//     into the idle swim. Double-taps mid-flip are ignored (the flip guard),
+//     but `onPress` still fires on the first tap — callers rely on it.
+//   - Reduced motion: no travel at all; `onPress` and the haptic still fire.
 //
-// Assets: 512x512 silent MP4s from Hailuo, circular clipped to match avatar size.
-//
-// Player note: this used expo-av's <Video>, which does not compile on this Expo
-// release (it imports headers ExpoModulesCore no longer ships). expo-video is
-// the supported successor: players are objects from useVideoPlayer, driven
-// imperatively (play/pause/replay, no promises) and rendered through VideoView.
+// Choreography numbers + arc math live in ./beluga-motion.ts (pure, tested).
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { VideoView, useVideoPlayer } from 'expo-video';
-import type { VideoPlayer, VideoPlayerStatus } from 'expo-video';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -33,13 +32,30 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
 import { haptic } from './haptics';
+import { useReducedMotion } from './motion';
+import {
+  belugaImageBox,
+  flipJumpOffset,
+  flipRotation,
+  flipScale,
+  FLIP_DURATION_MS,
+  IDLE_BOB_HALF_CYCLE_MS,
+  IDLE_BOB_TRAVEL_FRACTION,
+  IDLE_SWAY_HALF_CYCLE_MS,
+  IDLE_SWAY_DEGREES,
+} from './beluga-motion';
+
+const BELUGA_CUTOUT = require('../../assets/beluga-cutout.png');
 
 export interface BelugaAvatarProps {
-  /** Avatar size in pixels (diameter of the circle). */
+  /** Avatar size in pixels (width of the cutout's bounding box). */
   size: number;
   /** Optional press handler. If omitted, the avatar is still animated but not pressable. */
   onPress?: () => void;
-  /** Background color behind the circular crop. */
+  /**
+   * Legacy prop from the circular-crop era; the cutout is transparent, so
+   * nothing is painted behind it any more. Kept for API compatibility.
+   */
   backgroundColor?: string;
   /** Accessibility label. */
   accessibilityLabel?: string;
@@ -48,176 +64,135 @@ export interface BelugaAvatarProps {
 }
 
 /**
- * The Belay beluga mascot: always-animated circular avatar.
+ * The Belay beluga mascot: a transparent cutout that gently swims in place.
  * Used in the stream HUD (48px, top-right) and tools drawer header (40px).
  *
- * IDLE: Continuously loops beluga-swim-idle.mp4 (silent, ~2.3s).
- * PRESS: Plays beluga-flip-splash.mp4 once (silent, 4.0s), then returns to idle loop.
- *
- * Fallback: Reanimated bob on PNG if video fails to load.
+ * IDLE: slow bob + subtle sway, looping (suppressed under reduced motion).
+ * PRESS: one-shot 360° flip with a jump arc, then back to the idle swim.
  */
 export function BelugaAvatar({
   size,
   onPress,
-  backgroundColor,
+  backgroundColor: _backgroundColor, // unused since the cutout era — see props doc
   accessibilityLabel = 'Belay mascot',
   style,
   testID,
 }: BelugaAvatarProps) {
   const theme = useTheme();
-  const [isFlipping, setIsFlipping] = useState(false);
-  const [videoError, setVideoError] = useState(false);
+  const reducedMotion = useReducedMotion();
 
-  // The idle loop: muted, looping, and playing from the first frame.
-  const idlePlayer = useVideoPlayer(require('../../assets/beluga-swim-idle.mp4'), (player) => {
-    player.loop = true;
-    player.muted = true;
-    player.play();
-  });
+  // Idle swim drivers: two independent loops, deliberately off-beat.
+  const bob = useSharedValue(0);
+  const sway = useSharedValue(0);
+  // Flip driver: 0..1 progress of the one-shot. Doubles as the tap guard —
+  // a flip is in flight whenever `flipping` is true.
+  const flipProgress = useSharedValue(0);
+  const flipping = useSharedValue(false);
 
-  // The flip: muted, single-shot. Armed here, fired on press.
-  const flipPlayer = useVideoPlayer(require('../../assets/beluga-flip-splash.mp4'), (player) => {
-    player.loop = false;
-    player.muted = true;
-  });
-
-  // Fallback Reanimated bob if video fails
-  const idleBob = useSharedValue(0);
-
-  // A load failure on either player drops us to the PNG fallback for good.
+  // Start (or stop) the idle swim. Reduced motion pins everything level.
   useEffect(() => {
-    const onStatus = ({ status, error }: { status: VideoPlayerStatus; error?: unknown }) => {
-      if (status === 'error') {
-        console.warn('[BelugaAvatar] Video failed to load, using Reanimated fallback', error);
-        setVideoError(true);
-      }
-    };
-    const subs = [idlePlayer, flipPlayer].map((p: VideoPlayer) =>
-      p.addListener('statusChange', onStatus),
-    );
-    return () => {
-      for (const s of subs) s.remove();
-    };
-  }, [idlePlayer, flipPlayer]);
-
-  // When the flip reaches its end, hide it and resume the idle loop.
-  useEffect(() => {
-    const sub = flipPlayer.addListener('playToEnd', () => {
-      setIsFlipping(false);
-      idlePlayer.play();
-    });
-    return () => sub.remove();
-  }, [flipPlayer, idlePlayer]);
-
-  // Fallback idle animation: continuous subtle bob (2px up/down, 2s cycle)
-  useEffect(() => {
-    if (videoError) {
-      idleBob.value = withRepeat(
-        withSequence(
-          withTiming(-2, { duration: 1000, easing: Easing.inOut(Easing.sin) }),
-          withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.sin) })
-        ),
-        -1, // infinite
-        false // don't reverse
-      );
+    if (reducedMotion) {
+      cancelAnimation(bob);
+      cancelAnimation(sway);
+      bob.value = 0;
+      sway.value = 0;
+      return;
     }
 
-    return () => {
-      cancelAnimation(idleBob);
-    };
-  }, [idleBob, videoError]);
+    const bobTravel = size * IDLE_BOB_TRAVEL_FRACTION;
+    bob.value = withRepeat(
+      withSequence(
+        withTiming(-bobTravel, { duration: IDLE_BOB_HALF_CYCLE_MS, easing: Easing.inOut(Easing.sin) }),
+        withTiming(bobTravel, { duration: IDLE_BOB_HALF_CYCLE_MS, easing: Easing.inOut(Easing.sin) }),
+      ),
+      -1,
+      true,
+    );
+    sway.value = withRepeat(
+      withSequence(
+        withTiming(-IDLE_SWAY_DEGREES, { duration: IDLE_SWAY_HALF_CYCLE_MS, easing: Easing.inOut(Easing.sin) }),
+        withTiming(IDLE_SWAY_DEGREES, { duration: IDLE_SWAY_HALF_CYCLE_MS, easing: Easing.inOut(Easing.sin) }),
+      ),
+      -1,
+      true,
+    );
 
-  const fallbackAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: idleBob.value }],
+    return () => {
+      cancelAnimation(bob);
+      cancelAnimation(sway);
+    };
+  }, [bob, sway, size, reducedMotion]);
+
+  // Idle swim rides on the outer view; the flip rides on the inner one. The
+  // two compose, so the flip launches from wherever the bob happens to be
+  // and lands back into it without a visible seam.
+  const idleStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: bob.value }, { rotate: `${sway.value}deg` }],
   }));
 
-  const playFlipAnimation = useCallback(() => {
-    if (isFlipping) return; // Prevent double-taps during flip
+  const flipStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: flipJumpOffset(flipProgress.value, size) },
+      { rotate: `${flipRotation(flipProgress.value)}deg` },
+      { scale: flipScale(flipProgress.value) },
+    ],
+  }));
+
+  const handlePress = useCallback(() => {
+    // The guard: one flip at a time. The tap still lands for the caller on
+    // the first press; mid-flip taps are swallowed entirely.
+    if (flipping.value) return;
 
     haptic('light');
     onPress?.();
-    setIsFlipping(true);
 
-    try {
-      idlePlayer.pause();
-      // `replay` seeks the flip to its first frame and plays it in one call.
-      flipPlayer.replay();
-    } catch (error) {
-      console.warn('[BelugaAvatar] Flip video error:', error);
-      setIsFlipping(false);
-      idlePlayer.play();
-    }
-  }, [isFlipping, onPress, idlePlayer, flipPlayer]);
+    // Reduced motion: acknowledge the tap, skip the travel.
+    if (reducedMotion) return;
 
-  // Video-based avatar
-  const videoAvatar = (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: backgroundColor ?? theme.colors.surfaceAlt,
-        overflow: 'hidden',
-      }}
-    >
-      {/* Idle loop video (always playing unless flip is active) */}
-      <VideoView
-        player={idlePlayer}
-        style={{ width: size, height: size, display: isFlipping ? 'none' : 'flex' }}
-        contentFit="cover"
-        nativeControls={false}
-        pointerEvents="none"
-      />
+    flipping.value = true;
+    flipProgress.value = 0;
+    flipProgress.value = withTiming(
+      1,
+      { duration: FLIP_DURATION_MS, easing: Easing.inOut(Easing.cubic) },
+      () => {
+        // Land exactly level (360° ≡ 0°) and drop the guard — this runs on
+        // cancellation too, so a stuck guard can never brick the mascot.
+        flipProgress.value = 0;
+        flipping.value = false;
+      },
+    );
+  }, [flipping, flipProgress, onPress, reducedMotion, size]);
 
-      {/* Flip video (plays once on tap, then hides) */}
-      <VideoView
-        player={flipPlayer}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: size,
-          height: size,
-          display: isFlipping ? 'flex' : 'none',
-        }}
-        contentFit="cover"
-        nativeControls={false}
-        pointerEvents="none"
-      />
-    </View>
-  );
+  const box = belugaImageBox(size);
 
-  // Fallback animated PNG avatar (if video fails)
-  const fallbackAvatar = (
-    <Animated.View
-      style={[
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: backgroundColor ?? theme.colors.surfaceAlt,
-          overflow: 'hidden',
-        },
-        fallbackAnimatedStyle,
-      ]}
-    >
-      <Image
-        source={require('../../assets/beluga-mascot.jpg')}
-        style={{ width: size, height: size }}
-        resizeMode="cover"
-        accessibilityIgnoresInvertColors
-      />
+  // The mascot itself is decoration — the pressable wrapper (below) carries
+  // the accessible role/label/hint, so the image tree is hidden from AT.
+  const avatar = (
+    <Animated.View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, idleStyle]}>
+      <Animated.View style={flipStyle}>
+        <Image
+          source={BELUGA_CUTOUT}
+          style={{ width: box.width, height: box.height }}
+          resizeMode="contain"
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          accessibilityIgnoresInvertColors
+        />
+      </Animated.View>
     </Animated.View>
   );
 
-  const avatar = videoError ? fallbackAvatar : videoAvatar;
-
   if (!onPress) {
-    // Always animated (idle loop), but not pressable
-    return <View style={style} testID={testID}>{avatar}</View>;
+    // Always animated (idle swim), but not pressable.
+    return (
+      <View style={style} testID={testID}>
+        {avatar}
+      </View>
+    );
   }
 
-  // Always animated (idle loop) + pressable for flip animation
+  // Always animated (idle swim) + pressable for the flip.
   return (
     <Pressable
       testID={testID}
@@ -225,13 +200,8 @@ export function BelugaAvatar({
       accessibilityLabel={accessibilityLabel}
       accessibilityHint="Tap to play flip animation"
       hitSlop={theme.layout.hitSlop}
-      onPress={playFlipAnimation}
-      style={({ pressed }) => [
-        {
-          opacity: pressed ? 0.7 : 1,
-        },
-        style,
-      ]}
+      onPress={handlePress}
+      style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }, style]}
     >
       {avatar}
     </Pressable>
