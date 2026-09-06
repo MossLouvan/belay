@@ -12,9 +12,25 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_ORIENTATION_LOCK,
+  MASCOT_TAP_BURST_GAP_MS,
   mascotAccessibilityLabel,
+  mascotTapLatches,
   nextOrientationLock,
 } from './orientation-lock.ts';
+
+test('the first tap of a burst latches; the rapid taps that spin the beluga up do not', () => {
+  const gap = MASCOT_TAP_BURST_GAP_MS;
+  assert.equal(mascotTapLatches(null, 1_000), true, 'the very first tap always latches');
+  assert.equal(mascotTapLatches(1_000, 1_000 + gap - 1), false, 'a quick follow-up is spin, not a toggle');
+  assert.equal(mascotTapLatches(1_000, 1_000 + gap), true, 'a pause ends the burst');
+  assert.equal(mascotTapLatches(1_000, 5_000), true);
+});
+
+test('a sustained burst never flaps the latch, however long it runs', () => {
+  const taps = Array.from({ length: 40 }, (_, i) => 1_000 + i * 150);
+  const latched = taps.filter((at, i) => mascotTapLatches(i === 0 ? null : taps[i - 1], at));
+  assert.deepEqual(latched, [1_000], 'exactly one latch for the whole burst');
+});
 
 test('the app starts free — rotation belongs to the device', () => {
   assert.equal(DEFAULT_ORIENTATION_LOCK, 'free');

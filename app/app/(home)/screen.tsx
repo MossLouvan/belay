@@ -105,6 +105,7 @@ import { useAutoHide } from '../../src/screen/useAutoHide';
 import {
   DEFAULT_ORIENTATION_LOCK,
   mascotAccessibilityLabel,
+  mascotTapLatches,
   nextOrientationLock,
 } from '../../src/screen/orientation-lock';
 import type { OrientationLockState } from '../../src/screen/orientation-lock';
@@ -525,14 +526,22 @@ export default function ScreenTab() {
     if (immersive) dockHide.poke();
     setKeysOn((v) => !v);
   }, [immersive, dockHide, dismissHint]);
-  // The mascot's orientation latch. Tapping the beluga anywhere plays its
-  // flip (the avatar's own onPress delight) AND pins the app upright — from
-  // landscape that IS "switch the view to vertical"; a second tap lets the
-  // device drive rotation again. Pure decisions in orientation-lock.ts, the
-  // expo-screen-orientation calls in orientation-native.ts (best-effort:
-  // on web they no-op and rotation simply stays free).
+  // The mascot's orientation latch. Tapping the beluga anywhere spins it
+  // (the avatar's own onPress delight) AND pins the app upright — from
+  // landscape that IS "switch the view to vertical"; a later tap lets the
+  // device drive rotation again. The spin stacks momentum per tap, so a
+  // burst of rapid taps must NOT flap the latch: only the first tap of a
+  // burst toggles it (mascotTapLatches). Pure decisions in
+  // orientation-lock.ts, the expo-screen-orientation calls in
+  // orientation-native.ts (best-effort: on web they no-op and rotation
+  // simply stays free).
   const [orientationLock, setOrientationLock] = useState<OrientationLockState>(DEFAULT_ORIENTATION_LOCK);
+  const lastMascotTapAt = useRef<number | null>(null);
   const onMascotPress = useCallback(() => {
+    const now = Date.now();
+    const latches = mascotTapLatches(lastMascotTapAt.current, now);
+    lastMascotTapAt.current = now;
+    if (!latches) return;
     setOrientationLock((state) => {
       const next = nextOrientationLock(state);
       void applyOrientationLock(next);
