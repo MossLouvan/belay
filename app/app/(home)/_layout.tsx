@@ -68,7 +68,12 @@ export default function HomeLayout() {
         contentStyle: { backgroundColor: theme.colors.bg },
       }}
     >
-      <Stack.Screen name="screen" options={{ animation: 'fade' }} />
+      {/* The desktop is this stack's floor, so no pop gesture applies here
+          today; the flags are stated anyway so a future route mounted
+          beneath it can never bring the swipe back. The root layout carries
+          the fix that matters — its (home) entry is the one a full-width
+          swipe was popping. */}
+      <Stack.Screen name="screen" options={{ animation: 'fade', gestureEnabled: false, fullScreenGestureEnabled: false }} />
       {TOOL_ROUTES.map((name) => (
         <Stack.Screen
           key={name}

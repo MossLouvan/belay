@@ -152,7 +152,13 @@ function Routes({ forced }: { forced: boolean }) {
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="devices" />
-      <Stack.Screen name="(home)" />
+      {/* No swipe-back on the desktop. react-native-screens makes the pop
+          gesture FULL-WIDTH by default on iOS 26 (`fullScreenSwipeEnabled`
+          unset → on), and it runs natively, so a trackpad drag on the black
+          stage popped this route to whatever sat beneath it before the
+          PanResponder ever heard about it. The way back is the desktop's
+          labelled Back control (src/screen/use-screen-back.ts) instead. */}
+      <Stack.Screen name="(home)" options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
     </Stack>
   );
 }

@@ -122,6 +122,7 @@ import {
 } from '../../src/screen/parts';
 import { EdgeRevealStrip } from '../../src/screen/edge-reveal';
 import { TrackpadSurface } from '../../src/screen/trackpad-surface';
+import { useScreenBack } from '../../src/screen/use-screen-back';
 import { PAD_CURSOR_LINGER_MS } from '../../src/screen/trackpad';
 import { ControlDock } from '../../src/screen/dock';
 import { PanelState } from '../../src/screen/panel-state';
@@ -548,6 +549,11 @@ export default function ScreenTab() {
     []
   );
   const mascotLabel = mascotAccessibilityLabel(orientationLock);
+  // The explicit way off the desktop. The navigator's swipe-back is off on
+  // this route (app/_layout.tsx): it ran full-width on iOS 26 and ate
+  // trackpad drags on the black stage. Portrait carries it as the header's
+  // leading ‹; the immersive dock carries a labelled Back key.
+  const goBack = useScreenBack();
 
   const toggleFullscreen = useCallback(() => {
     // The floating type bar is anchored to this layout's bottom edge; the
@@ -707,6 +713,7 @@ export default function ScreenTab() {
         onToggleKeys={toggleKeys}
         onOpenTools={openTools}
         onOpenMenu={() => setShowMenu(true)}
+        onBack={goBack}
         toolsBadge={waitingCount > 0 ? waitingCount : null}
       />
     </Column>
@@ -735,6 +742,19 @@ export default function ScreenTab() {
         <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
           <Row justify="space-between" gap="sm">
             <Row gap="sm" align="center" style={{ flexShrink: 1 }}>
+              {/* ‹ alone is sanctioned in this leading corner (docs/DESIGN.md
+                  §11.1) — the same mark the computers list and the agent
+                  pages use — and it is the visible twin of the swipe-back
+                  this route no longer has. It returns to the computers
+                  list, or the pairing flow when nothing is paired. */}
+              <IconButton
+                testID="screen-back"
+                accessibilityLabel="Back to my computers"
+                variant="plain"
+                onPress={goBack}
+              >
+                <Txt variant="title" tone="dim">{'\u2039'}</Txt>
+              </IconButton>
               {/* The beluga lives here too — the same mascot the welcome hero
                   and the fullscreen HUD carry, so the identity never appears
                   and vanishes between states. Its water is the hero ground,
