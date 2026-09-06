@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { HISTORY_CAP, TAIL_BYTES, loadClaudeHistory, readTail, transcriptEvents } from '../src/transcript.js';
+import { HISTORY_CAP, TAIL_BYTES, loadClaudeHistory, readTail, readTranscriptWindow, transcriptEvents } from '../src/transcript.js';
 
 const line = (o: object) => JSON.stringify(o);
 
@@ -86,4 +86,73 @@ test('a missing or corrupt transcript yields [], never a throw', () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ---- readTranscriptWindow ---------------------------------------------------
+
+test('readTranscriptWindow without `after` returns the tail and where it ended', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'belay-win-'));
+  try {
+    const file = join(dir, 's.jsonl');
+    const body = SAMPLE.slice(0, -1).join('\n') + '\n';
+    writeFileSync(file, body, 'utf8');
+    const win = readTranscriptWindow(file);
+    assert.deepEqual(win.events.map((e) => e.kind), ['user', 'text', 'tool', 'tool-result']);
+    assert.equal(win.offset, Buffer.byteLength(body));
+    assert.equal(win.size, Buffer.byteLength(body));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('readTranscriptWindow with `after` returns only what came later, and holds a partial line', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'belay-win-'));
+  try {
+    const file = join(dir, 's.jsonl');
+    const first = line({ type: 'user', message: { role: 'user', content: 'one' } }) + '\n';
+    writeFileSync(file, first, 'utf8');
+    const w1 = readTranscriptWindow(file);
+    assert.equal(w1.events.length, 1);
+
+    // Nothing new yet.
+    const w2 = readTranscriptWindow(file, w1.offset);
+    assert.deepEqual(w2.events, []);
+    assert.equal(w2.offset, w1.offset);
+
+    // A second line lands, then a third is torn mid-write.
+    const second = line({ type: 'user', message: { role: 'user', content: 'two' } }) + '\n';
+    writeFileSync(file, first + second + '{"type":"user","mess', 'utf8');
+    const w3 = readTranscriptWindow(file, w1.offset);
+    assert.deepEqual(w3.events.map((e) => e.text), ['two']);
+    assert.equal(w3.offset, Buffer.byteLength(first + second));
+
+    // The newline arrives; the held fragment is read whole.
+    const third = line({ type: 'user', message: { role: 'user', content: 'three' } }) + '\n';
+    writeFileSync(file, first + second + third, 'utf8');
+    const w4 = readTranscriptWindow(file, w3.offset);
+    assert.deepEqual(w4.events.map((e) => e.text), ['three']);
+    assert.equal(w4.offset, Buffer.byteLength(first + second + third));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('readTranscriptWindow tolerates an offset past the end (file truncated) by starting over', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'belay-win-'));
+  try {
+    const file = join(dir, 's.jsonl');
+    writeFileSync(file, line({ type: 'user', message: { role: 'user', content: 'x' } }) + '\n', 'utf8');
+    const win = readTranscriptWindow(file, 10_000);
+    assert.equal(win.events.length, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('readTranscriptWindow on a big file is bounded and skips the torn first line', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'belay-win-'));
+  try {
+    const file = join(dir, 'big.jsonl');
+    const rows = Array.from({ length: 5000 }, (_, i) => line({ type: 'user', message: { content: `row ${i}` } }));
+    const body = rows.join('\n') + '\n';
+    writeFileSync(file, body, 'utf8');
+    const win = readTranscriptWindow(file, undefined, HISTORY_CAP);
+    assert.equal(win.events.length, HISTORY_CAP);
+    assert.equal(win.events[win.events.length - 1].text, 'row 4999');
+    assert.equal(win.offset, Buffer.byteLength(body));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

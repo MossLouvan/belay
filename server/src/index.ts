@@ -44,11 +44,12 @@ import { notifyBannerLine } from './notify.js';
 import {
   loadAgentState, listSessions, createSession, getSnapshot, deleteSession,
   sendPrompt, stopSession, subscribe, requestApproval, answerApproval,
-  listProjects, agentAvailable, attachSession, attachedClaudeIds, rememberProjectPath,
+  listProjects, agentAvailable, attachSession, attachedClaudeIds, rememberProjectPath, findClaude,
 } from './agent.js';
 import { createProject, defaultProjectParent } from './projects.js';
 import { collectChanges } from './changes.js';
-import { discoverSessions } from './discover.js';
+import { discoverSessions, sessionIndex } from './discover.js';
+import { handleTranscriptSocket, registerTranscriptRoutes } from './transcript-routes.js';
 import { discoverPeerHosts } from './discover-hosts.js';
 import { registerRecordingRoutes } from './recording-routes.js';
 import { handleHandoff } from './handoff.js';
@@ -962,6 +963,7 @@ app.post('/agent/approval-request', (req, res) => {
 
 registerRecordingRoutes(app, auth);
 registerAgentApprovalRoutes(app, auth);
+registerTranscriptRoutes(app, auth);
 registerImageRoutes(app, auth);
 // Audio routes are always registered: the native helpers support audio capture
 // in the default build (not gated by BELAY_WEBRTC_BUILD), so the REST and WS
@@ -1009,7 +1011,7 @@ heartbeat.unref?.();
 // /ws/audio is always available: audio capture works in the default native
 // build and is separate from the WebRTC signaling path. The phone enables audio
 // per-session via the stream settings toggle.
-const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention', '/ws/cursors', '/ws/audio']);
+const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention', '/ws/transcript', '/ws/cursors', '/ws/audio']);
 if (webrtcEnabled()) { WS_ROUTES.add('/ws/webrtc'); }
 
 server.on('upgrade', (req, socket, head) => {
@@ -1093,6 +1095,9 @@ server.on('upgrade', (req, socket, head) => {
   } else if (url.pathname === '/ws/attention') {
     // Push channel for the app's badge/banner/list — agent-attention.ts.
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAttention(ws); });
+  } else if (url.pathname === '/ws/transcript') {
+    // Read-only tail of a terminal-started session — transcript-routes.ts.
+    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleTranscriptSocket(ws, url); });
   } else if (url.pathname === '/ws/cursors') {
     // Everyone's virtual cursor, both directions — cursor-channel.ts.
     wss.handleUpgrade(req, socket, head, (ws) => {
@@ -1635,6 +1640,13 @@ function handleAgent(ws: WebSocket, url: URL) {
   ws.on('close', () => unsubscribe?.());
 }
 
+/** "claude CLI at /opt/homebrew/bin/claude · watching sessions" — or why not. */
+function agentBannerLine(): string {
+  const claude = findClaude();
+  if (!claude) return 'claude CLI not found (PATH, ~/.local/bin, Homebrew…) — Agent tab disabled';
+  return `claude CLI at ${claude} · sessions: ${sessionIndex().mode === 'watch' ? 'watching ~/.claude/projects' : 'polling ~/.claude/projects'}`;
+}
+
 /**
  * Explain a failure to bind instead of printing a stack trace.
  *
@@ -1701,7 +1713,7 @@ server.listen(PORT, () => {
     label: getLabel(),
     platform: getPlatform(),
   });
-  console.log(`  Agent     : ${agentAvailable() ? 'claude CLI found' : 'claude CLI not on PATH — Agent tab disabled'}`);
+  console.log(`  Agent     : ${agentBannerLine()}`);
   console.log(`  Notify    : ${notifyBannerLine()}`);
   console.log('');
 

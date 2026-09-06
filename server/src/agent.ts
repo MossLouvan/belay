@@ -26,6 +26,7 @@ import {
 import type { FlowIO, PendingState, QueuedPrompt } from './agent-flow.js';
 import type { ApprovalGrant } from './approval-scopes.js';
 import { productEnv } from './env.js';
+import { claudeCandidates, pickClaude } from './claude-path.js';
 
 // The stream-json ↔ feed-event translation lives in agent-events.ts (shared
 // with the transcript history loader); re-exported so existing importers and
@@ -154,15 +155,29 @@ function loadEventTail(id: string, n = 200): AgentEvent[] {
 
 let claudePath: string | null | undefined; // undefined = not looked up yet
 
+/**
+ * PATH first (`which`/`where`), then the well-known install locations from
+ * claude-path.ts. The PATH answer wins so a deliberately chosen binary is
+ * respected; the fallbacks exist for hosts started as a service, whose PATH
+ * is the bare system default and knows nothing about ~/.local/bin or
+ * Homebrew. Looked up once; the boot banner prints whichever was chosen.
+ */
 export function findClaude(): string | null {
   if (claudePath !== undefined) return claudePath;
+  claudePath = claudeOnPath() ?? pickClaude(
+    claudeCandidates({ platform: process.platform, home: homedir(), env: process.env }),
+    existsSync,
+  );
+  return claudePath;
+}
+
+function claudeOnPath(): string | null {
   const probe = process.platform === 'win32' ? ['where.exe', ['claude']] as const : ['which', ['claude']] as const;
   try {
     const out = execFileSync(probe[0], probe[1] as unknown as string[], { encoding: 'utf8' });
-    claudePath = out.split(/\r?\n/).find((l) => l.trim()) || null;
-    if (claudePath) claudePath = claudePath.trim();
-  } catch { claudePath = null; }
-  return claudePath;
+    const first = out.split(/\r?\n/).find((l) => l.trim());
+    return first ? first.trim() : null;
+  } catch { return null; }
 }
 
 // The full claude invocation for a session, as a pure function so tests can
@@ -448,7 +463,7 @@ export function createSession(cwd: string, title?: string) {
 // anywhere else): the next prompt spawns `claude --resume <id>` with the
 // phone-approval MCP attached, so context carries over and the approval flow
 // applies from the first action.
-const SESSION_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+export const SESSION_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 export function attachSession(cwd: string, claudeSessionId: string, title?: string) {
   if (!claudeSessionId) throw new Error('missing claudeSessionId');

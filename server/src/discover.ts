@@ -10,6 +10,8 @@
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { createSessionIndex } from './session-index.js';
+import type { LiveDiscoveredSession, SessionIndex } from './session-index.js';
 
 export interface DiscoveredSession {
   claudeSessionId: string;
@@ -20,11 +22,10 @@ export interface DiscoveredSession {
 
 const HEAD_BYTES = 64 * 1024;
 const SCAN_CAP = 100;
-const CACHE_MS = 30_000;
 
-const PROJECTS_ROOT = join(homedir(), '.claude', 'projects');
+export const PROJECTS_ROOT = join(homedir(), '.claude', 'projects');
 
-function readHead(path: string, bytes = HEAD_BYTES): string {
+export function readHead(path: string, bytes = HEAD_BYTES): string {
   const fd = openSync(path, 'r');
   try {
     const buf = Buffer.alloc(bytes);
@@ -107,13 +108,20 @@ export function scanSessions(root: string, exclude: Set<string>, cap = SCAN_CAP)
   return out;
 }
 
-// Cached wrapper for the real machine. The raw scan is cached; the exclusion
-// set is applied per call so a fresh attach disappears immediately.
-let cache: { at: number; data: DiscoveredSession[] } | null = null;
+// The one index for the real machine. Lazily started so tests that import
+// this module never touch ~/.claude, and so a host with no Claude Code
+// install pays nothing. The exclusion set is applied per call so a fresh
+// attach disappears from the list immediately.
+let index: SessionIndex | null = null;
 
-export function discoverSessions(exclude: Set<string>): DiscoveredSession[] {
-  if (!cache || Date.now() - cache.at > CACHE_MS) {
-    cache = { at: Date.now(), data: scanSessions(PROJECTS_ROOT, new Set()) };
+export function sessionIndex(): SessionIndex {
+  if (!index) {
+    index = createSessionIndex(PROJECTS_ROOT, { cap: SCAN_CAP });
+    index.start();
   }
-  return cache.data.filter((s) => !exclude.has(s.claudeSessionId));
+  return index;
+}
+
+export function discoverSessions(exclude: Set<string>): LiveDiscoveredSession[] {
+  return [...sessionIndex().list(exclude)];
 }
