@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { eventsFromAssistantContent, eventsFromToolResults } from './agent-events.js';
 import type { AgentEvent } from './agent-events.js';
+import { completeLines } from './session-live.js';
 
 /** How far back the tail read reaches. Enough for dozens of turns, bounded
  * so a giant transcript costs one small read, never a full parse. */
@@ -110,4 +111,52 @@ export function loadClaudeHistory(claudeSessionId: string, root = PROJECTS_ROOT)
   try {
     return transcriptEvents(readTail(path).split('\n').filter(Boolean));
   } catch { return []; }
+}
+
+// ---- windowed reads for the live transcript stream --------------------------
+//
+// The phone reads a terminal-driven session by byte offset: the first read
+// takes the tail (orientation needs the end of the story), every later read
+// takes exactly what was appended since. Offsets are file positions, so a
+// client can resume after a dropped socket without replaying the tail. Only
+// complete lines are consumed (session-live.ts's completeLines) — the
+// fragment of a line still being written stays on disk for the next read.
+
+export interface TranscriptWindow {
+  readonly events: AgentEvent[];
+  /** File position after the last complete line consumed — the next `after`. */
+  readonly offset: number;
+  /** File size at read time; `offset < size` means a partial line is pending. */
+  readonly size: number;
+}
+
+/**
+ * Read `[after, EOF)` as feed events. With `after` undefined the read starts
+ * at most TAIL_BYTES before the end, skipping the torn first line; with
+ * `after` past the current size (the file was truncated or replaced) the
+ * read restarts from the beginning rather than pretending the bytes match.
+ */
+export function readTranscriptWindow(path: string, after?: number, cap = Number.POSITIVE_INFINITY): TranscriptWindow {
+  const fd = openSync(path, 'r');
+  try {
+    const size = fstatSync(fd).size;
+    let start = after === undefined ? Math.max(0, size - TAIL_BYTES) : after;
+    if (start > size || start < 0 || !Number.isFinite(start)) start = 0;
+    if (start >= size) return { events: [], offset: start, size };
+    const buf = Buffer.alloc(size - start);
+    const n = readSync(fd, buf, 0, buf.length, start);
+    let chunk = buf.subarray(0, n);
+    // A tail read that begins mid-file begins mid-line: drop through the
+    // first newline so the parser only ever sees whole records.
+    if (after === undefined && start > 0) {
+      const nl = chunk.indexOf(0x0a);
+      if (nl < 0) return { events: [], offset: start, size };
+      chunk = chunk.subarray(nl + 1);
+      start += nl + 1;
+    }
+    const { lines, consumed } = completeLines(chunk);
+    return { events: transcriptEvents(lines, cap), offset: start + consumed, size };
+  } finally {
+    closeSync(fd);
+  }
 }

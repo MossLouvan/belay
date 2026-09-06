@@ -451,6 +451,14 @@ export interface AgentSessionMeta {
   pending?: PendingApprovalSummary | null;
 }
 
+/** GET /agent/discovered/:id/transcript — see agentDiscoveredTranscript. */
+export interface TranscriptWindow {
+  events: AgentEvent[];
+  offset: number;
+  live: boolean;
+  lastWriteAt: number;
+}
+
 export interface AgentSnapshot extends AgentSessionMeta {
   events: AgentEvent[];
   pending: PendingApproval | null;
@@ -466,6 +474,13 @@ export interface DiscoveredSession {
   claudeSessionId: string;
   cwd: string;
   mtime: number;
+  /**
+   * Written within the host's live window (90s) — a terminal is driving it.
+   * Absent on hosts older than the session index.
+   */
+  live?: boolean;
+  /** Last transcript write, ms epoch. Absent on older hosts. */
+  lastWriteAt?: number;
   preview: string;
 }
 
@@ -560,6 +575,15 @@ export const api = {
   agentInterrupt: (id: string, text: string) =>
     post<{ ok: boolean; outcome?: string }>(`/agent/sessions/${encodeURIComponent(id)}/interrupt`, { text }),
   agentDiscovered: () => get<{ sessions: DiscoveredSession[] }>('/agent/discovered'),
+  /**
+   * One window of a terminal-started session's transcript, read-only. With no
+   * `after` the host returns the tail; with one, everything written past that
+   * byte offset. `offset` is where to ask from next.
+   */
+  agentDiscoveredTranscript: (claudeSessionId: string, after?: number) =>
+    get<TranscriptWindow>(
+      `/agent/discovered/${encodeURIComponent(claudeSessionId)}/transcript${after === undefined ? '' : `?after=${after}`}`,
+    ),
   agentAttach: (claudeSessionId: string, cwd: string, title?: string) =>
     post<AgentSnapshot>('/agent/attach', { claudeSessionId, cwd, title }),
   agentDelete: (id: string) => del<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}`),

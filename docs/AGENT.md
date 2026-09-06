@@ -58,22 +58,53 @@ recognition permissions the first time you press it.
   prompt resumes it). **Remove** on the session list deletes the session entry.
 - The **Terminal** tab has `claude` / `claude -c` quick-launch keys for the
   raw interactive CLI when you want it.
+- **Getting there**: the desktop's control dock has an **Agent** key (second
+  row, first key) that carries the waiting-for-you count; the tool drawer
+  still lists it too. On the computers list, a connected computer shows a
+  one-line readout under its name — `2 RUNNING · 1 WAITING · 1 LIVE` — that
+  opens its Agent tab directly. The line is absent when nothing is happening.
 
-## Resuming past sessions
+## Watching and taking over terminal sessions
 
-Claude Code keeps every session on disk (`~/.claude/projects/`), including
-ones started from a terminal. Belay surfaces them two ways:
+Claude Code keeps every session on disk (`~/.claude/projects/<project>/<id>.jsonl`),
+including ones started from a terminal, and it appends to that file as the
+session runs. Belay reads those files live, so a session you kicked off at
+the desk is readable on the phone without `--resume` and without stopping it.
 
-- **On the phone** — the Agent tab's **"On this PC"** section lists them,
-  grouped by project, with the first prompt as a preview. Tap one to resume:
-  Belay relaunches it with `--resume`, Claude keeps its full memory of the
-  conversation, and the phone-approval flow attaches from the first action.
-  The tail of the old transcript is replayed into the feed so the conversation
-  you are resuming is readable on the phone, with a `resumed session` line
-  marking the join point. If a session is still open in a terminal on the PC,
-  close it there before resuming from the phone.
-- **At the PC** — `cd server && npm run sessions` prints the same list in the
-  terminal with ready-to-paste `cd <project> && claude --resume <id>` commands.
+**On the phone**, the Agent tab's **"On this PC"** section lists them, grouped
+by project, first prompt as the preview. A session written to within the last
+90 seconds is marked `● LIVE`; the others show how long ago they last wrote.
+The list is pushed over the same `/ws/attention` channel as the approval
+badge, so a new terminal session appears within seconds of its first write.
+
+Tap a session to open it. What you get depends on whether a terminal is still
+driving it:
+
+- **Watching** — while it is live, the phone streams the transcript read-only
+  over `/ws/transcript` (the last 100 events, then every new one as it lands
+  on disk). The footer says *Being driven from the computer — watching* and
+  there is no button: two hands on one session is exactly what this view
+  exists to prevent. The `● LIVE` mark in the header flips to
+  `quiet · 4m ago` on its own once the terminal stops writing.
+- **Taking over** — once the session is quiet, a **Take over from phone**
+  button appears. That is the old resume flow: Belay relaunches the session
+  with `--resume`, Claude keeps its full memory of the conversation, the
+  phone-approval flow attaches from the first action, and the tail of the old
+  transcript is replayed into the feed with a `resumed session` line marking
+  the join point. If the terminal is in fact still open (just idle), close it
+  there first — the 90-second rule reads the file, not the terminal.
+
+The watch is read-only in the strict sense: the phone sends nothing on that
+socket, and the host serves transcripts only for sessions inside its allowed
+roots (`GET /agent/discovered/:id/transcript?after=<offset>` is the same read
+as a one-shot REST call).
+
+**At the PC**, `cd server && npm run sessions` prints the same list in the
+terminal with ready-to-paste `cd <project> && claude --resume <id>` commands.
+The host banner also prints which `claude` binary it found (PATH first, then
+`~/.local/bin`, `~/.claude/local`, Homebrew, and the Windows npm / installer
+locations) and whether it is watching `~/.claude/projects` with `fs.watch` or
+polling it every 5 seconds.
 
 ## Push notifications when the phone is asleep
 

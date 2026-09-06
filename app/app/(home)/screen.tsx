@@ -482,6 +482,12 @@ export default function ScreenTab() {
     dismissHint();
     setShowTools(true);
   }, [dismissHint]);
+  // The dock's Agent key goes where the drawer's Agent entry goes — the same
+  // navigate, one tap sooner.
+  const openAgent = useCallback(() => {
+    dismissHint();
+    router.navigate('/agent');
+  }, [dismissHint]);
   const recordPhase = recording.status.state;
   const onRecordKey = useCallback(() => {
     if (recordPhase === 'idle') void recording.start(screenIndex);
@@ -721,9 +727,10 @@ export default function ScreenTab() {
         keysOn={keysOn}
         onToggleKeys={toggleKeys}
         onOpenTools={openTools}
+        onOpenAgent={openAgent}
         onOpenMenu={() => setShowMenu(true)}
         onBack={goBack}
-        toolsBadge={waitingCount > 0 ? waitingCount : null}
+        agentBadge={waitingCount > 0 ? waitingCount : null}
       />
     </Column>
   );
