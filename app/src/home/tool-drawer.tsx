@@ -9,10 +9,10 @@
 // drawer; the list itself comes from the pure model in tools.ts.
 
 import React from 'react';
-import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { font, useTheme } from '../theme';
-import { Caption, Divider, Label, Sheet, Txt, haptic } from '../ui';
+import { BelugaAvatar, Caption, Divider, Label, Sheet, Txt, haptic } from '../ui';
 import { TOOLS, toolBadge } from './tools';
 import type { ToolSpec } from './tools';
 import { ToolGlyph } from './tool-glyphs';
@@ -116,12 +116,13 @@ export function ToolDrawer({ visible, onClose, waitingCount }: ToolDrawerProps) 
   return (
     <Sheet visible={visible} onClose={onClose} testID="tool-drawer">
       <View style={{ paddingBottom: theme.space.md }}>
-        {/* Beluga + Belay header */}
+        {/* Beluga + Belay header: cohesive identity with stream HUD */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, marginBottom: theme.space.xs }}>
-          <Image
-            source={require('../../assets/beluga-mascot.jpg')}
-            style={{ width: 40, height: 40, borderRadius: 20 }}
-            resizeMode="cover"
+          <BelugaAvatar
+            testID="drawer-beluga-avatar"
+            size={40}
+            accessibilityLabel="Belay mascot — tap to play animation"
+            onPress={() => {}} // Animation-only, no navigation
           />
           <Txt variant="title" style={{ fontSize: 24 }}>Belay</Txt>
         </View>

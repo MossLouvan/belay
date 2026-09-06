@@ -37,6 +37,7 @@ import { useConnection } from '../../src/connection';
 import { api } from '../../src/api';
 import { useTheme } from '../../src/theme';
 import {
+  BelugaAvatar,
   Button,
   Caption,
   Column,
@@ -897,28 +898,14 @@ export default function ScreenTab() {
               >
                 <Txt variant="label" style={{ color: HUD.ink }}>Connected</Txt>
               </View>
-              {/* Beluga avatar button */}
-              <Pressable
-                testID="beluga-avatar"
-                accessibilityRole="button"
-                accessibilityLabel="Settings and profile"
-                hitSlop={theme.layout.hitSlop}
-                onPress={() => { haptic('light'); setShowMenu(true); }}
-                style={({ pressed }) => ({
-                  width: 48,
-                  height: 48,
-                  borderRadius: 24,
-                  backgroundColor: HUD.scrim,
-                  overflow: 'hidden',
-                  opacity: pressed ? 0.7 : 1,
-                })}
-              >
-                <Image
-                  source={require('../../assets/beluga-mascot.jpg')}
-                  style={{ width: 48, height: 48 }}
-                  resizeMode="cover"
-                />
-              </Pressable>
+              {/* Beluga avatar: clickable with flip animation */}
+              <BelugaAvatar
+                testID="stream-beluga-avatar"
+                size={48}
+                backgroundColor={HUD.scrim}
+                accessibilityLabel="Belay mascot — tap to play animation or open settings"
+                onPress={() => setShowMenu(true)}
+              />
             </View>
             {/* Recording must stay unmissable in fullscreen too — it floats on
                 the HUD scrim over the top edge, outliving the dock's auto-hide. */}
