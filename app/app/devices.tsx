@@ -27,6 +27,7 @@ import { useReachability } from '../src/devices/reachability';
 import type { Reachability } from '../src/devices/reachability';
 import { useAutoReconnect } from '../src/devices/use-auto-reconnect';
 import { DiscoveredSection } from '../src/devices/discovered-section';
+import { AddComputer } from '../src/devices/add-computer';
 
 /** How a platform is described in the list. */
 function platformLabel(device: SavedDevice): string {
@@ -204,9 +205,9 @@ export default function Devices() {
           <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
           <EmptyState
             title="No computers yet"
-            message="Run the Belay host agent on your Mac or Windows PC, then add it here."
-            action={{ label: 'Add a computer', onPress: () => router.push({ pathname: '/', params: { add: '1' } }) }}
+            message="Run the Belay host agent on your Mac or Windows PC, then type its address below."
           />
+          <AddComputer heading={false} />
         </View>
       </Screen>
     );
@@ -310,10 +311,9 @@ export default function Devices() {
           />
         ) : null}
 
-        <Row gap="sm">
-          <View style={{ flex: 1 }}>
-            <Button label="Add a computer" variant="secondary" fullWidth onPress={() => router.push({ pathname: '/', params: { add: '1' } })} />
-          </View>
+        <AddComputer />
+
+        <Row gap="sm" justify="flex-end">
           <Button label="Refresh" variant="ghost" onPress={refreshAll} />
         </Row>
 

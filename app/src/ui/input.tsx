@@ -19,6 +19,20 @@ import { Label, Txt } from './text';
 // react-native-web does not meaningfully support the native driver.
 const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 
+interface InputMetrics {
+  readonly minHeight: number;
+  readonly paddingHorizontal: number;
+  readonly paddingVertical: number;
+  readonly fontSize: number;
+  readonly lineHeight: number;
+}
+
+/** `md` is every form field; `lg` is the one hero field a screen is about. */
+const INPUT_METRICS: Readonly<Record<'md' | 'lg', InputMetrics>> = {
+  md: { minHeight: 44, paddingHorizontal: 12, paddingVertical: 14, fontSize: 15, lineHeight: 20 },
+  lg: { minHeight: 60, paddingHorizontal: 16, paddingVertical: 16, fontSize: 22, lineHeight: 28 },
+};
+
 export interface InputProps {
   value: string;
   onChangeText: (next: string) => void;
@@ -31,6 +45,9 @@ export interface InputProps {
   secure?: boolean;
   /** Renders the value and placeholder in the monospace face. */
   mono?: boolean;
+  /** `lg` is the hero field — bigger type, taller slot — for a screen whose
+   *  whole job is one address (the connect screen). Default `md`. */
+  size?: 'md' | 'lg';
   multiline?: boolean;
   numberOfLines?: number;
   editable?: boolean;
@@ -61,6 +78,7 @@ export function Input({
   helper,
   secure,
   mono,
+  size = 'md',
   multiline,
   numberOfLines,
   editable = true,
@@ -103,6 +121,7 @@ export function Input({
   }, [focused, reducedMotion, rope, theme.motion.fast]);
 
   const invalid = Boolean(error);
+  const metrics = size === 'lg' ? INPUT_METRICS.lg : INPUT_METRICS.md;
   // Focus swaps the hairline to `focus`; the rope carries the emphasis weight.
   // Error keeps its 2pt promotion — a fault is structural, not a caret state.
   const borderColor = invalid ? theme.colors.bad : focused ? theme.colors.focus : theme.colors.border;
@@ -115,8 +134,8 @@ export function Input({
           flexDirection: 'row',
           alignItems: multiline ? 'flex-start' : 'center',
           gap: theme.space.xs,
-          minHeight: theme.layout.minTouch,
-          paddingHorizontal: theme.space.sm,
+          minHeight: metrics.minHeight,
+          paddingHorizontal: metrics.paddingHorizontal,
           paddingVertical: multiline ? theme.space.sm : 0,
           backgroundColor: theme.colors.surface,
           borderRadius: theme.radius.xs,
@@ -155,9 +174,9 @@ export function Input({
           style={{
             flex: 1,
             color: theme.colors.text,
-            fontSize: 15,
-            lineHeight: 20,
-            paddingVertical: multiline ? 0 : theme.space.sm + 2,
+            fontSize: metrics.fontSize,
+            lineHeight: metrics.lineHeight,
+            paddingVertical: multiline ? 0 : metrics.paddingVertical,
             fontFamily: mono ? theme.font.mono : undefined,
           }}
         />

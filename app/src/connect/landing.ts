@@ -59,15 +59,16 @@ export function postPairDestination(native: boolean | undefined): PairDestinatio
 export type IntroHandoff = 'tailscale' | 'host';
 
 /**
- * The stage after "how it works" — the first-run flow's one fork.
+ * The stage after "how it works": the address field, for everyone.
  *
- * Using Belay away from home is the app's main use case, so a first-time user
- * walks straight into the guided Tailscale setup rather than finding it later
- * behind a collapsed "Away from home" note (the guide's own "skip" covers the
- * user standing next to their computer on the same Wi-Fi). Anyone with a
- * remembered computer has been through setup already and skips the intro
- * entirely — this fork exists for the day that skip logic and this one drift.
+ * The way in is copying the computer's 100.x address out of the Tailscale
+ * app and typing it — so that field is the first thing a new user meets, not
+ * a guided tour that ends at a QR scanner with "type it instead" as an
+ * afterthought. The guided Tailscale setup stays one tap away on that screen
+ * (the "Away from home" note opens by default on a first run) for anyone who
+ * has no address to copy yet. The parameter survives so the day this fork
+ * needs to care about history again, its callers already pass it.
  */
-export function afterHowItWorks(hasRecentHosts: boolean): IntroHandoff {
-  return hasRecentHosts ? 'host' : 'tailscale';
+export function afterHowItWorks(_hasRecentHosts: boolean): IntroHandoff {
+  return 'host';
 }

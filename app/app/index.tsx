@@ -1,10 +1,12 @@
 // Connect screen — the first thing anyone sees, and the only place the app can
 // lose someone entirely.
 //
-// Two steps: point at the computer (address), then trade the 6-digit code shown
-// on it for a token. Around those two steps sits the onboarding a cold start
-// needs: what has to be running, what to type, and what to do when it fails.
-// A saved connection skips the whole thing.
+// The front door is the address field: copy the computer's 100.x address out
+// of the Tailscale app, type it, Connect — over the tailnet that pairs with no
+// code at all. On home Wi-Fi the 6-digit code shown on the computer follows.
+// Around those steps sits the onboarding a cold start needs: what has to be
+// running, where the address is, and what to do when it fails. A saved
+// connection skips the whole thing.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
@@ -19,11 +21,12 @@ import { ParsedPairLink } from '../src/connect/pair-link';
 import { raceAddresses } from '../src/devices/race';
 import { useTheme } from '../src/theme';
 import {
-  Button, Caption, Micro, Rule, Txt, haptic,
+  Button, Caption, Rule, Txt, haptic,
 } from '../src/ui';
 import { Brand } from '../src/connect/brand';
 import { Diagnosis, diagnoseHostFailure, diagnosePairFailure } from '../src/connect/diagnose';
 import { forgetHost, loadRecentHosts, prettyHost, rememberHost, resolveHost } from '../src/connect/host-input';
+import { useTailnetDiscovery } from '../src/connect/use-tailnet-discovery';
 import { AwayFromHomeNote, SetupSteps } from '../src/connect/onboarding';
 import { HostStep } from '../src/connect/host-step';
 import type { TailnetOutcome } from '../src/connect/tailnet';
@@ -111,16 +114,17 @@ export default function Connect() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   // Set by "Add a computer": the redirect below must stand down, or the
-  // button that led here just bounces its user straight back.
-  const { add } = useLocalSearchParams<{ add?: string }>();
+  // button that led here just bounces its user straight back. The computer
+  // list's own address field arrives with `address` already typed (checked
+  // on arrival), or with `scan` when it asked for the scanner.
+  const { add, address, scan } = useLocalSearchParams<{ add?: string; address?: string; scan?: string }>();
   const adding = add === '1';
+  const arrivedAddress = typeof address === 'string' && address.trim() ? address : null;
 
-  const [hostText, setHostText] = useState('');
-  const [touched, setTouched] = useState(false);
+  const [hostText, setHostText] = useState(arrivedAddress ?? '');
   const [code, setCode] = useState('');
   const [stage, setStage] = useState<Stage>('welcome');
   const [host, setHost] = useState<HostSummary | null>(null);
-  const [skipIntro, setSkipIntro] = useState(false);
   const reducedMotion = useReducedMotion();
   const [busy, setBusy] = useState(false);
   const [hostError, setHostError] = useState<Diagnosis | null>(null);
@@ -138,7 +142,8 @@ export default function Connect() {
    * The computer the Tailscale guide watches for. Set alongside the guide
    * stage when a host answered but its tailnet address did not; null when the
    * guide was opened cold from the connect screen (no computer to watch yet),
-   * in which case the guide ends at the QR scanner instead of auto-detecting.
+   * in which case the guide ends back at the address field instead of
+   * auto-detecting.
    */
   const [guideHost, setGuideHost] = useState<GuideHost | null>(null);
   /**
@@ -167,7 +172,11 @@ export default function Connect() {
   const retryTailscaleRef = useRef<() => void>(() => {});
   /** Fade animation for stage transitions. */
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const resolution = useMemo(() => resolveHost(hostText), [hostText]);
+  /** An address handed over by the computer list is checked once, on arrival. */
+  const pendingArrival = useRef(arrivedAddress);
+  // A remembered computer that answers over the tailnet right now is offered
+  // above the field as one tap — the field itself stays regardless.
+  const discoveredHost = useTailnetDiscovery(recent, stage === 'host' && !adding);
 
   useEffect(() => {
     live.current = true;
@@ -223,11 +232,11 @@ export default function Connect() {
     loadRecentHosts().then((list) => {
       if (!live) return;
       setRecent(list);
-      // Skip intro screens if user has connected before (has recent hosts).
-      // First-time users see welcome → how it works → connect.
-      if (list.length > 0) {
-        setSkipIntro(true);
-        setStage('host');
+      // Skip intro screens if user has connected before (has recent hosts),
+      // or came from the computer list to add another. First-time users see
+      // welcome → how it works → connect.
+      if (list.length > 0 || adding) {
+        setStage(scan === '1' ? 'scan' : 'host');
       }
       // Pre-fill the last computer used, so the common case is one tap — but
       // not when adding another: the most recent host is by definition the
@@ -237,7 +246,7 @@ export default function Connect() {
     return () => {
       live = false;
     };
-  }, [adding]);
+  }, [adding, scan]);
 
   useEffect(() => () => {
     if (successTimer.current) clearTimeout(successTimer.current);
@@ -245,7 +254,6 @@ export default function Connect() {
 
   const onChangeHost = useCallback((next: string) => {
     setHostText(next);
-    setTouched(true);
     setHostError(null);
     setTailscaleOff(null);
     setTailscaleDetail(null);
@@ -257,7 +265,14 @@ export default function Connect() {
     setPairError(null);
   }, []);
 
-  const doCheck = useCallback(async () => {
+  /**
+   * Check one address and move on to whatever pairing it allows.
+   *
+   * Takes the text explicitly rather than reading the field, so the tailnet
+   * shortcut and an address handed over by the computer list can check
+   * without a render in between.
+   */
+  const checkAddress = useCallback(async (text: string) => {
     // A second submit while the first is still out (double Enter, a fast
     // double-tap, anything programmatic) would start a competing request whose
     // result could land last and overwrite the newer one.
@@ -265,8 +280,7 @@ export default function Connect() {
 
     setHostError(null);
     setDeadEnd(null);
-    setTouched(true);
-    const resolved = resolveHost(hostText);
+    const resolved = resolveHost(text);
     
     // Paste-to-pair: detect pasted belay://pair?... or tether: links.
     if (resolved.ok === 'pair-link') {
@@ -385,7 +399,19 @@ export default function Connect() {
     } finally {
       checking.current = false;
     }
-  }, [hostText]);
+  }, []);
+
+  /** The field's own submit: check what is typed. */
+  const doCheck = useCallback(() => checkAddress(hostText), [checkAddress, hostText]);
+
+  // The computer list's field hands its text over in the URL; check it the
+  // moment the step is up, so that Connect there is the same tap as here.
+  useEffect(() => {
+    if (stage !== 'host' || !pendingArrival.current) return;
+    const text = pendingArrival.current;
+    pendingArrival.current = null;
+    void checkAddress(text);
+  }, [stage, checkAddress]);
 
   /**
    * Trade a code for a token and save the computer.
@@ -510,9 +536,24 @@ export default function Connect() {
 
   const onPickRecent = useCallback((url: string) => {
     setHostText(prettyHost(url));
-    setTouched(true);
     setHostError(null);
   }, []);
+
+  /** The tailnet shortcut: the remembered computer that is answering now. */
+  const discovered = useMemo(
+    () =>
+      discoveredHost
+        ? {
+            name: discoveredHost.name,
+            url: discoveredHost.url,
+            onConnect: () => {
+              setHostText(prettyHost(discoveredHost.url));
+              void checkAddress(discoveredHost.url);
+            },
+          }
+        : null,
+    [discoveredHost, checkAddress],
+  );
 
   const onForgetRecent = useCallback((url: string) => {
     forgetHost(url).then(setRecent, () => undefined);
@@ -584,6 +625,12 @@ export default function Connect() {
     transitionToStage('scan');
   }, [transitionToStage]);
 
+  /** The cold guide's ending: Tailscale is up, now type the address it shows. */
+  const onGuideTypeAddress = useCallback(() => {
+    setGuideHost(null);
+    transitionToStage('host');
+  }, [transitionToStage]);
+
   /** "Connect from anywhere" opened cold — no computer to watch for yet. */
   const onOpenGuide = useCallback(() => {
     setGuideHost(null);
@@ -595,12 +642,11 @@ export default function Connect() {
   }, [transitionToStage]);
 
   /**
-   * Away-from-home is the app's main use case, so a first-time user's next
-   * stop after "how it works" is the guided Tailscale setup — install, sign
-   * in, connect — not the address box. The guide opens cold (no computer to
-   * watch yet), ends at the QR scanner, and its own "skip" drops anyone
-   * standing next to their computer straight onto the connect screen. The
-   * fork itself lives in connect/landing.ts, where node can test it.
+   * After "how it works" comes the address field — the owner's own route in
+   * is copying the 100.x address out of the Tailscale app, so that is what
+   * the screen leads with. The guided Tailscale setup stays one tap away on
+   * that screen for anyone who has no address to copy yet. The decision
+   * itself lives in connect/landing.ts, where node can test it.
    */
   const onHowItWorksContinue = useCallback(() => {
     const next = afterHowItWorks(recent.length > 0);
@@ -630,6 +676,7 @@ export default function Connect() {
             onConnected={onGuideConnected}
             onUseCode={guideHost ? onGuideUseCode : undefined}
             onScan={onGuideScan}
+            onTypeAddress={onGuideTypeAddress}
             onClose={onGuideClose}
           />
         ) : (
@@ -657,11 +704,13 @@ export default function Connect() {
             <HostStep
               value={hostText}
               onChangeText={onChangeHost}
-              resolution={resolution}
-              showResolution={touched && hostText.trim().length > 0}
               busy={busy}
               onSubmit={doCheck}
               onScan={() => setStage('scan')}
+              // Nothing remembered and nothing found: the keyboard is the
+              // next thing anyone needs, so it is already up.
+              autoFocus={!hostText && !discovered}
+              discovered={discovered}
               error={hostError}
               recent={recent}
               onPickRecent={onPickRecent}
@@ -669,7 +718,7 @@ export default function Connect() {
             />
             <Rule bleed={theme.layout.margin} />
             <SetupSteps />
-            <AwayFromHomeNote onSetUp={onOpenGuide} />
+            <AwayFromHomeNote onSetUp={onOpenGuide} defaultOpen={recent.length === 0} />
             {adding && router.canGoBack() ? (
               <Button
                 testID="cancel-add"

@@ -49,11 +49,12 @@ const STEPS: readonly Omit<StepProps, 'index'>[] = [
       'System Settings › Privacy & Security › Screen Recording — switch on the app running the host agent (Terminal, or your code editor), then start it again. Without it the Screen tab stays black; Agent, Terminal, Files and System still work.',
   },
   {
-    title: 'Read the address it prints',
-    detail: 'Something like 192.168.1.20:8787. Type it in below.',
+    title: 'Copy the address from the Tailscale app',
+    detail:
+      'Find your computer in Tailscale and copy its address — it starts with 100. Over Tailscale no code is needed. On home Wi-Fi the address the host prints works too.',
   },
   {
-    title: 'Enter the 6-digit code it shows',
+    title: 'On home Wi-Fi, enter the 6-digit code it shows',
     detail: 'One time only. After that your phone remembers this computer.',
   },
 ];
@@ -76,12 +77,14 @@ export function SetupSteps() {
 interface AwayFromHomeNoteProps {
   /** Opens the guided Tailscale setup. Rendered as the section's one action. */
   readonly onSetUp?: () => void;
+  /** Start expanded — a first run, where Tailscale may not be set up yet. */
+  readonly defaultOpen?: boolean;
 }
 
 /** Collapsible explainer for reaching the PC from outside the house. */
-export function AwayFromHomeNote({ onSetUp }: AwayFromHomeNoteProps = {}) {
+export function AwayFromHomeNote({ onSetUp, defaultOpen = false }: AwayFromHomeNoteProps = {}) {
   const theme = useTheme();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const toggle = useCallback(() => setOpen((prev) => !prev), []);
 
   return (
