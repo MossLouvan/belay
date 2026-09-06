@@ -9,13 +9,14 @@
 // drawer; the list itself comes from the pure model in tools.ts.
 
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { font, useTheme } from '../theme';
-import { Caption, Divider, Sheet, Txt, haptic } from '../ui';
+import { Caption, Divider, Label, Sheet, Txt, haptic } from '../ui';
 import { TOOLS, toolBadge } from './tools';
 import type { ToolSpec } from './tools';
 import { ToolGlyph } from './tool-glyphs';
+import { useConnection } from '../connection';
 
 /** The old tab badge, reborn on the drawer row: a small SQUARE count chip. */
 function CountChip({ count }: { count: number }) {
@@ -42,7 +43,7 @@ function CountChip({ count }: { count: number }) {
   );
 }
 
-function ToolRow({ tool, badge, onPress }: { tool: ToolSpec; badge: number | null; onPress: () => void }) {
+function ToolCard({ tool, badge, onPress }: { tool: ToolSpec; badge: number | null; onPress: () => void }) {
   const theme = useTheme();
   return (
     <Pressable
@@ -59,26 +60,29 @@ function ToolRow({ tool, badge, onPress }: { tool: ToolSpec; badge: number | nul
         onPress();
       }}
       style={({ pressed }) => ({
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: theme.space.sm,
-        minHeight: 56,
-        paddingVertical: theme.space.xs,
-        opacity: pressed ? 0.6 : 1,
+        flex: 1,
+        minHeight: 120,
+        backgroundColor: theme.colors.surface,
+        borderRadius: theme.radius.md,
+        borderWidth: theme.layout.hairline,
+        borderColor: theme.colors.border,
+        padding: theme.space.sm,
+        opacity: pressed ? 0.7 : 1,
       })}
     >
-      <ToolGlyph id={tool.id} color={theme.colors.text} />
-      <View style={{ flex: 1, gap: 2 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.xs }}>
-          <Txt variant="bodyStrong">{tool.title}</Txt>
+      <View style={{ flex: 1, gap: theme.space.xs }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <ToolGlyph id={tool.id} color={theme.colors.accentGraphic} />
           {badge !== null ? <CountChip count={badge} /> : null}
         </View>
-        <Caption>{tool.description}</Caption>
+        <Txt variant="bodyStrong">{tool.title}</Txt>
+        <Caption numberOfLines={2}>{tool.description}</Caption>
       </View>
-      {/* Quiet forward mark: these rows go somewhere. */}
-      <Txt variant="label" tone="dim">
-        {'›'}
-      </Txt>
+      <View style={{ alignSelf: 'flex-end', marginTop: theme.space.xs }}>
+        <Txt variant="label" tone="dim" style={{ color: theme.colors.accentGraphic }}>
+          {'›'}
+        </Txt>
+      </View>
     </Pressable>
   );
 }
@@ -98,25 +102,84 @@ export interface ToolDrawerProps {
 export function ToolDrawer({ visible, onClose, waitingCount }: ToolDrawerProps) {
   const theme = useTheme();
   const router = useRouter();
+  const { connection } = useConnection();
 
   const open = (tool: ToolSpec) => {
     onClose();
     router.navigate(tool.route);
   };
 
+  // For latency, we would need to get ping info. For now, just show "Connected" without latency
+  // In a full implementation, this would come from connection.pingMs or similar
+  const latencyText = connection ? 'Connected' : 'Not connected';
+
   return (
-    <Sheet visible={visible} onClose={onClose} title="Tools" testID="tool-drawer">
-      <ScrollView style={{ maxHeight: 400 }}>
-        {TOOLS.map((tool, index) => (
-          <View key={tool.id}>
-            {index > 0 ? <Divider /> : null}
-            <ToolRow tool={tool} badge={toolBadge(tool.id, waitingCount)} onPress={() => open(tool)} />
+    <Sheet visible={visible} onClose={onClose} testID="tool-drawer">
+      <View style={{ paddingBottom: theme.space.md }}>
+        {/* Beluga + Belay header */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, marginBottom: theme.space.xs }}>
+          <Image
+            source={require('../../assets/beluga-mascot.jpg')}
+            style={{ width: 40, height: 40, borderRadius: 20 }}
+            resizeMode="cover"
+          />
+          <Txt variant="title" style={{ fontSize: 24 }}>Belay</Txt>
+        </View>
+
+        {/* Connected status pill */}
+        <View
+          style={{
+            alignSelf: 'flex-start',
+            paddingHorizontal: theme.space.sm,
+            paddingVertical: theme.space.xxs,
+            borderRadius: theme.radius.xs,
+            backgroundColor: theme.colors.surfaceAlt,
+            marginBottom: theme.space.sm,
+          }}
+        >
+          <Label tone="dim">{latencyText}</Label>
+        </View>
+
+        {/* Thin blue rope accent */}
+        <View
+          style={{
+            height: 2,
+            backgroundColor: theme.colors.accentGraphic,
+            borderRadius: 1,
+            marginBottom: theme.space.md,
+          }}
+        />
+
+        {/* 2x2 grid of tools */}
+        <View style={{ gap: theme.space.sm }}>
+          {/* First row: Host and Terminal */}
+          <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+            {TOOLS.slice(0, 2).map((tool) => (
+              <ToolCard
+                key={tool.id}
+                tool={tool}
+                badge={toolBadge(tool.id, waitingCount)}
+                onPress={() => open(tool)}
+              />
+            ))}
           </View>
-        ))}
-        <Caption style={{ marginTop: theme.space.sm }}>
-          Every tool opens over the desktop — close it and you are right back here.
+          {/* Second row: Files and Agent (System is now 4th, so we show Files and Agent) */}
+          <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
+            {TOOLS.slice(2, 4).map((tool) => (
+              <ToolCard
+                key={tool.id}
+                tool={tool}
+                badge={toolBadge(tool.id, waitingCount)}
+                onPress={() => open(tool)}
+              />
+            ))}
+          </View>
+        </View>
+
+        <Caption style={{ marginTop: theme.space.md, textAlign: 'center' }}>
+          Tap a tool to launch
         </Caption>
-      </ScrollView>
+      </View>
     </Sheet>
   );
 }
