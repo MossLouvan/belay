@@ -1,22 +1,22 @@
 // The Belay beluga mascot — cohesive identity across stream HUD and tools drawer.
 //
 // IDLE (default, always):
-//   - Always animated with Reanimated subtle bob/float/breathe on PNG (never frozen still).
-//   - Loops seamlessly while visible (no flip, no splash in idle).
-//   - Implementation: 2px Y-axis bob, 2s cycle, smooth sine easing.
-//   - Optional future: swap to `beluga-idle.mp4` if credits allow.
+//   - Continuously loop `beluga-swim-idle.mp4` (expo-av Video, muted, isLooping).
+//   - Swimming-in-water look from Moss's Hailuo clip (~2.3s loop).
+//   - Fallback: Reanimated bob on PNG if video fails to load.
 //
 // ON PRESS (click/tap):
-//   - Play flip + splash animation once, then return to idle loop.
-//   - Implementation: 360° Y-axis rotation (600ms) as placeholder.
-//   - TODO: Replace with `beluga-flip-splash.mp4` (silent) once generated.
-//   - Pressable API ready for video drop-in.
+//   - Pause/hide idle video, play `beluga-flip-splash.mp4` once (muted).
+//   - On playback end: return to swim idle loop.
+//   - No autoplay of flip animation.
 //
-// Credit-constrained: Idle stays Reanimated; flip video prioritized (7.5 credits).
+// Assets: 512x512 silent MP4s from Hailuo, circular clipped to match avatar size.
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
+import { Video, ResizeMode } from 'expo-av';
+import type { AVPlaybackStatus } from 'expo-av';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -46,10 +46,10 @@ export interface BelugaAvatarProps {
  * The Belay beluga mascot: always-animated circular avatar.
  * Used in the stream HUD (48px, top-right) and tools drawer header (40px).
  *
- * IDLE: Continuous subtle bob animation (seamless loop).
- * PRESS: Plays flip animation once, then returns to idle loop.
+ * IDLE: Continuously loops beluga-swim-idle.mp4 (silent, ~2.3s).
+ * PRESS: Plays beluga-flip-splash.mp4 once (silent, 4.0s), then returns to idle loop.
  *
- * Current: Reanimated placeholders. Final: Video components for idle + flip.
+ * Fallback: Reanimated bob on PNG if video fails to load.
  */
 export function BelugaAvatar({
   size,
@@ -60,55 +60,112 @@ export function BelugaAvatar({
   testID,
 }: BelugaAvatarProps) {
   const theme = useTheme();
+  const idleVideoRef = useRef<Video>(null);
+  const flipVideoRef = useRef<Video>(null);
+  const [isFlipping, setIsFlipping] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+  
+  // Fallback Reanimated bob if video fails
   const idleBob = useSharedValue(0);
-  const flipRotation = useSharedValue(0);
-  const isFlipping = useSharedValue(false);
 
-  // Idle animation: continuous subtle bob (2px up/down, 2s cycle)
+  // Fallback idle animation: continuous subtle bob (2px up/down, 2s cycle)
   useEffect(() => {
-    idleBob.value = withRepeat(
-      withSequence(
-        withTiming(-2, { duration: 1000, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.sin) })
-      ),
-      -1, // infinite
-      false // don't reverse
-    );
+    if (videoError) {
+      idleBob.value = withRepeat(
+        withSequence(
+          withTiming(-2, { duration: 1000, easing: Easing.inOut(Easing.sin) }),
+          withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.sin) })
+        ),
+        -1, // infinite
+        false // don't reverse
+      );
+    }
 
     return () => {
       cancelAnimation(idleBob);
     };
-  }, [idleBob]);
+  }, [idleBob, videoError]);
 
-  const playFlipAnimation = useCallback(() => {
-    if (isFlipping.value) return; // Prevent double-taps during flip
+  const fallbackAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: idleBob.value }],
+  }));
+
+  const playFlipAnimation = useCallback(async () => {
+    if (isFlipping) return; // Prevent double-taps during flip
     
     haptic('light');
     onPress?.();
-    isFlipping.value = true;
+    setIsFlipping(true);
     
-    // Flip animation: rotate 360° on Y-axis, then return to idle
-    // Duration: 600ms total (fast flip, smooth settle)
-    flipRotation.value = withSequence(
-      withTiming(180, { duration: 300, easing: Easing.out(Easing.cubic) }),
-      withTiming(360, { duration: 300, easing: Easing.in(Easing.cubic) }),
-      withTiming(0, { duration: 0 }) // Reset for next play
-    );
-    
-    // Re-enable flipping after animation completes
-    setTimeout(() => {
-      isFlipping.value = false;
-    }, 600);
-  }, [flipRotation, isFlipping, onPress]);
+    try {
+      // Pause idle video
+      await idleVideoRef.current?.pauseAsync();
+      
+      // Play flip video from start
+      await flipVideoRef.current?.setPositionAsync(0);
+      await flipVideoRef.current?.playAsync();
+    } catch (error) {
+      console.warn('[BelugaAvatar] Flip video error:', error);
+      setIsFlipping(false);
+    }
+  }, [isFlipping, onPress]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: idleBob.value }, // Idle bob (always active)
-      { rotateY: `${flipRotation.value}deg` }, // Flip (on press)
-    ],
-  }));
+  const handleFlipPlaybackEnd = useCallback(async (status: AVPlaybackStatus) => {
+    if (status.isLoaded && status.didJustFinish) {
+      setIsFlipping(false);
+      
+      try {
+        // Return to idle loop
+        await idleVideoRef.current?.playAsync();
+      } catch (error) {
+        console.warn('[BelugaAvatar] Idle video resume error:', error);
+      }
+    }
+  }, []);
 
-  const avatar = (
+  const handleVideoError = useCallback(() => {
+    console.warn('[BelugaAvatar] Video failed to load, using Reanimated fallback');
+    setVideoError(true);
+  }, []);
+
+  // Video-based avatar
+  const videoAvatar = (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: backgroundColor ?? theme.colors.surfaceAlt,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Idle loop video (always playing unless flip is active) */}
+      <Video
+        ref={idleVideoRef}
+        source={require('../../assets/beluga-swim-idle.mp4')}
+        style={{ width: size, height: size, display: isFlipping ? 'none' : 'flex' }}
+        resizeMode={ResizeMode.COVER}
+        isLooping
+        isMuted
+        shouldPlay
+        onError={handleVideoError}
+      />
+      
+      {/* Flip video (plays once on tap, then hides) */}
+      <Video
+        ref={flipVideoRef}
+        source={require('../../assets/beluga-flip-splash.mp4')}
+        style={{ width: size, height: size, display: isFlipping ? 'flex' : 'none' }}
+        resizeMode={ResizeMode.COVER}
+        isMuted
+        onPlaybackStatusUpdate={handleFlipPlaybackEnd}
+        onError={handleVideoError}
+      />
+    </View>
+  );
+
+  // Fallback animated PNG avatar (if video fails)
+  const fallbackAvatar = (
     <Animated.View
       style={[
         {
@@ -118,7 +175,7 @@ export function BelugaAvatar({
           backgroundColor: backgroundColor ?? theme.colors.surfaceAlt,
           overflow: 'hidden',
         },
-        animatedStyle,
+        fallbackAnimatedStyle,
       ]}
     >
       <Image
@@ -129,6 +186,8 @@ export function BelugaAvatar({
       />
     </Animated.View>
   );
+
+  const avatar = videoError ? fallbackAvatar : videoAvatar;
 
   if (!onPress) {
     // Always animated (idle loop), but not pressable
