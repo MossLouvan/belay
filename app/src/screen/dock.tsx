@@ -130,6 +130,11 @@ export interface ControlDockProps {
    *  portrait the header's ⋯ button already owns that job, but the fullscreen
    *  HUD lost its way in when the mascot's tap became the orientation latch. */
   onOpenMenu?: () => void;
+  /** Leaves the desktop for the computers list. Rendered only while
+   *  floating — in portrait the header's leading ‹ owns that job — and it
+   *  replaces the navigator's swipe-back, which is off on this route (it
+   *  ran full-width on iOS 26 and swallowed trackpad drags). */
+  onBack?: () => void;
   /** Agent sessions blocked on an approval — the Tools key's count chip. */
   toolsBadge?: number | null;
 }
@@ -164,6 +169,7 @@ export function ControlDock({
   onToggleKeys,
   onOpenTools,
   onOpenMenu,
+  onBack,
   toolsBadge = null,
 }: ControlDockProps) {
   const theme = useTheme();
@@ -254,6 +260,19 @@ export function ControlDock({
       </Row>
       <Row justify="space-between" gap="xs">
         <Row gap="xs" style={{ flexShrink: 1 }}>
+          {/* BACK leads the row — the corner where every platform parks
+              "leave" — as a labelled key like its neighbours, never a bare
+              chevron over live video (docs/DESIGN.md §11.1). */}
+          {floating && onBack ? (
+            <DockKey
+              testID="dock-back"
+              label={'‹ Back'}
+              accessibilityLabel="Back to my computers"
+              accessibilityHint="Leaves the desktop for the list of paired computers"
+              floating={floating}
+              onPress={wrap(onBack)}
+            />
+          ) : null}
           <DockKey
             testID="right-click"
             label="R-click"

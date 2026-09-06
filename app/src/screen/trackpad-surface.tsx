@@ -8,7 +8,10 @@
 //
 // Owning these touches is also the fix for the swipe-leak bug: a gesture that
 // used to fall through the gap to an ancestor pager (and switch device) is
-// now claimed here and refused termination.
+// now claimed here and refused termination. That refusal only binds JS
+// responders: the navigator's native swipe-back cancels touches from
+// outside the responder system, so it is switched off on the desktop route
+// (app/app/_layout.tsx) rather than fought here.
 
 import React from 'react';
 import { Text, View } from 'react-native';
