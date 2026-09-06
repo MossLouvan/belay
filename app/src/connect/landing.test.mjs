@@ -41,10 +41,10 @@ test('a host with no capture helper lands on System, not a black Screen', () => 
   assert.equal(postPairDestination(false), '/(home)/system');
 });
 
-test('a first-time user walks into the Tailscale guide after the intro', () => {
-  // Away-from-home is the main use case: the guided setup is the primary
-  // next step, not a side door behind a collapsed note.
-  assert.equal(afterHowItWorks(false), 'tailscale');
+test('a first-time user lands on the address field after the intro', () => {
+  // Typing the 100.x address from the Tailscale app is the way in; the
+  // guided Tailscale setup is one tap away on that screen, not in front of it.
+  assert.equal(afterHowItWorks(false), 'host');
 });
 
 test('anyone with a remembered computer goes straight to connecting', () => {

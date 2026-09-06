@@ -199,15 +199,15 @@ export function HowItWorksScreen({ onContinue, onBack }: HowItWorksScreenProps) 
     },
     {
       // Away-from-home is the main use case, so Tailscale is a headline step
-      // of the setup, not fine print — the guided walk-through comes next.
+      // of the setup, not fine print — and its address is the way in.
       label: '02',
       title: 'Set up Tailscale',
-      detail: 'A free app that lets your phone reach your computer from anywhere. Belay walks you through it next.',
+      detail: 'A free app that lets your phone reach your computer from anywhere. Belay can walk you through it.',
     },
     {
       label: '03',
-      title: 'Pair your phone once',
-      detail: 'Scan the QR code on your computer. After that, your phone remembers it.',
+      title: 'Type the address once',
+      detail: 'Copy your computer\'s address from the Tailscale app — it starts with 100. After that, your phone remembers it.',
     },
     {
       label: '04',

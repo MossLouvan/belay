@@ -70,7 +70,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
               onPress={() => void requestPermission()}
             />
           </View>
-          <Button label="Type it instead" variant="ghost" onPress={onCancel} />
+          <Button label="Type the address instead" variant="ghost" onPress={onCancel} />
         </Row>
         {!permission.canAskAgain ? (
           <Caption>
@@ -111,7 +111,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
         />
       ) : null}
 
-      <Button label="Type it in instead" variant="ghost" fullWidth onPress={onCancel} />
+      <Button label="Type the address instead" variant="ghost" fullWidth onPress={onCancel} />
     </View>
   );
 }

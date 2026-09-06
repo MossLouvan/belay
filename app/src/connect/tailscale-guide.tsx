@@ -14,8 +14,9 @@
 // Two ways in, one component. From a failed tailnet probe the guide knows
 // which computer is waiting (`host` set) and can watch for it. From the cold
 // "connect from anywhere" path there is no computer yet, so the last step
-// ends at the QR scanner instead — the QR carries every address, tailnet
-// included, and the race picks the one that works.
+// ends where the owner's own habit ends: copy the computer's 100.x address
+// out of the Tailscale app and type it in. The QR scanner stays as the
+// quieter alternative for anyone standing at the computer.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Pressable, View } from 'react-native';
@@ -71,8 +72,10 @@ export interface TailscaleGuideProps {
   readonly onConnected: (url: string) => void;
   /** Fall back to the six digits. Only offered when a host is known. */
   readonly onUseCode?: () => void;
-  /** Cold path's ending: scan the QR, which carries the tailnet address. */
+  /** Cold path's alternative ending: scan the QR the host prints. */
   readonly onScan: () => void;
+  /** Cold path's ending: back to the field, to type the address Tailscale shows. */
+  readonly onTypeAddress: () => void;
   /** Leave the guide entirely. */
   readonly onClose: () => void;
 }
@@ -125,7 +128,8 @@ function copyFor(step: GuideStep, hostName: string | null): StepCopy {
           ? `Flip the switch in Tailscale so this phone joins your network. ` +
             `Belay is watching, and will notice the moment ${hostName} can hear you.`
           : 'Flip the switch in Tailscale so this phone joins your network. ' +
-            'Then scan the code on your computer — it will connect from anywhere.',
+            'Then copy your computer\'s address from the Tailscale app — it ' +
+            'starts with 100. — and type it into Belay.',
       };
   }
 }
@@ -174,6 +178,7 @@ export function TailscaleGuide({
   onConnected,
   onUseCode,
   onScan,
+  onTypeAddress,
   onClose,
 }: TailscaleGuideProps) {
   const theme = useTheme();
@@ -453,7 +458,8 @@ export function TailscaleGuide({
           <View style={{ gap: theme.space.md }}>
             <View style={{ gap: theme.space.sm }}>
               <Button label="Open Tailscale" onPress={() => void openTailscale()} fullWidth size="lg" />
-              <Button label="Scan the code on your computer" variant="secondary" onPress={onScan} fullWidth size="lg" testID="guide-scan" />
+              <Button label="Type the address" variant="secondary" onPress={onTypeAddress} fullWidth size="lg" testID="guide-type-address" />
+              <Button label="Scan the code instead" variant="ghost" onPress={onScan} fullWidth testID="guide-scan" />
             </View>
             {/* Same calm pointer as the watched path: Tailscale's own errors
                 live in Tailscale's app, and that is where to look. */}

@@ -1,13 +1,13 @@
 // Host-address handling for the connect screen: validation, resolution preview
 // and the "recent hosts" list.
 //
-// `normalizeHost` in ../api throws for input that is not a parseable URL (a bare
-// scheme, a stray space, an empty authority), so every call site goes through
-// `resolveHost` instead — a total function that never throws and always explains
-// itself.
+// The parsing itself lives in ./address-input (pure, node-tested); this file
+// adds pair-link detection and the AsyncStorage-backed recent list, so every
+// call site goes through `resolveHost` — a total function that never throws
+// and always explains itself.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { normalizeHost } from '../api';
+import { isMagicDnsName, isTailscaleIPv4, parseAddress } from './address-input';
 import { parsePairLink } from './pair-link';
 import type { ParsedPairLink } from './pair-link';
 
@@ -30,42 +30,29 @@ export type HostResolution =
       readonly link: ParsedPairLink;
     };
 
-/** A Tailscale address — reachable from anywhere the tailnet reaches. */
+/** A tailnet address — reachable from anywhere the tailnet reaches. */
 export function isTailscaleAddress(url: string): boolean {
-  return /^https?:\/\/100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(url);
+  const host = url.replace(/^https?:\/\//i, '').split(/[:/]/)[0] ?? '';
+  return isTailscaleIPv4(host) || isMagicDnsName(host);
 }
 
 const CREDENTIALS_HINT =
   'Credentials in the address are ignored. Belay authenticates with the pairing code instead.';
 
 /**
- * True when the input carries a `user:pass@` prefix. `normalizeHost` returns
- * `URL#origin`, which strips userinfo, so anything pasted there is dropped —
- * this lets the UI say so rather than discarding it invisibly.
- */
-function hasEmbeddedCredentials(input: string): boolean {
-  try {
-    const withScheme = /^https?:\/\//i.test(input) ? input : `http://${input}`;
-    const parsed = new URL(withScheme);
-    return parsed.username !== '' || parsed.password !== '';
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Turn whatever the user typed into a base URL, or explain why it cannot be one.
  * Purely syntactic — it says nothing about whether the host is reachable.
- * 
- * Now also detects pasted pair links (belay://pair?... or tether:) and returns
- * them directly — paste-to-pair, no scan required.
+ *
+ * Also detects pasted pair links (belay://pair?... or tether:) and returns
+ * them directly — paste-to-pair, no scan required. Everything else goes
+ * through `parseAddress`, which is where the accepted forms are tested.
  */
 export function resolveHost(input: string): HostResolution {
   const trimmed = input.trim();
   if (!trimmed) {
-    return { ok: false, reason: 'Enter your PC address, e.g. 192.168.1.20 or 100.64.0.1' };
+    return { ok: false, reason: 'Type the address from your Tailscale app, e.g. 100.101.102.103' };
   }
-  
+
   // Detect pair links first: belay://pair?... or tether: — paste-to-pair.
   if (trimmed.match(/^(belay|tether):/i)) {
     const link = parsePairLink(trimmed);
@@ -74,24 +61,16 @@ export function resolveHost(input: string): HostResolution {
     }
     return { ok: false, reason: 'This looks like a pairing link, but it is incomplete or invalid.' };
   }
-  
-  if (/\s/.test(trimmed)) {
-    return { ok: false, reason: 'An address cannot contain spaces.' };
-  }
-  let url: string;
-  try {
-    url = normalizeHost(trimmed);
-  } catch {
-    return { ok: false, reason: `"${trimmed}" is not a valid address. Try an IP like 192.168.1.20, or a name like pc.local.` };
-  }
-  if (!url || !/^https?:\/\/[^/]+$/.test(url)) {
-    return { ok: false, reason: `"${trimmed}" is not a valid address. Try an IP like 192.168.1.20, or a name like pc.local.` };
+
+  const parsed = parseAddress(trimmed);
+  if (parsed.kind !== 'ok') {
+    return { ok: false, reason: parsed.kind === 'invalid' ? parsed.reason : 'Enter an address.' };
   }
   return {
     ok: true,
-    url,
-    note: isTailscaleAddress(url) ? 'Tailscale address — reachable from anywhere' : undefined,
-    hint: hasEmbeddedCredentials(trimmed) ? CREDENTIALS_HINT : undefined,
+    url: parsed.url,
+    note: isTailscaleAddress(parsed.url) ? 'Tailscale address — reachable from anywhere' : undefined,
+    hint: parsed.hadCredentials ? CREDENTIALS_HINT : undefined,
   };
 }
 
