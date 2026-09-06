@@ -1,22 +1,33 @@
 // The Belay beluga mascot — cohesive identity across stream HUD and tools drawer.
 //
-// Press triggers a flip + splash animation (Reanimated transform sequence) —
-// pure personality chrome, no functional meaning. One avatar component, two
-// sizes: 48px circular top-right on the stream, 40px in the drawer header.
+// IDLE (default, always):
+//   - Beluga is always animated with a soft idle loop: slight bob/float/breathing.
+//   - Loops seamlessly while visible (no flip, no splash in idle).
 //
-// TODO: Replace flip animation with actual beluga-flip-splash.mp4 video once
-// the asset is supplied. The current implementation uses a Reanimated 3D flip
-// as a placeholder — the final design calls for a looping water-splash clip.
+// ON PRESS (click/tap):
+//   - Play flip + water splash animation once, then return to idle loop.
+//   - No autoplay of the flip.
+//
+// ASSET PATHS (TODO: supply video files):
+//   - `beluga-idle.mp4` — looping idle animation (bob/float/breathing)
+//   - `beluga-flip-splash.mp4` — play-once flip + splash on press
+//
+// Current implementation uses Reanimated placeholders:
+//   - Idle: subtle Y-axis bob (2px up/down, 2s loop)
+//   - Flip: 360° Y-axis rotation on press (600ms)
+// Once video assets are supplied, replace with Video component(s).
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  withRepeat,
   withSequence,
   withTiming,
   Easing,
+  cancelAnimation,
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
 import { haptic } from './haptics';
@@ -24,7 +35,7 @@ import { haptic } from './haptics';
 export interface BelugaAvatarProps {
   /** Avatar size in pixels (diameter of the circle). */
   size: number;
-  /** Optional press handler. If omitted, the avatar is not pressable. */
+  /** Optional press handler. If omitted, the avatar is still animated but not pressable. */
   onPress?: () => void;
   /** Background color behind the circular crop. */
   backgroundColor?: string;
@@ -35,12 +46,13 @@ export interface BelugaAvatarProps {
 }
 
 /**
- * The Belay beluga mascot: circular avatar with optional press animation.
+ * The Belay beluga mascot: always-animated circular avatar.
  * Used in the stream HUD (48px, top-right) and tools drawer header (40px).
  *
- * Press plays a flip animation once, then settles back to still. The animation
- * is a 3D Y-axis rotation placeholder — the final design will use a short
- * video clip (beluga-flip-splash.mp4) once supplied.
+ * IDLE: Continuous subtle bob animation (seamless loop).
+ * PRESS: Plays flip animation once, then returns to idle loop.
+ *
+ * Current: Reanimated placeholders. Final: Video components for idle + flip.
  */
 export function BelugaAvatar({
   size,
@@ -51,23 +63,52 @@ export function BelugaAvatar({
   testID,
 }: BelugaAvatarProps) {
   const theme = useTheme();
+  const idleBob = useSharedValue(0);
   const flipRotation = useSharedValue(0);
+  const isFlipping = useSharedValue(false);
+
+  // Idle animation: continuous subtle bob (2px up/down, 2s cycle)
+  useEffect(() => {
+    idleBob.value = withRepeat(
+      withSequence(
+        withTiming(-2, { duration: 1000, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.sin) })
+      ),
+      -1, // infinite
+      false // don't reverse
+    );
+
+    return () => {
+      cancelAnimation(idleBob);
+    };
+  }, [idleBob]);
 
   const playFlipAnimation = useCallback(() => {
+    if (isFlipping.value) return; // Prevent double-taps during flip
+    
     haptic('light');
     onPress?.();
+    isFlipping.value = true;
     
-    // Flip animation: rotate 360° on Y-axis (flip forward, settle back)
+    // Flip animation: rotate 360° on Y-axis, then return to idle
     // Duration: 600ms total (fast flip, smooth settle)
     flipRotation.value = withSequence(
       withTiming(180, { duration: 300, easing: Easing.out(Easing.cubic) }),
       withTiming(360, { duration: 300, easing: Easing.in(Easing.cubic) }),
       withTiming(0, { duration: 0 }) // Reset for next play
     );
-  }, [flipRotation, onPress]);
+    
+    // Re-enable flipping after animation completes
+    setTimeout(() => {
+      isFlipping.value = false;
+    }, 600);
+  }, [flipRotation, isFlipping, onPress]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ rotateY: `${flipRotation.value}deg` }],
+    transform: [
+      { translateY: idleBob.value }, // Idle bob (always active)
+      { rotateY: `${flipRotation.value}deg` }, // Flip (on press)
+    ],
   }));
 
   const avatar = (
@@ -93,17 +134,17 @@ export function BelugaAvatar({
   );
 
   if (!onPress) {
-    // Static, non-interactive avatar
+    // Always animated (idle loop), but not pressable
     return <View style={style} testID={testID}>{avatar}</View>;
   }
 
-  // Pressable avatar with animation
+  // Always animated (idle loop) + pressable for flip animation
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityHint="Play a flip animation"
+      accessibilityHint="Tap to play flip animation"
       hitSlop={theme.layout.hitSlop}
       onPress={playFlipAnimation}
       style={({ pressed }) => [
