@@ -23,6 +23,17 @@ interface Options {
 type GamepadBytes = ArrayBuffer | ArrayBufferView;
 
 /** One virtual target per host. Ownership survives asynchronous attach/detach. */
+/**
+ * How long the owner may go quiet before the pad is neutralized and the
+ * session closed. The phone sends a full sample every 8ms, but its JS thread
+ * stalls for hundreds of ms while it base64-encodes a 30fps JPEG stream, and
+ * at 750ms those stalls closed a healthy session several times a minute
+ * ("Controller timed out · Retrying connection"). 2s rides out a stall while
+ * still releasing every key promptly when the phone really is gone. The
+ * native helper's own watchdog (BelayHostGamepad.cs) matches this value.
+ */
+export const WATCHDOG_MS = 2000;
+
 export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
   let owned = false;
   // The current owner's frame intake, for reports that arrive by another
@@ -33,7 +44,7 @@ export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
   return {
     /**
      * Feed one encoded frame that did not arrive on the owner's WebSocket.
-     * The WebSocket stays the session: attach, hello, rumble and the 750 ms
+     * The WebSocket stays the session: attach, hello, rumble and the 2 s
      * watchdog all live there, so a UDP frame is only ever a faster way of
      * delivering the same sample. Returns false when there is no attached
      * owner to deliver to or the bytes are not a frame — a corrupt datagram
@@ -56,7 +67,7 @@ export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
       // a slow capture can take seconds (or the 15s call timeout), and every
       // reconnect in that window used to be refused as "Controller busy". The
       // next attach is written after this detach, so the helper still sees them
-      // in order; its own 750ms watchdog neutralizes the pad meanwhile.
+      // in order; its own 2s watchdog neutralizes the pad meanwhile.
       const detach = async (): Promise<void> => {
         if (cleaning) return; cleaning = true;
         const reply = helper.gamepadDetach();
@@ -98,7 +109,7 @@ export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
         let lastActivity = 0;
         stop = schedule(() => {
           if (closed) return;
-          if (session.last !== null && now() - session.receivedAt > 750) {
+          if (session.last !== null && now() - session.receivedAt > WATCHDOG_MS) {
             helper.gamepad(NEUTRAL); ws.close(1001, 'Controller timed out'); close(); return;
           }
           if (rumble && now() - rumbleAt >= 250) { send(rumble); rumbleAt = now(); }

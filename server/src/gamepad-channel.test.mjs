@@ -37,7 +37,8 @@ test('helper backpressure keeps latest sample, watchdog releases and stops ticks
  const ws=new Socket();hub.handle(ws,'generic');await new Promise(r=>setImmediate(r));
  ws.emit('message',Buffer.from(encodeGamepad({...NEUTRAL,buttons:4096,seq:1})),true);tick();assert.equal(updates.length,0);
  ws.emit('message',Buffer.from(encodeGamepad({...NEUTRAL,seq:2})),true);canWrite=true;tick();assert.equal(updates[0].buttons,0);
- at=851;tick();assert.equal(ws.readyState,3);assert.equal(stopped,1);assert.deepEqual(updates.at(-1),NEUTRAL);
+ at=1900;tick();assert.equal(ws.readyState,1,'a stall shorter than the watchdog keeps the session');
+ at=2101;tick();assert.equal(ws.readyState,3);assert.equal(stopped,1);assert.deepEqual(updates.at(-1),NEUTRAL);
 });
 test('a helper death closes its lease and publishes unavailable',async()=>{
  let listener;

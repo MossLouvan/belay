@@ -159,22 +159,32 @@ export function decodeBinaryFrame(payload: unknown): DecodedBinaryFrame | null {
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 /**
+ * Every 12-bit value as its two base64 characters, so one triple costs two
+ * table lookups and two pushes instead of four of each. This runs on the JS
+ * thread for every JPEG frame (~100KB at 30fps), and every millisecond here
+ * is a millisecond the 8ms controller loop cannot run.
+ */
+const BASE64_PAIRS: readonly string[] = Array.from({ length: 4096 }, (_, v) =>
+  BASE64_ALPHABET[v >> 6] + BASE64_ALPHABET[v & 63]);
+
+/**
  * Standard base64 with padding, dependency-free — React Native has neither
  * Buffer nor btoa-on-bytes, and the app still renders frames via a data URI.
  */
 export function bytesToBase64(bytes: Uint8Array): string {
+  const whole = bytes.length - (bytes.length % 3);
   const parts: string[] = [];
-  for (let i = 0; i < bytes.length; i += 3) {
-    const a = bytes[i];
-    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
-    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
-    const triple = (a << 16) | (b << 8) | c;
-    parts.push(
-      BASE64_ALPHABET[(triple >> 18) & 63],
-      BASE64_ALPHABET[(triple >> 12) & 63],
-      i + 1 < bytes.length ? BASE64_ALPHABET[(triple >> 6) & 63] : '=',
-      i + 2 < bytes.length ? BASE64_ALPHABET[triple & 63] : '=',
-    );
+  for (let i = 0; i < whole; i += 3) {
+    const triple = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    parts.push(BASE64_PAIRS[triple >> 12], BASE64_PAIRS[triple & 4095]);
+  }
+  const rest = bytes.length - whole;
+  if (rest === 1) {
+    const a = bytes[whole];
+    parts.push(BASE64_ALPHABET[a >> 2], BASE64_ALPHABET[(a & 3) << 4], '==');
+  } else if (rest === 2) {
+    const a = bytes[whole], b = bytes[whole + 1];
+    parts.push(BASE64_ALPHABET[a >> 2], BASE64_ALPHABET[((a & 3) << 4) | (b >> 4)], BASE64_ALPHABET[(b & 15) << 2], '=');
   }
   return parts.join('');
 }

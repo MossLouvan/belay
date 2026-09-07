@@ -205,7 +205,10 @@ static class BelayHostGamepad
         {
             if (!attached) return;
             long now=clock.ElapsedMilliseconds;
-            if (now-received>750) { Neutral(); lastTick=now; return; }
+            // Matches WATCHDOG_MS in server/src/gamepad-channel.ts: the phone's JS
+            // thread stalls for hundreds of ms under the JPEG stream, and a 750ms
+            // release dropped every held key mid-stall.
+            if (now-received>2000) { Neutral(); lastTick=now; return; }
             double dt=Math.Min(32,Math.Max(0,now-lastTick))/1000.0; lastTick=now;
             if (target != IntPtr.Zero) return;
             carryX+=(Math.Abs(rx)>0.12?rx:0)*900*dt;
