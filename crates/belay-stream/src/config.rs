@@ -26,6 +26,7 @@ pub struct Config {
     pub salt: [u8; 8],
     pub preset: BitratePreset,
     pub fps: u32,
+    pub fec: bool,
     pub monitor: u32,
     /// Seconds between forced keyframes.
     pub keyframe_interval_s: u32,
@@ -139,7 +140,9 @@ impl Config {
             _ => Source::Desktop,
         };
 
-        Ok(Config { bind, peer, token, salt, preset, fps, monitor, keyframe_interval_s, source })
+        // Experimental until quality, jitter and low-rate pacing are validated.
+        let fec = field(json, "fec") == Some("true");
+        Ok(Config { bind, peer, token, salt, preset, fps, fec, monitor, keyframe_interval_s, source })
     }
 }
 
@@ -159,6 +162,8 @@ mod tests {
         assert_eq!(c.salt, [1, 2, 3, 4, 5, 6, 7, 8]);
         assert_eq!(c.preset, BitratePreset::HighQuality);
         assert_eq!(c.fps, 60);
+        assert!(!c.fec, "experimental parity requires explicit opt-in");
+        assert!(Config::parse(&GOOD.replace("\"monitor\":\"0\"", "\"fec\":true")).unwrap().fec);
     }
 
     #[test]

@@ -25,7 +25,8 @@ use std::time::{Duration, Instant};
 
 use belay_wire::congestion::{AbrConfig, AbrState, BitratePreset, LinkFeedback};
 use belay_wire::crypto::{Direction, DirectionKey, ReplayWindow, TAG_LEN};
-use belay_wire::packet::{flags, fragment_count, fragment_range, Channel, Header, HEADER_LEN, MAX_DATAGRAM};
+use belay_wire::packet::{flags, Channel, Header, HEADER_LEN, MAX_DATAGRAM};
+use belay_wire::fec::{FecReceiver, Parity, SHARD_BYTES, GROUP_SIZE};
 use belay_wire::reassembly::{Accepted, DropReason, Reassembler};
 
 use crate::feedback::{ReceiveTracker, Report, RttEstimator};
@@ -40,6 +41,9 @@ pub const REPORT_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Number of `Channel` variants — Control, Cursor, Input, Video, Audio.
 const CHANNEL_COUNT: usize = 5;
+const FEC_DATA: u8 = 1 << 4;
+const FEC_PARITY: u8 = 1 << 5;
+const VIDEO_REORDER_GRACE: Duration = Duration::from_millis(8);
 
 #[derive(Debug)]
 pub enum SessionError {
@@ -61,9 +65,8 @@ impl From<io::Error> for SessionError {
 pub enum Event {
     /// A complete application frame.
     Frame { channel: Channel, frame_id: u32, keyframe: bool, payload: Vec<u8> },
-    /// The controller changed the send budget. The caller must apply this to
-    /// the ENCODER too — that shared setpoint is the whole benefit of owning
-    /// both ends of the pipe.
+    /// Encoder picture budget, after reserving negotiated repair overhead.
+    /// The packet pacer separately enforces the total wire budget.
     Bitrate { bps: u64 },
     /// The decoder is broken and needs an I-frame to recover.
     KeyframeNeeded,
@@ -110,6 +113,14 @@ pub struct Session {
     last_video_frame: Option<u32>,
     video_waiting_keyframe: bool,
     last_recovery_request: Option<Instant>,
+    is_host: bool,
+    fec_allowed: bool,
+    fec_send: bool,
+    fec_receive: bool,
+    fec_last_probe: Option<Instant>,
+    fec_receiver: FecReceiver,
+    reordered_video: Vec<(Instant, u32, Vec<u8>)>,
+    video_fps: u32,
 }
 
 impl core::fmt::Debug for Session {
@@ -166,6 +177,14 @@ impl Session {
             last_video_frame: None,
             video_waiting_keyframe: false,
             last_recovery_request: None,
+            is_host: direction == Direction::HostToClient,
+            fec_allowed: true,
+            fec_send: false,
+            fec_receive: false,
+            fec_last_probe: None,
+            fec_receiver: FecReceiver::default(),
+            reordered_video: Vec::new(),
+            video_fps: 60,
         })
     }
 
@@ -178,6 +197,21 @@ impl Session {
     }
 
     pub fn rtt_ms(&self) -> Option<f64> { self.rtt.smoothed_ms() }
+
+    /// Configure before streaming. Older peers never acknowledge the extension.
+    pub fn set_fec_allowed(&mut self, allowed: bool) { self.fec_allowed = allowed; }
+    pub fn set_video_fps(&mut self, fps: u32) { self.video_fps = fps.clamp(1, 120); }
+    pub fn fec_sending(&self) -> bool { self.fec_send }
+    pub fn media_bitrate_bps(&self) -> u64 {
+        if !self.fec_send { return self.abr.bitrate_bps; }
+        // Bound full-group overhead plus one partial-group allowance per frame.
+        // The pacer still enforces the total wire budget, including parity.
+        let overhead = (SHARD_BYTES as u64 + 62) * self.video_fps as u64 * 8;
+        let data = (SHARD_BYTES * GROUP_SIZE) as u64;
+        let wire = data + SHARD_BYTES as u64 + 32 * GROUP_SIZE as u64 + 62;
+        self.abr.bitrate_bps.saturating_sub(overhead).saturating_mul(data)
+            .checked_div(wire).unwrap_or(0).max(64_000).min(self.abr.bitrate_bps)
+    }
 
     fn remember_sent(&mut self, sequence: u32) {
         if self.sent_stamps.len() == 8192 { self.sent_stamps.pop_front(); }
@@ -219,12 +253,20 @@ impl Session {
         let slot = channel as usize;
         let frame_id = self.next_frame_id[slot];
         self.next_frame_id[slot] = frame_id.wrapping_add(1);
-        let count = fragment_count(payload.len());
-        let paced = matches!(channel, Channel::Video);
+        // Negotiation can complete during a pacing wait: freeze mode per AU.
+        let protected = channel == Channel::Video && self.fec_send;
+        let parity_packet = channel == Channel::Control && payload.starts_with(b"FEC1");
+        let shard_bytes = if protected { SHARD_BYTES } else { MAX_DATAGRAM - HEADER_LEN - TAG_LEN };
+        let fragments = payload.len().max(1).div_ceil(shard_bytes);
+        if fragments > belay_wire::reassembly::MAX_FRAGMENTS as usize {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "frame exceeds fragment limit").into());
+        }
+        let count = fragments as u16;
+        let paced = channel == Channel::Video || parity_packet;
 
-        let _max_wire = MAX_DATAGRAM + HEADER_LEN;
         for i in 0..count {
-            let (s, e) = fragment_range(payload.len(), i);
+            let s = i as usize * shard_bytes;
+            let e = (s + shard_bytes).min(payload.len());
             if paced {
                 let wire_len = HEADER_LEN + TAG_LEN + e - s;
                 while !self.pacer.try_send(wire_len, self.started.elapsed().as_micros() as u64) {
@@ -237,6 +279,8 @@ impl Session {
                 }
             }
             let mut f = 0u8;
+            if protected { f |= FEC_DATA; }
+            if parity_packet { f |= FEC_PARITY; }
             if keyframe {
                 f |= flags::KEYFRAME;
             }
@@ -255,7 +299,7 @@ impl Session {
             self.next_sequence = self.next_sequence.wrapping_add(1);
 
             let wire = self.send_key.seal(&header, &payload[s..e]);
-            debug_assert!(wire.len() <= _max_wire);
+            debug_assert!(wire.len() <= MAX_DATAGRAM);
 
             match self.socket.send_to(&wire, self.peer) {
                 Ok(_) => self.remember_sent(header.sequence),
@@ -263,6 +307,12 @@ impl Session {
                 // pacer will have slowed us by the next fragment anyway.
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) => return Err(SessionError::Io(e)),
+            }
+            if protected && ((i as usize + 1) % GROUP_SIZE == 0 || i + 1 == count) {
+                let first = (i as usize / GROUP_SIZE * GROUP_SIZE) as u16;
+                if let Some(parity) = Parity::from_frame(frame_id, keyframe, payload, first) {
+                    self.send_frame(Channel::Control, &parity.encode(), false)?;
+                }
             }
         }
         Ok(())
@@ -275,6 +325,12 @@ impl Session {
 
     pub fn poll(&mut self) -> Result<Vec<Event>, SessionError> {
         let mut events = core::mem::take(&mut self.deferred_events);
+        self.fec_receiver.expire(self.started.elapsed().as_millis() as u64);
+        if self.is_host && self.fec_allowed && !self.fec_send && self.fec_last_probe
+            .is_none_or(|last| last.elapsed() >= Duration::from_secs(1)) {
+            self.send_frame(Channel::Control, b"FEC?", false)?;
+            self.fec_last_probe = Some(Instant::now());
+        }
         let mut buf = [0u8; 2048];
 
         loop {
@@ -310,6 +366,11 @@ impl Session {
             }
         }
 
+        if self.reordered_video.iter().any(|(at, _, _)| at.elapsed() >= VIDEO_REORDER_GRACE) {
+            self.reordered_video.clear();
+            self.video_waiting_keyframe = true;
+            self.want_keyframe = true;
+        }
         if self.last_report_sent.elapsed() >= REPORT_INTERVAL {
             self.send_report()?;
             self.last_report_sent = Instant::now();
@@ -335,16 +396,49 @@ impl Session {
         let plaintext = self.recv_key.open(datagram, &header).ok()?;
         self.replay = replay;
 
-        self.tracker.on_datagram(header.sequence, header.send_us, self.now_us() as u64);
+        self.tracker.on_datagram(header.sequence, header.send_us, self.started.elapsed().as_micros() as u64);
 
         if header.channel == Channel::Control {
+            if plaintext.starts_with(b"FEC1") {
+                if !self.fec_receive || header.flags & FEC_PARITY == 0 { return None; }
+                let parity = Parity::decode(&plaintext)?;
+                let repaired = self.fec_receiver.on_parity(parity, self.started.elapsed().as_millis() as u64);
+                let mut events = Vec::new();
+                for (header, data) in repaired { events.extend(self.accept_fragment(&header, &data).unwrap_or_default()); }
+                return (!events.is_empty()).then_some(events);
+            }
             return self.on_control(&plaintext).map(|e| vec![e]);
         }
 
-        match self.reassemblers[header.channel as usize].push(&header, &plaintext) {
+        let repaired = if self.fec_receive && header.channel == Channel::Video && header.flags & FEC_DATA != 0 {
+            self.fec_receiver.on_data(&header, &plaintext, self.started.elapsed().as_millis() as u64)
+        } else { Vec::new() };
+        let mut events = self.accept_fragment(&header, &plaintext).unwrap_or_default();
+        for (header, data) in repaired { events.extend(self.accept_fragment(&header, &data).unwrap_or_default()); }
+        (!events.is_empty()).then_some(events)
+    }
+
+    fn accept_fragment(&mut self, header: &Header, plaintext: &[u8]) -> Option<Vec<Event>> {
+        let ordered = self.fec_receive && header.channel == Channel::Video;
+        let accepted = if ordered {
+            self.reassemblers[header.channel as usize].push_for_ordered_delivery(header, plaintext)
+        } else { self.reassemblers[header.channel as usize].push(header, plaintext) };
+        match accepted {
             Accepted::Complete { frame_id, keyframe, payload } => {
                 if header.channel == Channel::Video {
+                    if ordered && !keyframe && !self.video_waiting_keyframe
+                        && self.last_video_frame.is_some_and(|last| frame_id != last.wrapping_add(1)) {
+                        if self.reordered_video.iter().any(|(_, id, _)| *id == frame_id) { return None; }
+                        if self.reordered_video.len() < 3 {
+                            self.reordered_video.push((Instant::now(), frame_id, payload));
+                            return None;
+                        }
+                        self.video_waiting_keyframe = true;
+                    }
+                    self.reassemblers[Channel::Video as usize].commit_delivery(frame_id);
+                    self.fec_receiver.retire(frame_id);
                     if keyframe {
+                        self.reordered_video.clear();
                         self.video_waiting_keyframe = false;
                         self.want_keyframe = false;
                     } else if self.video_waiting_keyframe || self.last_video_frame
@@ -357,6 +451,16 @@ impl Session {
                         return None;
                     }
                     self.last_video_frame = Some(frame_id);
+                    let mut events = vec![Event::Frame { channel: Channel::Video, frame_id, keyframe, payload }];
+                    while let Some(index) = self.reordered_video.iter().position(|(_, id, _)|
+                        Some(*id) == self.last_video_frame.map(|last| last.wrapping_add(1))) {
+                        let (_, id, payload) = self.reordered_video.remove(index);
+                        self.last_video_frame = Some(id);
+                        self.reassemblers[Channel::Video as usize].commit_delivery(id);
+                        self.fec_receiver.retire(id);
+                        events.push(Event::Frame { channel: Channel::Video, frame_id: id, keyframe: false, payload });
+                    }
+                    return Some(events);
                 }
                 Some(vec![Event::Frame {
                 channel: header.channel,
@@ -379,7 +483,22 @@ impl Session {
     }
 
     fn on_control(&mut self, plaintext: &[u8]) -> Option<Event> {
+        if plaintext == b"FEC?" {
+            if !self.is_host && self.fec_allowed {
+                self.fec_receive = true;
+                let _ = self.send_frame(Channel::Control, b"FEC!", false);
+            }
+            return None;
+        }
+        if plaintext == b"FEC!" {
+            if self.is_host && self.fec_allowed && self.fec_last_probe.is_some() && !self.fec_send {
+                self.fec_send = true;
+                return Some(Event::Bitrate { bps:self.media_bitrate_bps() });
+            }
+            return None;
+        }
         if plaintext == b"IDR1" { return Some(Event::KeyframeNeeded); }
+        if plaintext.len() != Report::WIRE_LEN { return None; }
         let mut report = Report::decode(plaintext)?;
         if self.last_report_sequence.is_some_and(|last| !belay_wire::packet::seq_newer(report.highest_seq, last)) {
             return None;
@@ -401,13 +520,13 @@ impl Session {
             // One setpoint, applied to the transport here and handed to the
             // caller so it reaches the encoder too.
             self.pacer.set_bitrate(self.abr.bitrate_bps);
-            return Some(Event::Bitrate { bps: self.abr.bitrate_bps });
+            return Some(Event::Bitrate { bps: self.media_bitrate_bps() });
         }
         None
     }
 
     fn send_report(&mut self) -> Result<(), SessionError> {
-        let Some(report) = self.tracker.take_report(self.now_us() as u64) else { return Ok(()) };
+        let Some(report) = self.tracker.take_report(self.started.elapsed().as_micros() as u64) else { return Ok(()) };
         let mut body = [0u8; Report::WIRE_LEN];
         report.encode(&mut body);
 
@@ -626,16 +745,11 @@ mod tests {
         let token_b = b"wrong-token";
         let salt = [3u8; 8];
 
-        let a_sock = UdpSocket::bind(local(0)).unwrap();
-        let b_sock = UdpSocket::bind(local(0)).unwrap();
-        let (a_addr, b_addr) = (a_sock.local_addr().unwrap(), b_sock.local_addr().unwrap());
-        drop(a_sock);
-        drop(b_sock);
-
         let mut good =
-            Session::bind(a_addr, b_addr, token_a, salt, Direction::HostToClient, BitratePreset::Max).unwrap();
+            Session::bind(local(0), local(1), token_a, salt, Direction::HostToClient, BitratePreset::Max).unwrap();
         let mut impostor =
-            Session::bind(b_addr, a_addr, token_b, salt, Direction::ClientToHost, BitratePreset::Max).unwrap();
+            Session::bind(local(0), good.local_addr().unwrap(), token_b, salt, Direction::ClientToHost, BitratePreset::Max).unwrap();
+        good.peer = impostor.local_addr().unwrap();
 
         impostor.send_frame(Channel::Input, b"malicious-keystroke", false).unwrap();
         let events = drain(&mut good);
@@ -719,5 +833,168 @@ mod tests {
         let b = random_salt();
         assert_ne!(a, b, "a repeated salt would reuse nonces across sessions");
         assert_ne!(a, [0u8; 8]);
+    }
+
+    fn negotiate_fec(host: &mut Session, client: &mut Session) {
+        host.poll().unwrap();
+        drain(client);
+        drain(host);
+        assert!(host.fec_sending());
+        assert!(client.fec_receive);
+        assert!(host.media_bitrate_bps() < host.bitrate_bps());
+    }
+
+    fn queued_packets(client: &Session) -> Vec<Vec<u8>> {
+        let mut packets = Vec::new();
+        let mut buf = [0u8; 2048];
+        loop {
+            match client.socket.recv_from(&mut buf) {
+                Ok((n, _)) => packets.push(buf[..n].to_vec()),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => panic!("receive failed: {e}"),
+            }
+        }
+        packets
+    }
+
+    #[test]
+    fn fec_repairs_one_missing_fragment_with_authenticated_wire_packets() {
+        for parity_first in [false, true] {
+            let (mut host, mut client) = pair(BitratePreset::Max);
+            negotiate_fec(&mut host, &mut client);
+            let payload: Vec<u8> = (0..9001).map(|i| (i % 251) as u8).collect();
+            host.send_frame(Channel::Video, &payload, true).unwrap();
+            let mut packets = queued_packets(&client);
+            assert!(packets.iter().all(|p| p.len() <= MAX_DATAGRAM));
+            packets.retain(|p| {
+                let h = Header::decode(p).unwrap();
+                !(h.channel == Channel::Video && h.frag_index == 2)
+            });
+            if parity_first {
+                packets.sort_by_key(|p| Header::decode(p).unwrap().flags & FEC_PARITY == 0);
+            }
+            let mut frames = Vec::new();
+            for packet in packets.iter().chain(packets.iter()) {
+                for event in client.on_datagram(packet).unwrap_or_default() {
+                    if let Event::Frame { payload, .. } = event { frames.push(payload); }
+                }
+            }
+            assert_eq!(frames, vec![payload], "repair and replay must deliver exactly once");
+            assert!(!client.want_keyframe);
+        }
+    }
+
+    #[test]
+    fn fec_requires_capability_ack_and_preserves_unextended_peer_delivery() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        host.on_control(b"FEC!");
+        assert!(!host.fec_sending(), "unsolicited acknowledgement is ignored");
+        client.set_fec_allowed(false);
+        host.poll().unwrap();
+        drain(&mut client);
+        drain(&mut host);
+        assert!(!host.fec_sending());
+        let payload = vec![42; 5000];
+        host.send_frame(Channel::Video, &payload, true).unwrap();
+        let packets = queued_packets(&client);
+        assert!(packets.iter().all(|p| p.len() <= MAX_DATAGRAM));
+        let mut frames = Vec::new();
+        for packet in packets {
+            assert_eq!(Header::decode(&packet).unwrap().flags & (FEC_DATA | FEC_PARITY), 0);
+            for event in client.on_datagram(&packet).unwrap_or_default() {
+                if let Event::Frame { payload, .. } = event { frames.push(payload); }
+            }
+        }
+        assert_eq!(frames, vec![payload]);
+    }
+
+    #[test]
+    fn unrecoverable_fec_loss_suppresses_dependencies_until_keyframe() {
+        // Either two original shards, or one shard and its parity, are lost.
+        for lose_parity in [false, true] {
+            let (mut host, mut client) = pair(BitratePreset::Max);
+            negotiate_fec(&mut host, &mut client);
+            host.send_frame(Channel::Video, b"initial", true).unwrap();
+            assert!(drain(&mut client).iter().any(|e| matches!(e, Event::Frame { .. })));
+            host.send_frame(Channel::Video, &vec![7; 4000], false).unwrap();
+            for packet in queued_packets(&client) {
+                let h = Header::decode(&packet).unwrap();
+                let drop = (h.channel == Channel::Video && h.frag_index == 0)
+                    || (lose_parity && h.flags & FEC_PARITY != 0)
+                    || (!lose_parity && h.channel == Channel::Video && h.frag_index == 1);
+                if !drop {
+                    assert!(!client.on_datagram(&packet).unwrap_or_default().iter()
+                        .any(|e| matches!(e, Event::Frame { .. })));
+                }
+            }
+            host.send_frame(Channel::Video, b"dependent", false).unwrap();
+            assert!(!drain(&mut client).iter().any(|e| matches!(e, Event::Frame { .. })));
+            for (at, _, _) in &mut client.reordered_video { *at -= VIDEO_REORDER_GRACE; }
+            client.poll().unwrap();
+            assert!(client.video_waiting_keyframe);
+            host.send_frame(Channel::Video, b"recovery", true).unwrap();
+            assert!(drain(&mut client).iter().any(|e|
+                matches!(e, Event::Frame { keyframe: true, payload, .. } if payload == b"recovery")));
+            assert!(!client.video_waiting_keyframe);
+        }
+    }
+
+    #[test]
+    fn late_parity_releases_repaired_frame_before_queued_dependency() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        negotiate_fec(&mut host, &mut client);
+        host.send_frame(Channel::Video, b"initial", true).unwrap();
+        drain(&mut client);
+        let missing = vec![7; 4000];
+        host.send_frame(Channel::Video, &missing, false).unwrap();
+        let mut parity = Vec::new();
+        for packet in queued_packets(&client) {
+            let h = Header::decode(&packet).unwrap();
+            if h.flags & FEC_PARITY != 0 { parity.push(packet); }
+            else if h.channel != Channel::Video || h.frag_index != 1 {
+                client.on_datagram(&packet);
+            }
+        }
+        host.send_frame(Channel::Video, b"dependent", false).unwrap();
+        for packet in queued_packets(&client) {
+            assert!(!client.on_datagram(&packet).unwrap_or_default().iter()
+                .any(|e| matches!(e, Event::Frame { .. })));
+        }
+        assert_eq!(client.reordered_video.len(), 1);
+        let frames: Vec<_> = parity.iter().flat_map(|p| client.on_datagram(p).unwrap_or_default())
+            .filter_map(|e| if let Event::Frame { payload, .. } = e { Some(payload) } else { None }).collect();
+        assert_eq!(frames, vec![missing, b"dependent".to_vec()]);
+        assert!(!client.video_waiting_keyframe);
+        assert!(client.reordered_video.is_empty());
+    }
+
+    #[test]
+    fn capability_retries_survive_lost_request_and_acknowledgement() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        host.poll().unwrap();
+        queued_packets(&client); // Lost first request.
+        assert!(!host.fec_sending());
+        host.fec_last_probe = Some(Instant::now() - Duration::from_secs(1));
+        host.poll().unwrap();
+        drain(&mut client);
+        queued_packets(&host); // Lost acknowledgement.
+        assert!(!host.fec_sending());
+        host.fec_last_probe = Some(Instant::now() - Duration::from_secs(1));
+        host.poll().unwrap();
+        drain(&mut client);
+        drain(&mut host);
+        assert!(host.fec_sending());
+    }
+
+    #[test]
+    fn legacy_full_size_encrypted_fragment_still_decodes() {
+        let (host, mut client) = pair(BitratePreset::Max);
+        let payload = vec![17; belay_wire::packet::MAX_PAYLOAD];
+        let packet = host.send_key.seal(&Header { channel: Channel::Video,
+            sequence: 0, frame_id: 0, frag_index: 0, frag_count: 1,
+            flags: flags::KEYFRAME | flags::FRAME_END, send_us: 0 }, &payload);
+        assert_eq!(packet.len(), 1216, "legacy senders omitted tag from MTU budget");
+        assert!(client.on_datagram(&packet).unwrap().iter().any(|event|
+            matches!(event, Event::Frame { payload: received, .. } if *received == payload)));
     }
 }

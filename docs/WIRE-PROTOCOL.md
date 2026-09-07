@@ -194,3 +194,39 @@ drop; old peers ignore the shorter unknown message. Encoder peers report
 `KeyframeNeeded` and force the next encoded frame. Periodic keyframes remain
 a compatibility backstop. Session credentials and source-address validation
 apply before this control is interpreted.
+
+### Experimental BWP XOR repair
+
+Feedback retains its 20-byte layout. `highest_seq`, echo and receiver delay refer
+to the newest actual advancing packet. `received`/`expected` now describe a
+separate settled sequence range: gaps get 25 ms to fill before being counted as
+loss. This accommodates packet reordering and scheduling jitter without delaying
+media delivery. State is bounded to 4096 pending sequence slots. Old senders can
+consume the unchanged loss ratio; old receivers retain their earlier accounting.
+
+Streamer configuration `"fec": true` opts into capability negotiation. The host
+sends encrypted four-byte Control `FEC?`, retrying at one-second intervals until
+a compatible client replies `FEC!`. The host never sends protected video before
+that acknowledgement; old peers ignore these short controls. Header version stays
+1. Video mode and shard size are frozen for each access unit.
+
+Protected Video uses flag bit 4 and up to 1120 plaintext bytes per shard. Every
+group of at most eight shards has a Control parity packet with flag bit 5. Its
+plaintext is `FEC1`, frame ID (u32 LE), total fragment count (u16 LE), first
+fragment index (u16 LE), group count (u8), keyframe boolean (u8), one length
+(u16 LE) per shard, then their zero-padded XOR bytes. First index is a multiple
+of eight. Full nonfinal shards are 1120 bytes; the final shard is 1–1120 bytes.
+The largest parity datagram is 1182 bytes including header and authentication tag.
+
+Parity is authenticated and paced inside the total wire bitrate. The encoder's
+picture budget reserves parity/header overhead. Reconstructed shards enter
+reassembly without being counted as network arrivals or changing replay state.
+At most eight frames with 512 shards each are retained; groups expire after
+200 ms without new valid progress, with a two-second hard frame lifetime.
+Duplicates cannot extend expiry. Completed dependencies can wait for missing
+earlier video for an 8 ms grace period, checked at polling, with at most three
+completed frames queued. Unrecoverable gaps request `IDR1`.
+
+Ordinary new-sender fragments use up to 1168 plaintext bytes so header plus
+tag fit 1200 bytes. Receivers still accept legacy 1184-byte plaintext fragments.
+See [FEC experiment](FEC-EXPERIMENT.md) for measured tradeoffs and limitations.

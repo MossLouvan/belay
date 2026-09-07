@@ -30,6 +30,7 @@
 pub mod congestion;
 pub mod crypto;
 pub mod cursor;
+pub mod fec;
 pub mod packet;
 pub mod reassembly;
 

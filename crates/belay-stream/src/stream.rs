@@ -99,6 +99,8 @@ pub fn run(
         config.preset,
     )
     .map_err(|e| format!("cannot bind the session: {e:?}"))?;
+    session.set_fec_allowed(config.fec);
+    session.set_video_fps(config.fps);
     let local = session
         .local_addr()
         .map_err(|e| format!("cannot read the local address: {e}"))?;
@@ -170,7 +172,7 @@ pub fn run(
             emit(
                 "stats",
                 &format!(
-                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only},\"captureMs\":{:.3},\"convertEncodeMs\":{:.3},\"sendMs\":{:.3},\"rttMs\":{:.3},\"encoderOutputP95Ms\":{output_p95_ms:.3},\"encoderTimingSamples\":{}",
+                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only},\"captureMs\":{:.3},\"convertEncodeMs\":{:.3},\"sendMs\":{:.3},\"rttMs\":{:.3},\"encoderOutputP95Ms\":{output_p95_ms:.3},\"encoderTimingSamples\":{},\"fec\":{},\"mediaBitrate\":{}",
                     frames as f64 / secs,
                     (sent_bytes as f64 * 8.0 / 1000.0) / secs,
                     session.bitrate_bps(),
@@ -178,7 +180,9 @@ pub fn run(
                     encode_us as f64 / samples.max(1) as f64 / 1000.0,
                     send_us as f64 / samples.max(1) as f64 / 1000.0,
                     session.rtt_ms().unwrap_or(0.0),
-                    output_latencies.len()
+                    output_latencies.len(),
+                    session.fec_sending(),
+                    session.media_bitrate_bps()
                 ),
             );
             frames = 0;
@@ -200,8 +204,13 @@ pub fn run(
                             // encoder. Letting them disagree is how a link
                             // that has backed off keeps being handed frames it
                             // cannot carry.
-                            let _ = encoder.set_bitrate(bps as u32);
-                            emit("bitrate", &format!("\"bps\":{bps}"));
+                            match encoder.set_bitrate(bps as u32) {
+                                Ok(()) => emit("bitrate", &format!("\"bps\":{bps},\"applied\":true")),
+                                Err(error) => {
+                                    eprintln!("encoder rejected bitrate {bps}: {error}");
+                                    emit("bitrate", &format!("\"bps\":{bps},\"applied\":false"));
+                                }
+                            }
                         }
                         Event::KeyframeNeeded => {
                             encoder.request_keyframe();

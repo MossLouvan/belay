@@ -96,6 +96,23 @@ impl Reassembler {
     }
 
     pub fn push(&mut self, header: &Header, payload: &[u8]) -> Accepted {
+        self.push_inner(header, payload, false)
+    }
+
+    /// Ordered video delivery may briefly wait for an earlier repaired frame.
+    /// The caller must commit delivery explicitly and bound completed frames.
+    pub fn push_for_ordered_delivery(&mut self, header: &Header, payload: &[u8]) -> Accepted {
+        self.push_inner(header, payload, true)
+    }
+
+    pub fn commit_delivery(&mut self, frame_id: u32) {
+        if self.delivered.is_none_or(|last| seq_newer(frame_id, last)) {
+            self.delivered = Some(frame_id);
+            self.pending.retain(|&id, _| seq_newer(id, frame_id));
+        }
+    }
+
+    fn push_inner(&mut self, header: &Header, payload: &[u8], ordered: bool) -> Accepted {
         if payload.len() > MAX_PAYLOAD {
             self.stats.frames_dropped += 1;
             return Accepted::Dropped(DropReason::Oversize);
@@ -174,11 +191,10 @@ impl Reassembler {
             for part in done.parts.into_iter() {
                 payload.extend_from_slice(&part.expect("complete frame has every part"));
             }
-            self.delivered = Some(header.frame_id);
             self.stats.frames_completed += 1;
             // Anything still pending that is older is now unshowable.
             let id = header.frame_id;
-            self.pending.retain(|&fid, _| seq_newer(fid, id));
+            if !ordered { self.commit_delivery(id); }
             return Accepted::Complete { frame_id: header.frame_id, keyframe: done.keyframe, payload };
         }
 

@@ -326,12 +326,11 @@ impl H264Encoder {
     /// the encoder and the transport means the number the control law produces
     /// is applied directly, with no ABR estimator in between.
     pub fn set_bitrate(&mut self, bps: u32) -> WinResult<()> {
-        self.config.bitrate_bps = bps;
         unsafe {
-            if let Ok(codec_api) = self.transform.cast::<ICodecAPI>() {
-                set_codec_u32(&codec_api, &CODECAPI_AVEncCommonMeanBitRate, bps)?;
-            }
+            let codec_api = self.transform.cast::<ICodecAPI>()?;
+            set_codec_u32(&codec_api, &CODECAPI_AVEncCommonMeanBitRate, bps)?;
         }
+        self.config.bitrate_bps = bps;
         Ok(())
     }
 
