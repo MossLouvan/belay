@@ -159,3 +159,16 @@ Repair improved delivery in this pair at approximately 39% more total traffic.
 It remains opt-in: packet layouts and encoder budgets differ, so equal visual
 quality and performance across network conditions are not established. The
 feedback correction is enabled for ordinary sessions independently of parity.
+
+Full-screen motion stress source: `--motion` selects `synthetic-motion`, a fixed
+detailed world scrolling seven pixels horizontally and three vertically per
+frame. It is deliberately harder than the mostly static default scene; it is
+not representative game footage or a visual-quality metric. CPU pattern
+generation is included in `captureMs` (about 4.7 ms on this machine).
+
+First clean-loopback motion run, parity disabled: 204 frames/8 seconds, three
+keyframes, 12,618,879 encoded bytes, steady 28–33 FPS. Encoder observed output
+P95 was approximately 7 ms, but synchronous sending occupied 16–22 ms per
+sample at the 20 Mbps wire cap. First-second average send time was 491 ms.
+This exposes a capture/encode/send scheduling bottleneck hidden by the simpler
+scene. The near-60 FPS simple-scene results cannot establish gaming performance.

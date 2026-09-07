@@ -27,6 +27,7 @@ pub struct SyntheticSource {
     width: u32,
     height: u32,
     tick: usize,
+    motion: bool,
 }
 
 impl SyntheticSource {
@@ -99,12 +100,18 @@ impl SyntheticSource {
                 width,
                 height,
                 tick: 0,
+                motion: false,
             })
         }
     }
 
     pub fn device(&self) -> &ID3D11Device {
         &self.device
+    }
+
+    pub fn with_motion(mut self) -> Self {
+        self.motion = true;
+        self
     }
 
     pub fn width(&self) -> u32 {
@@ -135,7 +142,23 @@ impl SyntheticSource {
         // Static background with one moving block. Only the rows the block
         // touches are rewritten each frame — the rest is left alone, which is
         // both faster and a truer imitation of a desktop.
-        if t == 0 {
+        if self.motion {
+            // A fixed, detailed world translated each frame, not independent
+            // random noise. It exercises inter-frame motion prediction across
+            // the whole picture. CPU generation cost is included in captureMs.
+            for y in 0..h {
+                for x in 0..w {
+                    let wx = x.wrapping_add(t.wrapping_mul(7));
+                    let wy = y.wrapping_add(t.wrapping_mul(3));
+                    let detail = ((wx / 4).wrapping_mul(73) ^ (wy / 4).wrapping_mul(151)) as u8;
+                    let o = y * stride + x * 4;
+                    self.bgra[o] = detail;
+                    self.bgra[o + 1] = detail.wrapping_add((wy / 16) as u8);
+                    self.bgra[o + 2] = detail.wrapping_add((wx / 16) as u8);
+                    self.bgra[o + 3] = 255;
+                }
+            }
+        } else if t == 0 {
             for y in 0..h {
                 for x in 0..w {
                     let o = y * stride + x * 4;

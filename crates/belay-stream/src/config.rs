@@ -47,6 +47,8 @@ pub enum Source {
     /// only timeouts, which is correct behaviour and makes the rest of the
     /// pipeline untestable at exactly the times CI and overnight runs happen.
     Synthetic,
+    /// Full-screen coherent scrolling detail for encoder stress measurements.
+    SyntheticMotion,
 }
 
 #[derive(Debug)]
@@ -137,6 +139,7 @@ impl Config {
 
         let source = match field(json, "source") {
             Some("synthetic") => Source::Synthetic,
+            Some("synthetic-motion") => Source::SyntheticMotion,
             _ => Source::Desktop,
         };
 
@@ -219,6 +222,8 @@ mod tests {
         assert_eq!(Config::parse(GOOD).unwrap().source, Source::Desktop);
         let synth = GOOD.replace("\"preset\"", "\"source\":\"synthetic\",\"preset\"");
         assert_eq!(Config::parse(&synth).unwrap().source, Source::Synthetic);
+        let motion = synth.replace("synthetic", "synthetic-motion");
+        assert_eq!(Config::parse(&motion).unwrap().source, Source::SyntheticMotion);
         // Anything unrecognised must mean the real desktop, never the test
         // source — a typo that silently streams a test pattern to a user is a
         // far worse failure than one that errors.

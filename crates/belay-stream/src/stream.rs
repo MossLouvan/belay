@@ -73,10 +73,11 @@ pub fn run(
             DesktopCapture::for_monitor(config.monitor)
                 .map_err(|e| format!("cannot duplicate display {}: {e}", config.monitor))?,
         ),
-        Source::Synthetic => None,
+        Source::Synthetic | Source::SyntheticMotion => None,
     };
     let mut synthetic = match config.source {
         Source::Synthetic => Some(SyntheticSource::new(1920, 1080)?),
+        Source::SyntheticMotion => Some(SyntheticSource::new(1920, 1080)?.with_motion()),
         Source::Desktop => None,
     };
     let (width, height) = match (&capture, &synthetic) {

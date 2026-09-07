@@ -19,6 +19,7 @@ const lossArgument=process.argv.find(arg=>arg.startsWith('--network-loss='));
 const networkLoss=lossArgument?Number(lossArgument.split('=')[1]):0.01;
 if(!Number.isFinite(networkLoss)||networkLoss<0||networkLoss>1)throw new Error('Network loss must be between zero and one');
 const fec=!process.argv.includes('--no-fec');
+const source=process.argv.includes('--motion')?'synthetic-motion':'synthetic';
 if(lossMode&&networkMode)throw new Error('Choose --loss for one dropped packet or --network for the sustained profile');
 const durationMs=networkMode?15000:8000;
 const seedArgument=process.argv.find(arg=>arg.startsWith('--seed='));
@@ -74,12 +75,12 @@ try {
   streamer.on('error',fail);streamer.on('exit',code=>fail(new Error(`Streamer exit ${code}`)));
   lines.on('line',line=>{try{const m=JSON.parse(line);if(m.type==='stats')stages.push(m);if(m.type==='bitrate')bitrateUpdates.push(m);if(m.type==='error')fail(new Error(m.error));if(m.type==='ready'){path=m.path;hostPort=m.port;receiver.configure({port:proxy?.address().port??m.port,key:token,salt},'max');clearTimeout(timeout);yes();}}catch(error){fail(error);}});
  });
- streamer.stdin.write(JSON.stringify({peer:`127.0.0.1:${proxy?.address().port??receiver.port}`,token,salt,preset:'max',fps:60,fec,source:'synthetic'})+'\n');
+ streamer.stdin.write(JSON.stringify({peer:`127.0.0.1:${proxy?.address().port??receiver.port}`,token,salt,preset:'max',fps:60,fec,source})+'\n');
  await ready;
  await new Promise(r=>setTimeout(r,durationMs));
  gaps.sort((a,b)=>a-b);
  timerLateness.sort((a,b)=>a-b);
- console.log(JSON.stringify({path,frames,keyframes:keys,bytes,seconds:durationMs/1000,stages,
+ console.log(JSON.stringify({path,source,frames,keyframes:keys,bytes,seconds:durationMs/1000,stages,
   bitrateUpdates:bitrateUpdates.length,bitrateRejections:bitrateUpdates.filter(update=>update.applied===false).length,
   frameGapP95Ms:gaps[Math.max(0,Math.ceil(gaps.length*.95)-1)],maxFrameGapMs:gaps.at(-1),
   ...(networkMode?{network:{oneWayDelayMs:'20-25',mediaPacketLoss:networkLoss,videoPackets,parityPackets,droppedPackets,wireBytes,fec,seed:initialSeed,
