@@ -10,8 +10,9 @@
 // modules here.
 
 import type { BwpStats } from './bwp';
+import { fallbackReasonText, type BwpFallbackReason, type BwpSkipReason } from './bwp-policy.ts';
 import type { QualityPreset } from './model';
-import type { StreamStats } from './stream';
+import type { BwpClientStats, StreamStats } from './stream';
 
 export type HudRow = readonly [string, string];
 
@@ -24,12 +25,36 @@ export interface HudInputs {
   readonly bwpSize: { readonly width: number; readonly height: number } | null;
   /** 'gpu' when the host captures zero-copy, 'cpu' otherwise. */
   readonly bwpPath: string | null;
+  /** What the phone's decoder reports, when H.264 is live and it has. */
+  readonly bwpClient?: BwpClientStats | null;
+  /** Why the picture is JPEG when H.264 was on the table, if it was. */
+  readonly bwpFallback?: BwpSkipReason | BwpFallbackReason | null;
   readonly quality: QualityPreset;
   readonly pingMs: number | null;
   readonly zoom: number;
 }
 
 const dash = '—';
+
+const millis = (v: number | null | undefined): string =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 ? `${Math.round(v)} ms` : dash;
+
+/**
+ * The measurable share of glass-to-glass latency while H.264 is live.
+ *
+ * The phone's own round trip is preferred: it is measured against the same
+ * clock the frames are timed with. The host's figure is the fallback for the
+ * first second, before the phone's reports have echoed. Neither includes the
+ * capture or display time, which nothing on either side can observe — so the
+ * label says what it is, a round trip, not "latency".
+ */
+export function latencyRows(i: Pick<HudInputs, 'bwp' | 'bwpClient'>): readonly HudRow[] {
+  const rtt = i.bwpClient?.rttMs ?? i.bwp?.rttMs ?? null;
+  return [
+    ['rtt', millis(rtt)],
+    ['encode', millis(i.bwp?.encodeMs)],
+  ];
+}
 
 /** Bits per second as the largest unit that still reads naturally. */
 export function formatBitrate(bps: number): string {
@@ -56,18 +81,27 @@ export function hudRows(i: HudInputs): readonly HudRow[] {
     const cap = i.bwp ? formatBitrate(i.bwp.bitrate) : dash;
     const size =
       i.bwpSize && i.bwpSize.width > 0 ? `${i.bwpSize.width}×${i.bwpSize.height}` : dash;
+    // Frames the phone actually showed, next to what the host sent: a gap
+    // between the two is packet loss, which no host-side number can see.
+    const shown = i.bwpClient ? `${i.bwpClient.fps}${i.bwpClient.dropped > 0 ? ` (−${i.bwpClient.dropped})` : ''}` : dash;
     return [
       ['codec', i.bwpPath === 'gpu' ? 'H.264 · GPU' : 'H.264'],
       ['fps', fps],
+      ['shown', shown],
       ['rate', rate],
       ['cap', cap],
       ['source', size],
+      ...latencyRows(i),
       ['ping', ping],
       ['zoom', zoom],
     ];
   }
 
+  // On JPEG, say why when H.264 was a possibility: "the picture is worse
+  // than it could be" is worth one line, and the reason is the fix.
+  const fallback: readonly HudRow[] = i.bwpFallback ? [['h264', fallbackReasonText(i.bwpFallback)]] : [];
   return [
+    ...fallback,
     ['fps', `${i.stats.fps} / ${i.quality.fps}`],
     ['rate', `${i.stats.kbps} KB/s`],
     ['frame', `${Math.round(i.stats.frameBytes / 1024)} KB`],

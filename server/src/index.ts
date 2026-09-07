@@ -23,7 +23,7 @@ import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from '
 import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
-import { BwpSession } from './bwp-stream.js';
+import { BwpSession, bwpAvailable } from './bwp-stream.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { messageOf } from './errors.js';
@@ -251,6 +251,11 @@ app.get('/health', async (req, res) => {
     native: native.isReady(),
     nativeBuilt,
     paired: deviceCount() > 0,
+    // Whether this host can stream H.264 over UDP (the streamer binary is
+    // present). The phone makes BWP its default only when this is true, and
+    // never asks a host that says false — so a Mac host is never left waiting
+    // for an offer it cannot make.
+    bwp: bwpAvailable(),
     ...identity(),
   });
 });
@@ -505,7 +510,7 @@ app.get('/screen/info', auth, async (_req, res) => {
     // handle the webrtc verb (a helper built without BELAY_WEBRTC_BUILD=1 answers
     // "unknown command"). UI can use this to disable high-FPS/codec/audio controls
     // when gated by either the flag or the build.
-    res.json({ ...info, webrtc: webrtcEnabled() });
+    res.json({ ...info, webrtc: webrtcEnabled(), bwp: bwpAvailable() });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 

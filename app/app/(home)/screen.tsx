@@ -87,6 +87,7 @@ import {
 } from '../../src/screen/stream';
 import { BelayStreamView } from '../../modules/belay-stream/src';
 import { nowLine, qualityDescription } from '../../src/screen/hud';
+import { fallbackReasonText, type BwpPreference } from '../../src/screen/bwp-policy';
 import { useViewport } from '../../src/screen/viewport';
 import { useRemoteCursors } from '../../src/screen/cursors-store';
 import { RemoteCursors } from '../../src/screen/cursors-overlay';
@@ -148,6 +149,12 @@ import { loadHintSeen, persistHintSeen } from '../../src/home/hint-store';
 // the row floats and rides the keyboard's top edge. Android's adjustResize
 // shrinks the window above the keyboard and the web has no on-screen keyboard
 // at all, so both keep the row inline in the control column.
+const BWP_CHOICES: readonly { value: BwpPreference; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'on', label: 'H.264' },
+  { value: 'off', label: 'JPEG' },
+];
+
 const TYPE_ROW_FLOATS = Platform.OS === 'ios';
 
 export default function ScreenTab() {
@@ -160,6 +167,10 @@ export default function ScreenTab() {
   const gaming = useGaming(active, `${connection?.host ?? ''}|${connection?.token ?? ''}`);
 
   const [qualityId, setQualityId] = useState<QualityId>(DEFAULT_QUALITY);
+  // The H.264 switch. 'auto' is the default and means "whenever the host can";
+  // the other two exist for the moment a user needs to prove which path is
+  // misbehaving. Not persisted: a forced choice is a diagnostic, not a setting.
+  const [bwpPreference, setBwpPreference] = useState<BwpPreference>('auto');
   // The NEW true-resolution axis (Parsec-style), orthogonal to quality:
   // `resolutionId` picks WHAT the host renders, quality picks how it is encoded.
   // Defaults to the physical screen, which every host can do; the virtual
@@ -265,7 +276,14 @@ export default function ScreenTab() {
     [selectedScreen, screens]
   );
 
-  const stream = useScreenStream(active, quality, screenIndex, virtualRequest, gaming.enabled);
+  // The host's H.264 flag comes from the same /screen/info poll as everything
+  // else about it; undefined until the first answer, which the policy treats
+  // as "ask and see" rather than "no".
+  const bwpOptions = useMemo(
+    () => ({ preference: bwpPreference, hostBwp: facts.info?.bwp }),
+    [bwpPreference, facts.info?.bwp],
+  );
+  const stream = useScreenStream(active, quality, screenIndex, virtualRequest, gaming.enabled, bwpOptions);
 
   // Only the presets this host can actually honour. Performance and Ultra need
   // a hardware encoder; offering them to a host without one costs the user a
@@ -894,6 +912,7 @@ export default function ScreenTab() {
             {stream.bwp && BelayStreamView ? (
               <BelayStreamView
                 source={stream.bwp}
+                onStatus={(e) => stream.onBwpStatus(e.nativeEvent)}
                 style={{ width: '100%', height: '100%' }}
               />
             ) : stream.frameUri ? (
@@ -930,6 +949,8 @@ export default function ScreenTab() {
               bwp={stream.bwpStats}
               bwpSize={stream.bwp ? { width: stream.bwpWidth, height: stream.bwpHeight } : null}
               bwpPath={stream.bwpPath}
+              bwpClient={stream.bwpClient}
+              bwpFallback={stream.bwpFallback}
               topInset={immersive ? insets.top : 0}
             />
           ) : null}
@@ -1218,6 +1239,29 @@ export default function ScreenTab() {
               zoom: viewport.zoom,
             })}
           </Caption>
+
+          {/* The H.264 switch. Only worth showing when this build can receive
+              it at all; on a build without the native module the JPEG path
+              is the whole story and a disabled switch would only raise the
+              question it cannot answer. */}
+          {BelayStreamView ? (
+            <>
+              <SegmentedControl
+                testID="video-path-options"
+                accessibilityLabel="Video path"
+                value={bwpPreference}
+                onChange={setBwpPreference}
+                options={BWP_CHOICES}
+              />
+              <Caption>
+                {stream.bwpPath !== null
+                  ? 'Streaming H.264 over UDP.'
+                  : stream.bwpFallback
+                    ? `JPEG over the control socket — ${fallbackReasonText(stream.bwpFallback)}.`
+                    : 'JPEG over the control socket.'}
+              </Caption>
+            </>
+          ) : null}
 
           {/* True-resolution picker — only when the host advertises the virtual
               display driver. On every other host the physical-downscale path

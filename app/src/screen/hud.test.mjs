@@ -150,3 +150,40 @@ test('a missing ping shows a dash rather than null', () => {
   assert.equal(r.ping, '—');
   assert.match(nowLine({ ...base, pingMs: null }), /ping —$/);
 });
+
+// Glass-to-glass is not observable end to end; the round trip and the host's
+// encode time are the two parts that are, and both must be shown when known.
+test('the H.264 readout shows the round trip and encode time when known', () => {
+  const hostOnly = rowMap(hudRows({
+    ...base,
+    stats: idleStats,
+    bwpPath: 'gpu',
+    bwp: { fps: 60, kbps: 1500, bitrate: 2e6, keyframeRequests: 0, encodeMs: 3.6, rttMs: 12.4 },
+  }));
+  assert.equal(hostOnly.rtt, '12 ms');
+  assert.equal(hostOnly.encode, '4 ms');
+  assert.equal(hostOnly.shown, '—');
+
+  // The phone's own measurement wins over the host's once it exists.
+  const both = rowMap(hudRows({
+    ...base,
+    stats: idleStats,
+    bwpPath: 'gpu',
+    bwp: { fps: 60, kbps: 1500, bitrate: 2e6, keyframeRequests: 1, encodeMs: 3.6, rttMs: 12.4 },
+    bwpClient: { fps: 58, dropped: 2, keyframeRequests: 1, rttMs: 9 },
+  }));
+  assert.equal(both.rtt, '9 ms');
+  assert.equal(both.shown, '58 (−2)');
+
+  const unknown = rowMap(hudRows({ ...base, stats: idleStats, bwpPath: 'gpu', bwp: null }));
+  assert.equal(unknown.rtt, '—');
+  assert.equal(unknown.encode, '—');
+});
+
+test('on JPEG the readout says why H.264 is not carrying the picture', () => {
+  const r = rowMap(hudRows({ ...base, bwpFallback: 'timeout' }));
+  assert.equal(r.h264, 'no H.264 frames arrived');
+  assert.equal(r.fps, `11 / ${quality.fps}`);
+  // No reason, no row: a Mac host that never could is not a fallback.
+  assert.equal(rowMap(hudRows(base)).h264, undefined);
+});
