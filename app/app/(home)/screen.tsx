@@ -3,7 +3,7 @@
 // Desktop-first IA: this is the first thing a connected user sees and the
 // surface everything else opens over. There is no tab bar any more; the
 // control bar at the bottom (src/screen/dock.tsx) carries the pointer modes,
-// the KEYS toggle, zoom, and TOOLS — the drawer that slides Agent, Terminal,
+// Keyboard, zoom, and TOOLS — the drawer that slides Agent, Terminal,
 // Files and System up over the picture.
 //
 // Orientation: portrait shows header + stage + docked control bar, with an
@@ -44,14 +44,14 @@ import type { Size } from '../../src/screen/model';
 import { aspectOf, isMacHost, readPermissions, useHostFacts, useScreenStream } from '../../src/screen/stream';
 import { useViewport } from '../../src/screen/viewport';
 import { useRemoteCursors } from '../../src/screen/cursors-store';
-import { NoticeArea } from '../../src/screen/parts';
+import { KeyBar, NoticeArea } from '../../src/screen/parts';
 import { EdgeRevealStrip } from '../../src/screen/edge-reveal';
 import { useScreenBack } from '../../src/screen/use-screen-back';
 import { PAD_CURSOR_LINGER_MS } from '../../src/screen/trackpad';
 import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
 import { ClipboardSheet } from '../../src/screen/clipboard-sheet';
 import { StreamSettingsSheet } from '../../src/screen/stream-settings-sheet';
-import { HostAudio } from '../../src/stream/audio-player';
+import { HostAudio, type HostAudioStatus } from '../../src/stream/audio-player';
 import { ToolDrawer } from '../../src/home/tool-drawer';
 import { ControlColumn } from '../../src/screen/control-column';
 import { DockedControls, FloatingDock } from '../../src/screen/floating-dock';
@@ -87,12 +87,14 @@ export default function ScreenTab() {
   const reducedMotion = useReducedMotion();
   const focused = useIsFocused();
   const active = Boolean(connection) && focused;
-  const gaming = useGaming(active, `${connection?.host ?? ''}|${connection?.token ?? ''}`);
+  const mascot = useMascotLatch();
+  const gaming = useGaming(active, `${connection?.host ?? ''}|${connection?.token ?? ''}`, mascot.keepUpright);
 
-  const view = useImmersive(gaming.enabled);
+  const view = useImmersive(gaming.enabled, gaming.exitCount);
   const { immersive, fullscreen, landscape } = view;
   const presets = useStreamPresets(active, view.device);
   const sheets = useScreenSheets();
+  const [audioStatus, setAudioStatus] = useState<HostAudioStatus>({ phase: 'off' });
   const [box, setBox] = useState<Size>(EMPTY_SIZE);
 
   // The tab navigator keeps every visited route mounted, so `connection` alone
@@ -136,7 +138,7 @@ export default function ScreenTab() {
 
   const tools = useToolsHint();
   const typing = useTypeRow(reportError);
-  const dock = useDockState({ immersive, typeOpen: typing.typeOpen, dismissHint: tools.dismissHint });
+  const dock = useDockState({ immersive, typeOpen: typing.typeOpen });
   const keys = useKeySender({ isMac, reportError });
 
   // The deadspace pad drives the shared cursor whatever the pointer mode is;
@@ -179,7 +181,6 @@ export default function ScreenTab() {
   }, [facts, stream]);
 
   const record = useRecordControls({ active, screenIndex, reportError });
-  const mascot = useMascotLatch();
   // The explicit way off the desktop. The navigator's swipe-back is off on
   // this route (app/_layout.tsx): it ran full-width on iOS 26 and ate
   // trackpad drags on the black stage. Portrait carries it as the header's
@@ -189,6 +190,10 @@ export default function ScreenTab() {
   const openHelp = sheets.opener('help');
   const openMenu = sheets.opener('menu');
   const openGaming = useCallback(() => gaming.setSheet(true), [gaming.setSheet]);
+  const toggleKeyboard = useCallback(() => {
+    tools.dismissHint();
+    typing.toggleType();
+  }, [tools.dismissHint, typing.toggleType]);
 
   const showPanelState = panelStateShown({
     captureBlocked: permissions.captureBlocked,
@@ -199,20 +204,35 @@ export default function ScreenTab() {
   const typeRow = (
     <TypeRow text={typing.text} onChangeText={typing.setText} onSend={typing.sendText} onClose={typing.closeType} />
   );
+  const keyBar = (
+    <KeyBar
+      mac={isMac}
+      mods={keys.mods}
+      onKey={keys.sendKey}
+      onRepeat={keys.repeatKey}
+      onMod={keys.tapModifier}
+      floating={immersive}
+      testID="key-bar"
+    />
+  );
+  const keyboardSurface = typing.typeOpen && !TYPE_ROW_FLOATS ? (
+    <View style={{ gap: theme.space.xs }}>
+      {keyBar}
+      {typeRow}
+    </View>
+  ) : null;
 
   const controls = (
     <ControlColumn
-      isMac={isMac}
       immersive={immersive}
-      keys={keys}
       dock={dock}
       monitors={monitors}
       viewport={viewport}
       tools={tools}
       hint={hintVisible({ immersive, hintSeen: tools.hintSeen, connected: Boolean(connection) })}
-      typeRow={typing.typeOpen && !TYPE_ROW_FLOATS ? typeRow : null}
+      keyboardSurface={keyboardSurface}
       typeOpen={typing.typeOpen}
-      onToggleType={typing.toggleType}
+      onToggleType={toggleKeyboard}
       onOpenGaming={openGaming}
       onOpenMonitorPicker={sheets.opener('monitor')}
       recordPhase={record.recordPhase}
@@ -240,7 +260,7 @@ export default function ScreenTab() {
 
       {/* The host-audio sink (hidden). Gated on `active` too, so leaving the
           tab or backgrounding stops the socket and the speaker with it. */}
-      <HostAudio enabled={sheets.audioOn} connected={active} />
+      <HostAudio enabled={sheets.audioOn} connected={active} onStatus={setAudioStatus} />
 
       {!immersive ? (
         <ScreenHeader
@@ -323,6 +343,7 @@ export default function ScreenTab() {
       {/* The type-to-PC row, floating on the keyboard's top edge (iOS). */}
       {typing.typeOpen && TYPE_ROW_FLOATS && !gaming.enabled ? (
         <FloatingTypeBar lift={typing.typeBarLift} immersive={immersive}>
+          {keyBar}
           {typeRow}
         </FloatingTypeBar>
       ) : null}
@@ -376,6 +397,7 @@ export default function ScreenTab() {
         streamSettings={sheets.streamSettings}
         showHud={sheets.showHud}
         audioOn={sheets.audioOn}
+        audioStatus={audioStatus}
         onOpenQuality={sheets.fromMenu('quality')}
         onOpenStreamSettings={sheets.fromMenu('streamSettings')}
         onToggleHud={sheets.toggleHud}

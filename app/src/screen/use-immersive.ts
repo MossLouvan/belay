@@ -25,7 +25,7 @@ export interface Immersive {
   readonly toggleFullscreen: () => void;
 }
 
-export function useImmersive(gamingEnabled: boolean): Immersive {
+export function useImmersive(gamingEnabled: boolean, gamingExitCount = 0): Immersive {
   const [fullscreen, setFullscreen] = useState(false);
 
   // "Match my phone" needs the device's own pixel size (logical points × the
@@ -54,7 +54,12 @@ export function useImmersive(gamingEnabled: boolean): Immersive {
   const landscape = isLandscape(window.width, window.height);
   const immersive = isImmersive({ gaming: gamingEnabled, fullscreen, landscape });
   const previousLandscape = useRef(landscape);
+  const previousGamingExit = useRef(gamingExitCount);
   useEffect(() => {
+    if (gamingExitCount !== previousGamingExit.current) {
+      previousGamingExit.current = gamingExitCount;
+      setFullscreen(false);
+    }
     // Only a fresh rotation clears portrait fullscreen. Leaving Gaming while
     // its landscape lock is restoring must preserve the previous Full choice.
     const clear = shouldClearFullscreen({
@@ -65,7 +70,7 @@ export function useImmersive(gamingEnabled: boolean): Immersive {
     });
     if (clear) setFullscreen(false);
     previousLandscape.current = landscape;
-  }, [landscape, fullscreen, gamingEnabled]);
+  }, [landscape, fullscreen, gamingEnabled, gamingExitCount]);
 
   const toggleFullscreen = useCallback(() => {
     // The floating type bar is anchored to the root layout's bottom edge; the

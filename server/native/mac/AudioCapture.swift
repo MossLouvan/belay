@@ -1,8 +1,9 @@
 // System-audio capture via ScreenCaptureKit — the driverless loopback path.
 //
-// STATUS: COMPILES (build-mac.sh, Swift 6 toolchain) BUT NOT RUNTIME-VERIFIED.
-// Nobody has heard audio out of this stream yet; treat it as API-shape-correct
-// until the runbook in docs/AUDIO.md produces sound on a phone.
+// Native capture verified with nonzero PCM on macOS 26. The smoke test must
+// await audiostart success before playing its tone; starting the tone during
+// SCK initialization gave false silent-capture results. Phone speaker playback
+// is a separate check from this native capture test.
 //
 // Why ScreenCaptureKit and not a virtual audio driver: `capturesAudio`
 // (macOS 13+) taps the system mix directly and rides the SAME TCC grant the

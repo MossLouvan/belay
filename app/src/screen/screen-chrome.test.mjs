@@ -60,10 +60,9 @@ test('only a fresh rotation into landscape clears portrait fullscreen', () => {
 });
 
 test('the dock auto-hides only while immersive and idle', () => {
-  assert.equal(dockAutoHides({ immersive: true, typeOpen: false, keysOn: false }), true);
-  assert.equal(dockAutoHides({ immersive: false, typeOpen: false, keysOn: false }), false);
-  assert.equal(dockAutoHides({ immersive: true, typeOpen: true, keysOn: false }), false, 'typing');
-  assert.equal(dockAutoHides({ immersive: true, typeOpen: false, keysOn: true }), false, 'key bar open');
+  assert.equal(dockAutoHides({ immersive: true, keyboardOpen: false }), true);
+  assert.equal(dockAutoHides({ immersive: false, keyboardOpen: false }), false);
+  assert.equal(dockAutoHides({ immersive: true, keyboardOpen: true }), false, 'keyboard panel open');
 });
 
 test('the armed one-shot button toggles off when pressed again', () => {

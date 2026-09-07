@@ -19,6 +19,8 @@ import { applyOrientationLock } from './orientation-native';
 
 export interface MascotLatch {
   readonly onMascotPress: () => void;
+  /** Pin the screen upright after an explicit controller fullscreen exit. */
+  readonly keepUpright: () => Promise<void>;
   /** The spoken contract on the avatar, naming what the next tap does. */
   readonly mascotLabel: string;
 }
@@ -37,6 +39,10 @@ export function useMascotLatch(): MascotLatch {
       return next;
     });
   }, []);
+  const keepUpright = useCallback(() => {
+    setOrientationLock('portrait');
+    return applyOrientationLock('portrait');
+  }, []);
   // Leaving the screen hands rotation back — the latch is a Screen-view
   // stance, not an app-wide setting the other surfaces inherit.
   useEffect(
@@ -47,5 +53,5 @@ export function useMascotLatch(): MascotLatch {
   );
   const mascotLabel = mascotAccessibilityLabel(orientationLock);
 
-  return { onMascotPress, mascotLabel };
+  return { onMascotPress, keepUpright, mascotLabel };
 }

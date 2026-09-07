@@ -1,8 +1,8 @@
 // The control bar under (or, when immersive, floating over) the desktop.
 //
 // Desktop-first IA: with the tab bar gone this is the app's ONE bar, so it
-// carries the two things the old layout hid — KEYS, now a labelled toggle in
-// the primary row instead of an eye buried on the stage, and TOOLS, the way
+// carries the two things the old layout hid — Keyboard, now one labelled key
+// for typing and special keys, and TOOLS, the way
 // into Agent/Terminal/Files/System via the drawer. Every control keeps its
 // wide-tracked mono label — the discoverability doctrine forbids bare icons
 // outside the universal five (docs/DESIGN.md §11.1) — and the active state is
@@ -15,10 +15,7 @@
 // underline trio reads as caption text and the founder could not find the
 // mode switch at all. They now render through ModeSwitch (src/screen/
 // mode-switch.tsx) — a bordered, full-height segmented strip with the active
-// mode solid-filled — and KEYS is the same boxed language beside it, so the
-// dock's primary row is unmistakably "the controls". The scrim-contrast
-// concern that ruled out the shared SegmentedControl is handled inside
-// ModeSwitch with the same dark-ink override DockKey uses.
+// mode solid-filled, so the primary row is unmistakably "the controls".
 
 import type { ScreenMode } from './dock-modes';
 import React, { useState } from 'react';
@@ -26,7 +23,7 @@ import { Text, View } from 'react-native';
 import { font, getTheme, useTheme } from '../theme';
 import { Row, TrackLabel } from '../ui';
 import { HUD } from './parts';
-import { BoxedToggle, ModeSwitch } from './mode-switch';
+import { ModeSwitch } from './mode-switch';
 import type { MonitorChoice } from './monitors';
 import { recordKeyLabel } from './record';
 import { layoutDockKeys } from './dock-layout';
@@ -160,10 +157,6 @@ export interface ControlDockProps {
   onInteract?: () => void;
   /** Opens the clipboard sync sheet. Optional so the key is purely additive. */
   onOpenClipboard?: () => void;
-  /** The on-screen key bar: shown state + toggle. Lives in the primary row so
-   *  the keys are never again "the one thing hidden somewhere else". */
-  keysOn: boolean;
-  onToggleKeys: () => void;
   /** Opens the tool drawer (Agent, Terminal, Files, System). */
   onOpenTools: () => void;
   /** Opens the Agent surface directly — the product's real differentiator
@@ -212,8 +205,6 @@ export function ControlDock({
   floating = false,
   onInteract,
   onOpenClipboard,
-  keysOn,
-  onToggleKeys,
   onOpenTools,
   onOpenAgent,
   onOpenMenu,
@@ -268,20 +259,6 @@ export function ControlDock({
           }}
           floating={floating}
           style={{ flex: 1 }}
-        />
-        {/* KEYS, in the same boxed language at the same height (founder's
-            call: the on-screen keys were the one control hidden somewhere
-            else — an eye glyph on the stage — and nobody found them). Filled
-            while the key bar is up, right beside the modes so it cannot be
-            missed. */}
-        <BoxedToggle
-          testID="toggle-keys"
-          label="Keys"
-          accessibilityLabel={keysOn ? 'Hide the on-screen keys' : 'Show the on-screen keys'}
-          accessibilityHint="Esc, Tab, Ctrl, arrows and shortcuts for the computer"
-          active={keysOn}
-          floating={floating}
-          onPress={wrap(onToggleKeys)}
         />
         {/* ZOOM is one key, not a −/×/+ stepper: two fingers on the picture
             already zoom, and the three-key strip was what starved the mode
@@ -424,8 +401,9 @@ export function ControlDock({
           ) : null}
           <DockKey
             testID="toggle-type"
-            label="Type"
-            accessibilityLabel={typeOpen ? 'Hide the text field' : 'Type text on the PC'}
+            label="Keyboard"
+            accessibilityLabel={typeOpen ? 'Hide the keyboard controls' : 'Open the keyboard controls'}
+            accessibilityHint="Type text or hold special keys like a regular keyboard"
             active={typeOpen}
             floating={floating}
             onPress={wrap(onToggleType)}

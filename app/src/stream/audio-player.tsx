@@ -10,11 +10,9 @@
 // the clock, so the crash-safety and correctness live in the tested modules.
 //
 // iOS realities handled here:
-//   * Audio session / route: WKWebView owns its own AVAudioSession; we ask it
-//     to allow inline, no-gesture playback. See the SMOKE TEST note below for
-//     the one thing that genuinely needs a device to confirm.
-//   * Autoplay gesture: the audio toggle press is the user gesture; start()
-//     resumes the context from it.
+//   * Audio session / route: the page requests the playback session so iPhone
+//     Silent mode does not mute host sound. The WebView permits autoplay;
+//     an app-level tap is not a DOM user gesture inside a different process.
 //   * Backgrounding: an AppState listener suspends the whole pipeline (socket,
 //     timer, context) when the app leaves the foreground and rebuilds it on
 //     return — no audio runs, and no half-open socket lingers.
@@ -23,14 +21,8 @@
 //   * Teardown: closing the effect closes the socket, clears the timer, and
 //     tells the sink to suspend — clean on mute, disconnect, or unmount.
 //
-// SMOKE TEST (needs a device + a running BELAY_WEBRTC host — both offline in
-// this env): confirm sound actually leaves the speaker, and that it plays when
-// the phone's ringer switch is on silent. WKWebView media typically uses the
-// Playback session category (audible in silent mode), but that is not something
-// this repo can assert without hardware. If it is silent-mode-muted, the follow
-// up is a tiny native audio-session set (or adding expo-audio only to call
-// setAudioModeAsync) — noted, not done, because it needs a build this env can't
-// run.
+// Device check: listen with iPhone Silent mode on and off, then background and
+// foreground the app. Audio uses /ws/audio in the default host build.
 
 import React, { useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
@@ -42,8 +34,9 @@ import { AUDIO_FRAME_MS } from './webrtc/audio-frames';
 import { AudioReceiver } from './webrtc/audio-stream';
 import { instructionFor } from './audio-output';
 import { AUDIO_PLAYER_HTML } from './audio-player-html';
-
-const SOCKET_OPEN = 1;
+import { shouldMountAudioSink } from './audio-sink-policy';
+import { connectHostAudio, type HostAudioStatus } from './audio-connection';
+export type { HostAudioStatus } from './audio-connection';
 
 export interface HostAudioProps {
   /** Play host audio. Default-off, opt-in: the parent passes true only while
@@ -51,6 +44,9 @@ export interface HostAudioProps {
   readonly enabled: boolean;
   /** True once a computer is paired; the ws ticket is fetched against it. */
   readonly connected: boolean;
+  /** Report actual playback/connection state rather than treating the toggle
+   *  itself as evidence that audio is reaching the speaker. */
+  readonly onStatus?: (status: HostAudioStatus) => void;
 }
 
 /**
@@ -58,8 +54,10 @@ export interface HostAudioProps {
  * it. Renders nothing visible. Native-only: on web (react-native-web) audio
  * playback is out of scope, so it no-ops rather than fighting iframe autoplay.
  */
-export function HostAudio({ enabled, connected }: HostAudioProps) {
+export function HostAudio({ enabled, connected, onStatus }: HostAudioProps) {
   const webRef = useRef<WebViewType | null>(null);
+  const statusRef = useRef(onStatus);
+  statusRef.current = onStatus;
   // Foreground state as its own ref+trigger so backgrounding tears the pipeline
   // down without the parent knowing about AppState.
   const foregroundRef = useRef(AppState.currentState === 'active');
@@ -68,6 +66,14 @@ export function HostAudio({ enabled, connected }: HostAudioProps) {
   const loadedRef = useRef(false);
   // Defer start() until the WebView signals ready
   const pendingStartRef = useRef(false);
+  const active = enabled && connected && foreground && Platform.OS !== 'web';
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  const report = (status: HostAudioStatus): void => {
+    if (status.phase === 'error') console.warn('[audio]', status.message);
+    statusRef.current?.(status);
+  };
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
@@ -97,71 +103,42 @@ export function HostAudio({ enabled, connected }: HostAudioProps) {
     }
   };
 
-  const active = enabled && connected && foreground && Platform.OS !== 'web';
-
   useEffect(() => {
     if (!active) {
+      report({ phase: 'off' });
       // Audio disabled: mark no pending start
       pendingStartRef.current = false;
-      loadedRef.current = false;
+      // The sink now stays mounted while connected, so keep its ready state
+      // across mute/unmute. A disconnect unmounts it and must reset readiness
+      // before a later host session creates a fresh WebView.
+      if (!connected) loadedRef.current = false;
       return;
     }
 
-    let disposed = false;
-    let socket: WebSocket | null = null;
     let timer: ReturnType<typeof setInterval> | undefined;
     // A fresh receiver per run: a new socket is a new stream, and the jitter
     // buffer's reset heuristic keys off seq bases within one receiver's life.
-    const receiver = new AudioReceiver();
+    let receiver = new AudioReceiver();
 
-    // Resume the audio context off the user's toggle gesture. If the WebView
-    // is loaded, start now; otherwise defer until onLoad.
+    // The WebView explicitly permits autoplay. If it is not ready, defer start.
     if (loadedRef.current) {
       inject('__belayAudio.start()');
     } else {
       pendingStartRef.current = true;
     }
 
-    const open = async (): Promise<void> => {
-      let url: string;
-      try {
-        url = await wsUrl('/ws/audio');
-      } catch (e: unknown) {
-        // Unauthorized is terminal (unpaired); any other failure just means no
-        // audio this run. Either way, stay silent rather than crash — audio is
-        // an opt-in extra, never a reason to break the screen tab.
-        if (e instanceof UnauthorizedError) return;
-        return;
-      }
-      if (disposed) return;
-
-      const ws = new WebSocket(url);
-      // Binary wire frames (audio-frames.ts); arraybuffer so `event.data` is an
-      // ArrayBuffer we can wrap directly, not a Blob needing async reads.
-      ws.binaryType = 'arraybuffer';
-      socket = ws;
-
-      ws.onmessage = (event: { data: unknown }): void => {
-        // Everything off the wire is untrusted. onWireBytes never throws on a
-        // malformed frame (the framing tests pin that), but the ArrayBuffer
-        // wrap is still guarded — a text control frame (e.g. an error JSON) is
-        // not an ArrayBuffer and must not blow up the handler.
-        try {
-          if (!(event.data instanceof ArrayBuffer)) return;
-          receiver.onWireBytes(new Uint8Array(event.data), Date.now());
-        } catch {
-          /* drop the frame, keep the stream alive */
-        }
-      };
-      // A dead/failed socket just means silence; the parent's enable gate and
-      // the screen tab's own reconnect own recovery. No retry storm here.
-      ws.onerror = () => {};
-      ws.onclose = () => {
-        if (socket === ws) socket = null;
-      };
-    };
-
-    void open();
+    const disconnectAudio = connectHostAudio({
+      getUrl: () => wsUrl('/ws/audio'),
+      createSocket: (url) => new WebSocket(url),
+      isUnauthorized: (error) => error instanceof UnauthorizedError,
+      onReset: () => {
+        receiver = new AudioReceiver();
+        // Re-arm the sink's first-frame notification after reconnecting.
+        inject('__belayAudio.start()');
+      },
+      onBytes: (bytes) => { receiver.onWireBytes(bytes, Date.now()); },
+      onStatus: report,
+    });
 
     // The playout clock. Every AUDIO_FRAME_MS we ask the jitter buffer what to
     // do and forward exactly that one verdict to the sink.
@@ -176,28 +153,20 @@ export function HostAudio({ enabled, connected }: HostAudioProps) {
     }, AUDIO_FRAME_MS);
 
     return () => {
-      disposed = true;
+      pendingStartRef.current = false;
       if (timer) clearInterval(timer);
-      if (socket && socket.readyState <= SOCKET_OPEN) {
-        try {
-          socket.close();
-        } catch {
-          /* already closing */
-        }
-      }
-      socket = null;
+      disconnectAudio();
       // Suspend the context so no scheduled tail keeps playing after mute.
       inject('__belayAudio.stop()');
     };
-  }, [active]);
+  }, [active, connected]);
 
-  // Web: no sink. Also lets react-native-web builds skip the WebView entirely.
-  if (Platform.OS === 'web') return null;
-
-  // The sink must stay mounted (a WKWebView must be in the tree to play), but
-  // it is invisible and untouchable. Rendered only while enabled+connected so
-  // there is no idle WebView when audio is off.
-  if (!enabled || !connected) return null;
+  // Keep the native view mounted for the whole connected session. Mounting it
+  // in response to the audio toggle changes the screen's native view hierarchy
+  // and can shift the desktop UI on iOS. The `active` effect above still owns
+  // all expensive work, so disabled audio has no socket, timer, or live context.
+  // Web has no sink; disconnected screens do not need to preload one.
+  if (!shouldMountAudioSink(Platform.OS, connected)) return null;
 
   return (
     <WebView
@@ -206,18 +175,44 @@ export function HostAudio({ enabled, connected }: HostAudioProps) {
       source={{ html: AUDIO_PLAYER_HTML }}
       // Web Audio needs JS; the document is our own static string, no network.
       javaScriptEnabled
-      // Let the context play without a per-media user gesture inside the page —
-      // the app-level toggle is the gesture, and start() resumes the context.
+      // The app-level toggle is not a DOM gesture inside this WebView.
       mediaPlaybackRequiresUserAction={false}
       allowsInlineMediaPlayback
+      onLoadStart={() => {
+        loadedRef.current = false;
+        pendingStartRef.current = activeRef.current;
+      }}
       // onLoad: the document has parsed and __belayAudio is available
       onLoad={onWebViewLoad}
-      // onMessage is what turns on the RN↔page bridge injectJavaScript rides;
-      // the page only posts diagnostic log lines, which carry no control data
-      // and are intentionally ignored here.
-      onMessage={() => {}}
-      // Fully hidden and inert: 1x1, transparent, no touches.
-      style={{ pointerEvents: 'none', position: 'absolute', width: 1, height: 1, opacity: 0 }}
+      onMessage={({ nativeEvent }) => {
+        try {
+          const message: unknown = JSON.parse(nativeEvent.data);
+          if (!message || typeof message !== 'object' || !('type' in message) || message.type !== 'audio'
+            || !('phase' in message)) return;
+          if (message.phase === 'ready') onWebViewLoad();
+          if (!activeRef.current) return;
+          if (message.phase === 'playing') report({ phase: 'playing' });
+          if (message.phase === 'error') {
+            report({ phase: 'error', message: 'message' in message && typeof message.message === 'string'
+              ? message.message : 'Could not play system audio.' });
+          }
+        } catch { /* Ignore malformed diagnostics from the page. */ }
+      }}
+      onError={() => {
+        if (activeRef.current) report({ phase: 'error', message: 'Could not load the system audio player.' });
+      }}
+      onContentProcessDidTerminate={() => {
+        loadedRef.current = false;
+        pendingStartRef.current = activeRef.current;
+        webRef.current?.reload();
+      }}
+      // react-native-webview wraps the native view in a flex:1 container. The
+      // wrapper must be absolute too or this hidden sink still reserves the
+      // desktop's remaining height and pushes the visible UI down.
+      containerStyle={{ pointerEvents: 'none', position: 'absolute', top: 0, left: 0, width: 1, height: 1, flex: 0, opacity: 0 }}
+      // Fully hidden and inert. Explicit offsets avoid Yoga's static-position
+      // fallback for an absolutely positioned child with no edge specified.
+      style={{ pointerEvents: 'none', position: 'absolute', top: 0, left: 0, width: 1, height: 1, opacity: 0 }}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     />

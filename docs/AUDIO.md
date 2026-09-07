@@ -52,7 +52,7 @@ media in the target architecture anyway (PERFORMANCE-PLAN §2).
 `cd app && npx tsc --noEmit && npm test` and
 `cd server && npx tsc --noEmit && npm test` are green with all of the above.
 
-### COMPILED AND PARTIALLY RUNTIME-VERIFIED (macOS) — with one honest caveat
+### COMPILED AND RUNTIME-VERIFIED (macOS)
 
 `server/native/mac/AudioCapture.swift` + the `audiostart|audiostop|audiostatus`
 verbs in `main.swift` and `ReplyWriter.push` in `Protocol.swift`.
@@ -64,28 +64,14 @@ Verified on this machine (M-series, macOS 26, `scripts/smoke-audio.py`):
   `audiostart` arrives.
 - `audiostart` → `{capturing:true, codec:"pcm16", sampleRate:48000, channels:2}`;
   `audiostatus`/`audiostop` behave; screen/input verbs unaffected.
-- `type:"audio"` frames flow at a **perfect 20 ms cadence** (585 contiguous
-  frames observed over ~12 s), seq contiguous, timestamp stepping exactly 960
+- `type:"audio"` frames flow at a **perfect 20 ms cadence** (251 frames in the
+  current smoke test, including 57 nonzero frames), seq contiguous, timestamp stepping exactly 960
   samples, 3840-byte PCM16-stereo payloads — the whole framing path is real.
 
-**CAVEAT — silent capture:** on this machine every delivered sample was ZERO
-even while audio was audibly playing (tested with both `afplay` and a Chromium
-tab playing a 440 Hz WebAudio tone; output device: built-in speakers, 48 kHz,
-not muted; delivered format confirmed float32 non-interleaved 2ch via
-`BELAY_AUDIO_DEBUG=1`). Delivery works; content is silence. Do **not** claim
-audio works end-to-end. Prime suspects, in order:
-
-1. **TCC audio attribution.** The helper runs ad-hoc-signed under a terminal's
-   responsible process. macOS 15+ splits "System Audio Recording" from screen
-   recording in places; a grant that satisfies `CGPreflightScreenCaptureAccess`
-   can still leave SCK zero-filling audio (zero-fill instead of an error is the
-   documented TCC failure mode for audio). Check *System Settings → Privacy &
-   Security → Screen & System Audio Recording* for the terminal/helper entry;
-   re-tick it (the ad-hoc CDHash changes each rebuild, invalidating old grants).
-2. macOS 26 behaviour change in SCK audio for display-filter streams (the
-   Sequoia era had documented audio-capture regressions).
-3. If both dead-end: switch to a CoreAudio process tap (`CATapDescription`,
-   macOS 14.2+) — the fallback this document already scopes.
+The old silent-capture result was a smoke-test race: `afplay` started before
+`audiostart` had completed, so the short test sound ended before ScreenCaptureKit
+was listening. The script now waits for the successful start reply before it
+plays the tone and exits nonzero if it receives no audible samples.
 
 Reproduce with: `python3 server/scripts/smoke-audio.py` (prints a
 SOUND CAPTURED / SILENT CAPTURE verdict).
@@ -131,11 +117,11 @@ helpers is the first follow-up after sound is verified.
 
 ## 4. Runbook: verifying on real devices
 
-macOS (start here — it is one caveat away):
+macOS:
 1. `cd server && npm run build:native` (audio is in the default build).
 2. `python3 scripts/smoke-audio.py` while music plays. Want: `SOUND CAPTURED`.
-   If `SILENT CAPTURE`: work the TCC checklist in §2, re-run.
-3. `BELAY_WEBRTC=1 npm start`, connect a WS client to `/ws/audio` (with a
+   If permission is denied, grant *Screen & System Audio Recording* and re-run.
+3. Start the server, connect a WS client to `/ws/audio` (with a
    ticket, as for `/ws/screen`), assert binary frames arrive and decode via
    `decodeAudioFrame` (the app module).
 4. On the phone (dev client): feed `/ws/audio` bytes into `AudioReceiver`, play

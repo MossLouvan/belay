@@ -8,6 +8,7 @@ import type { MonitorChoice } from './monitors';
 import type { QualityPreset } from './model';
 import { performanceSummary } from './screen-chrome';
 import type { StreamSettings } from './stream-settings-sheet';
+import type { HostAudioStatus } from '../stream/audio-player';
 
 export interface ScreenMenuSheetProps {
   readonly visible: boolean;
@@ -16,6 +17,7 @@ export interface ScreenMenuSheetProps {
   readonly streamSettings: StreamSettings;
   readonly showHud: boolean;
   readonly audioOn: boolean;
+  readonly audioStatus: HostAudioStatus;
   readonly onOpenQuality: () => void;
   readonly onOpenStreamSettings: () => void;
   readonly onToggleHud: () => void;
@@ -30,6 +32,7 @@ export function ScreenMenuSheet({
   streamSettings,
   showHud,
   audioOn,
+  audioStatus,
   onOpenQuality,
   onOpenStreamSettings,
   onToggleHud,
@@ -62,7 +65,11 @@ export function ScreenMenuSheet({
         <ListItem
           testID="toggle-audio"
           title="Host audio"
-          subtitle={audioOn ? 'Playing on this phone' : 'Off'}
+          subtitle={!audioOn ? 'Off'
+            : audioStatus.phase === 'playing' ? 'Playing on this phone'
+              : audioStatus.phase === 'connecting' ? 'Connecting…'
+                : audioStatus.phase === 'error' ? audioStatus.message ?? 'Could not play audio'
+                  : 'Starting…'}
           selected={audioOn}
           accessibilityHint="Plays the computer's system audio through this phone's speaker"
           onPress={onToggleAudio}

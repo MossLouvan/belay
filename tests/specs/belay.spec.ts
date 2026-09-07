@@ -96,9 +96,9 @@ test.describe('Belay', () => {
     await page.getByTestId('right-click').click();
     await page.getByTestId('screen-surface').click({ position: { x: 120, y: 70 } });
 
-    // The key bar is hidden until the keyboard button reveals it.
+    // The key bar is inside the Keyboard surface.
     await expect(page.getByTestId('key-Esc')).toHaveCount(0);
-    await page.getByTestId('stage-keys').click();
+    await page.getByTestId('toggle-type').click();
     await expect(page.getByTestId('key-Esc')).toBeVisible();
 
     // Page-1 keys each post to the host.
@@ -109,15 +109,14 @@ test.describe('Belay', () => {
     await page.getByTestId('key-Ctrl').click();
     await page.getByTestId('key-Esc').click();
 
-    // Hiding the key bar removes it again.
-    await page.getByTestId('stage-keys').click();
-    await expect(page.getByTestId('key-Esc')).toHaveCount(0);
-
-    // Text send lives behind the "Aa" toggle.
-    await page.getByTestId('toggle-type').click();
+    // Text send lives in the same Keyboard surface.
     await page.getByTestId('type-input').fill('hello from belay');
     await page.getByTestId('send-text').click();
     await expect(page.getByTestId('type-input')).toHaveValue('');
+
+    // Hiding the Keyboard surface removes the special keys too.
+    await page.getByTestId('toggle-type').click();
+    await expect(page.getByTestId('key-Esc')).toHaveCount(0);
   });
 
   test('terminal tab: runs a command and quick keys', async ({ page }) => {

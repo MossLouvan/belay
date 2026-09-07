@@ -494,6 +494,7 @@ export function KeyBar({ mac, mods, onKey, onRepeat, onMod, floating = false, te
           accessibilityLabel={`Keyboard keys, ${KEY_PAGES.length} pages`}
           nestedScrollEnabled
           directionalLockEnabled
+          keyboardShouldPersistTaps="handled"
         >
           {KEY_PAGES.map((keyPage, index) => (
             <Column key={index} gap="xs" style={{ width: pageWidth }}>

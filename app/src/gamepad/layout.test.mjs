@@ -19,3 +19,7 @@ test('invalid geometry is empty; sticks invert Y and clamp radially',()=>{
  assert.deepEqual(stickVector(0,-40,40),{x:0,y:1});
  const v=stickVector(80,80,40); assert.ok(Math.abs(Math.hypot(v.x,v.y)-1)<1e-9);
 });
+test('Fortnite center controls leave room for exit instructions and hold progress', () => {
+ const controls = gamepadLayout(568, 320, 'classic', 'fortnite', 44, 8);
+ for (const id of ['build', 'edit']) assert.ok(controls.find(c => c.id === id).y >= 100);
+});

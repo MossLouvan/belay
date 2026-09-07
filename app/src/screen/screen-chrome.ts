@@ -58,8 +58,7 @@ export const shouldClearFullscreen = ({ gaming, landscape, wasLandscape, fullscr
 
 export interface DockHideInputs {
   readonly immersive: boolean;
-  readonly typeOpen: boolean;
-  readonly keysOn: boolean;
+  readonly keyboardOpen: boolean;
 }
 
 /**
@@ -67,8 +66,8 @@ export interface DockHideInputs {
  * field or the key bar open the user is actively working the bar, and hiding
  * it under their thumbs would be hostile.
  */
-export const dockAutoHides = ({ immersive, typeOpen, keysOn }: DockHideInputs): boolean =>
-  immersive && !typeOpen && !keysOn;
+export const dockAutoHides = ({ immersive, keyboardOpen }: DockHideInputs): boolean =>
+  immersive && !keyboardOpen;
 
 /** The one-shot right/double buttons toggle: pressing the armed one disarms it. */
 export const toggleArmedButton = (current: PendingButton, target: Exclude<PendingButton, 'none'>): PendingButton =>

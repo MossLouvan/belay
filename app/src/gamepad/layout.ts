@@ -15,7 +15,8 @@ export function gamepadLayout(w: number, h: number, choice: LayoutChoice, preset
     cell('y', right + step, gap + step), cell('x', right, gap + 2 * step), cell('b', right + 2 * step, gap + 2 * step), cell('a', right + step, gap + 3 * step),
     cell('select', w / 2 - size - gap / 2, h - gap - size), cell('start', w / 2 + gap / 2, h - gap - size),
   ];
-  return preset === 'fortnite' ? [...base, cell('build', w / 2 - size - gap / 2, gap + step), cell('edit', w / 2 + gap / 2, gap + step)] : base;
+  // Keep the center's top two rows free for the labelled hold-to-exit HUD.
+  return preset === 'fortnite' ? [...base, cell('build', w / 2 - size - gap / 2, gap + 2 * step), cell('edit', w / 2 + gap / 2, gap + 2 * step)] : base;
 }
 export function stickVector(dx: number, dy: number, radius: number): { readonly x: number; readonly y: number } {
   'worklet';

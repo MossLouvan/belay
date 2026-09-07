@@ -70,6 +70,14 @@ test('every quick key from the old single-row bar is still reachable (Win became
   }
 });
 
+test('editing and navigation keys repeat when held like a physical keyboard', () => {
+  const repeatable = new Set(KEYS.filter((spec) => spec.repeatable).map((spec) => spec.id));
+  for (const id of ['Bksp', 'Del', 'Left', 'Up', 'Down', 'Right', 'Home', 'End', 'PgUp', 'PgDn']) {
+    assert.ok(repeatable.has(id), `${id} must repeat while held`);
+  }
+  assert.equal(repeatable.has('Enter'), false, 'actions that submit must not repeat');
+});
+
 test('pageIndexFor rounds to the nearest page and clamps both ends', () => {
   const pages = KEY_PAGES.length;
   assert.equal(pageIndexFor(0, 320, pages), 0);

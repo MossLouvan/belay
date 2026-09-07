@@ -4,8 +4,8 @@
 //
 // It exposes one global, `window.__belayAudio`, that the RN side drives over
 // the WebView bridge (injectJavaScript):
-//   start()          — create/resume the AudioContext (must follow a user
-//                      gesture on iOS; the audio toggle is that gesture) and
+//   start()          — select the media playback session and create/resume the
+//                      AudioContext (the WebView permits autoplay), then
 //                      arm a fresh playhead.
 //   enqueue(b64)     — decode base64 interleaved-Float32 (48 kHz stereo) and
 //                      schedule it gaplessly right after the current playhead.
@@ -36,15 +36,29 @@ export const AUDIO_PLAYER_HTML = `<!doctype html><html><head><meta charset="utf-
 
   var ctx = null;
   var playhead = 0; // next scheduled start time on the audio clock, in seconds
+  var active = false;
+  var generation = 0;
+  var sources = [];
+  var reportedPlaying = false;
+  var resuming = false;
+  var nextResumeAt = 0;
 
-  function log(msg) {
-    // Surface player-side errors to RN's console without ever throwing on a
-    // platform where the bridge is missing.
+  function report(phase, message) {
     try {
       if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-        window.ReactNativeWebView.postMessage(String(msg));
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'audio', phase: phase, message: message }));
       }
     } catch (e) {}
+  }
+
+  function log(msg) { report('error', String(msg)); }
+
+  function setSession(type) {
+    // Web Audio defaults to ambient on iOS, which obeys the Silent switch.
+    // iOS 17+ exposes this supported way to request audible media playback.
+    try {
+      if (typeof navigator !== 'undefined' && navigator.audioSession) navigator.audioSession.type = type;
+    } catch (e) { log('Could not configure system audio playback: ' + e); }
   }
 
   function ensureCtx() {
@@ -54,11 +68,48 @@ export const AUDIO_PLAYER_HTML = `<!doctype html><html><head><meta charset="utf-
       if (!Ctor) { log('audio: no AudioContext'); return null; }
       // Ask for the native 48 kHz so no implicit resample runs on every buffer.
       ctx = new Ctor({ sampleRate: SAMPLE_RATE });
+      ctx.onstatechange = function () {
+        if (!active) return;
+        if (ctx.state === 'running') playhead = ctx.currentTime + PREBUFFER_S;
+        else resumeCtx();
+      };
     } catch (e) {
       log('audio: ctx create failed ' + e);
       ctx = null;
     }
     return ctx;
+  }
+
+  function discardSources() {
+    var stale = sources;
+    sources = [];
+    stale.forEach(function (source) {
+      try { source.stop(); source.disconnect(); } catch (e) {}
+    });
+  }
+
+  // iOS can interrupt an already running context without changing AppState or
+  // closing the socket. Recover on statechange and on incoming frames (WebKit
+  // does not always emit the event). Never accumulate audio while interrupted.
+  function resumeCtx() {
+    var c = ctx;
+    if (!active || !c || c.state === 'running' || c.state === 'closed') return;
+    discardSources();
+    reportedPlaying = false;
+    playhead = c.currentTime + PREBUFFER_S;
+    if (resuming || Date.now() < nextResumeAt || !c.resume) return;
+    resuming = true;
+    nextResumeAt = Date.now() + 1000;
+    var run = generation;
+    setSession('playback');
+    c.resume().then(function () {
+      resuming = false;
+      if (!active && generation !== run && c.suspend) return c.suspend();
+      if (c.state === 'running') nextResumeAt = 0;
+    }).catch(function (e) {
+      resuming = false;
+      if (active && generation === run) log('Could not start system audio: ' + e);
+    });
   }
 
   // Keep the playhead at or ahead of the live clock with a small cushion.
@@ -82,16 +133,20 @@ export const AUDIO_PLAYER_HTML = `<!doctype html><html><head><meta charset="utf-
 
   window.__belayAudio = {
     start: function () {
+      active = true;
+      reportedPlaying = false;
+      ++generation;
+      nextResumeAt = 0;
+      setSession('playback');
       var c = ensureCtx();
       if (!c) return;
-      // resume() needs a user gesture on iOS; RN calls start() from the audio
-      // toggle press, which is that gesture.
-      if (c.state === 'suspended' && c.resume) c.resume().catch(function (e) { log('audio: resume ' + e); });
+      resumeCtx();
       playhead = c.currentTime + PREBUFFER_S;
     },
     enqueue: function (b64) {
-      var c = ensureCtx();
-      if (!c) return;
+      var c = ctx;
+      if (!active || !c) return;
+      if (c.state !== 'running') { resumeCtx(); return; }
       try {
         var inter = decode(b64);
         var frames = (inter.length / CHANNELS) | 0;
@@ -106,26 +161,38 @@ export const AUDIO_PLAYER_HTML = `<!doctype html><html><head><meta charset="utf-
         var src = c.createBufferSource();
         src.buffer = ab;
         src.connect(c.destination);
+        sources.push(src);
+        src.onended = function () {
+          var index = sources.indexOf(src);
+          if (index >= 0) sources.splice(index, 1);
+          src.disconnect();
+        };
         var at = floor();
         src.start(at);
         playhead = at + ab.duration;
+        if (!reportedPlaying) { reportedPlaying = true; report('playing'); }
       } catch (e) {
         // A malformed frame must never wedge the player — drop it, keep going.
         log('audio: enqueue ' + e);
       }
     },
     silence: function () {
-      if (!ctx) return;
+      if (!active || !ctx) return;
+      if (ctx.state !== 'running') { resumeCtx(); return; }
       floor();
       playhead += FRAME_S;
     },
     stop: function () {
-      if (ctx && ctx.state === 'running' && ctx.suspend) {
+      active = false;
+      generation += 1;
+      discardSources();
+      if (ctx && ctx.state !== 'closed' && ctx.suspend) {
         ctx.suspend().catch(function (e) { log('audio: suspend ' + e); });
       }
+      setSession('auto');
     },
   };
 
-  log('audio: player ready');
+  report('ready');
 })();
 </script></body></html>`;
