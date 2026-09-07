@@ -90,7 +90,7 @@ export function GamingSheet({ gaming }: { readonly gaming: GamingState }) {
       <SegmentedControl accessibilityLabel="Touch layout" value={gaming.layout} onChange={gaming.setLayout} options={[{ value: 'classic', label: 'Classic' }, { value: 'southpaw', label: 'Southpaw' }]} />
       <SegmentedControl accessibilityLabel="Controller glyph style" value={gaming.glyphStyle} onChange={gaming.setGlyphStyle} options={[{ value: 'auto', label: 'Auto' }, { value: 'playstation', label: 'PlayStation' }]} />
       <Caption>{Object.values(gaming.labels).join(' · ')}</Caption>
-      <Caption>Gaming uses landscape. To leave, hold the small Exit button in the top corner for {EXIT_HOLD_MS / 1000} seconds; it fills as you hold. On a controller, holding PS / Guide does the same. {gaming.labels.start} and {gaming.labels.select} go to the game.</Caption>
+      <Caption>Gaming uses landscape. To leave, hold the small Exit button at the top of the screen for {EXIT_HOLD_MS / 1000} seconds; it fills as you hold. On a controller, holding PS / Guide does the same. {gaming.labels.start} and {gaming.labels.select} go to the game.</Caption>
       <Button label="Start gaming" onPress={gaming.enter} disabled={!gaming.loaded} />
     </Column>
     </ScrollView>
@@ -103,14 +103,15 @@ export function GamingOverlay({ gaming, width, height, fps, pingMs }: { readonly
   const exiting = gaming.exitProgress > 0;
   return <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top, left: insets.left, right: insets.right, bottom: insets.bottom, zIndex: 8 }}>
     {!gaming.usingPhysical && gaming.foreground ? <React.Suspense fallback={null}><TouchGamepad key={`${gaming.layout}-${touchPreset}-${w}-${h}`} width={w} height={h} layout={gaming.layout} preset={touchPreset} labels={gaming.labels} onState={gaming.updateTouch} /></React.Suspense> : null}
-    {/* The one way off the game from the phone: a small pill in the top-right
-        corner, held for EXIT_HOLD_MS. The fill behind the label is the
-        progress; a tap only flashes the hint. Start and Back reach the game. */}
+    {/* The one way off the game from the phone: a small pill at the top
+        center (clear of both triggers), held for EXIT_HOLD_MS. Half-faded
+        until held; the fill behind the label is the progress. A tap does
+        nothing. Start and Back reach the game. */}
     <Pressable testID="gaming-exit" accessibilityRole="button" accessibilityLabel="Exit full screen"
       accessibilityHint="Hold for 1.2 seconds. Release early to cancel."
       onPressIn={() => gaming.setExitPressed(true)} onPressOut={() => gaming.setExitPressed(false)}
       onAccessibilityTap={gaming.exit}
-      style={{ position: 'absolute', top: 0, right: 0, minHeight: theme.layout.minTouch, minWidth: theme.layout.minTouch, paddingHorizontal: theme.space.sm, borderRadius: theme.radius.xs, backgroundColor: theme.colors.bg, borderWidth: theme.layout.hairline, borderColor: theme.colors.borderStrong, overflow: 'hidden', justifyContent: 'center' }}>
+      style={{ position: 'absolute', top: 0, alignSelf: 'center', opacity: exiting ? 1 : 0.5, minHeight: theme.layout.minTouch, minWidth: theme.layout.minTouch, paddingHorizontal: theme.space.sm, borderRadius: theme.radius.xs, backgroundColor: theme.colors.bg, borderWidth: theme.layout.hairline, borderColor: theme.colors.borderStrong, overflow: 'hidden', justifyContent: 'center' }}>
       <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${gaming.exitProgress * 100}%`, backgroundColor: theme.colors.accentGraphic, opacity: 0.35 }} />
       <Txt variant="label">{exiting ? 'Hold…' : 'Exit'}</Txt>
     </Pressable>

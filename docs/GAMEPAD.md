@@ -33,7 +33,7 @@ Physical controllers continue to take precedence over touch controls.
 
 Options maps to Start; Create (Share on DualShock 4) and a touchpad click map
 to Back/Select. Start and Back always reach the game. Leaving Gaming is a
-1.2-second hold on the small Exit button in the top-right corner (it fills as
+1.2-second hold on the small Exit button at the top center of the screen (it fills as
 you hold; a tap does nothing). PS/Guide has no host bit, so holding it for the
 same 1.2 seconds also exits. Belay requests
 immediate Guide input, but iOS can reserve system gestures. Test the hold on
