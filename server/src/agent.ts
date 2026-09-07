@@ -339,6 +339,9 @@ function ensureProcess(s: Session): void {
   const proc = spawnClaude(args, s.cwd, {
     MCP_TIMEOUT: '60000',
     MCP_TOOL_TIMEOUT: String((APPROVAL_TIMEOUT_MS || FOREVER_MS) + 60000),
+    // Read by hooks/belay-hook.mjs: this session already answers through the
+    // MCP sidecar, so the terminal-session hook must stand aside at once.
+    BELAY_SPAWNED: '1',
   });
   s.proc = proc;
   s.buffer = '';

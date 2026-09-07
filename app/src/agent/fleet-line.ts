@@ -4,8 +4,9 @@
 // the card shows no placeholder; the caller decides whether the store's data
 // even belongs to this computer.
 
-import type { AgentSessionMeta, DiscoveredSession } from '../api';
+import type { AgentSessionMeta, DiscoveredSession, HookList } from '../api';
 import { waitingSessions } from './attention.ts';
+import { hookWaitingCount } from './hook-model.ts';
 
 export interface FleetLine {
   /** Mono, uppercase, parts joined by ` · `. */
@@ -21,15 +22,17 @@ const SEP = ' · ';
  * terminal is writing to right now (`live`). Idle and errored sessions are
  * not counted — the line is about what is happening, not what exists. A
  * session with a pending approval is WAITING whatever its status says, the
- * same rule the badge uses.
+ * same rule the badge uses — and so is a terminal session whose ask reached
+ * the phone through the host's hook.
  */
 export function fleetLine(
   sessions: readonly AgentSessionMeta[] | null,
   discovered: readonly DiscoveredSession[] | null,
+  hooks: HookList | null = null,
 ): FleetLine | null {
   const list = sessions ?? [];
   const waitingIds = new Set(waitingSessions(list).map((s) => s.id));
-  const waiting = waitingIds.size;
+  const waiting = waitingIds.size + hookWaitingCount(hooks);
   const running = list.filter((s) => s.status === 'running' && !waitingIds.has(s.id)).length;
   const live = (discovered ?? []).filter((d) => d.live === true).length;
 

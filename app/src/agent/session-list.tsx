@@ -19,9 +19,11 @@ import {
 } from '../ui';
 import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
-import { ago, groupDiscovered, statusLabel } from './model';
+import { ago, groupDiscovered, projectName, statusLabel } from './model';
 import { askSummary, countdown } from './attention';
-import { getAttention, refreshAttention, refreshDiscovered, useAgentAttention } from './attention-store';
+import { decideHook, dismissHookNotice, getAttention, refreshAttention, refreshDiscovered, refreshHooks, useAgentAttention } from './attention-store';
+import { discoveredFromHook, noticeLine, orderedHookAsks } from './hook-model';
+import { HookAskCard } from './hook-ask-card';
 import { combineLedgers, foldCosts, ledgerLine } from './cost-ledger';
 import type { CostLedger } from './cost-ledger';
 import { NewProjectSheet } from './new-project-sheet';
@@ -55,7 +57,8 @@ export function SessionList({
   // The discovered list rides the same store and the same push socket, so a
   // session started in a terminal shows here within seconds of its first
   // write — no 30-second wait, no pull.
-  const { sessions, discovered, fetchedAt, error: pollError } = useAgentAttention();
+  // Terminal-session asks (the host's Claude Code hook) ride it too.
+  const { sessions, discovered, hooks, fetchedAt, error: pollError } = useAgentAttention();
   const [availability, setAvailability] = useState<Availability | null>(null);
   const [picking, setPicking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -108,6 +111,7 @@ export function SessionList({
         // host that cannot scan ~/.claude never takes the session list down.
         refreshAttention(),
         refreshDiscovered(),
+        refreshHooks(),
       ]);
       if (!live.current) return;
       setAvailability(status);
@@ -157,6 +161,8 @@ export function SessionList({
 
   const unavailable = availability?.available === false;
   const groups = groupDiscovered(discovered ?? []);
+  const hookAsks = orderedHookAsks(hooks);
+  const hookNotices = hooks?.notices ?? [];
   const margin = theme.layout.margin;
   const running = sessions?.filter((s) => s.status === 'running').length ?? 0;
   const waiting = sessions?.filter((s) => s.status === 'waiting').length ?? 0;
@@ -224,6 +230,25 @@ export function SessionList({
         </Row>
       ) : null}
 
+      {hookAsks.length > 0 ? (
+        // Terminal sessions blocked on this phone come first: they are the
+        // only rows on the tab a person at the keyboard is also waiting on.
+        <Section label="Needs you" rule={false} style={{ marginBottom: theme.space.lg }} testID="agent-hook-asks">
+          <View style={{ gap: theme.space.md }}>
+            {hookAsks.map((item, i) => (
+              <HookAskCard
+                key={item.id}
+                item={item}
+                now={now}
+                stackedCount={hookAsks.length - 1 - i}
+                onAnswer={(allow, choice) => { void decideHook(item.id, allow, choice); }}
+                onOpen={() => onWatch(discoveredFromHook(item))}
+              />
+            ))}
+          </View>
+        </Section>
+      ) : null}
+
       <Section
         label="Sessions"
         rule={false}
@@ -273,6 +298,51 @@ export function SessionList({
           </Card>
         ) : null}
       </Section>
+
+      {hookNotices.length > 0 ? (
+        // What terminal sessions reported since you last looked: a turn that
+        // finished, or a prompt the terminal is holding because this phone
+        // was not connected when it was raised. Tap to read; dismiss to clear.
+        <Section label="From the terminal" rule={false} style={{ marginTop: theme.space.xl }} testID="agent-hook-notices">
+          <Card flush>
+            {hookNotices.map((n, i) => {
+              const line = noticeLine(n);
+              return (
+                <View key={n.id}>
+                  {i > 0 ? <Divider /> : null}
+                  <Row gap="sm" style={{ paddingHorizontal: theme.space.md, paddingVertical: theme.space.xs }}>
+                    <Pressable
+                      testID={`agent-notice-${n.id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${projectName(n.cwd)} ${line.label} — open the transcript`}
+                      onPress={() => {
+                        haptic('light');
+                        onWatch(discoveredFromHook(n));
+                      }}
+                      style={({ pressed }) => ({ flex: 1, gap: 2, minHeight: theme.layout.minTouch, justifyContent: 'center', opacity: pressed ? theme.motion.pressOpacity : 1 })}
+                    >
+                      <Row gap="xs">
+                        <Label style={{ marginBottom: 0 }}>{projectName(n.cwd)}</Label>
+                        <Micro tone={n.kind === 'terminal-prompt' ? 'warn' : 'faint'}>{line.label}</Micro>
+                      </Row>
+                      {line.text ? <Txt variant="body" tone="dim" numberOfLines={2}>{line.text}</Txt> : null}
+                    </Pressable>
+                    <IconButton
+                      testID={`agent-notice-dismiss-${n.id}`}
+                      accessibilityLabel={`Dismiss ${projectName(n.cwd)} ${line.label}`}
+                      variant="plain"
+                      hapticTone={null}
+                      onPress={() => { void dismissHookNotice(n.id); }}
+                    >
+                      <Txt variant="subheading" tone="faint">×</Txt>
+                    </IconButton>
+                  </Row>
+                </View>
+              );
+            })}
+          </Card>
+        </Section>
+      ) : null}
 
       {groups.length > 0 ? (
         <Section label="On this PC" rule={false} style={{ marginTop: theme.space.xl }}>

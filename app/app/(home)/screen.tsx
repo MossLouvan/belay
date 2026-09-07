@@ -137,6 +137,7 @@ import { SENT_NOTICE_MS } from '../../src/screen/record';
 import { useRecording } from '../../src/screen/useRecording';
 import { setOpenSession, useAgentAttention } from '../../src/agent/attention-store';
 import { waitingSessions } from '../../src/agent/attention';
+import { hookWaitingCount } from '../../src/agent/hook-model';
 import { NeedsYouBanner } from '../../src/agent/needs-you-banner';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { HostAudio } from '../../src/stream/audio-player';
@@ -466,8 +467,9 @@ export default function ScreenTab() {
   // waiting count is the old Agent tab badge, now on the TOOLS key and the
   // drawer's Agent row.
   const [showTools, setShowTools] = useState(false);
-  const { sessions } = useAgentAttention();
-  const waitingCount = waitingSessions(sessions ?? []).length;
+  const { sessions, hooks } = useAgentAttention();
+  // Belay's own sessions plus terminal sessions asking through the host's hook.
+  const waitingCount = waitingSessions(sessions ?? []).length + hookWaitingCount(hooks);
   /** null while the stored flag loads — the hint never flashes on first paint. */
   const [hintSeen, setHintSeen] = useState<boolean | null>(null);
   useEffect(() => {

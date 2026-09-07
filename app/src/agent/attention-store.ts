@@ -30,10 +30,11 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import { api, getConnection, wsUrl } from '../api';
-import type { AgentSessionMeta, DiscoveredSession } from '../api';
+import type { AgentSessionMeta, DiscoveredSession, HookList } from '../api';
 import {
   ATTENTION_RETRY_MS, applyAttentionPush, applyDiscoveredPush, parseAttentionMessage, parseDiscoveredPush,
 } from './attention';
+import { applyHooksPush, parseHooksPush } from './hook-model';
 
 export interface AttentionState {
   /** Latest session list; null until the first successful fetch. */
@@ -45,6 +46,13 @@ export interface AttentionState {
    * shows on the phone within seconds.
    */
   readonly discovered: readonly DiscoveredSession[] | null;
+  /**
+   * Permission asks and notices from terminal-started sessions, forwarded by
+   * the host's Claude Code hook. Null until first fetched; an older host
+   * without the route reads as an empty list. Kept current by the push
+   * socket: an ask lands here the moment the terminal session raises it.
+   */
+  readonly hooks: HookList | null;
   /** When `sessions` was last refreshed — the "now" its countdowns tick from. */
   readonly fetchedAt: number;
   /** Last fetch failure; empty while the host answers. */
@@ -53,7 +61,10 @@ export interface AttentionState {
   readonly openId: string | null;
 }
 
-const EMPTY: AttentionState = Object.freeze({ sessions: null, discovered: null, fetchedAt: 0, error: '', openId: null });
+const EMPTY: AttentionState = Object.freeze({
+  sessions: null, discovered: null, hooks: null, fetchedAt: 0, error: '', openId: null,
+});
+const NO_HOOKS: HookList = Object.freeze({ permissions: [], notices: [] }) as HookList;
 let state: AttentionState = EMPTY;
 const listeners = new Set<() => void>();
 
@@ -132,6 +143,44 @@ export async function answerApproval(sessionId: string, approvalId: string, allo
   await refreshAttention();
 }
 
+/**
+ * One fetch of the terminal-session asks. Like the discovered list, a
+ * nicety: a host without the route (or with hooks not installed) leaves an
+ * empty list and never marks the host unreachable.
+ */
+export async function refreshHooks(): Promise<void> {
+  if (!getConnection()) return;
+  try {
+    const list = await api.agentHooks();
+    setState({ hooks: list });
+  } catch {
+    if (state.hooks === null) setState({ hooks: NO_HOOKS });
+  }
+}
+
+/**
+ * Answer a terminal session's ask. Cleared locally the moment the host
+ * confirms, so the card leaves on the next frame; the push then agrees. A
+ * false `ok` means the hook stopped waiting first — the terminal prompt
+ * took over — which the refresh makes visible by dropping the card.
+ */
+export async function decideHook(id: string, allow: boolean, choice?: string): Promise<boolean> {
+  const { ok } = await api.agentHookDecide(id, allow, choice);
+  if (state.hooks) {
+    setState({ hooks: { ...state.hooks, permissions: state.hooks.permissions.filter((p) => p.id !== id) } });
+  }
+  if (!ok) void refreshHooks();
+  return ok;
+}
+
+/** Clear a done / terminal-prompt notice from the list. */
+export async function dismissHookNotice(id: string): Promise<void> {
+  if (state.hooks) {
+    setState({ hooks: { ...state.hooks, notices: state.hooks.notices.filter((n) => n.id !== id) } });
+  }
+  try { await api.agentHookDismiss(id); } catch { /* the push will resync */ }
+}
+
 // ---- socket + fallback lifecycle -------------------------------------------
 
 let holders = 0;
@@ -170,6 +219,7 @@ function start(): void {
   const gen = generation;
   void refreshAttention();
   void refreshDiscovered();
+  void refreshHooks();
   void openSocket(gen);
 }
 
@@ -186,6 +236,7 @@ function scheduleFallback(gen: number): void {
     if (!running(gen)) return;
     void refreshAttention();
     void refreshDiscovered();
+    void refreshHooks();
     void openSocket(gen);
   }, ATTENTION_RETRY_MS);
 }
@@ -213,6 +264,7 @@ async function openSocket(gen: number): Promise<void> {
     if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
     void refreshAttention();
     void refreshDiscovered();
+    void refreshHooks();
   };
   opened.onmessage = (event: MessageEvent) => {
     if (socket !== opened) return;
@@ -226,12 +278,19 @@ async function openSocket(gen: number): Promise<void> {
     if (needsFetch) void refreshAttention();
     // The same frame carries the discovered rows on newer hosts.
     const found = parseDiscoveredPush(raw);
-    if (!found) return;
-    const merged = applyDiscoveredPush(state.discovered, found);
-    if (merged.discovered !== state.discovered && merged.discovered !== null) {
-      setState({ discovered: merged.discovered });
+    if (found) {
+      const merged = applyDiscoveredPush(state.discovered, found);
+      if (merged.discovered !== state.discovered && merged.discovered !== null) {
+        setState({ discovered: merged.discovered });
+      }
+      if (merged.needsFetch) void refreshDiscovered();
     }
-    if (merged.needsFetch) void refreshDiscovered();
+    // And the terminal-session asks, on hosts with hooks.
+    const hookRows = parseHooksPush(raw);
+    if (!hookRows) return;
+    const hooks = applyHooksPush(state.hooks, hookRows);
+    if (hooks.hooks !== state.hooks && hooks.hooks !== null) setState({ hooks: hooks.hooks });
+    if (hooks.needsFetch) void refreshHooks();
   };
   opened.onerror = () => { /* onclose follows and owns recovery */ };
   opened.onclose = () => {

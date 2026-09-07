@@ -106,6 +106,53 @@ The host banner also prints which `claude` binary it found (PATH first, then
 locations) and whether it is watching `~/.claude/projects` with `fs.watch` or
 polling it every 5 seconds.
 
+## Approving terminal sessions from your phone
+
+Watching is read-only; the usual reason a live terminal session needs you is
+a permission prompt. With Belay's Claude Code hooks installed, that prompt
+goes to the phone instead — no resume, no takeover, the terminal session
+keeps running as it was:
+
+```
+cd server && npm run hooks:install     # once, on the PC
+```
+
+That merges four hook entries into `~/.claude/settings.json` (after backing
+it up, without touching any other hooks; `npm run hooks:uninstall` removes
+exactly those, `npm run hooks:status` shows what is there). The host banner
+prints `Hooks : installed …` when it is set up. From then on, in any
+terminal `claude`:
+
+- **A permission ask** appears at the top of the Agent tab under **Needs
+  you**, tagged `TERMINAL` with the project name and folder, on the same
+  card Belay's own sessions use — the diff, the command, the risk band, and
+  **Allow / Deny / Always allow…** (scoped exactly as Claude Code itself
+  suggested, for this session only). Tap the header to read the live
+  transcript first. The badge on the Agent dock key and the fleet line on
+  the devices screen count it, and the push webhook is pinged like any other
+  approval.
+- **The terminal shows** *Belay: waiting for your phone* while the phone
+  decides. If nobody answers within the wait (`BELAY_HOOK_WAIT_MS`, default
+  two minutes), or the phone disconnects, the terminal's own dialog appears
+  as if Belay were not there. The countdown on the card says *back to the
+  terminal in* — it is not a denial.
+- **No phone connected = no wait.** The host only holds a prompt while a
+  phone is actually on the attention socket; otherwise the terminal prompt
+  appears at once. Sessions Belay spawned itself keep using the MCP sidecar
+  and are never asked twice.
+- **Finished turns and prompts you missed** show under **From the terminal**
+  — a `done` notice with the last reply, or `prompt waiting at the terminal`
+  when the terminal's dialog sat unanswered for six seconds (no phone was
+  connected, or the phone's wait ran out and the prompt went back there).
+  Tap to open the transcript, × to dismiss.
+
+The hook script (`server/hooks/belay-hook.mjs`) talks to the host over
+loopback only, authenticated with a per-install secret in
+`~/.belay/hook-secret` (never the pairing token), and answers "no decision"
+on every failure — nothing is ever allowed without a tap. The verified hook
+contract and the design constraints it forces are in
+[AGENT-HOOKS.md](./AGENT-HOOKS.md).
+
 ## Push notifications when the phone is asleep
 
 The premise of this tab — *your computer works, and pings you when it needs a

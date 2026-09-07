@@ -162,8 +162,8 @@ export default function Devices() {
   // The attention store is host-scoped (reset on switch), so its counts
   // describe exactly one computer: the connected one. Every other card gets
   // null and shows no line — no "0 running", no placeholder.
-  const { sessions: agentSessions, discovered: agentDiscovered } = useAgentAttention();
-  const agents = phase === 'connected' ? fleetLine(agentSessions, agentDiscovered) : null;
+  const { sessions: agentSessions, discovered: agentDiscovered, hooks: agentHooks } = useAgentAttention();
+  const agents = phase === 'connected' ? fleetLine(agentSessions, agentDiscovered, agentHooks) : null;
   const { byId, refresh } = useReachability(devices);
 
   const [pendingForget, setPendingForget] = useState<SavedDevice | null>(null);

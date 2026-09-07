@@ -41,7 +41,7 @@ import { statRawFile } from './files-raw.js';
 import { getStats } from './system.js';
 import { VK, MOD_VK, charToVk } from './keys.js';
 import { printBanner, buildNativeHint, reprintPairingCode } from './banner.js';
-import { notifyBannerLine } from './notify.js';
+import { notify, notifyBannerLine } from './notify.js';
 import {
   loadAgentState, listSessions, createSession, getSnapshot, deleteSession,
   sendPrompt, stopSession, subscribe, requestApproval, answerApproval,
@@ -55,7 +55,12 @@ import { discoverPeerHosts } from './discover-hosts.js';
 import { registerRecordingRoutes } from './recording-routes.js';
 import { handleHandoff } from './handoff.js';
 import { registerAgentApprovalRoutes } from './agent-routes.js';
-import { handleAttention } from './agent-attention.js';
+import { attentionClients, handleAttention } from './agent-attention.js';
+import { hookWaitMs, registerHookRoutes } from './hooks-routes.js';
+import { ensureHookSecret } from './hooks-secret.js';
+import { hooksStore } from './hooks-store.js';
+import { hooksStatusLine } from './hooks-install.js';
+import { readSettings, settingsPath } from './hooks-install-cli.js';
 import { createCursorRegistry } from './cursors.js';
 import { createCursorHub } from './cursor-channel.js';
 import { createInputFloor, denialBody, isLocalActivity } from './input-floor.js';
@@ -969,6 +974,19 @@ app.post('/agent/approval-request', (req, res) => {
 
 registerRecordingRoutes(app, auth);
 registerAgentApprovalRoutes(app, auth);
+// Terminal-started `claude` sessions ask the phone through Claude Code hooks
+// (hooks/belay-hook.mjs → POST /hooks/<event>, loopback + ~/.belay/hook-secret).
+registerHookRoutes(app, auth, {
+  store: hooksStore(),
+  secret: ensureHookSecret(),
+  phones: attentionClients,
+  isBelaySession: (id) => attachedClaudeIds().has(id),
+  waitMs: hookWaitMs(),
+  onSessionStart: () => sessionIndex().rescan(),
+  notify,
+  hostLabel: getLabel,
+  hostId: getHostId,
+});
 registerTranscriptRoutes(app, auth);
 registerImageRoutes(app, auth);
 // Audio routes are always registered: the native helpers support audio capture
@@ -1660,6 +1678,12 @@ function agentBannerLine(): string {
   return `claude CLI at ${claude} · sessions: ${sessionIndex().mode === 'watch' ? 'watching ~/.claude/projects' : 'polling ~/.claude/projects'}`;
 }
 
+/** "installed in ~/.claude/settings.json (4 events)" — or how to get there. */
+function hooksBannerLine(): string {
+  const read = readSettings(settingsPath());
+  return read.ok ? hooksStatusLine(read.settings) : `could not read ~/.claude/settings.json (${read.error})`;
+}
+
 /**
  * Explain a failure to bind instead of printing a stack trace.
  *
@@ -1727,6 +1751,7 @@ server.listen(PORT, () => {
     platform: getPlatform(),
   });
   console.log(`  Agent     : ${agentBannerLine()}`);
+  console.log(`  Hooks     : ${hooksBannerLine()}`);
   console.log(`  Notify    : ${notifyBannerLine()}`);
   console.log('');
 

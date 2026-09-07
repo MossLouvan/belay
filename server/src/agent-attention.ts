@@ -17,6 +17,8 @@
 import type { WebSocket } from 'ws';
 import { attachedClaudeIds, listSessions, onSessionsChanged } from './agent.js';
 import { sessionIndex } from './discover.js';
+import { hookRows, hooksStore } from './hooks-store.js';
+import type { HookRow } from './hooks-store.js';
 
 /** One session on the wire — the whole story the badge needs. */
 export interface AttentionRow {
@@ -85,15 +87,26 @@ export function discoveredEqual(a: readonly DiscoveredRow[], b: readonly Discove
     a.every((row, i) => row.id === b[i].id && row.live === b[i].live && row.lastWriteAt === b[i].lastWriteAt);
 }
 
+/** Same hook rows, same order — the third part of the wire diff. */
+export function hooksEqual(a: readonly HookRow[], b: readonly HookRow[]): boolean {
+  return a.length === b.length &&
+    a.every((row, i) => row.id === b[i].id && row.kind === b[i].kind && row.sessionId === b[i].sessionId);
+}
+
 /**
  * The envelope the phone parses (parseAttentionMessage on the app side).
- * `discovered` is omitted entirely when the hub has no discovery source, so
- * older phones and the existing tests see exactly the old shape.
+ * `discovered` and `hooks` are omitted entirely when the hub has no source
+ * for them, so older phones and the existing tests see exactly the old shape.
  */
-export function attentionWire(rows: readonly AttentionRow[], discovered?: readonly DiscoveredRow[]): string {
-  return discovered === undefined
-    ? JSON.stringify({ type: 'attention', sessions: rows })
-    : JSON.stringify({ type: 'attention', sessions: rows, discovered });
+export function attentionWire(
+  rows: readonly AttentionRow[], discovered?: readonly DiscoveredRow[], hooks?: readonly HookRow[],
+): string {
+  return JSON.stringify({
+    type: 'attention',
+    sessions: rows,
+    ...(discovered === undefined ? {} : { discovered }),
+    ...(hooks === undefined ? {} : { hooks }),
+  });
 }
 
 interface AttentionHubDeps {
@@ -105,10 +118,15 @@ interface AttentionHubDeps {
   readonly discovered?: () => readonly DiscoveredLike[];
   /** Index change notifications (new file, growth, live flip). Returns unhook. */
   readonly subscribeDiscovered?: (fn: () => void) => () => void;
+  /** Asks and notices from terminal sessions — the hooks store in production. Optional. */
+  readonly hooks?: () => readonly HookRow[];
+  readonly subscribeHooks?: (fn: () => void) => () => void;
 }
 
 export interface AttentionHub {
   handle(ws: AttentionSocket): void;
+  /** How many phones are listening right now — the hooks route's "can anyone answer?" gate. */
+  clients(): number;
 }
 
 /**
@@ -124,24 +142,30 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
   const sockets = new Set<AttentionSocket>();
   let lastRows: readonly AttentionRow[] | null = null;
   let lastFound: readonly DiscoveredRow[] | null = null;
+  let lastHooks: readonly HookRow[] | null = null;
   let unhook: (() => void) | null = null;
   let unhookFound: (() => void) | null = null;
+  let unhookHooks: (() => void) | null = null;
   let flushTimer: NodeJS.Timeout | null = null;
 
   const found = (): readonly DiscoveredRow[] | undefined =>
     deps.discovered ? discoveredRows(deps.discovered()) : undefined;
+  const hooks = (): readonly HookRow[] | undefined => deps.hooks?.();
 
   const flush = (): void => {
     flushTimer = null;
     if (sockets.size === 0) return;
     const rows = attentionRows(deps.list());
     const disc = found();
+    const hk = hooks();
     const sameRows = lastRows !== null && rowsEqual(lastRows, rows);
     const sameFound = disc === undefined || (lastFound !== null && discoveredEqual(lastFound, disc));
-    if (sameRows && sameFound) return;
+    const sameHooks = hk === undefined || (lastHooks !== null && hooksEqual(lastHooks, hk));
+    if (sameRows && sameFound && sameHooks) return;
     lastRows = rows;
     lastFound = disc ?? null;
-    const wire = attentionWire(rows, disc);
+    lastHooks = hk ?? null;
+    const wire = attentionWire(rows, disc, hk);
     for (const ws of sockets) {
       try { if (ws.readyState === ws.OPEN) ws.send(wire); } catch { /* socket on its way out */ }
     }
@@ -158,11 +182,14 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
       sockets.add(ws);
       if (unhook === null) unhook = deps.subscribe(scheduleFlush);
       if (unhookFound === null && deps.subscribeDiscovered) unhookFound = deps.subscribeDiscovered(scheduleFlush);
+      if (unhookHooks === null && deps.subscribeHooks) unhookHooks = deps.subscribeHooks(scheduleFlush);
       const rows = attentionRows(deps.list());
       const disc = found();
+      const hk = hooks();
       lastRows = rows;
       lastFound = disc ?? null;
-      try { ws.send(attentionWire(rows, disc)); } catch { /* close will follow */ }
+      lastHooks = hk ?? null;
+      try { ws.send(attentionWire(rows, disc, hk)); } catch { /* close will follow */ }
       // One-way channel: anything the client says is ignored, not an error.
       ws.on('message', () => {});
       ws.on('close', () => {
@@ -172,11 +199,15 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
         unhook = null;
         unhookFound?.();
         unhookFound = null;
+        unhookHooks?.();
+        unhookHooks = null;
         lastRows = null;
         lastFound = null;
+        lastHooks = null;
         if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null; }
       });
     },
+    clients(): number { return sockets.size; },
   };
 }
 
@@ -191,6 +222,13 @@ export function handleAttention(ws: WebSocket): void {
     subscribe: onSessionsChanged,
     discovered: () => sessionIndex().list(attachedClaudeIds()),
     subscribeDiscovered: (fn) => sessionIndex().onChange(fn),
+    hooks: () => hookRows(hooksStore()),
+    subscribeHooks: (fn) => hooksStore().onChange(fn),
   });
   defaultHub.handle(ws as unknown as AttentionSocket);
+}
+
+/** Phones listening on /ws/attention right now; 0 before the first ever connects. */
+export function attentionClients(): number {
+  return defaultHub?.clients() ?? 0;
 }

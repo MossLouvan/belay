@@ -185,3 +185,40 @@ test('hub pushes when only a discovered row changed and unhooks the index with t
   close();
   assert.equal(hooked, 0);
 });
+
+// ---- hooks (terminal-session asks) -----------------------------------------
+
+test('attentionWire carries hook rows only when the hub has a hooks source', () => {
+  const rows = [{ id: 'a', status: 'idle', pending: 0 }];
+  assert.equal('hooks' in JSON.parse(attentionWire(rows, [])), false);
+  const wire = JSON.parse(attentionWire(rows, [], [{ id: 'h1', kind: 'permission', sessionId: 's1', createdAt: 5 }]));
+  assert.deepEqual(wire.hooks, [{ id: 'h1', kind: 'permission', sessionId: 's1', createdAt: 5 }]);
+});
+
+test('hub pushes when a hook row appears and counts connected clients', async () => {
+  let hooks: { id: string; kind: 'permission'; sessionId: string; createdAt: number }[] = [];
+  let notifyHooks: (() => void) | null = null;
+  const hub = createAttentionHub({
+    list: () => [],
+    subscribe: () => () => {},
+    hooks: () => hooks,
+    subscribeHooks: (fn) => { notifyHooks = fn; return () => { notifyHooks = null; }; },
+  });
+  assert.equal(hub.clients(), 0);
+  const a = fakeSocket();
+  hub.handle(a.ws);
+  assert.equal(hub.clients(), 1);
+  assert.deepEqual(JSON.parse(a.sent[0]).hooks, []);
+  hooks = [{ id: 'h1', kind: 'permission', sessionId: 's1', createdAt: 1 }];
+  notifyHooks!();
+  await tick();
+  assert.equal(a.sent.length, 2);
+  assert.deepEqual(JSON.parse(a.sent[1]).hooks, hooks);
+  // Same rows again: no push.
+  notifyHooks!();
+  await tick();
+  assert.equal(a.sent.length, 2);
+  a.close();
+  assert.equal(hub.clients(), 0);
+  assert.equal(notifyHooks, null);
+});

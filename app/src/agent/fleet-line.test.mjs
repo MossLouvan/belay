@@ -33,3 +33,15 @@ test('fleetLine: only live discovered sessions make a line, and it does not warn
 test('fleetLine: running alone does not warn', () => {
   assert.deepEqual(fleetLine([meta('a', 'running')], []), { text: '1 RUNNING', warn: false });
 });
+
+test('fleetLine: a terminal session waiting on the phone counts as WAITING and warns', () => {
+  const hooks = {
+    permissions: [{ id: 'h1', sessionId: 's', cwd: '/p', tool: 'Bash', detail: 'ls', input: '{}', risk: 'run', choices: [], createdAt: 1, expiresAt: 2 }],
+    notices: [],
+  };
+  assert.deepEqual(fleetLine(null, null, hooks), { text: '1 WAITING', warn: true });
+  assert.deepEqual(fleetLine([meta('a', 'running')], [disc('x', true)], hooks), { text: '1 RUNNING · 1 WAITING · 1 LIVE', warn: true });
+  // Notices alone are not a reason for a line.
+  const notices = { permissions: [], notices: [{ id: 'n', kind: 'done', sessionId: 's', cwd: '/p', text: '', createdAt: 1 }] };
+  assert.equal(fleetLine(null, null, notices), null);
+});
