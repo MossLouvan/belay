@@ -8,6 +8,7 @@ import { hostOrigin, isTailscaleOrigin } from '../src/url.js';
 import { displaysOf, preferredDisplay } from '../src/displays.js';
 import { windowsOf, windowLabel } from '../src/windows.js';
 import { legendText, modifierMap } from '../src/modmap.js';
+import { EXAMPLE_TAILSCALE_ADDRESS, addressFeedback } from '../src/address-feedback.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { host: '', token: '', label: '', platform: '', keymap: 'remap' };
@@ -166,7 +167,7 @@ async function showPaired() {
     }
     const open = document.createElement('button');
     open.textContent = 'Open';
-    if (display === preferred) open.className = 'primary';
+    open.className = display === preferred ? 'button primary sm' : 'button secondary sm';
     open.addEventListener('click', () => window.belay.openDisplay(state, display));
     right.append(open);
 
@@ -213,7 +214,7 @@ async function showWindows() {
   if (openable.length > 1) {
     const all = document.createElement('button');
     all.textContent = `Open all ${openable.length}`;
-    all.className = 'actions';
+    all.className = 'button secondary sm actions';
     all.addEventListener('click', () => window.belay.openWindows(state, openable));
     hint.after(all);
   }
@@ -234,6 +235,7 @@ async function showWindows() {
 
     const open = document.createElement('button');
     open.textContent = 'Open';
+    open.className = 'button secondary sm';
     open.title = windowLabel(remote);
     open.disabled = remote.minimized || remote.w <= 0;
     open.addEventListener('click', () => window.belay.openWindows(state, [remote]));
@@ -262,8 +264,22 @@ function syncCodeField() {
     ? 'This is a Tailscale address — the host recognises this computer, no code needed.'
     : 'Leave blank when connecting over Tailscale.';
 }
-$('host').addEventListener('input', syncCodeField);
+// The live line under the address, in the app's voice: the example while the
+// field is empty, then reassurance, a nudge, or the reason it will not do.
+function syncFeedback() {
+  const line = addressFeedback($('host').value);
+  $('feedback').dataset.tone = line ? line.tone : 'example';
+  $('feedback').textContent = line ? line.text : `e.g. ${EXAMPLE_TAILSCALE_ADDRESS}`;
+}
+$('host').addEventListener('input', () => { syncCodeField(); syncFeedback(); });
 syncCodeField();
+syncFeedback();
+// "Where do I find it?" unfolds the Tailscale walkthrough in place.
+$('where').addEventListener('click', () => {
+  const open = $('where').getAttribute('aria-expanded') !== 'true';
+  $('where').setAttribute('aria-expanded', String(open));
+  $('where-panel').hidden = !open;
+});
 // Escape dismisses the error line. Claimed locally without hesitation: unlike
 // the display windows, nothing typed here is ever forwarded to the host.
 window.addEventListener('keydown', (event) => {

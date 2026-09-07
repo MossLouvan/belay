@@ -1,188 +1,313 @@
-/* Connect-window chrome, in the Ledger system (docs/DESIGN.md) reinterpreted
-   for a pointer. The phone earns findability with 44pt targets and the 2pt
-   "track rule" under tappable text, because a finger cannot hover; a mouse
-   can, so here hover tints, cursor changes and focus rings carry that load
-   and the layout is a notch denser — 40px rows, 11px labels — without
-   giving up the grammar: one surface, hairline rules, no cards, mono for
-   what the computer says, sans for what Belay says, orange earned. */
+/* The connect window, in the phone app's Ledger voice (docs/DESIGN.md):
+   one surface, no cards, typography is the hierarchy. Every value here is a
+   token from tokens.css — generated from app/src/theme.ts — so this file
+   only chooses which token goes where, never what a colour or size is.
+
+   Two voices: sans (Outfit) is Belay speaking, mono is the computer
+   speaking. Anything tappable that is only text carries the 2px track
+   (§11.1): slack `--track-rest` at rest, `--accent-graphic` under load. */
 
 * { box-sizing: border-box; }
-
+html { background: var(--bg); }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.5 var(--sans);
+  font-family: var(--type-body-family);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-line);
+  font-weight: var(--type-body-weight);
+  -webkit-font-smoothing: antialiased;
 }
+/* Only 400–700 are bundled; never let the browser fake the heavier cuts.
+   The phone falls back the same way, so 800/900 render as 700 in both. */
+body { font-synthesis: none; }
 
 .page {
-  max-width: 640px;
-  padding: 24px 28px 40px;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--space-lg) var(--margin) var(--space-xxl);
 }
+.stack > * + * { margin-top: var(--space-md); }
+.row { display: flex; align-items: center; gap: var(--space-xs); }
+[hidden] { display: none !important; }
 
-/* ---- header: brand, then a full-bleed hairline, like every phone screen -- */
+/* --- keyboard focus: the app's focus token, as a ring, everywhere ---------- */
+:focus-visible { outline: var(--rule) solid var(--focus); outline-offset: 2px; }
 
-h1 {
+/* --- type voices ------------------------------------------------------------ */
+.headline {
   margin: 0;
-  font-size: 27px;
-  line-height: 1.1;
-  font-weight: 900;
-  letter-spacing: -0.6px;
-  text-transform: uppercase;
+  font-family: var(--sans);
+  font-size: 34px; line-height: 40px; font-weight: 700; letter-spacing: -0.8px;
+  color: var(--text);
 }
-
-.subtitle { color: var(--text-dim); margin: 4px 0 0; }
-
-.header-rule {
-  border: 0;
-  border-top: var(--hairline) solid var(--border);
-  margin: 16px -28px 0;   /* full bleed through the page padding */
+.headline .brand { color: var(--accent); }
+.subtitle {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--type-body-size); line-height: var(--type-body-line);
+  color: var(--text-dim);
 }
-
-/* ---- the micro-label: wide-tracked uppercase mono, the section voice ---- */
-
+.subheading {
+  margin: 0;
+  font-size: var(--type-subheading-size); line-height: var(--type-subheading-line);
+  font-weight: var(--type-subheading-weight);
+  color: var(--text);
+}
+.caption {
+  margin: 0;
+  font-size: var(--type-caption-size); line-height: var(--type-caption-line);
+  font-weight: var(--type-caption-weight);
+  color: var(--text-faint);
+}
+.subheading + .caption { margin-top: var(--space-xxs); }
 .label {
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 14px;
-  font-weight: 400;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
+  display: block;
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size); line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-transform);
+  font-variant-numeric: var(--type-label-numerals);
   color: var(--text-dim);
 }
-
-section > .section-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin: 28px 0 8px;
+.field .label { margin-bottom: var(--space-xs); }
+.mono {
+  font-family: var(--type-mono-family);
+  font-size: var(--type-mono-size); line-height: var(--type-mono-line);
+  font-variant-numeric: var(--type-mono-numerals);
+  color: var(--text);
 }
-
-.section-note { color: var(--text-dim); margin: 0 0 8px; }
-
-/* ---- machine voice: anything the computer said ---- */
-
-.mono, input {
-  font-family: var(--mono);
-  font-size: 13px;
-}
-
+p.mono { margin: 0; }
 .mono-dim {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--type-mono-small-family);
+  font-size: var(--type-mono-small-size); line-height: var(--type-mono-small-line);
+  font-variant-numeric: var(--type-mono-small-numerals);
+  color: var(--text-faint);
+}
+.name { font-size: var(--type-mono-size); line-height: var(--type-mono-line); color: var(--text); }
+
+/* --- hero: the beluga on its own ground, as on the phone's welcome ---------- */
+.hero {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  margin: calc(-1 * var(--space-lg)) calc(-1 * var(--margin)) var(--space-lg);
+  padding: var(--space-xl) var(--margin) var(--space-lg);
+  background: var(--hero-bg);
+  border-bottom: var(--hairline) solid var(--border);
+  overflow: hidden;
+}
+.halo {
+  position: relative;
+  width: 120px; height: 120px;
+  margin-bottom: var(--space-md);
+  display: grid; place-items: center;
+}
+.halo-ring {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: var(--radius-pill);
+  background: var(--hero-glow);
+}
+.halo-inner { width: 184px; height: 184px; }
+.halo-outer { width: 272px; height: 272px; opacity: 0.45; }
+.beluga {
+  position: relative;
+  width: 120px; height: 120px; object-fit: contain;
+  user-select: none; -webkit-user-drag: none;
+}
+/* Entrance: a 400ms fade with an 8px rise, staggered like the phone's
+   (0 / 140 / 280ms). Reduced motion renders everything in place. */
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.halo, .headline, .subtitle {
+  animation: rise var(--motion-draw) var(--ease-standard) both;
+}
+.headline { animation-delay: 140ms; }
+.subtitle { animation-delay: 280ms; }
+
+/* --- fields: the app's Input, surface fill, hairline, and the rope --------- */
+.field { display: block; }
+.input {
+  display: block; width: 100%;
+  min-height: var(--min-touch); padding: 0 12px;
+  font-family: var(--type-mono-family);
+  font-size: 15px; line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--surface);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-xs);
+  /* the rope: a 2px accent line that grows along the bottom on focus */
+  background-image: linear-gradient(var(--accent-graphic), var(--accent-graphic));
+  background-repeat: no-repeat; background-position: 0 100%;
+  background-size: 0% var(--rule);
+  transition: background-size var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
+}
+.input::placeholder { color: var(--text-faint); }
+.input:focus { outline: none; border-color: var(--focus); background-size: 100% var(--rule); }
+.input:disabled { opacity: 0.45; }
+.input-lg {
+  min-height: 60px; padding: 0 16px;
+  font-size: 22px; line-height: 28px;
+}
+.field .caption { margin-top: var(--space-xxs); }
+
+/* The live line under the address field. Empty, it is the example as a
+   tracked label; otherwise the app's four feedback tones. */
+.feedback {
+  display: inline-block;
+  margin-top: var(--space-xs);
+  min-height: var(--type-label-line);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size); line-height: var(--type-label-line);
+  letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-transform);
+  font-variant-numeric: var(--type-label-numerals);
   color: var(--text-dim);
 }
+.feedback[data-tone="example"] { border-bottom: var(--rule) solid var(--track-rest); padding-bottom: var(--space-xxs); }
+.feedback[data-tone="good"] { color: var(--good); }
+.feedback[data-tone="dim"] { color: var(--text-dim); }
+.feedback[data-tone="warn"] { color: var(--warn); }
+.feedback[data-tone="bad"] { color: var(--bad); }
 
-/* ---- inputs: the only filled control on the page ---- */
-
-label.field { display: block; margin: 14px 0 4px; }
-
-input[type="text"], input:not([type]) {
-  width: 100%;
-  padding: 6px 10px;
-  border-radius: var(--radius);
-  border: var(--hairline) solid var(--border);
-  background: var(--surface);
+/* --- buttons: the app's Button; every label is the 11px tracked mono ------- */
+.button, button.actions {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-xs);
+  min-height: var(--min-touch); padding: 0 18px;
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size); line-height: var(--type-label-line);
+  letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-transform);
+  font-weight: var(--type-label-weight);
   color: var(--text);
-}
-
-input:focus-visible {
-  outline: var(--rule) solid var(--accent);
-  outline-offset: -1px;
-}
-
-/* ---- buttons: quiet mono labels; exactly one solid accent per screen ---- */
-
-button {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  padding: 6px 12px;
-  border-radius: var(--radius);
+  background: transparent;
   border: var(--hairline) solid var(--border-strong);
-  background: transparent;
-  color: var(--text);
+  border-radius: var(--radius-xs);
   cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard),
+              opacity var(--motion-fast) var(--ease-standard);
 }
-button:hover { background: var(--surface-alt); }
-button:active { background: var(--surface-alt); opacity: 0.7; }
-button:focus-visible { outline: var(--rule) solid var(--accent); outline-offset: 1px; }
-button:disabled {
-  color: var(--text-faint);
-  border-color: var(--border);
-  background: transparent;
-  cursor: default;
-  opacity: 1;
-}
-
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+.button:active { opacity: var(--press-opacity); }
+.button:disabled, button.actions:disabled { opacity: 0.45; cursor: default; }
+.button.sm { min-height: 36px; padding: 0 14px; }
+.button.lg { min-height: 56px; padding: 0 22px; }
+.button.full { width: 100%; }
+.button.primary {
   color: var(--on-accent);
+  background: var(--accent);
+  border-color: transparent;
 }
-button.primary:hover { opacity: 0.9; }
-button.primary:disabled {
+.button.primary:active { opacity: 1; background: var(--accent-press); }
+.button.primary:disabled { opacity: 1; background: var(--accent-dim); }
+.button.subtle { color: var(--on-accent-soft); background: var(--accent-soft); border-color: transparent; }
+/* ghost: no box, so it carries the resting track that says "tappable" */
+.button.ghost {
+  padding: 0 var(--space-xxs);
+  border: 0; border-bottom: var(--rule) solid var(--track-rest);
+  border-radius: 0;
+}
+.button.ghost:active { opacity: 1; border-bottom-color: var(--accent-graphic); }
+.button.ghost:hover { border-bottom-color: var(--accent-graphic); }
+
+/* --- TrackLabel: a tracked word with its 2px rope ---------------------------- */
+.track-label {
+  display: inline-flex; align-items: flex-end;
+  min-height: var(--min-touch); padding: 0 var(--space-xxs) var(--space-xxs);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size); line-height: var(--type-label-line);
+  letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-transform);
+  color: var(--text-dim);
+  background: none; border: 0;
+  border-bottom: var(--rule) solid var(--track-rest);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
+}
+.track-label:hover, .track-label[aria-expanded="true"] { color: var(--accent); border-bottom-color: var(--accent-graphic); }
+.track-label:active { color: var(--text); }
+.affordances { gap: var(--space-lg); }
+.status-line { min-height: var(--type-mono-small-line); }
+.status-line:empty { display: none; }
+
+.where-panel { padding: var(--space-md) 0; border-top: var(--hairline) solid var(--border); }
+.steps { margin: 0; padding-left: var(--space-lg); color: var(--text-dim); }
+.steps li + li { margin-top: var(--space-xxs); }
+.example-address {
+  display: inline-block;
+  padding: var(--space-sm) var(--space-md);
+  font-size: 22px; line-height: 28px;
+  color: var(--accent);
   background: var(--surface-alt);
-  border-color: var(--border);
-  color: var(--text-faint);
-  opacity: 1;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-xs);
 }
 
-/* ---- lists: hairline-separated rows, no boxes; hover is the affordance -- */
-
-.displays {
-  list-style: none;
-  padding: 0;
-  margin: 0 -28px;          /* rules and hover tints run full bleed */
-  border-top: var(--hairline) solid var(--border);
+/* --- ledger sections: label, rule, rows ------------------------------------ */
+.section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  min-height: var(--min-touch);
+  margin-top: var(--space-lg);
 }
-.displays li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  min-height: 40px;
-  padding: 6px 28px;
+.section-head .label { margin: 0; }
+.rule { margin: 0; border: 0; border-top: var(--hairline) solid var(--border); }
+.section-head + .rule { margin-top: 0; }
+.stack > .rule + * { margin-top: var(--space-xs); }
+.device-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-md);
+  min-height: var(--row-height);
+  padding: var(--space-xs) 0;
   border-bottom: var(--hairline) solid var(--border);
 }
-.displays li:hover { background: var(--surface-alt); }
-
-.name { font-weight: 600; font-size: 13px; }
-
-/* the VIRTUAL mark: the computer's classification, so mono; dim, because the
-   accent already belongs to the preferred Open button on this screen */
+.device-text { min-width: 0; }
+.list { list-style: none; margin: 0; padding: 0; }
+.list li {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-md);
+  min-height: var(--row-height);
+  padding: var(--space-xs) 0;
+  border-bottom: var(--hairline) solid var(--border);
+}
+.list li > :first-child { min-width: 0; }
+.list .name, .list .mono-dim {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.list li:hover { background: var(--surface-alt); box-shadow: 0 0 0 var(--space-xs) var(--surface-alt); }
+.list .row { flex: none; }
 .badge {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
+  display: inline-block;
+  padding: 2px var(--space-xs);
+  font-family: var(--type-micro-family);
+  font-size: var(--type-micro-size); line-height: var(--type-micro-line);
+  letter-spacing: var(--type-micro-tracking); text-transform: var(--type-micro-transform);
   color: var(--text-dim);
+  background: var(--surface-alt);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-xs);
 }
+button.actions { margin-top: var(--space-xs); }
 
-.row { display: flex; gap: 8px; align-items: center; }
-/* CSP forbids inline style attributes (style-src 'self'), so spacing that
-   would otherwise ride a style="" lives in classes. */
-.actions { margin-top: 16px; }
+/* --- the modifier remap switch ---------------------------------------------- */
+.toggle { cursor: pointer; min-height: var(--min-touch); }
+.toggle input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+.toggle-label { margin: 0; color: var(--text); }
 
-/* ---- status and errors: status colours, never the accent ---- */
-
+/* --- the error line: bad tone, marked in the machine's voice ---------------- */
 .error {
+  margin-top: var(--space-lg);
+  font-family: var(--type-label-family);
+  font-size: var(--type-mono-size); line-height: var(--type-mono-line);
   color: var(--bad);
-  min-height: 20px;
-  margin-top: 16px;
 }
-.error:not(:empty)::before {
+.error:empty { display: none; }
+.error::before {
   content: "error";
   display: block;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
+  font-size: var(--type-micro-size); line-height: var(--type-micro-line);
+  letter-spacing: var(--type-micro-tracking); text-transform: var(--type-micro-transform);
+  color: var(--text-faint);
+  margin-bottom: var(--space-xxs);
 }
 
-/* ---- the keyboard section's remap switch ---- */
-
-.toggle { gap: 8px; cursor: pointer; }
-.toggle input { accent-color: var(--accent); cursor: pointer; }
-.toggle input:focus-visible { outline: var(--rule) solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .halo, .headline, .subtitle { animation: none; }
+  .input, .button, .track-label { transition: none; }
+}
