@@ -1,65 +1,101 @@
+<!-- data-theme="dark": Belay is dark-first (app/src/theme.ts DARK_FIRST), so
+     the window commits to the ink palette rather than following the OS.
+     Remove the attribute to follow prefers-color-scheme; set "light" to pin
+     paper. test/tokens.test.mjs keeps this in step with the theme. -->
+<html lang="en" data-theme="dark">
 <meta charset="utf-8" />
 <!-- No remote origins are ever loaded as documents or scripts here; the only
      network this page does is fetch/WebSocket to the paired host, which
-     connect-src allows. -->
+     connect-src allows. font-src covers the bundled Outfit faces. -->
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src http: https: ws: wss:;" />
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src http: https: ws: wss:;" />
 <title>Belay</title>
 <link rel="stylesheet" href="tokens.css" />
 <link rel="stylesheet" href="style.css" />
 <body>
   <main class="page">
-    <h1>Belay</h1>
-    <p class="subtitle" id="subtitle">Connect to a computer running the Belay host.</p>
-    <hr class="header-rule" />
+    <header class="hero">
+      <div class="halo" aria-hidden="true">
+        <span class="halo-ring halo-outer"></span>
+        <span class="halo-ring halo-inner"></span>
+        <img class="beluga" src="beluga-cutout.png" alt="" draggable="false" />
+      </div>
+      <h1 class="headline">Welcome to <span class="brand">Belay</span></h1>
+      <p class="subtitle" id="subtitle">Connect to a computer running the Belay host.</p>
+    </header>
 
-    <section id="pair">
-      <label class="field label" for="host">Computer address</label>
-      <input id="host" placeholder="192.168.1.20:8787 or mac.local:8787" autocomplete="off" spellcheck="false" />
-      <label class="field label" for="code">Pairing code shown on that computer</label>
-      <input id="code" placeholder="123456" inputmode="numeric" autocomplete="off" maxlength="8" />
-      <div class="mono-dim" id="code-hint">Leave blank when connecting over Tailscale.</div>
-      <div class="row actions">
-        <button class="primary" id="connect">Connect</button>
-        <span class="mono-dim" id="status" role="status"></span>
+    <section id="pair" class="stack">
+      <p class="subheading">Type the address from your Tailscale app</p>
+      <p class="caption">The 100.x number Tailscale shows next to that computer.</p>
+
+      <div class="field">
+        <label class="label" for="host">Computer address</label>
+        <input id="host" class="input input-lg mono" placeholder="100.101.102.103" autocomplete="off" spellcheck="false" />
+        <div class="feedback" id="feedback" role="status" data-tone="example">e.g. 100.101.102.103</div>
+      </div>
+
+      <div class="field" id="code-field">
+        <label class="label" for="code">Pairing code shown on that computer</label>
+        <input id="code" class="input mono" placeholder="123456" inputmode="numeric" autocomplete="off" maxlength="8" />
+        <div class="caption" id="code-hint">Leave blank when connecting over Tailscale.</div>
+      </div>
+
+      <button class="button primary lg full" id="connect" type="button">Connect</button>
+      <div class="status-line mono-dim" id="status" role="status"></div>
+
+      <div class="row affordances">
+        <button class="track-label" id="where" type="button" aria-expanded="false" aria-controls="where-panel">Where do I find it?</button>
+      </div>
+      <div class="stack where-panel" id="where-panel" hidden>
+        <span class="label">In the Tailscale app</span>
+        <ol class="steps">
+          <li>Open Tailscale on this computer or your phone.</li>
+          <li>Find the computer running the Belay host in the machine list.</li>
+          <li>Copy its address — it starts with <span class="mono">100.</span> — and paste it above.</li>
+        </ol>
+        <div class="example-address mono" aria-hidden="true">100.101.102.103</div>
       </div>
     </section>
 
-    <section id="paired" hidden>
-      <div class="section-head">
-        <div>
+    <section id="paired" class="stack" hidden>
+      <div class="device-row">
+        <div class="device-text">
           <div class="name mono" id="paired-name"></div>
           <div class="mono-dim" id="paired-host"></div>
         </div>
-        <button id="forget">Forget</button>
+        <button class="button ghost sm" id="forget" type="button">Forget</button>
       </div>
 
       <div class="section-head">
         <span class="label">Displays</span>
       </div>
-      <ul class="displays" id="displays"></ul>
-      <p class="section-note" id="hint"></p>
+      <hr class="rule" />
+      <ul class="list" id="displays"></ul>
+      <p class="caption" id="hint"></p>
 
       <div class="section-head">
         <span class="label">Windows</span>
-        <button id="refresh-windows">Refresh</button>
+        <button class="button ghost sm" id="refresh-windows" type="button">Refresh</button>
       </div>
-      <p class="section-note">Open one app's window on its own, without the desktop around it.</p>
-      <ul class="displays" id="windows"></ul>
-      <p class="section-note mono-dim" id="windows-hint"></p>
+      <hr class="rule" />
+      <p class="caption">Open one app's window on its own, without the desktop around it.</p>
+      <ul class="list" id="windows"></ul>
+      <p class="caption mono-dim" id="windows-hint"></p>
 
       <div class="section-head">
         <span class="label">Keyboard</span>
         <label class="row toggle" id="keymap-toggle" hidden>
           <input type="checkbox" id="keymap-remap" />
-          <span class="label">Remap modifiers</span>
+          <span class="label toggle-label">Remap modifiers</span>
         </label>
       </div>
-      <p class="section-note mono" id="keymap-legend"></p>
-      <p class="section-note" id="keymap-note"></p>
+      <hr class="rule" />
+      <p class="mono" id="keymap-legend"></p>
+      <p class="caption" id="keymap-note"></p>
     </section>
 
     <div class="error" id="error" role="alert"></div>
   </main>
   <script type="module" src="connect.js"></script>
 </body>
+</html>

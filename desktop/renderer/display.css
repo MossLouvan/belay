@@ -3,40 +3,86 @@
    scale factor (main.js locks the window to the remote aspect ratio).
 
    This whole window is a Ledger machine panel — the true-dark surface the
-   phone gives its video, here grown to fill the frame — so its chrome uses
-   the on-machine colours in both OS themes and speaks mono throughout:
-   every word in the overlay is the computer talking. */
+   phone gives its video, here grown to fill the frame. The overlay is the
+   phone's Dock: it floats on the HUD scrim (app/src/screen/parts.tsx HUD)
+   in the HUD's inks, and speaks mono throughout — every word in it is the
+   computer talking. Nothing here is an icon alone (docs/DESIGN.md §11.1). */
 * { box-sizing: border-box; }
+html { background: var(--machine); }
 body { margin: 0; background: var(--machine); overflow: hidden; }
 #screen { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+
+:focus-visible { outline: var(--rule) solid var(--focus); outline-offset: 2px; }
+
+/* --- the dock: one strip along the bottom edge, on the scrim -------------- */
 #overlay {
   position: fixed; left: 0; right: 0; bottom: 0;
-  display: flex; gap: 16px; align-items: center; justify-content: space-between;
-  padding: 5px 12px;
-  font-family: var(--mono); font-size: 11px; letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--on-machine-dim);
-  background: var(--machine);
-  border-top: var(--hairline) solid var(--machine-line);
-  transition: opacity 160ms ease;
+  display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-md);
+  align-items: center; justify-content: space-between;
+  padding: var(--space-xxs) var(--space-sm);
+  color: var(--hud-ink-dim);
+  background: var(--hud-scrim);
+  border-top: var(--hairline) solid var(--hud-hairline);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  transition: opacity var(--motion-base) var(--ease-standard);
 }
 #overlay.idle { opacity: 0; }
 #overlay:hover, #overlay:focus-within, #overlay.gaming { opacity: 1; }
-#overlay { flex-wrap: wrap; }
 #controller { flex: 1 1 300px; }
-#gaming {
-  font: inherit; text-transform: uppercase; padding: 6px 12px;
-  color: var(--on-machine); background: var(--machine); cursor: pointer;
-  border: var(--hairline) solid var(--on-machine-dim); border-radius: var(--radius);
+
+/* DockKey: the 11px tracked mono label on a 44px key, the way every dock
+   word is on the phone. Selected by position, not class: display.js owns
+   #stats' className (bad / live) and would wipe one. */
+#overlay > span {
+  display: inline-flex; align-items: center;
+  min-height: var(--min-touch); min-width: var(--min-touch);
+  padding: 0 var(--space-xxs);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size); line-height: var(--type-label-line);
+  letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-transform);
+  font-variant-numeric: var(--type-label-numerals);
+  color: var(--hud-ink-dim);
+  white-space: nowrap;
 }
-#gaming[aria-pressed="true"] { color: var(--machine-accent); border-color: var(--machine-accent); }
-#gaming:hover { background: var(--machine-line); }
-#gaming:focus-visible { outline: var(--rule) solid var(--machine-accent); outline-offset: 2px; }
-#overlay .bad { color: var(--machine-bad); }
+#overlay > #title { color: var(--hud-ink); }
+#overlay > span:empty { display: none; }
+#keys { white-space: normal; }
+#overlay .bad { color: var(--bad); }
 /* the live dot: accent means activity, and leaves when activity stops */
 #stats.live::before {
   content: "";
-  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block; width: 6px; height: 6px; border-radius: var(--radius-pill);
   margin-right: 6px; vertical-align: 1px;
-  background: var(--machine-accent);
+  background: var(--accent-graphic);
+}
+
+/* BoxedToggle: a bordered strip that fills solid accent when on — the
+   phone's Gaming switch, in the HUD's floating inks. */
+.boxed-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--min-touch); min-width: var(--min-touch);
+  padding: 0 var(--space-xs);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size); line-height: var(--type-label-line);
+  letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-transform);
+  color: var(--hud-ink);
+  background: transparent;
+  border: var(--hairline) solid var(--hud-hairline);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.boxed-toggle:hover { border-color: var(--hud-ink-dim); }
+.boxed-toggle:active { opacity: var(--press-opacity); }
+.boxed-toggle[aria-pressed="true"] {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #overlay, .boxed-toggle { transition: none; }
 }

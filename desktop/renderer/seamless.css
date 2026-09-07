@@ -1,10 +1,15 @@
 /* Frameless: the remote window's own title bar is in the stream, so this
    window has none of its own. What little chrome exists — two hover-revealed
-   buttons and a status strip — is machine-panel styled: mono, on-machine
-   colours, square corners, dark in both OS themes. */
+   keys and a status strip — is the phone's floating HUD: mono, the HUD inks
+   on the HUD scrim (app/src/screen/parts.tsx), dark in both OS themes.
+   "Raise" is a word, not an arrow: the only bare glyphs the system allows
+   are the universal five, and × is one of them (docs/DESIGN.md §11.1). */
 * { box-sizing: border-box; }
+html { background: var(--machine); }
 body { margin: 0; background: var(--machine); overflow: hidden; }
 #screen { display: block; width: 100vw; height: 100vh; cursor: default; }
+
+:focus-visible { outline: var(--rule) solid var(--focus); outline-offset: 2px; }
 
 /* A drag strip over the top edge, so grabbing the remote title bar moves the
    local window — the first thing anyone tries. It sits above the canvas and
@@ -12,33 +17,51 @@ body { margin: 0; background: var(--machine); overflow: hidden; }
    bar, and everything below it still reaches the remote window. Alt+drag is
    offered for windows whose own controls live in that strip. */
 #drag {
-  position: fixed; top: 0; left: 0; right: 92px; height: 28px;
+  position: fixed; top: 0; left: 0; right: 100px; height: 28px;
   -webkit-app-region: drag;
 }
 #chrome {
   position: fixed; top: 0; right: 0; height: 28px;
-  display: flex; align-items: center; gap: 2px; padding: 0 4px;
+  display: flex; align-items: center; gap: var(--space-xxs); padding: 0 var(--space-xxs);
   -webkit-app-region: no-drag;
-  opacity: 0; transition: opacity 120ms ease;
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard);
 }
-body:hover #chrome { opacity: 1; }
+body:hover #chrome, #chrome:focus-within { opacity: 1; }
+/* DockKey, shrunk to the strip: the tracked mono label on a bordered key. */
 #chrome button {
-  width: 26px; height: 22px; padding: 0; line-height: 1;
-  border-radius: var(--radius);
-  border: var(--hairline) solid var(--machine-line);
-  background: var(--machine); color: var(--on-machine-dim);
-  font-family: var(--mono); font-size: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 22px; min-width: 26px; padding: 0 var(--space-xs); line-height: 1;
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size);
+  letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-transform);
+  color: var(--hud-ink-dim);
+  background: var(--hud-scrim);
+  border: var(--hairline) solid var(--hud-hairline);
+  border-radius: var(--radius-xs);
   cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
 }
-#chrome button:hover { color: var(--on-machine); border-color: var(--on-machine-dim); }
-#chrome button:focus-visible { outline: 2px solid var(--machine-accent); outline-offset: 1px; }
+#chrome button:hover { color: var(--hud-ink); border-color: var(--hud-ink-dim); }
+#chrome button:active { opacity: var(--press-opacity); }
+#chrome #close { font-size: 14px; letter-spacing: 0; }
+
+/* The status strip: the micro label, bottom-left, in the HUD's dim ink. */
 #status {
-  position: fixed; left: 0; bottom: 0; padding: 3px 8px;
-  font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--on-machine-dim); background: var(--machine);
-  border-top: var(--hairline) solid var(--machine-line);
-  border-right: var(--hairline) solid var(--machine-line);
+  position: fixed; left: 0; bottom: 0;
+  padding: var(--space-xxs) var(--space-xs);
+  font-family: var(--type-micro-family);
+  font-size: var(--type-micro-size); line-height: var(--type-micro-line);
+  letter-spacing: var(--type-micro-tracking); text-transform: var(--type-micro-transform);
+  font-variant-numeric: var(--type-micro-numerals);
+  color: var(--hud-ink-dim); background: var(--hud-scrim);
+  border-top: var(--hairline) solid var(--hud-hairline);
+  border-right: var(--hairline) solid var(--hud-hairline);
+  border-top-right-radius: var(--radius-xs);
   pointer-events: none;
 }
 #status:empty { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  #chrome, #chrome button { transition: none; }
+}

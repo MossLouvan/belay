@@ -102,7 +102,11 @@ opened after the change.
 |---|---|
 | `main.js` | Electron main process: windows, IPC, aspect-ratio locking |
 | `preload.cjs` | the renderer's only privileged surface — four IPC calls |
-| `renderer/tokens.css` | the Ledger palette and type voices, shared with the phone (docs/DESIGN.md); light/dark follow the OS |
+| `renderer/tokens.css` | GENERATED from `app/src/theme.ts` — every palette, type, spacing, radius, motion and HUD token; dark under `prefers-color-scheme` and `data-theme` |
+| `renderer/fonts/` | the four Outfit faces the phone loads, plus their OFL licence |
+| `scripts/sync-tokens.mjs` | regenerates `renderer/tokens.css` and `src/ground.js` from the phone theme (`npm run sync-tokens`) |
+| `src/ground.js` | GENERATED — the window grounds `main.js` paints before CSS loads |
+| `src/address-feedback.js` | the live line under the address field, in the app's words |
 | `renderer/connect.*` | pairing and the display list |
 | `renderer/display.*` | a whole display: stream canvas and input forwarding |
 | `renderer/seamless.*` | one remote window: same, plus size/title following |
@@ -117,12 +121,27 @@ opened after the change.
 | `test/` | `node --test` over every `src/` module |
 | `test/smoke.cjs` | manual end-to-end check against a live host (see the header) |
 
-The look is the phone app's Ledger system (docs/DESIGN.md) re-cut for a
-pointer: the same paper/ink palette and one-orange-accent rules, but hover
-tints, focus rings and desktop-dense rows instead of touch targets and the
-track rule, because a mouse can hover and a thumb cannot. Streams sit on the
-same true-dark machine panel in both themes. Every stylesheet is local; the
-CSPs allow no inline styles and nothing remote.
+The look is the phone app's, token for token. `renderer/tokens.css` is not
+written by hand: `npm run sync-tokens` evaluates `app/src/theme.ts` under
+node (with two tiny stubs standing in for react and react-native, see
+`scripts/stubs/`) and renders every palette role, type variant, spacing step,
+radius, layout constant, motion duration and easing as a CSS custom property,
+plus the stream HUD's inks from `app/src/screen/parts.tsx`. `test/tokens.test.mjs`
+regenerates it in memory on every `npm test` and fails, naming the token,
+when the committed file and the theme disagree — so a theme change on the
+phone that is not followed by a sync breaks the desktop build rather than
+quietly leaving it behind.
+
+The components are the phone's too: the 11px tracked mono label on every
+button, the 44/56px Button, the 60px mono hero Input with its accent rope on
+focus, TrackLabel words with their 2px track, 52px hairline ledger rows, the
+beluga hero on its glow, the Dock's keys and BoxedToggle on the HUD scrim.
+The pages pin `data-theme="dark"` because the app is dark-first
+(`DARK_FIRST` in theme.ts); the light palette is generated and ready, so
+removing the attribute follows the OS and `data-theme="light"` pins paper.
+Streams sit on the same true-dark machine panel in both themes. Every
+stylesheet and font is local; the CSPs allow no inline styles and nothing
+remote.
 
 Renderers run with `contextIsolation` on, `nodeIntegration` off and `sandbox`
 on. The bearer token is kept by the main process and never touches

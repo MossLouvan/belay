@@ -23,6 +23,7 @@ import { dirname, join } from 'node:path';
 import { clearSession, keymapModeOf, migrateLegacySession, readSession, writeSession } from './src/session.js';
 import { fitWindow } from './src/displays.js';
 import { cascadeOffset, initialSize, windowLabel } from './src/windows.js';
+import { GROUND } from './src/ground.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Keep the controller's 4 ms hidden-window timer running. Unlike disabling
@@ -36,13 +37,14 @@ const preload = join(__dirname, 'preload.cjs');
 /** Every display window, so a "disconnect" can close them all at once. */
 const displayWindows = new Set();
 
-// The Ledger grounds (renderer/tokens.css), repeated here because the frame's
-// first paint happens before any CSS loads and a flash of the wrong theme is
-// exactly the mismatch the paint colour exists to prevent. `machine` is the
-// panel colour a stream sits on — dark in both themes, like the phone's.
-const GROUND = Object.freeze({ light: '#EAE8E4', dark: '#121110', machine: '#0C0B0A' });
-
-const pageGround = () => (nativeTheme.shouldUseDarkColors ? GROUND.dark : GROUND.light);
+// The Ledger grounds come from src/ground.js, generated from the phone's
+// theme, because the frame's first paint happens before any CSS loads and a
+// flash of the wrong theme is exactly the mismatch the paint colour exists to
+// prevent. `machine` is the panel colour a stream sits on — dark in both
+// themes, like the phone's. The renderer pins data-theme the same way
+// (renderer/*.html), so the first paint and the page agree.
+const pageGround = () =>
+  (GROUND.darkFirst || nativeTheme.shouldUseDarkColors ? GROUND.dark : GROUND.light);
 
 function createConnectWindow() {
   const win = new BrowserWindow({
