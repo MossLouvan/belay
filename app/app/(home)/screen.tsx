@@ -122,7 +122,10 @@ export default function ScreenTab() {
 
   // The stage is sized to the remote aspect ratio so the picture fills it
   // exactly: no letterboxing means touch coordinates map straight through.
-  const aspect = useMemo(() => aspectOf(stream.stats, facts.info), [facts.info, stream.stats]);
+  const aspect = useMemo(
+    () => aspectOf(stream.stats, facts.info, { width: stream.bwpWidth, height: stream.bwpHeight }),
+    [facts.info, stream.stats, stream.bwpWidth, stream.bwpHeight],
+  );
   const stage = useMemo(() => fitBox(box, aspect), [box, aspect]);
   const stageRef = useRef<Size>(EMPTY_SIZE);
   stageRef.current = stage;

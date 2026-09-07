@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ScreenInfo } from '../api';
 import { messageOf, PERMISSION_PATTERN, STREAM } from './model';
-import type { StreamStats } from './stream';
 
 // --- host facts -------------------------------------------------------------
 
@@ -100,11 +99,4 @@ export const readPermissions = (info: ScreenInfo | null, streamError: string | n
   return { captureBlocked: suspicious, inputBlocked: false, known: false };
 };
 
-/** Aspect ratio of the remote desktop, from the best source currently known. */
-export const aspectOf = (stats: StreamStats, info: ScreenInfo | null): number => {
-  if (stats.sourceWidth > 0 && stats.sourceHeight > 0) return stats.sourceWidth / stats.sourceHeight;
-  if (stats.width > 0 && stats.height > 0) return stats.width / stats.height;
-  const primary = info?.primary;
-  if (primary && primary.W > 0 && primary.H > 0) return primary.W / primary.H;
-  return 16 / 9;
-};
+export { aspectOf } from './aspect';
