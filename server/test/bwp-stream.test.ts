@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  INPUT_MAX_BYTES,
+  decodeInputHex,
   normalizeAddress,
   parseStreamerLine,
   validFps,
@@ -138,4 +140,24 @@ test('a missing address is refused rather than stringified', () => {
   assert.equal(normalizeAddress(undefined), null);
   assert.equal(normalizeAddress(null), null);
   assert.equal(normalizeAddress(''), null);
+});
+
+// A gamepad report the phone sent over UDP arrives here as hex. It must come
+// out as the exact bytes the gamepad hub already understands from the
+// WebSocket path — the codec is shared, so the transport must be invisible.
+test('an input line is decoded to the bytes the phone sent', () => {
+  const event = parseStreamerLine('{"type":"input","hex":"01000000ff7f0000000000000000002a"}');
+  assert.equal(event?.type, 'input');
+  if (event?.type !== 'input') return;
+  assert.deepEqual([...event.frame], [1, 0, 0, 0, 0xff, 0x7f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x2a]);
+  assert.deepEqual([...(decodeInputHex('ABcd') ?? [])], [0xab, 0xcd]);
+});
+
+test('input that is not whole bytes, empty, or oversized is dropped', () => {
+  for (const hex of ['', 'abc', 'zz', 'a'.repeat(INPUT_MAX_BYTES * 2 + 2), 42, null]) {
+    assert.equal(decodeInputHex(hex), null, `must refuse ${String(hex)}`);
+  }
+  assert.equal(parseStreamerLine('{"type":"input"}'), null);
+  assert.equal(parseStreamerLine('{"type":"input","hex":"abc"}'), null);
+  assert.equal(decodeInputHex('ff'.repeat(INPUT_MAX_BYTES))?.length, INPUT_MAX_BYTES);
 });

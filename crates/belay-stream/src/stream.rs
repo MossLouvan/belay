@@ -188,9 +188,15 @@ pub fn run(
                             keyframe_requests += 1;
                             encoder.request_keyframe();
                         }
-                        // The host does not consume media from the client on
-                        // this session; input arrives over the existing
-                        // authenticated WebSocket.
+                        // Gamepad reports ride the Input channel so they never
+                        // queue behind video. The parent owns the gamepad
+                        // state machine; the streamer only relays bytes.
+                        Event::Frame { channel: Channel::Input, payload, .. } => {
+                            if let Some(body) = crate::input::input_body(&payload) {
+                                emit("input", &body);
+                            }
+                        }
+                        // The host does not consume media from the client.
                         Event::Frame { .. } => {}
                     }
                 }

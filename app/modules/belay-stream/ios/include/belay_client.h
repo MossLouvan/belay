@@ -18,6 +18,7 @@ extern "C" {
 #define BELAY_ERR_ARGS     -1
 #define BELAY_ERR_BIND     -2
 #define BELAY_ERR_SESSION  -3
+#define BELAY_ERR_IO       -4
 
 #define BELAY_FRAME_NONE     0
 #define BELAY_FRAME_VIDEO    1
@@ -63,6 +64,13 @@ uint64_t belay_client_bitrate(void *handle);
 // next belay_client_next_frame; repeated calls before then cost one datagram.
 // Returns BELAY_OK or BELAY_ERR_ARGS.
 int belay_client_request_keyframe(void *handle);
+
+// Send one input report (a gamepad frame, at most BELAY_INPUT_MAX_LEN bytes)
+// to the host on the Input channel — the highest priority the transport has,
+// ahead of any queued video. Returns BELAY_OK, BELAY_ERR_ARGS for a null
+// handle, null data or a bad length, BELAY_ERR_IO if the socket refused it.
+#define BELAY_INPUT_MAX_LEN 64
+int belay_client_send_input(void *handle, const uint8_t *data, size_t len);
 
 // Smoothed round-trip time to the host in milliseconds, or negative while it
 // is not yet known.

@@ -75,6 +75,8 @@ export type BwpEvent =
       readonly rttMs: number | null;
     }
   | { readonly type: 'bitrate'; readonly bps: number }
+  /** One input report the phone sent on BWP's Input channel, verbatim. */
+  | { readonly type: 'input'; readonly frame: Buffer }
   | { readonly type: 'error'; readonly error: string }
   | { readonly type: 'exit'; readonly code: number | null };
 
@@ -145,6 +147,23 @@ function optionalMs(raw: unknown): number | null {
   return raw;
 }
 
+/**
+ * Largest input report accepted, in bytes. Matches the streamer's own cap; a
+ * longer one did not come from our client and is not worth decoding.
+ */
+export const INPUT_MAX_BYTES = 64;
+
+const HEX_BYTES = /^(?:[0-9a-fA-F]{2})+$/;
+
+/**
+ * The bytes of an input report the streamer relayed as hex, or null when the
+ * text is not a whole number of bytes, empty, or longer than a report can be.
+ */
+export function decodeInputHex(raw: unknown): Buffer | null {
+  if (typeof raw !== 'string' || raw.length > INPUT_MAX_BYTES * 2 || !HEX_BYTES.test(raw)) return null;
+  return Buffer.from(raw, 'hex');
+}
+
 /** Parse one line of the streamer's stdout. Unknown shapes are ignored. */
 export function parseStreamerLine(line: string): BwpEvent | null {
   const trimmed = line.trim();
@@ -181,6 +200,10 @@ export function parseStreamerLine(line: string): BwpEvent | null {
       };
     case 'bitrate':
       return { type: 'bitrate', bps: Number(msg.bps) || 0 };
+    case 'input': {
+      const frame = decodeInputHex(msg.hex);
+      return frame ? { type: 'input', frame } : null;
+    }
     case 'error':
       return { type: 'error', error: typeof msg.error === 'string' ? msg.error : 'stream failed' };
     default:

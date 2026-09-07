@@ -1392,6 +1392,13 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
         case 'bitrate':
           ws.send(JSON.stringify({ type: 'bwpBitrate', bps: event.bps }));
           break;
+        case 'input':
+          // A gamepad report that took the UDP fast path. The /ws/gamepad
+          // session still owns the pad; this only delivers the sample sooner.
+          // Nothing to do when no pad is attached: the phone falls back to the
+          // WebSocket by itself, and a report with no owner has nowhere to go.
+          gamepadHub.inject(event.frame);
+          break;
         case 'error':
         case 'exit': {
           // The stream died. Say so and fall back to JPEG rather than leaving
