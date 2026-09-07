@@ -40,6 +40,7 @@ brief. No Sunshine or Moonlight implementation code was copied into Belay.
 | Bounded client delivery | desktop/src/video-queue.js | One in-flight plus two queued access units, 50 ms age limit, ordered delivery and keyframe recovery |
 | Decoder recovery | desktop/renderer/video.js | Short overload resets to waiting for keyframe; timeout/unavailable codec still falls back |
 | Controller input | existing gamepad channel and native target | Separate from video; native driver/device acceptance remains outstanding |
+| Loss recovery | Complete video frame IDs checked for missing dependencies | Missing frames suppress deltas until a complete keyframe; requests retry at most every 250 ms; stale/duplicate packets do not request recovery |
 | FEC/retransmission | reassembly has nack_list but no active repair sender | Not implemented; do not claim Sunshine-equivalent loss resilience |
 | Audio and cursor | Existing separate paths | Full client delivery and synchronization still require an end-to-end audit |
 
@@ -78,7 +79,8 @@ compact layout, keyboard activation and simulated controller transport.
 
 ## Still required before declaring the objective complete
 
-- Complete missing-frame dependency recovery and packet-loss/reordering tests.
+- Extend the verified single-loss recovery to sustained loss, delay and jitter
+  experiments; choose FEC or bounded retransmission based on those results.
 - Audit asynchronous encoder surface lifetime and measure actual input-to-output
   latency; keep capture, encoding and network queues bounded if overlapped.
 - Measure real moving desktop/game capture, quality under motion, client decode
@@ -90,3 +92,18 @@ compact layout, keyboard activation and simulated controller transport.
 
 The requested bro skill was not available in the installed skill catalog or
 local skill directories; explanations use plain language instead.
+
+## Packet-loss validation follow-up
+
+`node scripts/probe-desktop-video.mjs --loss` routes actual encrypted synthetic
+GPU video through a local UDP proxy and drops one non-keyframe datagram after
+warmup. The first subsequently delivered frame must be a keyframe. The measured
+run recovered in 69 ms, delivered 457 frames and four keyframes over eight
+seconds, and settled near 59 FPS. This measures receiver recovery, not decoded
+presentation or WAN behavior. The smoke-test ceiling is two seconds; it is not
+a product latency target.
+
+35 transport tests pass, including a missing fragment, an entirely missing
+frame, retry after a lost keyframe request, fragment reordering, duplicates,
+frame-ID wrap, and rejecting invalid authenticated-encryption tags without
+poisoning the replay window. Recovery preserves the existing v1 wire format.

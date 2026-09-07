@@ -142,7 +142,7 @@ impl DirectionKey {
 /// Authentication alone does not stop replay: a captured datagram is perfectly
 /// authentic. For an input channel that means a recorded keystroke could be
 /// re-injected, so this is a security control, not an optimisation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ReplayWindow {
     highest: Option<u32>,
     /// Bit i set means (highest - i) has been seen.

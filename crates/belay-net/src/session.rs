@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use belay_wire::congestion::{AbrConfig, AbrState, BitratePreset, LinkFeedback};
 use belay_wire::crypto::{Direction, DirectionKey, ReplayWindow, TAG_LEN};
 use belay_wire::packet::{flags, fragment_count, fragment_range, Channel, Header, HEADER_LEN, MAX_DATAGRAM};
-use belay_wire::reassembly::{Accepted, Reassembler};
+use belay_wire::reassembly::{Accepted, DropReason, Reassembler};
 
 use crate::feedback::{ReceiveTracker, Report, RttEstimator};
 use crate::pacer::Pacer;
@@ -107,6 +107,9 @@ pub struct Session {
     deferred_events: Vec<Event>,
     sent_stamps: VecDeque<(u32, u32)>,
     last_report_sequence: Option<u32>,
+    last_video_frame: Option<u32>,
+    video_waiting_keyframe: bool,
+    last_recovery_request: Option<Instant>,
 }
 
 impl core::fmt::Debug for Session {
@@ -160,6 +163,9 @@ impl Session {
             deferred_events: Vec::new(),
             sent_stamps: VecDeque::new(),
             last_report_sequence: None,
+            last_video_frame: None,
+            video_waiting_keyframe: false,
+            last_recovery_request: None,
         })
     }
 
@@ -308,9 +314,11 @@ impl Session {
             self.send_report()?;
             self.last_report_sent = Instant::now();
         }
-        if self.want_keyframe {
+        if (self.want_keyframe || self.video_waiting_keyframe)
+            && self.last_recovery_request.is_none_or(|last| last.elapsed() >= Duration::from_millis(250)) {
             self.want_keyframe = false;
             self.request_keyframe()?;
+            self.last_recovery_request = Some(Instant::now());
             events.push(Event::KeyframeNeeded);
         }
         Ok(events)
@@ -320,10 +328,12 @@ impl Session {
         let header = Header::decode(datagram).ok()?;
         // Replay check BEFORE decryption: a replay flood should cost a bitmask
         // lookup, not a cipher pass over every datagram.
-        if self.replay.accept(header.sequence).is_err() {
+        let mut replay = self.replay.clone();
+        if replay.accept(header.sequence).is_err() {
             return None;
         }
         let plaintext = self.recv_key.open(datagram, &header).ok()?;
+        self.replay = replay;
 
         self.tracker.on_datagram(header.sequence, header.send_us, self.now_us() as u64);
 
@@ -332,17 +342,35 @@ impl Session {
         }
 
         match self.reassemblers[header.channel as usize].push(&header, &plaintext) {
-            Accepted::Complete { frame_id, keyframe, payload } => Some(vec![Event::Frame {
+            Accepted::Complete { frame_id, keyframe, payload } => {
+                if header.channel == Channel::Video {
+                    if keyframe {
+                        self.video_waiting_keyframe = false;
+                        self.want_keyframe = false;
+                    } else if self.video_waiting_keyframe || self.last_video_frame
+                        .is_none_or(|last| frame_id != last.wrapping_add(1)) {
+                        // A complete P-frame is not independently decodable.
+                        // This also detects an entirely missing access unit,
+                        // which reassembly cannot see from partial fragments.
+                        self.video_waiting_keyframe = true;
+                        self.want_keyframe = true;
+                        return None;
+                    }
+                    self.last_video_frame = Some(frame_id);
+                }
+                Some(vec![Event::Frame {
                 channel: header.channel,
                 frame_id,
                 keyframe,
                 payload,
-            }]),
-            Accepted::Dropped(_) => {
+            }])
+            },
+            Accepted::Dropped(reason) => {
                 // A frame we gave up on means the decoder is broken. Ask for a
                 // keyframe on evidence rather than emitting them on a timer.
-                if header.channel == Channel::Video {
+                if header.channel == Channel::Video && !matches!(reason, DropReason::Stale | DropReason::Duplicate) {
                     self.want_keyframe = true;
+                    self.video_waiting_keyframe = true;
                 }
                 None
             }
@@ -417,6 +445,64 @@ pub fn random_salt() -> [u8; 8] {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn unauthenticated_sequence_cannot_poison_video_replay_window() {
+        let (host, mut client) = pair(BitratePreset::Max);
+        let mut forged = video_packet(&host, 10_000, 0, 0, 1, true);
+        *forged.last_mut().unwrap() ^= 1;
+        assert!(client.on_datagram(&forged).is_none());
+        assert!(client.on_datagram(&video_packet(&host, 0, 0, 0, 1, true)).is_some());
+    }
+    fn video_packet(host: &Session, sequence: u32, frame_id: u32, index: u16, count: u16, keyframe: bool) -> Vec<u8> {
+        host.send_key.seal(&Header { channel: Channel::Video, sequence, frame_id,
+            frag_index: index, frag_count: count, flags: if keyframe { flags::KEYFRAME } else { 0 }, send_us: 0 }, b"pixels")
+    }
+
+    #[test]
+    fn missing_reference_frame_suppresses_deltas_until_a_complete_keyframe() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        assert!(client.on_datagram(&video_packet(&host,0,0,0,1,true)).is_some());
+        // Frame 1 loses its second fragment. Frame 2 completes first.
+        assert!(client.on_datagram(&video_packet(&host,1,1,0,2,false)).is_none());
+        assert!(client.on_datagram(&video_packet(&host,3,2,0,1,false)).is_none());
+        assert!(client.video_waiting_keyframe);
+        client.poll().unwrap();
+        assert!(drain(&mut host).iter().any(|e| matches!(e, Event::KeyframeNeeded)));
+        // A delayed fragment and more deltas cannot repair the dependency gap.
+        assert!(client.on_datagram(&video_packet(&host,2,1,1,2,false)).is_none());
+        assert!(client.on_datagram(&video_packet(&host,4,3,0,1,false)).is_none());
+        client.poll().unwrap();
+        assert!(!drain(&mut host).iter().any(|e| matches!(e, Event::KeyframeNeeded)));
+        assert!(client.on_datagram(&video_packet(&host,5,4,0,2,true)).is_none());
+        assert!(client.on_datagram(&video_packet(&host,6,4,1,2,true)).is_some());
+        assert!(!client.video_waiting_keyframe);
+        assert!(client.on_datagram(&video_packet(&host,7,5,0,1,false)).is_some());
+    }
+
+    #[test]
+    fn entire_missing_frame_and_lost_recovery_request_are_detected() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        client.on_datagram(&video_packet(&host,0,0,0,1,true));
+        assert!(client.on_datagram(&video_packet(&host,2,2,0,1,false)).is_none());
+        client.poll().unwrap();drain(&mut host); // Ignore the first request.
+        client.last_recovery_request = Some(Instant::now() - Duration::from_millis(251));
+        client.poll().unwrap();
+        assert!(drain(&mut host).iter().any(|e| matches!(e, Event::KeyframeNeeded)));
+    }
+
+    #[test]
+    fn duplicate_and_reordered_fragments_do_not_trigger_recovery() {
+        let (host, mut client) = pair(BitratePreset::Max);
+        assert!(client.on_datagram(&video_packet(&host,1,u32::MAX,1,2,true)).is_none());
+        assert!(client.on_datagram(&video_packet(&host,2,u32::MAX,1,2,true)).is_none());
+        assert!(!client.want_keyframe);
+        assert!(client.on_datagram(&video_packet(&host,0,u32::MAX,0,2,true)).is_some());
+        assert!(client.on_datagram(&video_packet(&host,3,0,0,1,false)).is_some());
+        assert!(client.on_datagram(&video_packet(&host,4,u32::MAX,0,2,true)).is_none());
+        assert!(!client.want_keyframe);
+        assert!(!client.video_waiting_keyframe);
+    }
+
+    #[test]
     fn v1_reports_measure_packet_round_trip_instead_of_session_age() {
         let (mut host, _) = pair(BitratePreset::Max);
         host.started -= Duration::from_secs(5);
@@ -460,15 +546,11 @@ mod tests {
         let token = b"paired-device-token";
         let salt = [9u8; 8];
 
-        let a_sock = UdpSocket::bind(local(0)).unwrap();
-        let b_sock = UdpSocket::bind(local(0)).unwrap();
-        let a_addr = a_sock.local_addr().unwrap();
-        let b_addr = b_sock.local_addr().unwrap();
-        drop(a_sock);
-        drop(b_sock);
-
-        let a = Session::bind(a_addr, b_addr, token, salt, Direction::HostToClient, preset).unwrap();
-        let b = Session::bind(b_addr, a_addr, token, salt, Direction::ClientToHost, preset).unwrap();
+        // Bind each live socket once; reserving then dropping ephemeral ports
+        // races with other concurrent tests on Windows.
+        let mut a = Session::bind(local(0), local(1), token, salt, Direction::HostToClient, preset).unwrap();
+        let b = Session::bind(local(0), a.local_addr().unwrap(), token, salt, Direction::ClientToHost, preset).unwrap();
+        a.peer = b.local_addr().unwrap();
         (a, b)
     }
 
