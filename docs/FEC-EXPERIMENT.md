@@ -137,3 +137,25 @@ were emitted, consistent with startup probing rather than repeated reductions.
 Timer lateness reached 12.05 ms. This is evidence for this scheduling profile,
 not a guarantee against arbitrary jitter. Loss-profile and equal-quality
 comparisons still determine whether parity should become the default.
+
+Installed-app validation after commit a280d2f: refreshed the per-user Belay
+installation with the rebuilt receiver. The installed executable passed pairing,
+H.264 presentation, gaming and rapid toggles, compact layout, keyboard activation
+and 48 simulated controller frames. No physical controller or remote Mac was
+involved. This updates the earlier installation checkpoint above.
+
+Post-feedback-fix 1% loss comparison (same seed42 model, 15 seconds each):
+
+| Measurement | Parity enabled | Disabled |
+| --- | ---: | ---: |
+| Delivered frames | 862 | 712 |
+| Keyframes | 5 | 20 |
+| P95 arrival gap | 24.17 ms | 24.35 ms |
+| Maximum arrival gap | 68.24 ms | 426.73 ms |
+| Wire bytes | 3,178,557 | 2,289,010 |
+| Dropped media packets | 28 / 3185 | 22 / 2226 |
+
+Repair improved delivery in this pair at approximately 39% more total traffic.
+It remains opt-in: packet layouts and encoder budgets differ, so equal visual
+quality and performance across network conditions are not established. The
+feedback correction is enabled for ordinary sessions independently of parity.
