@@ -1,0 +1,7 @@
+{
+  "name": "belay-gamepad",
+  "version": "1.0.0",
+  "description": "Belay physical controller input and controller haptics",
+  "main": "src/index.ts",
+  "private": true
+}

@@ -5,7 +5,8 @@
 // `useHostFacts` polls the host for geometry, latency and — on macOS — the
 // Screen Recording / Accessibility permission flags.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { gamingQuality } from '../gamepad/presets';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { api, checkHost, getConnection, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
 import { ReattachLink, shouldReattachOnForeground } from '../foreground';
@@ -216,9 +217,10 @@ export type { ConfigMessage } from './model';
  */
 export function useScreenStream(
   active: boolean,
-  quality: QualityPreset,
+  requestedQuality: QualityPreset,
   screen?: number,
   virtual: VirtualRequest | null = null,
+  gaming = false,
 ): StreamState {
   const [phase, setPhase] = useState<Phase>('idle');
   const [frameUri, setFrameUri] = useState<string | null>(null);
@@ -229,6 +231,7 @@ export function useScreenStream(
   const [bwp, setBwp] = useState<BwpSource | null>(null);
   const [bwpStats, setBwpStats] = useState<BwpStats | null>(null);
   const [bwpPath, setBwpPath] = useState<string | null>(null);
+  const quality = useMemo(() => gaming ? gamingQuality(bwpPath) : requestedQuality, [gaming, bwpPath, requestedQuality]);
   const [bwpSize, setBwpSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   // A ref as well as state: the stall detector and the message handler both
   // need to know synchronously whether BWP is carrying video, and reading it
@@ -245,6 +248,17 @@ export function useScreenStream(
   // honour it.
   const socketUrl = useRef<string | null>(null);
   const reservedPort = useRef(0);
+
+  const bwpTuning = useRef({preset: quality.bwpPreset, fps: quality.bwpFps});
+  useEffect(() => {
+    const previous = bwpTuning.current;
+    bwpTuning.current = {preset: quality.bwpPreset, fps: quality.bwpFps};
+    const socket = socketRef.current;
+    if (!bwpLive.current || !socket || socket.readyState !== SOCKET_OPEN || reservedPort.current <= 0) return;
+    if (previous.preset === quality.bwpPreset && previous.fps === quality.bwpFps) return;
+    try { socket.send(buildBwpStart(reservedPort.current, quality.bwpPreset, quality.bwpFps)); }
+    catch { /* stream reconnect will apply the current preference */ }
+  }, [quality]);
 
   // Live retune: the host accepts a `config` message, so changing quality, the
   // streamed monitor, or the true resolution costs neither a reconnect nor a

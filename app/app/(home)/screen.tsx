@@ -27,6 +27,7 @@
 // `src/screen/*` — sibling files inside `app/(home)/` are picked up by
 // expo-router's route context and would register as extra routes.
 
+import { GamingOverlay, GamingSheet, useGaming } from '../../src/gamepad/gaming';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Image, Keyboard, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
@@ -154,6 +155,9 @@ export default function ScreenTab() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
+  const focused = useIsFocused();
+  const active = Boolean(connection) && focused;
+  const gaming = useGaming(active, `${connection?.host ?? ''}|${connection?.token ?? ''}`);
 
   const [qualityId, setQualityId] = useState<QualityId>(DEFAULT_QUALITY);
   // The NEW true-resolution axis (Parsec-style), orthogonal to quality:
@@ -217,10 +221,14 @@ export default function ScreenTab() {
   // upright would strand the user in a fullscreen they never chose, behind
   // an exit control they already found hard to hit.
   const landscape = window.width > window.height;
-  const immersive = fullscreen || landscape;
+  const immersive = gaming.enabled || fullscreen || landscape;
+  const previousLandscape = useRef(landscape);
   useEffect(() => {
-    if (landscape && fullscreen) setFullscreen(false);
-  }, [landscape, fullscreen]);
+    // Only a fresh rotation clears portrait fullscreen. Leaving Gaming while
+    // its landscape lock is restoring must preserve the previous Full choice.
+    if (!gaming.enabled && landscape && !previousLandscape.current && fullscreen) setFullscreen(false);
+    previousLandscape.current = landscape;
+  }, [landscape, fullscreen, gaming.enabled]);
 
   const resolutions = useMemo(() => resolutionOptions(device), [device]);
   const resolution = useMemo(() => findResolution(resolutionId, resolutions), [resolutionId, resolutions]);
@@ -242,8 +250,6 @@ export default function ScreenTab() {
   // would leave the frame socket, the 15s info poll and the per-second stats
   // ticker running while the user works in Terminal or Files. Gating on focus
   // as well releases all three the moment the tab goes off screen.
-  const focused = useIsFocused();
-  const active = Boolean(connection) && focused;
   const facts = useHostFacts(active);
 
   // Which monitor the stream shows AND every input call targets — one value,
@@ -259,7 +265,7 @@ export default function ScreenTab() {
     [selectedScreen, screens]
   );
 
-  const stream = useScreenStream(active, quality, screenIndex, virtualRequest);
+  const stream = useScreenStream(active, quality, screenIndex, virtualRequest, gaming.enabled);
 
   // Only the presets this host can actually honour. Performance and Ultra need
   // a hardware encoder; offering them to a host without one costs the user a
@@ -273,9 +279,10 @@ export default function ScreenTab() {
   // render instead.
   const qualityChoices = useMemo(() => availableQuality(stream.bwpPath), [stream.bwpPath]);
   useEffect(() => {
+    if (gaming.enabled) return;
     const supported = resolveQualityId(qualityId, qualityChoices);
     if (supported !== qualityId) setQualityId(supported);
-  }, [qualityId, qualityChoices]);
+  }, [qualityId, qualityChoices, gaming.enabled]);
 
   // Probe once per active session whether this host can render at a chosen
   // resolution. A 403 (flag off) or an unreachable host resolves to false
@@ -363,7 +370,7 @@ export default function ScreenTab() {
   );
   // The collaboration channel: everyone else's cursor coming in, ours going
   // out. Only while this tab is live — an unfocused tab has nobody pointing.
-  const room = useRemoteCursors(active);
+  const room = useRemoteCursors(active && !gaming.enabled);
 
   const viewport = useViewport({
     sizeRef: stageRef,
@@ -372,7 +379,7 @@ export default function ScreenTab() {
     onButtonUsed: clearButton,
     onError: reportError,
     reducedMotion,
-    inputBlocked: permissions.inputBlocked,
+    inputBlocked: permissions.inputBlocked || gaming.enabled,
     screen: screenIndex,
     onPointer: spendLatch,
     onCursor: room.send,
@@ -705,7 +712,7 @@ export default function ScreenTab() {
       {hint}
       <ControlDock
         mode={mode}
-        onModeChange={setMode}
+        onModeChange={(next) => next === 'gaming' ? gaming.setSheet(true) : setMode(next)}
         armed={button}
         onToggleRight={() => setButton((b) => (b === 'right' ? 'none' : 'right'))}
         onToggleDouble={() => setButton((b) => (b === 'double' ? 'none' : 'double'))}
@@ -844,7 +851,7 @@ export default function ScreenTab() {
             instead of a hole gestures fall through to the navigation. Mounted
             only while there is a live picture: with the panel-state guidance
             up there is nothing to point at. */}
-        {!showPanelState ? (
+        {!showPanelState && !gaming.enabled ? (
           <TrackpadSurface
             testID="trackpad-surface"
             handlers={viewport.padHandlers}
@@ -856,7 +863,7 @@ export default function ScreenTab() {
         <View
           testID="screen-surface"
           accessibilityLabel="Remote screen. Tap to click, long press or two-finger tap to right-click, pinch to zoom, two fingers to scroll, three fingers to switch desktops or access system controls."
-          {...viewport.handlers}
+          {...(gaming.enabled ? {} : viewport.handlers)}
           style={{
             width: stage.w > 0 ? stage.w : '100%',
             height: stage.h > 0 ? stage.h : undefined,
@@ -873,7 +880,7 @@ export default function ScreenTab() {
               pointerEvents: 'none',
               width: '100%',
               height: '100%',
-              transform: [
+              transform: gaming.enabled ? [] : [
                 { translateX: viewport.translateX },
                 { translateY: viewport.translateY },
                 { scale: viewport.scale },
@@ -897,13 +904,13 @@ export default function ScreenTab() {
                 resizeMode="cover"
               />
             ) : null}
-            {(mode === 'trackpad' || padCursor) && (stream.bwp || stream.frameUri) ? (
+            {!gaming.enabled && (mode === 'trackpad' || padCursor) && (stream.bwp || stream.frameUri) ? (
               <Crosshair x={viewport.cursorX} y={viewport.cursorY} color={theme.colors.accent} />
             ) : null}
             {/* Collaborators' cursors ride INSIDE the zoom transform, so a
                 remote pointer stays on the pixel it is pointing at however far
                 this user has zoomed in. */}
-            {stream.frameUri ? (
+            {!gaming.enabled && stream.frameUri ? (
               <RemoteCursors
                 cursors={room.cursors}
                 selfId={room.selfId}
@@ -914,7 +921,7 @@ export default function ScreenTab() {
             ) : null}
           </Animated.View>
 
-          {showHud ? (
+          {showHud && !gaming.enabled ? (
             <StreamHud
               stats={stream.stats}
               pingMs={facts.pingMs}
@@ -955,12 +962,12 @@ export default function ScreenTab() {
         {/* Portrait fullscreen: the Exit control pins to the safe area (not
             the letterboxed stage), always visible, full size, one action.
             Landscape needs no exit — rotating back IS the exit. */}
-        {fullscreen && !landscape
+        {!gaming.enabled && fullscreen && !landscape
           ? stageControls({ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs, zIndex: 4 })
           : null}
 
         {/* Input errors still matter while immersive; they float over the top edge. */}
-        {immersive ? (
+        {immersive && !gaming.enabled ? (
           <View
             style={{ pointerEvents: 'box-none', position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0, zIndex: 3 }}
           >
@@ -1006,7 +1013,7 @@ export default function ScreenTab() {
         ) : null}
       </View>
 
-      {!immersive ? (
+      {gaming.enabled ? null : !immersive ? (
         <View style={{ paddingHorizontal: theme.layout.margin }}>
           <Rule bleed={theme.layout.margin} />
           {/* Additional vertical spacing to prevent bottom text overlap on Android
@@ -1044,7 +1051,7 @@ export default function ScreenTab() {
       {/* While the immersive bar is away, a thin strip on the very bottom
           edge waits for the reveal swipe. Kept mounted to avoid flicker;
           disabled via pointerEvents when not needed. */}
-      {immersive ? (
+      {immersive && !gaming.enabled ? (
         <EdgeRevealStrip testID="edge-reveal" bottomInset={insets.bottom} onReveal={dockHide.poke} disabled={dockShown} />
       ) : null}
 
@@ -1052,7 +1059,7 @@ export default function ScreenTab() {
           opening it moves NOTHING else: the stage keeps its size (the keyboard
           simply covers its lower part) and the dock stays where the thumb
           left it, ready the moment the field is closed. */}
-      {typeOpen && TYPE_ROW_FLOATS ? (
+      {typeOpen && TYPE_ROW_FLOATS && !gaming.enabled ? (
         <Animated.View
           testID="type-bar"
           style={{
@@ -1074,6 +1081,10 @@ export default function ScreenTab() {
           {typeRow}
         </Animated.View>
       ) : null}
+
+      {gaming.enabled ? <GamingOverlay gaming={gaming} width={window.width} height={window.height}
+        fps={stream.bwpStats?.fps ?? stream.stats.fps} pingMs={facts.pingMs} /> : null}
+      <GamingSheet gaming={gaming} />
 
       {/* Gated on `ready`, not just the flag: a stop that failed leaves
           nothing to send, and a sheet promising to send nothing would lie. */}

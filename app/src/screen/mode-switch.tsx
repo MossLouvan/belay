@@ -17,6 +17,7 @@
 // same way DockKey does — the light theme's dim text and paper borders are
 // tuned for paper and fail on the near-black scrim.
 
+import type { ScreenMode } from './dock-modes';
 import React from 'react';
 import { Pressable, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
@@ -24,7 +25,6 @@ import { getTheme, useTheme } from '../theme';
 import { Txt, haptic } from '../ui';
 import { HUD } from './parts';
 import { POINTER_MODE_OPTIONS } from './dock-modes';
-import type { PointerMode } from './viewport';
 
 /** The ink set a boxed control needs, resolved once per render. */
 interface BoxedInks {
@@ -54,8 +54,8 @@ function useBoxedInks(floating: boolean): BoxedInks {
 }
 
 export interface ModeSwitchProps {
-  mode: PointerMode;
-  onModeChange: (mode: PointerMode) => void;
+  mode: ScreenMode;
+  onModeChange: (mode: ScreenMode) => void;
   /** Floating over the stream (fullscreen): chrome uses the HUD scrim inks. */
   floating?: boolean;
   testID?: string;
@@ -76,11 +76,12 @@ export function ModeSwitch({ mode, onModeChange, floating = false, testID, style
     <View
       testID={testID}
       accessibilityRole="tablist"
-      accessibilityLabel="Pointer mode"
+      accessibilityLabel="Screen mode"
       style={[
         {
           flexDirection: 'row',
           minHeight: theme.layout.minTouch,
+          minWidth: POINTER_MODE_OPTIONS.length * (theme.layout.minTouch + theme.space.xs),
           borderWidth: theme.layout.hairline,
           borderColor: inks.border,
           borderRadius: theme.radius.xs,
@@ -106,6 +107,7 @@ export function ModeSwitch({ mode, onModeChange, floating = false, testID, style
             style={{
               flex: 1,
               minHeight: theme.layout.minTouch,
+              minWidth: theme.layout.minTouch,
               alignItems: 'center',
               justifyContent: 'center',
               paddingHorizontal: theme.space.xxs,

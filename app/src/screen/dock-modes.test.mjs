@@ -10,10 +10,10 @@ import assert from 'node:assert/strict';
 
 import { POINTER_MODE_OPTIONS, pointerModeOption } from './dock-modes.ts';
 
-test('all three pointer modes are present, the default first', () => {
+test('all four screen modes are present, the default first', () => {
   assert.deepEqual(
     POINTER_MODE_OPTIONS.map((option) => option.id),
-    ['touch', 'trackpad', 'scroll']
+    ['touch', 'trackpad', 'scroll', 'gaming']
   );
 });
 

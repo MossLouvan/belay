@@ -8,8 +8,10 @@
 
 import type { PointerMode } from './viewport';
 
+export type ScreenMode = PointerMode | 'gaming';
+
 export interface PointerModeOption {
-  readonly id: PointerMode;
+  readonly id: ScreenMode;
   /** The word on the segment — sentence case, novice vocabulary. */
   readonly label: string;
   readonly accessibilityLabel: string;
@@ -37,6 +39,7 @@ export const POINTER_MODE_OPTIONS: readonly PointerModeOption[] = Object.freeze(
     accessibilityLabel: 'Scroll mode',
     hint: 'Drag one finger to scroll the page; taps still click',
   } as const),
+  Object.freeze({ id: 'gaming', label: 'Gaming', accessibilityLabel: 'Gaming mode', hint: 'Play with a controller or touch gamepad in landscape' } as const),
 ]);
 
 /**
@@ -44,6 +47,6 @@ export const POINTER_MODE_OPTIONS: readonly PointerModeOption[] = Object.freeze(
  * type, cheap to guard anyway) falls back to the first option so the switch
  * never renders an unlabelled segment.
  */
-export function pointerModeOption(mode: PointerMode): PointerModeOption {
+export function pointerModeOption(mode: ScreenMode): PointerModeOption {
   return POINTER_MODE_OPTIONS.find((option) => option.id === mode) ?? POINTER_MODE_OPTIONS[0];
 }

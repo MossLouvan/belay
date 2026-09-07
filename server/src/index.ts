@@ -4,6 +4,7 @@
 // system stats and input; WebSockets for the live screen stream and terminal.
 // Everything except /pair and /health requires a bearer token issued at pairing.
 
+import { createGamepadHub } from './gamepad-channel.js';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { createServer } from 'node:http';
@@ -615,6 +616,11 @@ app.post('/windows/focus', auth, async (req, res) => {
 const floor = createInputFloor();
 const cursors = createCursorRegistry({ actingId: () => floor.holder() });
 const cursorHub = createCursorHub({ registry: cursors });
+const gamepadWss = new WebSocketServer({ noServer: true, maxPayload: 17, perMessageDeflate: false });
+const gamepadHub = createGamepadHub(native, { onActivity: (injected) => {
+  lastRemoteInputAt = Date.now();
+  if (injected) floor.noteInjection(lastRemoteInputAt);
+} });
 
 /** How often the host's own idle counter is sampled while remote input is
  *  live. Well inside LOCAL_GRACE_MS, so the freeze engages on the host's first
@@ -1011,7 +1017,7 @@ heartbeat.unref?.();
 // /ws/audio is always available: audio capture works in the default native
 // build and is separate from the WebRTC signaling path. The phone enables audio
 // per-session via the stream settings toggle.
-const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention', '/ws/transcript', '/ws/cursors', '/ws/audio']);
+const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention', '/ws/transcript', '/ws/cursors', '/ws/audio', '/ws/gamepad']);
 if (webrtcEnabled()) { WS_ROUTES.add('/ws/webrtc'); }
 
 server.on('upgrade', (req, socket, head) => {
@@ -1098,6 +1104,11 @@ server.on('upgrade', (req, socket, head) => {
   } else if (url.pathname === '/ws/transcript') {
     // Read-only tail of a terminal-started session — transcript-routes.ts.
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleTranscriptSocket(ws, url); });
+  } else if (url.pathname === '/ws/gamepad') {
+    gamepadWss.handleUpgrade(req, socket, head, (ws) => {
+      track(ws);
+      gamepadHub.handle(ws, url.searchParams.get('preset') ?? 'generic');
+    });
   } else if (url.pathname === '/ws/cursors') {
     // Everyone's virtual cursor, both directions — cursor-channel.ts.
     wss.handleUpgrade(req, socket, head, (ws) => {
@@ -1360,7 +1371,7 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
   const startBwp = async (msg: Record<string, unknown>): Promise<void> => {
     if (bwp) stopBwp();
     const session = new BwpSession((event) => {
-      if (!alive || ws.readyState !== ws.OPEN) return;
+      if (!alive || bwp !== session || ws.readyState !== ws.OPEN) return;
       switch (event.type) {
         case 'stats':
           ws.send(JSON.stringify({ type: 'bwpStats', fps: event.fps, kbps: event.kbps, bitrate: event.bitrate }));
@@ -1390,12 +1401,14 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
         fps: typeof msg.fps === 'number' ? msg.fps : undefined,
         monitor: params.screen,
       });
+      if (bwp !== session) { session.stop(); return; }
       if (!alive || ws.readyState !== ws.OPEN) { stopBwp(); return; }
       bwpActive = true;
       // The key travels only here, on the socket that is already authenticated
       // and encrypted. It is never logged and never put in a URL.
       ws.send(JSON.stringify({ type: 'bwpOffer', ...offer }));
     } catch (e: unknown) {
+      if (bwp !== session) { session.stop(); return; }
       stopBwp();
       if (alive && ws.readyState === ws.OPEN) {
         // A refusal must be explicit: a client left waiting for an offer that
