@@ -136,6 +136,10 @@ pub fn run(
     // producing nothing looks identical to one that is broken unless these are
     // reported, which is what hid the first end-to-end failure.
     let (mut no_change, mut cursor_only) = (0u64, 0u64);
+    // Keyframes the client asked for, and time spent inside the encoder: the
+    // host's share of glass-to-glass latency, which the phone cannot measure.
+    let mut keyframe_requests = 0u64;
+    let (mut encode_us, mut encodes) = (0u64, 0u64);
 
     loop {
         let loop_start = Instant::now();
@@ -149,16 +153,21 @@ pub fn run(
             emit(
                 "stats",
                 &format!(
-                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only}",
+                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only},\"keyframeRequests\":{keyframe_requests},\"encodeMs\":{:.1},\"rttMs\":{:.1}",
                     frames as f64 / secs,
                     (sent_bytes as f64 * 8.0 / 1000.0) / secs,
-                    session.bitrate_bps()
+                    session.bitrate_bps(),
+                    encode_us as f64 / 1000.0 / encodes.max(1) as f64,
+                    session.rtt_ms().unwrap_or(-1.0),
                 ),
             );
             frames = 0;
             sent_bytes = 0;
             no_change = 0;
             cursor_only = 0;
+            keyframe_requests = 0;
+            encode_us = 0;
+            encodes = 0;
             last_stats = Instant::now();
         }
 
@@ -176,6 +185,7 @@ pub fn run(
                             emit("bitrate", &format!("\"bps\":{bps}"));
                         }
                         Event::KeyframeNeeded => {
+                            keyframe_requests += 1;
                             encoder.request_keyframe();
                         }
                         // The host does not consume media from the client on
@@ -234,6 +244,7 @@ pub fn run(
             continue;
         }
 
+        let encode_start = Instant::now();
         let coded = if let Some(conv) = converter.as_mut() {
             conv.convert(&texture).map_err(|e| format!("gpu convert failed: {e}"))?;
             encoder
@@ -263,6 +274,8 @@ pub fn run(
                 .map_err(|e| format!("colour conversion failed: {e:?}"))?;
             encoder.encode(&nv12).map_err(|e| format!("encode failed: {e}"))?
         };
+        encode_us += encode_start.elapsed().as_micros() as u64;
+        encodes += 1;
 
         for frame in coded {
             let bytes = frame.data.len();

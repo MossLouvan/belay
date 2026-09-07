@@ -1374,7 +1374,15 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
       if (!alive || bwp !== session || ws.readyState !== ws.OPEN) return;
       switch (event.type) {
         case 'stats':
-          ws.send(JSON.stringify({ type: 'bwpStats', fps: event.fps, kbps: event.kbps, bitrate: event.bitrate }));
+          ws.send(JSON.stringify({
+            type: 'bwpStats',
+            fps: event.fps,
+            kbps: event.kbps,
+            bitrate: event.bitrate,
+            keyframeRequests: event.keyframeRequests,
+            encodeMs: event.encodeMs,
+            rttMs: event.rttMs,
+          }));
           break;
         case 'bitrate':
           ws.send(JSON.stringify({ type: 'bwpBitrate', bps: event.bps }));

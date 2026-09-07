@@ -280,10 +280,7 @@ impl H264Encoder {
             let dur = HNS_PER_SEC / self.config.fps.max(1) as i64;
             sample.SetSampleTime(self.frame_index * dur)?;
             sample.SetSampleDuration(dur)?;
-            if self.force_keyframe {
-                sample.SetUINT32(&MFSampleExtension_CleanPoint, 1)?;
-                self.force_keyframe = false;
-            }
+            self.arm_keyframe(&sample);
             self.transform.ProcessInput(self.input_stream, &sample, 0)?;
             self.drain()
         }
@@ -296,6 +293,29 @@ impl H264Encoder {
     /// on a timer, which spends bandwidth on recovery nobody needed.
     pub fn request_keyframe(&mut self) {
         self.force_keyframe = true;
+    }
+
+    /// Apply a pending keyframe request to the input about to be encoded.
+    ///
+    /// The documented control is `CODECAPI_AVEncVideoForceKeyFrame` on the
+    /// encoder's `ICodecAPI`, set immediately before the `ProcessInput` it
+    /// should apply to. `MFSampleExtension_CleanPoint` on the input sample is
+    /// kept as well: it is what the earlier code relied on alone, and some
+    /// encoders honour it — but hardware MFTs ignore it, which is why
+    /// on-demand recovery never produced a keyframe on a real GPU.
+    ///
+    /// Failures are ignored on purpose: an encoder that refuses the request
+    /// still emits its next scheduled keyframe, and a refused property must
+    /// not fail the frame.
+    unsafe fn arm_keyframe(&mut self, sample: &IMFSample) {
+        if !self.force_keyframe {
+            return;
+        }
+        self.force_keyframe = false;
+        if let Ok(codec_api) = self.transform.cast::<ICodecAPI>() {
+            let _ = set_codec_u32(&codec_api, &CODECAPI_AVEncVideoForceKeyFrame, 1);
+        }
+        let _ = sample.SetUINT32(&MFSampleExtension_CleanPoint, 1);
     }
 
     /// Change the target bitrate mid-stream.
@@ -329,12 +349,7 @@ impl H264Encoder {
                 self.await_need_input()?;
             }
             let sample = self.make_input_sample(nv12, expected)?;
-            if self.force_keyframe {
-                // MFSampleExtension_CleanPoint on the INPUT asks the encoder to
-                // start a new GOP here.
-                sample.SetUINT32(&MFSampleExtension_CleanPoint, 1)?;
-                self.force_keyframe = false;
-            }
+            self.arm_keyframe(&sample);
             self.transform.ProcessInput(self.input_stream, &sample, 0)?;
             self.drain()
         }
@@ -537,13 +552,23 @@ unsafe fn set_ratio(t: &IMFMediaType, key: &GUID, hi: u32, lo: u32) -> WinResult
     t.SetUINT64(key, ((hi as u64) << 32) | lo as u64)
 }
 
+/// Set a UINT32 codec property.
+///
+/// The variant type matters: every `CODECAPI_AVEnc*` numeric property is
+/// documented as VT_UI4, and the encoder MFTs check. Handing them a VT_I4 —
+/// which is what `VARIANT::from(i32)` produces — is refused by the strict ones,
+/// and because the setup code ignores the result, a refusal is invisible:
+/// low-latency mode, CBR, the bitrate and the GOP would all be silently left at
+/// the encoder's defaults.
 unsafe fn set_codec_u32(api: &ICodecAPI, key: &GUID, value: u32) -> WinResult<()> {
-    let v = windows::core::VARIANT::from(value as i32);
+    let v = windows::core::VARIANT::from(value);
     api.SetValue(key, &v)
 }
 
+/// Set a boolean codec property (`CODECAPI_AVLowLatencyMode` is VT_BOOL).
 unsafe fn set_codec_bool(api: &ICodecAPI, key: &GUID, value: bool) -> WinResult<()> {
-    set_codec_u32(api, key, value as u32)
+    let v = windows::core::VARIANT::from(value);
+    api.SetValue(key, &v)
 }
 
 /// How long a coded frame would take to send at a given bitrate — the honest

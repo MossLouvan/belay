@@ -63,9 +63,28 @@ test('stats and bitrate lines are parsed', () => {
   if (s?.type === 'stats') {
     assert.equal(s.fps, 59);
     assert.equal(s.kbps, 1521);
+    // An older streamer sends none of the latency fields: they read as unknown.
+    assert.equal(s.encodeMs, null);
+    assert.equal(s.rttMs, null);
+    assert.equal(s.keyframeRequests, 0);
   }
   const b = parseStreamerLine('{"type":"bitrate","bps":4405791}');
   assert.deepEqual(b, { type: 'bitrate', bps: 4405791 });
+});
+
+test('stats carry the host share of latency when the streamer reports it', () => {
+  const s = parseStreamerLine(
+    '{"type":"stats","fps":60,"kbps":1500,"bitrate":2000000,"keyframeRequests":2,"encodeMs":3.4,"rttMs":12.5}',
+  );
+  assert.equal(s?.type, 'stats');
+  if (s?.type === 'stats') {
+    assert.equal(s.keyframeRequests, 2);
+    assert.equal(s.encodeMs, 3.4);
+    assert.equal(s.rttMs, 12.5);
+  }
+  // A negative RTT is the streamer's "not yet known", not a number to show.
+  const unknown = parseStreamerLine('{"type":"stats","fps":60,"kbps":0,"bitrate":0,"rttMs":-1}');
+  if (unknown?.type === 'stats') assert.equal(unknown.rttMs, null);
 });
 
 test('an error line carries its message', () => {

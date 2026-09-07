@@ -62,7 +62,18 @@ export interface BwpOffer {
 
 export type BwpEvent =
   | { readonly type: 'ready'; readonly offer: BwpOffer }
-  | { readonly type: 'stats'; readonly fps: number; readonly kbps: number; readonly bitrate: number }
+  | {
+      readonly type: 'stats';
+      readonly fps: number;
+      readonly kbps: number;
+      readonly bitrate: number;
+      /** Keyframes the phone asked for in the last second. */
+      readonly keyframeRequests: number;
+      /** Mean time inside the encoder per frame; null from an older streamer. */
+      readonly encodeMs: number | null;
+      /** Smoothed host-to-phone RTT; null until known or from an older streamer. */
+      readonly rttMs: number | null;
+    }
   | { readonly type: 'bitrate'; readonly bps: number }
   | { readonly type: 'error'; readonly error: string }
   | { readonly type: 'exit'; readonly code: number | null };
@@ -124,6 +135,16 @@ export function validFps(raw: unknown): number {
   return Math.min(120, Math.max(1, n));
 }
 
+/**
+ * A millisecond figure the streamer may not send, or may send as negative to
+ * mean "not yet known". Either reads as null: a HUD must show nothing rather
+ * than -1 ms.
+ */
+function optionalMs(raw: unknown): number | null {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return null;
+  return raw;
+}
+
 /** Parse one line of the streamer's stdout. Unknown shapes are ignored. */
 export function parseStreamerLine(line: string): BwpEvent | null {
   const trimmed = line.trim();
@@ -154,6 +175,9 @@ export function parseStreamerLine(line: string): BwpEvent | null {
         fps: Number(msg.fps) || 0,
         kbps: Number(msg.kbps) || 0,
         bitrate: Number(msg.bitrate) || 0,
+        keyframeRequests: Math.max(0, Math.floor(Number(msg.keyframeRequests) || 0)),
+        encodeMs: optionalMs(msg.encodeMs),
+        rttMs: optionalMs(msg.rttMs),
       };
     case 'bitrate':
       return { type: 'bitrate', bps: Number(msg.bps) || 0 };
