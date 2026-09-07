@@ -1,0 +1,6 @@
+{
+  "name": "belay-display-harness",
+  "private": true,
+  "description": "Electron app root for the display-renderer harness; see run.cjs",
+  "main": "run.cjs"
+}

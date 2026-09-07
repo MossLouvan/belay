@@ -1,7 +1,8 @@
 // One remote display, streamed into this window and driven from it.
 //
-// Frames arrive as base64 JPEG over /ws/screen exactly as they do for the
-// phone app; input goes back over the REST endpoints. Coordinates cross the
+// Frames arrive as JPEG over /ws/screen (binary, or base64 JSON from an older
+// host) exactly as they do for the phone app; input goes back over the REST
+// endpoints. Coordinates cross the
 // wire normalized 0..1 against the display being shown, and every input request
 // carries that display's index, so the pixels the user aims at and the pixels
 // the host clicks are the same ones even on a multi-monitor host.
@@ -10,6 +11,9 @@ import { hostOrigin, socketOrigin } from '../src/url.js';
 import { translateKey, modifiersOf } from '../src/keymap.js';
 import { bareTapKey, legendText, modifierMap } from '../src/modmap.js';
 import { streamConfig } from '../src/gamepad-session.js';
+import { emptyLatch, offer, settle } from '../src/frame-latch.js';
+import { decodeBase64Frame, decodeBinaryFrame } from '../src/binary-frame.js';
+import { reconnectDelay, secondStatus, stalled } from '../src/stream-link.js';
 import { attachGamepad } from './gamepad.js';
 
 const params = new URLSearchParams(location.search);
@@ -29,6 +33,12 @@ const screenIndex = rawScreen === null || rawScreen === '' || rawScreen === 'und
 const clientIsMac = /mac/i.test(navigator.platform || '');
 const keymap = modifierMap(clientIsMac, params.get('platform') || '', params.get('keymap') || 'remap');
 
+// Test-only counters for test/harness (?stats=1): messages received, frames
+// that reached the canvas, frames the latch discarded, stalls abandoned.
+// Absent in normal use.
+const probe = params.get('stats') === '1' ? { received: 0, drawn: 0, dropped: 0, stalls: 0 } : null;
+if (probe) window.__belayStats = probe;
+
 const canvas = document.getElementById('screen');
 const context = canvas.getContext('2d', { alpha: false });
 const overlay = document.getElementById('overlay');
@@ -43,7 +53,8 @@ let gaming = false;
 let streamSocket = null;
 const currentConfig = () => streamConfig(gaming, STREAM, screenIndex);
 function retune() {
-  if (streamSocket?.readyState === WebSocket.OPEN) streamSocket.send(JSON.stringify(currentConfig()));
+  if (streamSocket?.readyState !== WebSocket.OPEN) return;
+  try { streamSocket.send(JSON.stringify(currentConfig())); } catch { /* the socket is on its way out; close follows */ }
 }
 attachGamepad({
   host, token, indicator: document.getElementById('controller'), toggle: document.getElementById('gaming'),
@@ -223,111 +234,154 @@ async function socketUrl() {
   return url.toString();
 }
 
-let frames = 0;
-let bytes = 0;
-setInterval(() => {
-  if (frames > 0) setStatus(frames + ' fps · ' + Math.round(bytes / 1024) + ' KB/s', false, true);
-  frames = 0;
-  bytes = 0;
-}, 1000);
 
-/** Paint one JPEG onto the canvas from any URI (data: or blob:). */
-function paint(src, revoke) {
-  const image = new Image();
-  image.onload = () => {
-    if (canvas.width !== image.width || canvas.height !== image.height) {
-      canvas.width = image.width;
-      canvas.height = image.height;
-    }
-    context.drawImage(image, 0, 0);
-    if (revoke) URL.revokeObjectURL(src);
-  };
-  image.onerror = () => { if (revoke) URL.revokeObjectURL(src); };
-  image.src = src;
-}
-
-function draw(frame) {
-  paint('data:image/jpeg;base64,' + frame.data, false);
-}
-
-// ---- Binary frames -------------------------------------------------------
+// ---- Frames ----------------------------------------------------------------
 //
-// The compact layout of server/src/frame-codec.ts, version 1, big-endian:
-// magic 0xBF, version, u16 metaLen, u32 w/h/sw/sh, u32 jpegLen, then metaLen
-// bytes of JSON meta (unused for a screen stream) and exactly jpegLen JPEG
-// bytes. Every field is bounds-checked before any slice; anything malformed
-// returns null and the message is skipped — same contract as unparseable JSON.
+// Every frame, binary or legacy JSON, becomes a Blob and goes through one
+// newest-wins latch (src/frame-latch.js): one decode in flight, at most one
+// waiting, everything older discarded. createImageBitmap decodes off the main
+// thread; drawing is then a copy. A decode that fails frees the slot like one
+// that succeeds, so a bad frame can never leave the latch busy for good.
 
-const BINARY_FRAME = { magic: 0xbf, version: 0x01, header: 24, maxDimension: 1048576 };
+let latch = emptyLatch();
+let second = { drawn: 0, bytes: 0 };
+let lastMessageAt = performance.now();
 
-/** @param {ArrayBuffer} buffer @returns {{ jpeg: Uint8Array } | null} */
-function decodeBinaryFrame(buffer) {
-  if (buffer.byteLength < BINARY_FRAME.header + 1) return null;
-  const view = new DataView(buffer);
-  if (view.getUint8(0) !== BINARY_FRAME.magic || view.getUint8(1) !== BINARY_FRAME.version) return null;
-  const metaLen = view.getUint16(2);
-  for (const offset of [4, 8, 12, 16]) {
-    if (view.getUint32(offset) > BINARY_FRAME.maxDimension) return null;
+function drawBitmap(bitmap) {
+  if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
   }
-  const jpegLen = view.getUint32(20);
-  const jpegStart = BINARY_FRAME.header + metaLen;
-  // Exact framing: truncation and trailing garbage are both rejected.
-  if (jpegLen < 1 || jpegStart + jpegLen !== buffer.byteLength) return null;
-  return { jpeg: new Uint8Array(buffer, jpegStart, jpegLen) };
+  context.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  second = { ...second, drawn: second.drawn + 1 };
+  if (probe) probe.drawn += 1;
 }
 
-function drawBinary(buffer) {
-  const frame = decodeBinaryFrame(buffer);
-  if (!frame) return;
-  frames += 1;
-  bytes += frame.jpeg.length;
-  // A blob URL skips the base64 detour entirely; paint() revokes it on load.
-  paint(URL.createObjectURL(new Blob([frame.jpeg], { type: 'image/jpeg' })), true);
+async function decode(blob) {
+  try {
+    drawBitmap(await createImageBitmap(blob));
+  } catch {
+    // Undecodable pixels are skipped; the next frame is a fresh chance.
+  } finally {
+    const next = settle(latch);
+    latch = next.latch;
+    if (next.decode) void decode(next.decode);
+  }
 }
 
-// Reconnects back off to a ceiling rather than hammering a host that is asleep,
-// suspended, or simply not there any more.
-const RECONNECT = { base: 500, max: 8000 };
+function present(jpeg) {
+  second = { ...second, bytes: second.bytes + jpeg.length };
+  const next = offer(latch, new Blob([jpeg], { type: 'image/jpeg' }));
+  if (probe) probe.dropped = next.latch.dropped;
+  latch = next.latch;
+  if (next.decode) void decode(next.decode);
+}
+
+function onMessage(data) {
+  lastMessageAt = performance.now();
+  if (probe) probe.received += 1;
+  if (data instanceof ArrayBuffer) {
+    const frame = decodeBinaryFrame(data);
+    if (frame) present(frame.jpeg);
+    return;
+  }
+  let message;
+  try { message = JSON.parse(data); } catch { return; }
+  if (message?.type === 'frame') {
+    const jpeg = decodeBase64Frame(message.data);
+    if (jpeg) present(jpeg);
+  } else if (message?.type === 'error') {
+    // The host's capture errors are the actionable ones — on macOS this is
+    // where a missing Screen Recording grant announces itself.
+    setStatus(String(message.error).slice(0, 120), true);
+  }
+}
+
+// ---- Link ------------------------------------------------------------------
+//
+// One live socket at a time, named by a generation number. Every listener
+// checks it is still the current generation before acting, so a socket that
+// has been superseded — by a reconnect, or by the stall watchdog giving up on
+// it — can fire `close` (or never fire it) without touching the new one.
+
+let generation = 0;
 let attempt = 0;
+let retryTimer = null;
+
+const current = (epoch) => epoch === generation;
 
 async function connect() {
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  const epoch = generation + 1;
+  generation = epoch;
   setStatus(attempt === 0 ? 'connecting…' : 'reconnecting…');
   let socket;
   try {
     socket = new WebSocket(await socketUrl());
   } catch {
-    retry();
+    if (current(epoch)) retry();
     return;
   }
+  // Superseded while the ticket was in flight: this socket was never wanted.
+  if (!current(epoch)) { socket.close(); return; }
 
   // Binary frames must arrive as ArrayBuffer, not the default Blob.
   socket.binaryType = 'arraybuffer';
   streamSocket = socket;
-  socket.addEventListener('open', () => { attempt = 0; retune(); setStatus('live', false, true); });
-  socket.addEventListener('message', (event) => {
-    if (event.data instanceof ArrayBuffer) { drawBinary(event.data); return; }
-    let message;
-    try { message = JSON.parse(event.data); } catch { return; }
-    if (message?.type === 'frame' && typeof message.data === 'string') {
-      frames += 1;
-      bytes += Number(message.bytes) || 0;
-      draw(message);
-    } else if (message?.type === 'error') {
-      // The host's capture errors are the actionable ones — on macOS this is
-      // where a missing Screen Recording grant announces itself.
-      setStatus(String(message.error).slice(0, 120), true);
-    }
+  lastMessageAt = performance.now();
+  socket.addEventListener('open', () => {
+    if (!current(epoch)) return;
+    attempt = 0;
+    lastMessageAt = performance.now();
+    retune();
+    setStatus('live', false, true);
   });
-  socket.addEventListener('close', () => { if (streamSocket === socket) streamSocket = null; retry(); });
+  socket.addEventListener('message', (event) => { if (current(epoch)) onMessage(event.data); });
+  socket.addEventListener('close', () => {
+    if (!current(epoch)) return;
+    streamSocket = null;
+    retry();
+  });
   socket.addEventListener('error', () => socket.close());
 }
 
 function retry() {
-  const delay = Math.min(RECONNECT.base * 2 ** attempt, RECONNECT.max);
+  if (retryTimer !== null) return;
+  const delay = reconnectDelay(attempt);
   attempt += 1;
   setStatus('disconnected — retrying in ' + Math.round(delay / 1000) + 's', true);
-  setTimeout(connect, delay);
+  retryTimer = setTimeout(connect, delay);
 }
+
+/**
+ * Give up on a socket that has gone quiet and connect afresh, without waiting
+ * for its close handshake: a peer that stopped sending frames will not answer
+ * a Close frame either, and the browser waits a long time before deciding so.
+ */
+function abandon() {
+  const stale = streamSocket;
+  streamSocket = null;
+  if (probe) probe.stalls += 1;
+  // connect() takes the generation first, so whatever the stale socket does
+  // from here on is ignored; then the status says why, over "connecting…".
+  void connect();
+  setStatus('stalled — reconnecting', true);
+  try { stale?.close(); } catch { /* already closing */ }
+}
+
+// Once a second: report the last second honestly, and check for a stall.
+setInterval(() => {
+  const now = performance.now();
+  const sinceMessageMs = now - lastMessageAt;
+  if (streamSocket?.readyState === WebSocket.OPEN) {
+    const status = secondStatus({ ...second, sinceMessageMs });
+    if (status) setStatus(status.text, status.bad, status.live);
+    if (stalled(lastMessageAt, now)) abandon();
+  }
+  second = { drawn: 0, bytes: 0 };
+}, 1000);
 
 if (!host || !token) setStatus('missing host or token', true);
 else void connect();

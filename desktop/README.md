@@ -32,7 +32,8 @@ Enter the address the host printed on boot (`192.168.1.20:8787`) and the
 after the first time it opens straight to the display list.
 
 ```bash
-npm test        # pure-logic unit tests, no Electron needed
+npm test          # pure-logic unit tests, no Electron needed
+npm run test:harness   # the real display renderer, hidden, against a mock host that injects faults
 ```
 
 ## What it does
@@ -116,10 +117,14 @@ opened after the change.
 | `src/keymap.js` | KeyboardEvent → the host's key/text endpoints |
 | `src/modmap.js` | which modifier means what, per client/host pairing |
 | `src/url.js` | what someone types → a host origin |
+| `src/binary-frame.js` | the host's binary pixel frame and the legacy base64 one → JPEG bytes |
+| `src/frame-latch.js` | newest-wins decode slot: one decode in flight, one waiting, older frames dropped |
+| `src/stream-link.js` | link health: stall detection, reconnect backoff, an honest status line |
 | `src/gamepad-*.js` | standard mapping, controller kind, binary frame, timing, rumble and Gaming config |
 | `renderer/gamepad.js` | Gamepad API polling, ticket/socket lifecycle and controller chrome |
 | `test/` | `node --test` over every `src/` module |
 | `test/smoke.cjs` | manual end-to-end check against a live host (see the header) |
+| `test/harness/` | `npm run test:harness`: display.html in a hidden Electron window against a mock host (`ws` from `../server`) that injects bursts, slow frames, closes, stalls and a half-open socket |
 
 The look is the phone app's, token for token. `renderer/tokens.css` is not
 written by hand: `npm run sync-tokens` evaluates `app/src/theme.ts` under
