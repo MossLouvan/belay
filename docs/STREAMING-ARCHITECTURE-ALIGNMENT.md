@@ -175,3 +175,50 @@ cargo test --lib h264::tests::async_output_is_available_without_submitting_anoth
 
 The installed Electron playtest also passes with this rebuilt streamer. No new
 wire format, public protocol handshake, or client decoder requirement was added.
+
+## Sustained-loss baseline and repair choice
+
+`node scripts/probe-desktop-video.mjs --network` adds a repeatable local proxy
+profile: 20–25 ms delay in each direction, independent 1% configured loss of
+video datagrams, a fixed PRNG seed of 42, and a 15-second synthetic stream.
+Delayed packets are canceled when the probe closes. This is a simulated profile,
+not a measurement of the user's Internet connection. The single-loss mode stays
+separate so its first-frame-after-loss assertion retains its meaning.
+
+Measured baseline: 765 delivered frames in 15 seconds (51 FPS overall), 17
+keyframes, p95 frame-arrival gap 23.7 ms, and maximum gap 429 ms. The profile
+dropped 15 of 2069 video datagrams (0.73% realized loss). Host encode throughput
+remained near 59 FPS, showing why host FPS alone does not establish smooth
+client delivery. RTT measurements were roughly 49–57 ms.
+
+The independent Astra review recommends negotiated XOR parity over groups of up
+to eight video fragments as the first improvement for this profile. Parity can
+repair an isolated missing fragment without a repair round trip. NACK-based
+retransmission typically adds a round trip after detection and requires waiting
+on dependent frames. These are architectural tradeoffs consistent with
+[RFC 5109](https://www.rfc-editor.org/info/rfc5109/) and
+[RFC 4588](https://www.rfc-editor.org/info/rfc4588/); Belay would implement its own
+extension rather than copying Sunshine code. This is a next implementation
+choice, not a claim that FEC is already implemented or measured to outperform
+retransmission in Belay.
+
+Acceptance requirements for that extension:
+
+- Authenticate and negotiate support; unchanged clients retain ordinary video.
+- Keep all datagrams within the complete 1200-byte target including the 16-byte
+  header and 16-byte authentication tag. Existing payload constants omit the tag;
+  sender sizing must change without rejecting older incoming packet sizes.
+- Freeze fragmentation mode per access unit, pace parity, reserve wire overhead,
+  and send parity immediately after each group. Short tails have proportionally
+  greater overhead than the nominal 12.5% of a full eight-fragment group.
+- Bound caches by age, bytes and frames; preserve ordinary immediate completion.
+- Reconstructed fragments must not inflate network-arrival or replay accounting.
+- Verify exact recovery for every single missing position, honest failure for
+  multiple losses, ordering, duplicated parity, frame wrap and stale frames.
+- Apply the loss model to parity too. The current video-only baseline would give
+  parity placed on Control an unfair exemption; a realistic comparison must
+  impair both. Include two-to-four-packet bursts and compare delivered FPS,
+  keyframes, p95/max gaps and total wire bitrate.
+
+The sustained-loss objective is not yet satisfied: the observed 429 ms gap is
+too large to use this result as evidence of smooth game streaming.
