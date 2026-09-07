@@ -23,6 +23,8 @@
 mod config;
 mod stream;
 #[cfg(windows)]
+mod sender;
+#[cfg(windows)]
 mod synthetic;
 
 use std::io::{BufRead, Write};

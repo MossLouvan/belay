@@ -72,6 +72,7 @@ pub struct CodedFrame {
 }
 
 pub struct H264Encoder {
+    backend_name: String,
     transform: IMFTransform,
     config: EncoderConfig,
     input_stream: u32,
@@ -116,7 +117,7 @@ pub fn init_media_foundation() -> WinResult<()> {
 impl H264Encoder {
     pub fn new(config: EncoderConfig) -> WinResult<H264Encoder> {
         unsafe {
-            let transform = find_h264_encoder()?;
+            let (transform, backend_name) = find_h264_encoder()?;
 
             // Must happen before anything else touches the transform: an async
             // MFT rejects ProcessInput with MF_E_TRANSFORM_ASYNC_LOCKED
@@ -188,6 +189,7 @@ impl H264Encoder {
             let events = if is_async { transform.cast::<IMFMediaEventGenerator>().ok() } else { None };
 
             Ok(H264Encoder {
+                backend_name,
                 transform,
                 config,
                 is_async,
@@ -332,6 +334,38 @@ impl H264Encoder {
         }
         self.config.bitrate_bps = bps;
         Ok(())
+    }
+
+    /// Diagnostic readback; accepted properties alone do not prove compliance.
+    pub fn rate_control_state(&self) -> WinResult<(u32, u32)> {
+        unsafe {
+            let api = self.transform.cast::<ICodecAPI>()?;
+            let mode = api.GetValue(&CODECAPI_AVEncCommonRateControlMode)?;
+            let mean = api.GetValue(&CODECAPI_AVEncCommonMeanBitRate)?;
+            Ok((u32::try_from(&mode)?, u32::try_from(&mean)?))
+        }
+    }
+
+    pub fn backend_name(&self) -> &str { &self.backend_name }
+
+    pub fn rate_control_limits(&self) -> WinResult<Vec<(&'static str, Option<u32>)>> {
+        unsafe {
+            let api = self.transform.cast::<ICodecAPI>()?;
+            Ok([
+                ("minQP", CODECAPI_AVEncVideoMinQP),
+                ("maxQP", CODECAPI_AVEncVideoMaxQP),
+                ("bufferSize", CODECAPI_AVEncCommonBufferSize),
+                ("quality", CODECAPI_AVEncCommonQuality),
+            ].iter().map(|(name, key)| (*name, api.GetValue(key).ok()
+                .and_then(|value| u32::try_from(&value).ok()))).collect())
+        }
+    }
+
+    /// Diagnostic buffer experiment; units depend on the selected codec.
+    pub fn set_rate_control_buffer(&mut self, size: u32) -> WinResult<()> {
+        unsafe {
+            set_codec_u32(&self.transform.cast::<ICodecAPI>()?, &CODECAPI_AVEncCommonBufferSize, size)
+        }
     }
 
     /// Encode one NV12 frame, returning any coded frames the encoder produced.
@@ -556,7 +590,7 @@ unsafe fn snapshot_texture(texture: &ID3D11Texture2D) -> WinResult<ID3D11Texture
 /// On a GPU-less VM only the software encoder exists — which is the point: the
 /// pipeline still runs, so correctness is developed there and only performance
 /// has to be measured on real hardware.
-unsafe fn find_h264_encoder() -> WinResult<IMFTransform> {
+unsafe fn find_h264_encoder() -> WinResult<(IMFTransform, String)> {
     let output = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_H264 };
     let input = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_NV12 };
 
@@ -580,11 +614,15 @@ unsafe fn find_h264_encoder() -> WinResult<IMFTransform> {
             continue;
         }
         let list = std::slice::from_raw_parts(activates, count as usize);
-        let mut chosen: Option<IMFTransform> = None;
+        let mut chosen: Option<(IMFTransform, String)> = None;
         for act in list.iter().flatten() {
             if chosen.is_none() {
                 if let Ok(t) = act.ActivateObject::<IMFTransform>() {
-                    chosen = Some(t);
+                    let mut name = [0u16; 256];
+                    let backend = if act.GetString(&MFT_FRIENDLY_NAME_Attribute, &mut name, None).is_ok() {
+                        String::from_utf16_lossy(&name).trim_end_matches('\0').to_string()
+                    } else { "Unknown H.264 MFT".to_string() };
+                    chosen = Some((t, backend));
                 }
             }
         }

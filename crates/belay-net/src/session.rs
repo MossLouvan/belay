@@ -22,6 +22,7 @@ use std::io;
 use std::collections::VecDeque;
 use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 use belay_wire::congestion::{AbrConfig, AbrState, BitratePreset, LinkFeedback};
 use belay_wire::crypto::{Direction, DirectionKey, ReplayWindow, TAG_LEN};
@@ -120,6 +121,7 @@ pub struct Session {
     fec_last_probe: Option<Instant>,
     fec_receiver: FecReceiver,
     reordered_video: Vec<(Instant, u32, Vec<u8>)>,
+    cancellation: Option<Arc<AtomicBool>>,
     video_fps: u32,
 }
 
@@ -184,6 +186,7 @@ impl Session {
             fec_last_probe: None,
             fec_receiver: FecReceiver::default(),
             reordered_video: Vec::new(),
+            cancellation: None,
             video_fps: 60,
         })
     }
@@ -202,6 +205,16 @@ impl Session {
     pub fn set_fec_allowed(&mut self, allowed: bool) { self.fec_allowed = allowed; }
     pub fn set_video_fps(&mut self, fps: u32) { self.video_fps = fps.clamp(1, 120); }
     pub fn fec_sending(&self) -> bool { self.fec_send }
+    /// A worker may cancel an in-progress paced send during shutdown.
+    pub fn set_cancellation(&mut self, cancellation: Arc<AtomicBool>) {
+        self.cancellation = Some(cancellation);
+    }
+    fn check_cancelled(&self) -> Result<(), SessionError> {
+        if self.cancellation.as_ref().is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "session cancelled").into());
+        }
+        Ok(())
+    }
     pub fn media_bitrate_bps(&self) -> u64 {
         if !self.fec_send { return self.abr.bitrate_bps; }
         // Bound full-group overhead plus one partial-group allowance per frame.
@@ -265,11 +278,13 @@ impl Session {
         let paced = channel == Channel::Video || parity_packet;
 
         for i in 0..count {
+            self.check_cancelled()?;
             let s = i as usize * shard_bytes;
             let e = (s + shard_bytes).min(payload.len());
             if paced {
                 let wire_len = HEADER_LEN + TAG_LEN + e - s;
                 while !self.pacer.try_send(wire_len, self.started.elapsed().as_micros() as u64) {
+                    self.check_cancelled()?;
                     // A large access unit must not prevent feedback processing:
                     // that delay otherwise masquerades as network RTT and holds
                     // ABR down, making the next frame block even longer.
@@ -324,6 +339,7 @@ impl Session {
     }
 
     pub fn poll(&mut self) -> Result<Vec<Event>, SessionError> {
+        self.check_cancelled()?;
         let mut events = core::mem::take(&mut self.deferred_events);
         self.fec_receiver.expire(self.started.elapsed().as_millis() as u64);
         if self.is_host && self.fec_allowed && !self.fec_send && self.fec_last_probe
@@ -334,6 +350,7 @@ impl Session {
         let mut buf = [0u8; 2048];
 
         loop {
+            self.check_cancelled()?;
             let (len, from) = match self.socket.recv_from(&mut buf) {
                 Ok(v) => v,
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -996,5 +1013,18 @@ mod tests {
         assert_eq!(packet.len(), 1216, "legacy senders omitted tag from MTU budget");
         assert!(client.on_datagram(&packet).unwrap().iter().any(|event|
             matches!(event, Event::Frame { payload: received, .. } if *received == payload)));
+    }
+
+    #[test]
+    fn cancellation_interrupts_a_paced_access_unit() {
+        let (mut host, _client) = pair(BitratePreset::DataSaver);
+        let flag = Arc::new(AtomicBool::new(false));
+        host.set_cancellation(flag.clone());
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || host.send_frame(Channel::Video, &vec![7; 400_000], true));
+        std::thread::sleep(Duration::from_millis(10));
+        flag.store(true, Ordering::Relaxed);
+        assert!(matches!(worker.join().unwrap(), Err(SessionError::Io(error)) if error.kind() == io::ErrorKind::Interrupted));
+        assert!(started.elapsed() < Duration::from_secs(1), "shutdown must interrupt pacing");
     }
 }

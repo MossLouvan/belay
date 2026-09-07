@@ -1,16 +1,8 @@
 //! The streaming loop itself.
 //!
-//! One thread, running flat out, doing the same four things per frame. The
-//! ordering is not arbitrary:
-//!
-//!   1. **Poll the session first.** Bitrate decisions and keyframe requests
-//!      from the client should apply to the frame we are about to encode, not
-//!      the one after it. Polling last means every reaction is a frame late.
-//!   2. **Cursor before video.** The cursor is 16 bytes and its entire value is
-//!      being current; video is hundreds of datagrams. Sending video first puts
-//!      the cursor behind a frame's worth of pacing delay, which is exactly the
-//!      lag that makes remote control feel remote.
-//!   3. Capture, convert, encode, send.
+//! Capture and encoding overlap a dedicated session/pacing worker. Two credits
+//! bound encoder submissions plus active/pending sends; a full pipeline skips
+//! capture before encoding, preserving every submitted H.264 dependency.
 //!
 //! An idle desktop does none of steps 2-3 and costs nothing, which is the whole
 //! reason Desktop Duplication is worth its complexity.
@@ -23,12 +15,12 @@ use belay_encode::capture::DesktopCapture;
 use belay_encode::color::{bgra_to_nv12, nv12_len};
 use belay_encode::gpu::VideoConverter;
 use belay_encode::h264::{init_media_foundation, CodedFrame, EncoderConfig, H264Encoder};
-use belay_net::{Event, Session};
+use belay_net::Session;
 use belay_wire::crypto::Direction;
 use belay_wire::cursor::{CursorSample, CursorSampler};
-use belay_wire::packet::Channel;
 
 use crate::config::{Config, Source};
+use crate::sender::Sender;
 use crate::synthetic::SyntheticSource;
 
 /// Cap on cursor sample rate. Past roughly the display refresh rate the extra
@@ -43,26 +35,14 @@ const CURSOR_MAX_HZ: u32 = 120;
 /// is cheap, and a moving one never waits at all.
 const CAPTURE_TIMEOUT_MS: u32 = 8;
 
-fn send_coded(session: &mut Session, coded: Vec<CodedFrame>, frames: &mut u64,
-    sent_bytes: &mut u64, send_us: &mut u128, output_latencies: &mut Vec<u64>) -> Result<(), String> {
-    if coded.is_empty() { return Ok(()); }
-    let started = Instant::now();
+fn submit_coded(sender: &Sender, coded: Vec<CodedFrame>) -> Result<(), String> {
     for frame in coded {
-        if let Some(latency) = frame.output_latency_us { output_latencies.push(latency); }
-        session.send_frame(Channel::Video, &frame.data, frame.keyframe)
-            .map_err(|e| format!("video send failed: {e:?}"))?;
-        *frames += 1;
-        *sent_bytes += frame.data.len() as u64;
+        sender.submit(frame)?;
     }
-    *send_us += started.elapsed().as_micros();
     Ok(())
 }
 
-pub fn run(
-    config: Config,
-    emit: fn(&str, &str),
-    escape: fn(&str) -> String,
-) -> Result<(), String> {
+pub fn run(config: Config, emit: fn(&str, &str), escape: fn(&str) -> String) -> Result<(), String> {
     // The two sources are kept behind one shape rather than two loops: every
     // step after "get a texture" is identical, and duplicating the loop is how
     // the test path and the real path quietly drift apart.
@@ -143,14 +123,15 @@ pub fn run(
         ),
     );
 
+    let sender = Sender::start(session)?;
     let mut sampler = CursorSampler::new(CURSOR_MAX_HZ);
     let started = Instant::now();
     let frame_budget = Duration::from_micros(1_000_000 / config.fps.max(1) as u64);
     let mut last_stats = Instant::now();
     let mut last_keyframe = Instant::now();
-    let (mut frames, mut sent_bytes) = (0u64, 0u64);
-    let (mut capture_us, mut encode_us, mut send_us, mut samples) = (0u128, 0u128, 0u128, 0u64);
-    let mut output_latencies = Vec::<u64>::new();
+    let (mut capture_us, mut encode_us, mut samples) = (0u128, 0u128, 0u64);
+    let mut skipped = 0u64;
+    let mut next_capture = Instant::now();
     // Counted separately because they mean different things and only one of
     // them is a problem: `no_change` is an idle desktop working as designed,
     // `cursor_only` is the cursor moving over a still screen. A stream that is
@@ -159,7 +140,6 @@ pub fn run(
     let (mut no_change, mut cursor_only) = (0u64, 0u64);
 
     loop {
-        let loop_start = Instant::now();
         let now_us = started.elapsed().as_micros() as u32;
 
         // Stats first, and unconditionally. Reporting them only on the path
@@ -167,67 +147,78 @@ pub fn run(
         // nothing at all — silence that reads as a crash.
         if last_stats.elapsed() >= Duration::from_secs(1) {
             let secs = last_stats.elapsed().as_secs_f64();
-            output_latencies.sort_unstable();
-            let output_p95_ms = output_latencies.get((output_latencies.len()*95).div_ceil(100).saturating_sub(1))
-                .copied().unwrap_or(0) as f64 / 1000.0;
+            let mut sent = sender.take_stats()?;
+            sent.output_latencies.sort_unstable();
+            let output_p95_ms = sent
+                .output_latencies
+                .get(
+                    (sent.output_latencies.len() * 95)
+                        .div_ceil(100)
+                        .saturating_sub(1),
+                )
+                .copied()
+                .unwrap_or(0) as f64
+                / 1000.0;
             emit(
                 "stats",
                 &format!(
-                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only},\"captureMs\":{:.3},\"convertEncodeMs\":{:.3},\"sendMs\":{:.3},\"rttMs\":{:.3},\"encoderOutputP95Ms\":{output_p95_ms:.3},\"encoderTimingSamples\":{},\"fec\":{},\"mediaBitrate\":{}",
-                    frames as f64 / secs,
-                    (sent_bytes as f64 * 8.0 / 1000.0) / secs,
-                    session.bitrate_bps(),
+                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only},\"captureMs\":{:.3},\"convertEncodeMs\":{:.3},\"sendMs\":{:.3},\"rttMs\":{:.3},\"encoderOutputP95Ms\":{output_p95_ms:.3},\"encoderTimingSamples\":{},\"fec\":{},\"mediaBitrate\":{},\"sendQueueMs\":{:.3},\"captureSkipped\":{skipped}",
+                    sent.frames as f64 / secs,
+                    (sent.bytes as f64 * 8.0 / 1000.0) / secs,
+                    sent.status.bitrate,
                     capture_us as f64 / samples.max(1) as f64 / 1000.0,
                     encode_us as f64 / samples.max(1) as f64 / 1000.0,
-                    send_us as f64 / samples.max(1) as f64 / 1000.0,
-                    session.rtt_ms().unwrap_or(0.0),
-                    output_latencies.len(),
-                    session.fec_sending(),
-                    session.media_bitrate_bps()
+                    sent.send_us as f64 / sent.frames.max(1) as f64 / 1000.0,
+                    sent.status.rtt_ms,
+                    sent.output_latencies.len(),
+                    sent.status.fec,
+                    sent.status.media_bitrate,
+                    sent.queue_us as f64 / sent.frames.max(1) as f64 / 1000.0
                 ),
             );
-            frames = 0;
-            sent_bytes = 0;
             no_change = 0;
             cursor_only = 0;
             last_stats = Instant::now();
-            capture_us = 0; encode_us = 0; send_us = 0; samples = 0;
-            output_latencies.clear();
+            capture_us = 0;
+            encode_us = 0;
+            samples = 0;
+            skipped = 0;
         }
 
-        // 1. Session first, so the client's feedback applies to THIS frame.
-        match session.poll() {
-            Ok(events) => {
-                for event in events {
-                    match event {
-                        Event::Bitrate { bps } => {
-                            // One setpoint reaching both the transport and the
-                            // encoder. Letting them disagree is how a link
-                            // that has backed off keeps being handed frames it
-                            // cannot carry.
-                            match encoder.set_bitrate(bps as u32) {
-                                Ok(()) => emit("bitrate", &format!("\"bps\":{bps},\"applied\":true")),
-                                Err(error) => {
-                                    eprintln!("encoder rejected bitrate {bps}: {error}");
-                                    emit("bitrate", &format!("\"bps\":{bps},\"applied\":false"));
-                                }
-                            }
-                        }
-                        Event::KeyframeNeeded => {
-                            encoder.request_keyframe();
-                        }
-                        // The host does not consume media from the client on
-                        // this session; input arrives over the existing
-                        // authenticated WebSocket.
-                        Event::Frame { .. } => {}
-                    }
+        // Apply the latest coalesced setpoint before the next submission.
+        let feedback = sender.take_feedback()?;
+        if let Some(bps) = feedback.bitrate {
+            match encoder.set_bitrate(bps as u32) {
+                Ok(()) => emit("bitrate", &format!("\"bps\":{bps},\"applied\":true")),
+                Err(error) => {
+                    eprintln!("encoder rejected bitrate {bps}: {error}");
+                    emit("bitrate", &format!("\"bps\":{bps},\"applied\":false"));
                 }
             }
-            Err(e) => return Err(format!("session failed: {e:?}")),
+        }
+        if feedback.keyframe {
+            encoder.request_keyframe();
         }
 
-        let ready = encoder.poll_output().map_err(|e| format!("encode failed: {e}"))?;
-        send_coded(&mut session, ready, &mut frames, &mut sent_bytes, &mut send_us, &mut output_latencies)?;
+        let ready = encoder
+            .poll_output()
+            .map_err(|e| format!("encode failed: {e}"))?;
+        submit_coded(&sender, ready)?;
+
+        let now = Instant::now();
+        if now < next_capture {
+            std::thread::sleep((next_capture - now).min(Duration::from_millis(1)));
+            continue;
+        }
+        // Keep a fixed cadence, skipping missed slots instead of attempting
+        // catch-up captures or resetting the deadline after every network wait.
+        while next_capture <= now {
+            next_capture += frame_budget;
+        }
+        if !sender.try_reserve()? {
+            skipped += 1;
+            continue;
+        }
 
         // 2. Capture. Ok(None) is a static desktop, which is the common case
         //    and costs nothing.
@@ -236,11 +227,15 @@ pub fn run(
             (Some(c), _) => c
                 .next_frame_gpu(CAPTURE_TIMEOUT_MS)
                 .map_err(|e| format!("capture failed: {e}"))?,
-            (_, Some(s)) => Some(s.next_frame().map_err(|e| format!("synthetic source failed: {e}"))?),
+            (_, Some(s)) => Some(
+                s.next_frame()
+                    .map_err(|e| format!("synthetic source failed: {e}"))?,
+            ),
             _ => unreachable!("one source is always constructed"),
         };
 
         let Some((meta, texture)) = grabbed else {
+            sender.cancel_reservation();
             no_change += 1;
             continue;
         };
@@ -259,19 +254,19 @@ pub fn run(
         if sampler.should_send(sample, now_us) {
             let mut buf = [0u8; CursorSample::WIRE_LEN];
             sample.encode(&mut buf);
-            if let Err(e) = session.send_frame(Channel::Cursor, &buf, false) {
-                return Err(format!("cursor send failed: {e:?}"));
-            }
+            sender.cursor(buf);
         }
 
         // 4. Video, when there are pixels. `idle` means only the cursor moved,
         //    and re-encoding an unchanged desktop is the waste this whole path
         //    exists to remove.
         let Some(texture) = texture else {
+            sender.cancel_reservation();
             cursor_only += 1;
             continue;
         };
         if meta.idle {
+            sender.cancel_reservation();
             cursor_only += 1;
             continue;
         }
@@ -279,13 +274,15 @@ pub fn run(
         // Some hardware drivers ignore the GOP hint. Bound recovery time even
         // with older clients that cannot request an IDR after dropped input.
         if last_keyframe.elapsed() >= Duration::from_secs(config.keyframe_interval_s as u64) {
-            encoder.request_keyframe(); last_keyframe = Instant::now();
+            encoder.request_keyframe();
+            last_keyframe = Instant::now();
         }
         capture_us += capture_started.elapsed().as_micros();
         samples += 1;
         let encode_started = Instant::now();
         let coded = if let Some(conv) = converter.as_mut() {
-            conv.convert(&texture).map_err(|e| format!("gpu convert failed: {e}"))?;
+            conv.convert(&texture)
+                .map_err(|e| format!("gpu convert failed: {e}"))?;
             encoder
                 .encode_texture(conv.output_texture())
                 .map_err(|e| format!("encode failed: {e}"))?
@@ -311,23 +308,14 @@ pub fn run(
             };
             bgra_to_nv12(&bgra, stride, width as usize, height as usize, &mut nv12)
                 .map_err(|e| format!("colour conversion failed: {e:?}"))?;
-            encoder.encode(&nv12).map_err(|e| format!("encode failed: {e}"))?
+            encoder
+                .encode(&nv12)
+                .map_err(|e| format!("encode failed: {e}"))?
         };
 
         encode_us += encode_started.elapsed().as_micros();
-        send_coded(&mut session, coded, &mut frames, &mut sent_bytes, &mut send_us, &mut output_latencies)?;
+        submit_coded(&sender, coded)?;
 
         let _ = escape; // reserved for error paths that carry free text
-
-        // Pace the capture loop. Without this a fast machine captures and
-        // encodes far past the requested rate and spends the bitrate on frames
-        // the client will never display.
-        while loop_start.elapsed() < frame_budget {
-            session.service().map_err(|e| format!("session failed: {e:?}"))?;
-            let ready = encoder.poll_output().map_err(|e| format!("encode failed: {e}"))?;
-            send_coded(&mut session, ready, &mut frames, &mut sent_bytes, &mut send_us, &mut output_latencies)?;
-            let remaining = frame_budget.saturating_sub(loop_start.elapsed());
-            std::thread::sleep(remaining.min(Duration::from_millis(1)));
-        }
     }
 }

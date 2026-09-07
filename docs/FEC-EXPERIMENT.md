@@ -172,3 +172,38 @@ P95 was approximately 7 ms, but synchronous sending occupied 16–22 ms per
 sample at the 20 Mbps wire cap. First-second average send time was 491 ms.
 This exposes a capture/encode/send scheduling bottleneck hidden by the simpler
 scene. The near-60 FPS simple-scene results cannot establish gaming performance.
+
+Encoder isolation probe (`cargo run --release --bin encode_rate_probe`) submits
+180 motion frames at 60 FPS per phase without network pacing. A 20 Mbps target
+produced 10,174,685 bytes (27.13 Mbps at 60 FPS), then an 8 Mbps target produced
+11,948,001 bytes (31.86 Mbps). All frames drained in about three seconds per
+phase. Codec readback reported CBR mode and the requested bitrate in both cases.
+Thus property acceptance/readback does not prove output budget compliance.
+Moving configuration before media-type setup produced identical encoded totals;
+that speculative change was reverted. Longer steady-state measurements and
+hardware-specific rate-control behavior remain to investigate.
+
+Longer isolation: a fresh 8 Mbps encoder produced 37,651,302 bytes over 600 frames
+in ten seconds (30.12 Mbps at 60 FPS). The selected backend is now identified
+explicitly as `NVIDIA H.264 Encoder MFT`. Readback reports minQP 0, maxQP 51,
+bufferSize 21993846 and quality 65. A diagnostic request to set buffer size 133333
+returned success but readback remained 21993846; no production buffer tuning was
+enabled. Units vary by codec, so that experiment does not establish a usable
+VBV configuration.
+
+Initial dedicated-sender trial: 226 motion frames/8 seconds versus 204 for the
+serialized loop. Steady FPS was 30–38, with average queue wait 8–14 ms in most
+intervals. Two total pipeline credits bound encoder submissions plus pending
+and active sends; capture skips before encoding when both are occupied.
+No arbitrary encoded delta dropping is used. This is a modest throughput gain,
+not 60 FPS, and rate-control compliance remains necessary to avoid queue latency.
+
+Sender validation: 17 streamer tests pass, including the two-credit bound,
+ordered delivery, latest-cursor mailbox, coalesced feedback, failure/panic
+propagation, cancellation, and a two-second deadline on each encoder submission.
+Session cancellation is checked during packet pacing and receive draining;
+47 network tests plus one doctest pass. The encoder's 18 ordinary tests pass
+(two separate hardware tests were not rerun in this check). The rebuilt streamer
+also passed the desktop UI test with actual H.264 presentation and 47 simulated
+controller frames. Cursor updates are prioritized between access units; they
+still cannot interrupt an active access-unit send, a remaining limitation.
