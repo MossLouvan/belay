@@ -81,8 +81,8 @@ compact layout, keyboard activation and simulated controller transport.
 
 - Extend the verified single-loss recovery to sustained loss, delay and jitter
   experiments; choose FEC or bounded retransmission based on those results.
-- Audit asynchronous encoder surface lifetime and measure actual input-to-output
-  latency; keep capture, encoding and network queues bounded if overlapped.
+- Measure actual encoder input-to-output latency and ready-output scheduling;
+  keep capture, encoding and network queues bounded if overlapped.
 - Measure real moving desktop/game capture, quality under motion, client decode
   and presentation, audio, cursor and input separately on Mac/phone clients.
 - Complete Windows controller driver installation and physical controller/game
@@ -107,3 +107,38 @@ a product latency target.
 frame, retry after a lost keyframe request, fragment reordering, duplicates,
 frame-ID wrap, and rejecting invalid authenticated-encryption tags without
 poisoning the replay window. Recovery preserves the existing v1 wire format.
+
+## GPU frame ownership follow-up
+
+The converter reuses its NV12 texture. The previous encoder passed that same
+texture into every sample, although [Media Foundation may retain input samples](https://learn.microsoft.com/en-us/windows/win32/api/mftransform/nf-mftransform-imftransform-processinput)
+after ProcessInput returns. A subsequent conversion could therefore overwrite
+an input still being encoded. Each submitted sample now owns a separate GPU
+snapshot, without CPU readback. The sample's DXGI buffer preserves that surface
+until the encoder releases it.
+
+This was chosen over immediate texture reuse because it establishes immutable
+frame contents. A reusable pool may reduce allocation overhead later, but must
+track actual sample release; a fixed ring based only on input submission does
+not establish safety. The GPU test explicitly changes the source texture and
+reads back the snapshot to verify that its NV12 bytes remain unchanged. It was
+run successfully using the opt-in command:
+
+```
+cargo test --lib h264::tests::gpu_snapshot_is_unchanged_when_conversion_target_is_reused -- --ignored
+```
+
+The post-change synthetic loss run delivered 456 frames and four keyframes in
+eight seconds, settled near 59 FPS, and recovered in 68 ms. Conversion/submission
+calls in steady intervals were about 0.58–0.66 ms. This is not isolated GPU-copy
+time or hardware encode completion time. The installed Electron presentation
+playtest passes. The encoder library's normal tests pass (18); the GPU ownership
+test is deliberately opt-in and was run separately rather than counted as passed
+from an ignored test.
+
+Encoder event waiting now has a real two-second deadline using nonblocking
+[GetEvent](https://learn.microsoft.com/en-us/windows/win32/api/mfobjects/nf-mfobjects-imfmediaeventgenerator-getevent).
+The previous bounded loop still called an API that could block indefinitely.
+Unexpected event errors now propagate, and ProcessOutput event collections are
+released. Device-loss and a deliberately wedged hardware encoder were not
+physically induced for this validation.

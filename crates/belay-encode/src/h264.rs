@@ -21,11 +21,11 @@
 
 #![cfg(windows)]
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows::core::{Interface, Result as WinResult, GUID, IUnknown};
 use windows::Win32::Foundation::E_FAIL;
-use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Multithread, ID3D11Texture2D};
+use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Multithread, ID3D11Texture2D, D3D11_TEXTURE2D_DESC};
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
@@ -253,8 +253,10 @@ impl H264Encoder {
 
     /// Encode an NV12 GPU texture with no readback and no CPU copy.
     ///
-    /// The texture must stay valid until this returns; the encoder reads from
-    /// it during `ProcessInput`.
+    /// The input is snapshotted on the GPU. An async MFT can retain its sample
+    /// after ProcessInput returns, so it must not alias the converter's next
+    /// output. The sample's DXGI buffer owns the snapshot until the MFT releases
+    /// it. A future texture pool must observe release, not merely submission.
     pub fn encode_texture(&mut self, texture: &ID3D11Texture2D) -> WinResult<Vec<CodedFrame>> {
         if self.device_manager.is_none() {
             return Err(windows::core::Error::new(
@@ -266,7 +268,8 @@ impl H264Encoder {
             if self.is_async {
                 self.await_need_input()?;
             }
-            let surface: IUnknown = texture.cast()?;
+            let owned = snapshot_texture(texture)?;
+            let surface: IUnknown = owned.cast()?;
             let buffer: IMFMediaBuffer =
                 MFCreateDXGISurfaceBuffer(&ID3D11Texture2D::IID, &surface, 0, false)?;
             // A DXGI buffer reports length 0 until told; an MFT handed a
@@ -364,10 +367,17 @@ impl H264Encoder {
             return Ok(());
         }
         let Some(events) = self.events.clone() else { return Ok(()) };
-        // Bounded so a wedged encoder surfaces as an error instead of hanging
-        // the capture thread forever.
-        for _ in 0..256 {
-            let ev = events.GetEvent(MF_EVENT_FLAG_NONE)?;
+        // A blocking GetEvent has no time bound, regardless of a loop count.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            let ev = match events.GetEvent(MF_EVENT_FLAG_NO_WAIT) {
+                Ok(event) => event,
+                Err(error) if error.code() == MF_E_NO_EVENTS_AVAILABLE => {
+                    std::thread::sleep(Duration::from_millis(1));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             match ev.GetType()? {
                 x if x == METransformNeedInput.0 as u32 => return Ok(()),
                 x if x == METransformHaveOutput.0 as u32 => {
@@ -421,7 +431,8 @@ impl H264Encoder {
                             self.input_credits = self.input_credits.saturating_add(1);
                         }
                     }
-                    Err(_) => break, // no event pending
+                    Err(error) if error.code() == MF_E_NO_EVENTS_AVAILABLE => break,
+                    Err(error) => return Err(error),
                 }
             }
             return Ok(out);
@@ -464,6 +475,7 @@ impl H264Encoder {
         let mut status = 0u32;
         let hr = self.transform.ProcessOutput(0, &mut buffers, &mut status);
         let sample = core::mem::ManuallyDrop::take(&mut buffers[0].pSample);
+        drop(core::mem::ManuallyDrop::take(&mut buffers[0].pEvents));
 
         match hr {
             Ok(()) => {
@@ -497,6 +509,20 @@ impl H264Encoder {
         let timestamp_hns = sample.GetSampleTime().unwrap_or(0);
         Ok(CodedFrame { data, keyframe, timestamp_hns })
     }
+}
+
+/// Snapshot a reusable conversion target without any CPU readback. Giving each
+/// submitted sample its own COM-owned surface prevents writes by a subsequent
+/// conversion while asynchronous hardware still reads the previous frame.
+unsafe fn snapshot_texture(texture: &ID3D11Texture2D) -> WinResult<ID3D11Texture2D> {
+    let device = texture.GetDevice()?;
+    let mut desc = D3D11_TEXTURE2D_DESC::default();
+    texture.GetDesc(&mut desc);
+    let mut owned = None;
+    device.CreateTexture2D(&desc, None, Some(&mut owned))?;
+    let owned = owned.ok_or_else(|| windows::core::Error::new(E_FAIL, "no encoder surface"))?;
+    device.GetImmediateContext()?.CopyResource(&owned, texture);
+    Ok(owned)
 }
 
 /// Locate an H.264 encoder MFT, preferring hardware, accepting software.
@@ -570,6 +596,47 @@ pub fn transmit_time(bytes: usize, bitrate_bps: u32) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires a Windows GPU with NV12 texture support"]
+    fn gpu_snapshot_is_unchanged_when_conversion_target_is_reused() {
+        use windows::Win32::Graphics::Direct3D::*;
+        use windows::Win32::Graphics::Direct3D11::*;
+        use windows::Win32::Graphics::Dxgi::Common::*;
+        unsafe {
+            let mut device = None;
+            D3D11CreateDevice(None, D3D_DRIVER_TYPE_HARDWARE, None,
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT, None, D3D11_SDK_VERSION,
+                Some(&mut device), None, None).unwrap();
+            let device = device.unwrap();
+            let context = device.GetImmediateContext().unwrap();
+            let desc = D3D11_TEXTURE2D_DESC { Width:16, Height:16, MipLevels:1, ArraySize:1,
+                Format:DXGI_FORMAT_NV12, SampleDesc:DXGI_SAMPLE_DESC { Count:1, Quality:0 },
+                Usage:D3D11_USAGE_DEFAULT, ..Default::default() };
+            let original = [64u8; 16*24];
+            let init = D3D11_SUBRESOURCE_DATA { pSysMem:original.as_ptr().cast(), SysMemPitch:16, SysMemSlicePitch:0 };
+            let mut source = None;
+            device.CreateTexture2D(&desc, Some(&init), Some(&mut source)).unwrap();
+            let source = source.unwrap();
+            let snapshot = snapshot_texture(&source).unwrap();
+            let next = [192u8; 16*24];
+            context.UpdateSubresource(&source, 0, None, next.as_ptr().cast(), 16, 0);
+            let read_desc = D3D11_TEXTURE2D_DESC { Usage:D3D11_USAGE_STAGING,
+                CPUAccessFlags:D3D11_CPU_ACCESS_READ.0 as u32, ..desc };
+            let mut readback = None;
+            device.CreateTexture2D(&read_desc, None, Some(&mut readback)).unwrap();
+            let readback = readback.unwrap();
+            context.CopyResource(&readback, &snapshot);
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            context.Map(&readback, 0, D3D11_MAP_READ, 0, Some(&mut mapped)).unwrap();
+            let unchanged = (0..24).all(|row| {
+                std::slice::from_raw_parts((mapped.pData as *const u8).add(row * mapped.RowPitch as usize),16)
+                    .iter().all(|&byte| byte == 64)
+            });
+            context.Unmap(&readback,0);
+            assert!(unchanged,"later conversion overwrote a submitted frame");
+        }
+    }
 
     #[test]
     fn transmit_time_is_bytes_over_bitrate() {
