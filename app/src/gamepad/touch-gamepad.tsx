@@ -13,6 +13,11 @@ import type { LayoutChoice, PresetId } from './presets';
 import { controlLabel, glyphLayout } from './glyphs';
 import type { ControllerLabels } from './glyphs';
 
+// The Move/Look pads sit over the game picture, so they stay translucent
+// while the buttons keep full contrast (founder's call: the sticks were
+// hiding too much of the screen).
+const STICK_OPACITY = 0.45;
+
 function TouchControl({ rect, state, labels }: { readonly rect: ControlRect; readonly state: SharedValue<GamepadState>; readonly labels: ControllerLabels }) {
   const theme = useTheme();
   const stick = rect.id === 'lx' || rect.id === 'rx';
@@ -55,7 +60,7 @@ function TouchControl({ rect, state, labels }: { readonly rect: ControlRect; rea
       onAccessibilityTap={() => accessibilityPulse()}
       accessibilityActions={stick ? [{ name: 'increment', label: 'Right' }, { name: 'decrement', label: 'Left' }] : undefined}
       onAccessibilityAction={event => accessibilityPulse(event.nativeEvent.actionName === 'decrement' ? -1 : 1)}
-      style={[{ position: 'absolute', left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: theme.colors.bg, borderWidth: theme.layout.hairline, borderRadius: theme.radius.xs, justifyContent: 'center' }, style]}>
+      style={[{ position: 'absolute', left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: theme.colors.bg, borderWidth: theme.layout.hairline, borderRadius: theme.radius.xs, justifyContent: 'center', opacity: stick ? STICK_OPACITY : 1 }, style]}>
       <View style={stick ? { position: 'absolute', top: 0, width: '100%' } : undefined} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"><TrackLabel label={label} onPress={() => { }} align="center" hapticTone={null} /></View>
       {stick ? <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: theme.layout.minTouch + (rect.h - theme.layout.minTouch - theme.space.xs) / 2, alignSelf: 'center', width: theme.space.xs, height: theme.space.xs, backgroundColor: theme.colors.accentGraphic }, marker]} /> : null}
     </Animated.View>
