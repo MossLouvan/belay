@@ -126,14 +126,14 @@ export function useGamepad(enabled: boolean, preset: PresetId, connectionKey: st
       const physicalInput = usesPhysicalController(inputModeRef.current, physicalRef.current);
       const input = physicalInput ? controller.current : touch.current;
       const previous = escape.current;
-      escape.current = exitHold(previous, input.buttons, physicalInput && guidePressed.current, touchExitPressed.current, now);
-      if (now - progressAt >= 40 || previous.suppress !== escape.current.suppress || escape.current.exit) {
+      escape.current = exitHold(previous, physicalInput && guidePressed.current, touchExitPressed.current, now);
+      if (now - progressAt >= 40 || escape.current.exit) {
         progressAt = now; setExitProgress(escape.current.progress);
       }
       if (escape.current.exit) { controller.current = NEUTRAL; touch.current = NEUTRAL; exitRef.current(); return; }
       if (rumbleAt !== null && Date.now() - rumbleAt > 750) { rumbleAt = null; void gamepadNative?.rumble(0, 0).catch(() => { }); }
       if (!ready || !ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > 34) return;
-      const state = escape.current.suppress ? NEUTRAL : input;
+      const state = escape.current.since !== null ? NEUTRAL : input;
       try { ws.send(encodeGamepad({ ...state, seq })); seq = (seq + 1) >>> 0; } catch { ws.close(); }
     }, 8);
     return () => {

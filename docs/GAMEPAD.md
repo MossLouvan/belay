@@ -32,8 +32,10 @@ connected controller. The choice is saved with the preset and touch layout.
 Physical controllers continue to take precedence over touch controls.
 
 Options maps to Start; Create (Share on DualShock 4) and a touchpad click map
-to Back/Select. PS/Guide has no host bit: hold it for one second to exit Gaming
-on the phone. The visible Exit control remains available. Belay requests
+to Back/Select. Start and Back always reach the game. Leaving Gaming is a
+1.2-second hold on the small Exit button in the top-right corner (it fills as
+you hold; a tap does nothing). PS/Guide has no host bit, so holding it for the
+same 1.2 seconds also exits. Belay requests
 immediate Guide input, but iOS can reserve system gestures. Test the hold on
 the actual phone/controller pair.
 
@@ -47,7 +49,7 @@ motion, speaker audio and PlayStation-specific haptic waveforms are not sent.
 
 Phone device check: verify both stick directions, analog triggers, every face
 button, Options/Create, touchpad click, short PS presses (no host input), and
-the one-second exit hold. Check the light, independent motor rumble, saved
+the 1.2-second exit hold. Check the light, independent motor rumble, saved
 glyph style after relaunch, unplug/reconnect, backgrounding and network loss.
 Use a fresh native development build; Expo Go cannot load this module.
 

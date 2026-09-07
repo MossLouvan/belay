@@ -90,8 +90,7 @@ export function GamingSheet({ gaming }: { readonly gaming: GamingState }) {
       <SegmentedControl accessibilityLabel="Touch layout" value={gaming.layout} onChange={gaming.setLayout} options={[{ value: 'classic', label: 'Classic' }, { value: 'southpaw', label: 'Southpaw' }]} />
       <SegmentedControl accessibilityLabel="Controller glyph style" value={gaming.glyphStyle} onChange={gaming.setGlyphStyle} options={[{ value: 'auto', label: 'Auto' }, { value: 'playstation', label: 'PlayStation' }]} />
       <Caption>{Object.values(gaming.labels).join(' · ')}</Caption>
-      <Caption>To leave full screen, hold {gaming.labels.start} + {gaming.labels.select} together for {EXIT_HOLD_MS / 1000} seconds. PS / Guide also works. Release early to cancel.</Caption>
-      <Caption>Gaming uses landscape. You can also hold the Exit full screen control at the top; its progress bar shows when you will leave.</Caption>
+      <Caption>Gaming uses landscape. To leave, hold the small Exit button in the top corner for {EXIT_HOLD_MS / 1000} seconds; it fills as you hold. On a controller, holding PS / Guide does the same. {gaming.labels.start} and {gaming.labels.select} go to the game.</Caption>
       <Button label="Start gaming" onPress={gaming.enter} disabled={!gaming.loaded} />
     </Column>
     </ScrollView>
@@ -104,19 +103,17 @@ export function GamingOverlay({ gaming, width, height, fps, pingMs }: { readonly
   const exiting = gaming.exitProgress > 0;
   return <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top, left: insets.left, right: insets.right, bottom: insets.bottom, zIndex: 8 }}>
     {!gaming.usingPhysical && gaming.foreground ? <React.Suspense fallback={null}><TouchGamepad key={`${gaming.layout}-${touchPreset}-${w}-${h}`} width={w} height={h} layout={gaming.layout} preset={touchPreset} labels={gaming.labels} onState={gaming.updateTouch} /></React.Suspense> : null}
-    <View style={{ position: 'absolute', top: 0, alignSelf: 'center', width: Math.min(220, w / 3), backgroundColor: theme.colors.bg, padding: theme.space.xs, borderRadius: theme.radius.xs }}>
-      <Pressable testID="gaming-exit" accessibilityRole="button" accessibilityLabel="Exit full screen"
-        accessibilityHint="Hold for 1.2 seconds. Release early to cancel."
-        onPressIn={() => gaming.setExitPressed(true)} onPressOut={() => gaming.setExitPressed(false)}
-        onAccessibilityTap={gaming.exit}
-        style={{ minHeight: theme.layout.minTouch, alignItems: 'center', justifyContent: 'center' }}>
-        <Txt variant="label">{exiting ? 'Keep holding to exit' : 'Hold to exit full screen'}</Txt>
-        <View style={{ width: '100%', height: 3, marginTop: theme.space.xs, backgroundColor: theme.colors.borderStrong }}>
-          <View style={{ width: `${gaming.exitProgress * 100}%`, height: 3, backgroundColor: theme.colors.accentGraphic }} />
-        </View>
-      </Pressable>
-      <Txt variant="label">{exiting ? 'Release to cancel' : `Hold ${gaming.labels.start} + ${gaming.labels.select}`}</Txt>
-    </View>
+    {/* The one way off the game from the phone: a small pill in the top-right
+        corner, held for EXIT_HOLD_MS. The fill behind the label is the
+        progress; a tap only flashes the hint. Start and Back reach the game. */}
+    <Pressable testID="gaming-exit" accessibilityRole="button" accessibilityLabel="Exit full screen"
+      accessibilityHint="Hold for 1.2 seconds. Release early to cancel."
+      onPressIn={() => gaming.setExitPressed(true)} onPressOut={() => gaming.setExitPressed(false)}
+      onAccessibilityTap={gaming.exit}
+      style={{ position: 'absolute', top: 0, right: 0, minHeight: theme.layout.minTouch, minWidth: theme.layout.minTouch, paddingHorizontal: theme.space.sm, borderRadius: theme.radius.xs, backgroundColor: theme.colors.bg, borderWidth: theme.layout.hairline, borderColor: theme.colors.borderStrong, overflow: 'hidden', justifyContent: 'center' }}>
+      <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${gaming.exitProgress * 100}%`, backgroundColor: theme.colors.accentGraphic, opacity: 0.35 }} />
+      <Txt variant="label">{exiting ? 'Hold…' : 'Exit'}</Txt>
+    </Pressable>
     <View pointerEvents="none" style={{ position: 'absolute', bottom: theme.layout.minTouch + theme.space.md, alignSelf: 'center', maxWidth: w / 3, backgroundColor: theme.colors.bg, padding: theme.space.xs, borderRadius: theme.radius.xs }}>
       <Txt variant="label">{gaming.usingPhysical ? 'Bluetooth controller' : 'Phone controller'}</Txt>
       <Txt variant="label">{gaming.backend}</Txt>
