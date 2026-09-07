@@ -88,3 +88,17 @@ test('frames injected from another transport feed the owner session, never a str
  at=1400;tick();assert.equal(ws.readyState,1);
  ws.close();assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,seq:5}))),false);
 });
+test('ownership releases as soon as detach is issued, not when the helper answers',async()=>{
+ // The helper answers strictly in order, so a detach queued behind a slow
+ // capture can take seconds. The phone reconnecting in that window used to
+ // see "Controller busy" until the helper's reply (or its 15s timeout).
+ let releaseDetach;
+ const helper={gamepadAttach:async()=>({backend:'keymap'}),gamepadDetach:()=>new Promise(r=>{releaseDetach=r;}),gamepad:()=>true,onGamepadEvent:()=>()=>{}};
+ const hub=createGamepadHub(helper,{schedule:()=>()=>{}});
+ const ws=new Socket();hub.handle(ws,'generic');await new Promise(r=>setImmediate(r));
+ ws.close();await new Promise(r=>setImmediate(r));
+ const next=new Socket();hub.handle(next,'generic');await new Promise(r=>setImmediate(r));
+ assert.equal(next.sent[0].available,true,'a new owner attaches while the old detach is still in flight');
+ releaseDetach();await new Promise(r=>setImmediate(r));
+ assert.equal(next.readyState,1,'the late detach reply must not close the new owner');
+});

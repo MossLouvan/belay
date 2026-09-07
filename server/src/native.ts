@@ -194,10 +194,17 @@ class NativeHost {
     this.gamepadListeners = [...this.gamepadListeners, listener];
     return () => { this.gamepadListeners = this.gamepadListeners.filter(value => value !== listener); };
   }
-  /** Fire-and-forget hot path; don't queue behind a slow capture or a full pipe.
-   * The channel retains the newest state until the helper can accept it. */
+  /** Fire-and-forget hot path. Only a full pipe holds a sample back; the
+   * channel retains the newest state until the helper can accept it.
+   *
+   * This deliberately does NOT wait for the helper to be idle: while the JPEG
+   * screen stream runs there is a capture call in flight almost all the time,
+   * and gating on it starved the pad so badly that the helper's 750ms watchdog
+   * released every held key — "you cannot hold a button". A sample written
+   * behind a capture is applied when that capture returns, tens of ms later,
+   * which the next sample corrects anyway. */
   gamepad(state: GamepadState): boolean {
-    if (!this.proc || !this.ready || this.pending.size > 0 || this.proc.stdin.writableLength > 0) return false;
+    if (!this.proc || !this.ready || this.proc.stdin.writableLength > 0) return false;
     this.proc.stdin.write(JSON.stringify({cmd:'gamepad',...state}) + '\n');
     return true;
   }

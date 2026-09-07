@@ -51,9 +51,17 @@ export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
       let rumbleAt = 0;
       let stop = () => { };
       let unlisten = () => { };
+      // Ownership ends the moment the detach is *issued*, not when the helper
+      // answers: the helper replies strictly in order, so a detach queued behind
+      // a slow capture can take seconds (or the 15s call timeout), and every
+      // reconnect in that window used to be refused as "Controller busy". The
+      // next attach is written after this detach, so the helper still sees them
+      // in order; its own 750ms watchdog neutralizes the pad meanwhile.
       const detach = async (): Promise<void> => {
         if (cleaning) return; cleaning = true;
-        try { await helper.gamepadDetach(); } catch {/* helper watchdog also neutralizes */ } finally { owned = false; }
+        const reply = helper.gamepadDetach();
+        owned = false;
+        try { await reply; } catch {/* helper watchdog also neutralizes */ }
       };
       const accept = (data: GamepadBytes): boolean => {
         if (closed || !attached) return false;
