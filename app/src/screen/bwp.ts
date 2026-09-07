@@ -31,6 +31,12 @@ export interface BwpStats {
   readonly fps: number;
   readonly kbps: number;
   readonly bitrate: number;
+  /** Keyframes the host produced because we asked for one. */
+  readonly keyframeRequests: number;
+  /** The host's share of latency: capture-to-packet, or null when unknown. */
+  readonly encodeMs: number | null;
+  /** Round trip as the host measures it from our reports, or null. */
+  readonly rttMs: number | null;
 }
 
 export type BwpMessage =
@@ -42,6 +48,11 @@ export type BwpMessage =
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
+}
+
+/** A latency the host measured, or null for anything it could not. */
+function millisOrNull(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
 }
 
 /**
@@ -101,6 +112,9 @@ export function parseBwpMessage(raw: unknown): BwpMessage | null {
           fps: typeof msg.fps === 'number' ? msg.fps : 0,
           kbps: typeof msg.kbps === 'number' ? msg.kbps : 0,
           bitrate: typeof msg.bitrate === 'number' ? msg.bitrate : 0,
+          keyframeRequests: typeof msg.keyframeRequests === 'number' ? msg.keyframeRequests : 0,
+          encodeMs: millisOrNull(msg.encodeMs),
+          rttMs: millisOrNull(msg.rttMs),
         },
       };
     case 'bwpBitrate':

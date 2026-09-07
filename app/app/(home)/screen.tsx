@@ -58,6 +58,7 @@ import { DockedControls, FloatingDock } from '../../src/screen/floating-dock';
 import { HelpSheet } from '../../src/screen/help-sheet';
 import { ImmersiveHud } from '../../src/screen/immersive-hud';
 import { QualitySheet } from '../../src/screen/quality-sheet';
+import type { BwpPreference } from '../../src/screen/bwp-policy';
 import { hintVisible, panelStateShown, typeRowFloats } from '../../src/screen/screen-chrome';
 import { ScreenHeader } from '../../src/screen/screen-header';
 import { MonitorSheet, ScreenMenuSheet } from '../../src/screen/screen-menu-sheet';
@@ -102,7 +103,18 @@ export default function ScreenTab() {
   const monitors = useMonitorChoice(facts.info);
   const { screenIndex } = monitors;
 
-  const stream = useScreenStream(active, presets.quality, screenIndex, presets.virtualRequest, gaming.enabled);
+  // The H.264 switch. 'auto' is the default and means "whenever the host can";
+  // the other two exist for the moment a user needs to prove which path is
+  // misbehaving. Not persisted: a forced choice is a diagnostic, not a setting.
+  const [bwpPreference, setBwpPreference] = useState<BwpPreference>('auto');
+  // The host's H.264 flag comes from the same /screen/info poll as everything
+  // else about it; undefined until the first answer, which the policy treats
+  // as "ask and see" rather than "no".
+  const bwpOptions = useMemo(
+    () => ({ preference: bwpPreference, hostBwp: facts.info?.bwp }),
+    [bwpPreference, facts.info?.bwp],
+  );
+  const stream = useScreenStream(active, presets.quality, screenIndex, presets.virtualRequest, gaming.enabled, bwpOptions);
   const qualityChoices = useQualityAvailability(stream.bwpPath, presets, gaming.enabled);
 
   const permissions = useMemo(() => readPermissions(facts.info, stream.error), [facts.info, stream.error]);
@@ -382,6 +394,8 @@ export default function ScreenTab() {
         presets={presets}
         qualityChoices={qualityChoices}
         stream={stream}
+        bwpPreference={bwpPreference}
+        onBwpPreference={setBwpPreference}
         pingMs={facts.pingMs}
         zoom={viewport.zoom}
       />

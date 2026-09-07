@@ -99,12 +99,30 @@ test('a reason-less failure still gets a message', () => {
 test('stats and bitrate are parsed', () => {
   assert.deepEqual(
     parseBwpMessage({ type: 'bwpStats', fps: 59, kbps: 1521, bitrate: 2776395 }),
-    { type: 'stats', stats: { fps: 59, kbps: 1521, bitrate: 2776395 } },
+    {
+      type: 'stats',
+      stats: { fps: 59, kbps: 1521, bitrate: 2776395, keyframeRequests: 0, encodeMs: null, rttMs: null },
+    },
   );
   assert.deepEqual(parseBwpMessage({ type: 'bwpBitrate', bps: 4405791 }), {
     type: 'bitrate',
     bps: 4405791,
   });
+});
+
+// The host's share of the latency budget rides on the stats line. A host
+// that cannot measure it sends -1 (Rust has no null), which must read as
+// unknown rather than as a negative millisecond.
+test('stats carry the host latency when it is known', () => {
+  const msg = parseBwpMessage({
+    type: 'bwpStats', fps: 60, kbps: 1500, bitrate: 2e6, keyframeRequests: 3, encodeMs: 4.2, rttMs: 11,
+  });
+  assert.deepEqual(msg?.stats, {
+    fps: 60, kbps: 1500, bitrate: 2e6, keyframeRequests: 3, encodeMs: 4.2, rttMs: 11,
+  });
+  const unknown = parseBwpMessage({ type: 'bwpStats', fps: 60, kbps: 0, bitrate: 0, rttMs: -1, encodeMs: 'x' });
+  assert.equal(unknown?.stats.rttMs, null);
+  assert.equal(unknown?.stats.encodeMs, null);
 });
 
 test('unrelated and malformed messages are ignored', () => {

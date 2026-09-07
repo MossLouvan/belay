@@ -1,18 +1,19 @@
 // The `/ws/screen` socket and the `/screen/info` probe.
 //
 // `useScreenStream` owns opening the socket, exponential-backoff reconnects,
-// decoding untrusted frames, per-second statistics and stall detection.
-// `useHostFacts` polls the host for geometry, latency and — on macOS — the
-// Screen Recording / Accessibility permission flags.
+// decoding untrusted frames, per-second statistics, stall detection and the
+// BWP (H.264 over UDP) negotiation with its JPEG fallback. The `/screen/info`
+// poll and the permission helpers live in ./host-facts and are re-exported
+// here so the screen tab still imports one module.
 
 import { gamingQuality } from '../gamepad/presets';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { api, checkHost, getConnection, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
+import { checkHost, getConnection, wsUrl, UnauthorizedError } from '../api';
 import { ReattachLink, shouldReattachOnForeground } from '../foreground';
-import { buildConfigMessage, messageOf, numberOf, PERMISSION_PATTERN, QualityPreset, STREAM, VirtualRequest } from './model';
+import { buildConfigMessage, messageOf, QualityPreset, STREAM, VirtualRequest } from './model';
 import { PROBE_INTERVAL_MS, shouldProbeDuringBackoff } from './retry';
-import { bytesToBase64, decodeBinaryFrame, isBinaryFramePayload } from './frame-codec';
+import { parseStreamMessage, type FramePayload } from './stream-message';
 
 export type Phase = 'idle' | 'connecting' | 'live' | 'stalled' | 'reconnecting' | 'error';
 
@@ -44,74 +45,6 @@ export const EMPTY_STATS: StreamStats = Object.freeze({
   sourceWidth: 0,
   sourceHeight: 0,
 });
-
-interface FramePayload {
-  readonly data: string;
-  readonly w: number;
-  readonly h: number;
-  readonly sw: number;
-  readonly sh: number;
-  readonly bytes: number;
-}
-
-type StreamMessage =
-  | { readonly type: 'frame'; readonly frame: FramePayload }
-  | { readonly type: 'error'; readonly error: string };
-
-/**
- * Parses an untrusted socket payload. Returns null for anything unrecognised.
- *
- * Two wire shapes arrive on one socket. A binary message is a pixel frame in
- * the compact layout of frame-codec.ts (the host only sends these once we ask
- * with `?bin=1`, so an old host that keeps sending JSON still works); a string
- * is the JSON envelope — still the carrier for errors and, from old hosts,
- * for frames. The codec bounds-checks every header field before slicing, so a
- * malformed or truncated buffer degrades to "unrecognised", never a crash.
- */
-export function parseStreamMessage(raw: unknown): StreamMessage | null {
-  if (isBinaryFramePayload(raw)) {
-    const decoded = decodeBinaryFrame(raw);
-    if (!decoded) return null;
-    return {
-      type: 'frame',
-      frame: {
-        data: bytesToBase64(decoded.jpeg),
-        w: decoded.w,
-        h: decoded.h,
-        sw: decoded.sw,
-        sh: decoded.sh,
-        bytes: decoded.jpeg.length,
-      },
-    };
-  }
-  if (typeof raw !== 'string') return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== 'object' || parsed === null) return null;
-  const msg = parsed as Record<string, unknown>;
-  if (msg.type === 'frame' && typeof msg.data === 'string') {
-    return {
-      type: 'frame',
-      frame: {
-        data: msg.data,
-        w: numberOf(msg.w),
-        h: numberOf(msg.h),
-        sw: numberOf(msg.sw),
-        sh: numberOf(msg.sh),
-        bytes: numberOf(msg.bytes),
-      },
-    };
-  }
-  if (msg.type === 'error') {
-    const error = typeof msg.error === 'string' && msg.error ? msg.error : 'The host reported a capture error.';
-    return { type: 'error', error };
-  }
-  return null;
-}
 
 export interface StreamState {
   readonly phase: Phase;
@@ -145,7 +78,38 @@ export interface StreamState {
   /** The host's frame size from its offer. Zero until one arrives. */
   readonly bwpWidth: number;
   readonly bwpHeight: number;
+  /**
+   * What the phone's decoder sees, once a second. Null until the native view
+   * has reported. The phone's `rttMs` and the host's `encodeMs` (in
+   * `bwpStats`) together are the measurable share of glass-to-glass latency.
+   */
+  readonly bwpClient: BwpClientStats | null;
+  /**
+   * Why the picture is JPEG when it might have been H.264: the user's switch,
+   * a host that cannot, or a fallback after a failure. Null while BWP is
+   * live or was never a possibility worth explaining.
+   */
+  readonly bwpFallback: BwpSkipReason | BwpFallbackReason | null;
+  /** Events from the native view. The screen tab wires this to `onStatus`. */
+  readonly onBwpStatus: (status: StreamStatus) => void;
 }
+
+export interface BwpClientStats {
+  /** Frames the decoder showed in the last second. */
+  readonly fps: number;
+  readonly dropped: number;
+  readonly keyframeRequests: number;
+  /** Round trip as the phone measures it, or null until known. */
+  readonly rttMs: number | null;
+}
+
+export interface BwpOptions {
+  readonly preference: BwpPreference;
+  /** The host's /health or /screen/info flag; undefined until known. */
+  readonly hostBwp: boolean | undefined;
+}
+
+const DEFAULT_BWP_OPTIONS: BwpOptions = Object.freeze({ preference: 'auto', hostBwp: undefined });
 
 interface FrameCounters {
   frames: number;
@@ -188,9 +152,20 @@ import {
   type BwpStats,
 } from './bwp';
 import * as nativeStream from '../../modules/belay-stream/src';
-import type { BwpSource } from '../../modules/belay-stream/src';
+import type { BwpSource, StreamStatus } from '../../modules/belay-stream/src';
+import {
+  bwpDecoded,
+  bwpHostSent,
+  bwpOffered,
+  bwpStalled,
+  shouldRequestBwp,
+  type BwpFallbackReason,
+  type BwpHealth,
+  type BwpPreference,
+  type BwpSkipReason,
+} from './bwp-policy';
 
-export { buildConfigMessage };
+export { buildConfigMessage, parseStreamMessage };
 export type { ConfigMessage } from './model';
 
 /**
@@ -214,6 +189,9 @@ export type { ConfigMessage } from './model';
  *   driver-backed display, captures IT, and destroys it on disconnect; a host
  *   without the feature ignores the field and keeps downscaling — so passing a
  *   request can never break the picture, only upgrade it.
+ * @param bwpOptions The user's H.264 switch and what the host advertised. BWP
+ *   is the default whenever the policy in ./bwp-policy allows it; gaming
+ *   prefers it harder (no cooldown), and an explicit 'off' always wins.
  */
 export function useScreenStream(
   active: boolean,
@@ -221,6 +199,7 @@ export function useScreenStream(
   screen?: number,
   virtual: VirtualRequest | null = null,
   gaming = false,
+  bwpOptions: BwpOptions = DEFAULT_BWP_OPTIONS,
 ): StreamState {
   const [phase, setPhase] = useState<Phase>('idle');
   const [frameUri, setFrameUri] = useState<string | null>(null);
@@ -233,10 +212,21 @@ export function useScreenStream(
   const [bwpPath, setBwpPath] = useState<string | null>(null);
   const quality = useMemo(() => gaming ? gamingQuality(bwpPath) : requestedQuality, [gaming, bwpPath, requestedQuality]);
   const [bwpSize, setBwpSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [bwpClient, setBwpClient] = useState<BwpClientStats | null>(null);
+  const [bwpFallback, setBwpFallback] = useState<BwpSkipReason | BwpFallbackReason | null>(null);
   // A ref as well as state: the stall detector and the message handler both
   // need to know synchronously whether BWP is carrying video, and reading it
   // from state there would see the value from the render that installed them.
   const bwpLive = useRef(false);
+  // Liveness of the offered stream (null while none is offered), when BWP
+  // last failed on this connection, and the policy inputs — all refs because
+  // the socket handlers and the ticker outlive the render that made them.
+  const bwpHealth = useRef<BwpHealth | null>(null);
+  const bwpFailedAt = useRef<number | null>(null);
+  // True between sending bwpStart and the host's answer. A second start while
+  // one is in flight makes the host kill the streamer it is still spawning.
+  const bwpPending = useRef(false);
+  const bwpPolicy = useRef({ preference: bwpOptions.preference, hostBwp: bwpOptions.hostBwp, gaming });
 
   const socketRef = useRef<WebSocket | null>(null);
   const qualityRef = useRef<QualityPreset>(quality);
@@ -259,6 +249,92 @@ export function useScreenStream(
     try { socket.send(buildBwpStart(reservedPort.current, quality.bwpPreset, quality.bwpFps)); }
     catch { /* stream reconnect will apply the current preference */ }
   }, [quality]);
+
+  /**
+   * Drop the H.264 stream and let the JPEG loop carry the picture. Tells the
+   * host so it resumes JPEG frames at once rather than when it notices, and
+   * re-arms the JPEG stall detector. A `failure` starts the retry cooldown;
+   * the user switching it off is not a failure.
+   */
+  const abandonBwp = useCallback((reason: BwpSkipReason | BwpFallbackReason, failure: boolean): void => {
+    const wasLive = bwpLive.current;
+    bwpLive.current = false;
+    bwpPending.current = false;
+    bwpHealth.current = null;
+    if (failure) bwpFailedAt.current = Date.now();
+    setBwp(null);
+    setBwpStats(null);
+    setBwpPath(null);
+    setBwpClient(null);
+    setBwpFallback(reason);
+    counters.current.lastFrameAt = 0;
+    const socket = socketRef.current;
+    if (wasLive && socket && socket.readyState === SOCKET_OPEN) {
+      try { socket.send(buildBwpStop()); } catch { /* the host stops on close anyway */ }
+    }
+  }, []);
+
+  /** Ask the host for H.264 if the policy allows; otherwise say why not. */
+  const requestBwp = useCallback((socket: WebSocket): void => {
+    const decision = shouldRequestBwp({
+      ...bwpPolicy.current,
+      nativeAvailable: nativeStream.isAvailable(),
+      reservedPort: reservedPort.current,
+      lastFailureAt: bwpFailedAt.current,
+      now: Date.now(),
+    });
+    if (!decision.request) { setBwpFallback(decision.reason); return; }
+    if (bwpPending.current || socket.readyState !== SOCKET_OPEN) return;
+    // A host that does not understand this ignores it and keeps sending
+    // JPEG, so asking can only upgrade the picture, never break it.
+    try {
+      socket.send(buildBwpStart(reservedPort.current, qualityRef.current.bwpPreset, qualityRef.current.bwpFps));
+      bwpPending.current = true;
+      setBwpFallback(null);
+    } catch { /* the JPEG loop is already carrying the picture */ }
+  }, []);
+
+  // The switch, the host's flag or gaming changed under a live socket: apply
+  // it now rather than on the next reconnect. Turning BWP off mid-stream is
+  // the one case that stops a live stream; everything else only ever asks.
+  useEffect(() => {
+    bwpPolicy.current = { preference: bwpOptions.preference, hostBwp: bwpOptions.hostBwp, gaming };
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== SOCKET_OPEN) return;
+    if (bwpLive.current) {
+      if (bwpOptions.preference === 'off') abandonBwp('off', false);
+      return;
+    }
+    requestBwp(socket);
+  }, [bwpOptions.preference, bwpOptions.hostBwp, gaming, abandonBwp, requestBwp]);
+
+  /**
+   * What the native view reports. A decoded frame proves the UDP path works;
+   * a decoder error means it never will on this session, so fall back.
+   */
+  const onBwpStatus = useCallback((status: StreamStatus): void => {
+    if (!bwpLive.current) return;
+    const now = Date.now();
+    switch (status.state) {
+      case 'live':
+        if (bwpHealth.current) bwpHealth.current = bwpDecoded(bwpHealth.current, now);
+        break;
+      case 'stats':
+        if (status.decoded > 0 && bwpHealth.current) bwpHealth.current = bwpDecoded(bwpHealth.current, now);
+        setBwpClient({
+          fps: status.decoded,
+          dropped: status.dropped,
+          keyframeRequests: status.keyframeRequests,
+          rttMs: status.rttMs >= 0 ? status.rttMs : null,
+        });
+        break;
+      case 'error':
+        abandonBwp('decoder', true);
+        break;
+      default:
+        break;
+    }
+  }, [abandonBwp]);
 
   // Live retune: the host accepts a `config` message, so changing quality, the
   // streamed monitor, or the true resolution costs neither a reconnect nor a
@@ -292,7 +368,10 @@ export function useScreenStream(
       setBwpStats(null);
       setBwpPath(null);
       setBwpSize({ width: 0, height: 0 });
+      setBwpClient(null);
+      setBwpFallback(null);
       bwpLive.current = false;
+      bwpHealth.current = null;
       return;
     }
 
@@ -332,9 +411,19 @@ export function useScreenStream(
       if (bwpMsg) {
         switch (bwpMsg.type) {
           case 'offer': {
+            bwpPending.current = false;
             const host = hostFromSocketUrl(socketUrl.current ?? '');
             if (!host) return;
+            // Switched off while the offer was in flight: decline it, or the
+            // switch would read "JPEG" over an H.264 picture.
+            if (bwpPolicy.current.preference === 'off') {
+              try { socketRef.current?.send(buildBwpStop()); } catch { /* host stops on close */ }
+              setBwpFallback('off');
+              return;
+            }
             bwpLive.current = true;
+            bwpHealth.current = bwpOffered(Date.now());
+            setBwpFallback(null);
             setBwp({
               host,
               port: bwpMsg.offer.port,
@@ -354,25 +443,25 @@ export function useScreenStream(
           }
           case 'stats':
             setBwpStats(bwpMsg.stats);
+            // The host encoded frames this second. If none of them decode
+            // here, the ticker will call that a stall — see bwp-policy.
+            if (bwpMsg.stats.fps > 0 && bwpHealth.current) {
+              bwpHealth.current = bwpHostSent(bwpHealth.current, Date.now());
+            }
             break;
           case 'bitrate':
             setBwpStats((prev) => (prev ? { ...prev, bitrate: bwpMsg.bps } : prev));
             break;
           case 'unavailable':
             // Not an error the user needs to see: the host simply cannot do
-            // this, and the JPEG loop is already carrying the picture.
-            bwpLive.current = false;
-            setBwp(null);
-            setBwpPath(null);
+            // this, and the JPEG loop is already carrying the picture. It
+            // does start the cooldown, so auto mode stops asking every open.
+            abandonBwp('refused', true);
             break;
           case 'ended':
             // The stream died mid-session. Drop back to JPEG rather than
             // leaving a frozen picture, and re-arm the stall detector.
-            bwpLive.current = false;
-            setBwp(null);
-            setBwpStats(null);
-            setBwpPath(null);
-            counters.current.lastFrameAt = 0;
+            abandonBwp('ended', true);
             break;
         }
         return;
@@ -554,18 +643,8 @@ export function useScreenStream(
             socket.send(JSON.stringify(buildConfigMessage(qualityRef.current, screenRef.current, v)));
           } catch { /* a failed send just means the picture stays physical */ }
         }
-        // Ask for the H.264 stream. A host that does not understand this
-        // ignores it and keeps sending JPEG, so asking can only upgrade the
-        // picture, never break it.
-        if (reservedPort.current > 0 && socket.readyState === SOCKET_OPEN) {
-          try {
-            socket.send(buildBwpStart(
-              reservedPort.current,
-              qualityRef.current.bwpPreset,
-              qualityRef.current.bwpFps,
-            ));
-          } catch { /* the JPEG loop is already carrying the picture */ }
-        }
+        // Ask for the H.264 stream when the policy allows it.
+        requestBwp(socket);
       };
       socket.onmessage = onMessage;
       socket.onerror = () => {
@@ -579,9 +658,12 @@ export function useScreenStream(
         // native session is pointed at nothing. Drop it rather than leaving a
         // frozen last frame on screen through the whole reconnect.
         bwpLive.current = false;
+        bwpPending.current = false;
+        bwpHealth.current = null;
         setBwp(null);
         setBwpStats(null);
         setBwpPath(null);
+        setBwpClient(null);
         if (event?.code === 4001) {
           // The host revoked this device mid-stream. Terminal — do not retry.
           setError('This phone is no longer paired with that computer.');
@@ -613,9 +695,16 @@ export function useScreenStream(
       // `lastFrameAt` stops advancing by design. Without this guard the stall
       // detector would close a perfectly healthy socket a second after the
       // H.264 stream started, every time.
+      const now = Date.now();
+      // An offered H.264 stream that shows nothing is worse than JPEG: the
+      // control socket is fine, so nothing else would ever notice. Give it
+      // up for JPEG on this same socket and try again after the cooldown.
+      if (bwpLive.current && bwpHealth.current && bwpStalled(bwpHealth.current, now)) {
+        abandonBwp('timeout', true);
+      }
       const stale = !bwpLive.current
         && c.lastFrameAt > 0
-        && Date.now() - c.lastFrameAt > STREAM.stallAfterMs;
+        && now - c.lastFrameAt > STREAM.stallAfterMs;
       if (stale && socketRef.current) {
         // A half-open socket never fires 'close' on its own; tear it down so the
         // reconnect path runs instead of freezing on a stale frame forever.
@@ -645,7 +734,7 @@ export function useScreenStream(
       socket.onclose = null;
       socket.close();
     };
-  }, [active, generation]);
+  }, [active, generation, abandonBwp, requestBwp]);
 
   const retry = useCallback(() => {
     setError(null);
@@ -665,105 +754,11 @@ export function useScreenStream(
     bwpPath,
     bwpWidth: bwpSize.width,
     bwpHeight: bwpSize.height,
+    bwpClient,
+    bwpFallback,
+    onBwpStatus,
   };
 }
 
-// --- host facts -------------------------------------------------------------
-
-export interface HostFacts {
-  readonly info: ScreenInfo | null;
-  readonly pingMs: number | null;
-  readonly error: string | null;
-  readonly refresh: () => void;
-}
-
-/**
- * Polls `/screen/info`. Doubles as the latency probe — the REST round trip is
- * the most honest measure of link latency available to the client — and as the
- * source of the macOS permission flags.
- *
- * `active` carries the same paired-and-focused meaning as in `useScreenStream`:
- * the poll must not keep firing every 15s while the user is on another tab.
- */
-export function useHostFacts(active: boolean): HostFacts {
-  const [info, setInfo] = useState<ScreenInfo | null>(null);
-  const [pingMs, setPingMs] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [nonce, setNonce] = useState(0);
-
-  useEffect(() => {
-    if (!active) {
-      // A ping measured before the tab was hidden says nothing about now.
-      setPingMs(null);
-      return;
-    }
-    let disposed = false;
-
-    const probe = async (): Promise<void> => {
-      const started = Date.now();
-      try {
-        const next = await api.screenInfo();
-        if (disposed) return;
-        setPingMs(Date.now() - started);
-        setInfo(next);
-        setError(null);
-      } catch (e: unknown) {
-        if (disposed) return;
-        setPingMs(null);
-        setError(messageOf(e));
-      }
-    };
-
-    void probe();
-    const timer = setInterval(() => void probe(), STREAM.infoPollMs);
-    return () => {
-      disposed = true;
-      clearInterval(timer);
-    };
-  }, [active, nonce]);
-
-  const refresh = useCallback(() => setNonce((n) => n + 1), []);
-  return { info, pingMs, error, refresh };
-}
-
-// --- permissions ------------------------------------------------------------
-
-export interface PermissionState {
-  readonly captureBlocked: boolean;
-  readonly inputBlocked: boolean;
-  /** True when the host actually reported flags, rather than us inferring them. */
-  readonly known: boolean;
-}
-
-/**
- * True when the host reports a Darwin kernel. The single source of truth for
- * every mac-specific branch in this tab — key labels, and the permission card.
- */
-export const isMacHost = (info: ScreenInfo | null): boolean =>
-  (info?.platform ?? '').toLowerCase().startsWith('darwin');
-
-export const readPermissions = (info: ScreenInfo | null, streamError: string | null): PermissionState => {
-  const perms = info?.permissions;
-  if (perms) {
-    return { captureBlocked: !perms.screenRecording, inputBlocked: !perms.accessibility, known: true };
-  }
-  // Older macOS hosts do not report the flags, so fall back to sniffing the
-  // capture error: a silent black screen is the worst outcome.
-  //
-  // Strictly gated on the host being a Mac. The pattern matches ordinary
-  // Windows and Node failures too — "Access is denied", "EACCES: permission
-  // denied" — and the card it drives tells the user to open macOS System
-  // Settings. Confidently wrong advice is worse than a generic error, so
-  // anything that is not a known Mac gets the generic stream-error banner.
-  const suspicious = isMacHost(info) && Boolean(streamError && PERMISSION_PATTERN.test(streamError));
-  return { captureBlocked: suspicious, inputBlocked: false, known: false };
-};
-
-/** Aspect ratio of the remote desktop, from the best source currently known. */
-export const aspectOf = (stats: StreamStats, info: ScreenInfo | null): number => {
-  if (stats.sourceWidth > 0 && stats.sourceHeight > 0) return stats.sourceWidth / stats.sourceHeight;
-  if (stats.width > 0 && stats.height > 0) return stats.width / stats.height;
-  const primary = info?.primary;
-  if (primary && primary.W > 0 && primary.H > 0) return primary.W / primary.H;
-  return 16 / 9;
-};
+export { aspectOf, isMacHost, readPermissions, useHostFacts } from './host-facts';
+export type { HostFacts, PermissionState } from './host-facts';

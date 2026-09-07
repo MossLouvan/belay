@@ -37,6 +37,7 @@ pub const BELAY_OK: c_int = 0;
 pub const BELAY_ERR_ARGS: c_int = -1;
 pub const BELAY_ERR_BIND: c_int = -2;
 pub const BELAY_ERR_SESSION: c_int = -3;
+pub const BELAY_ERR_IO: c_int = -4;
 
 /// `next_frame` outcomes.
 pub const BELAY_FRAME_NONE: c_int = 0;
@@ -241,6 +242,67 @@ pub unsafe extern "C" fn belay_client_next_frame(
 pub unsafe extern "C" fn belay_client_bitrate(handle: *mut c_void) -> u64 {
     let Some(client) = (handle as *mut BelayClient).as_ref() else { return 0 };
     client.session.bitrate_bps()
+}
+
+/// Ask the host for a keyframe.
+///
+/// For the decoder to call when it cannot continue: the display layer failed,
+/// or a delta frame arrived with no reference to decode against. The request
+/// goes out on the next `belay_client_next_frame`; repeated calls before then
+/// cost one datagram. Returns BELAY_OK, or BELAY_ERR_ARGS for a null handle.
+///
+/// # Safety
+/// `handle` must be a live handle from `belay_client_open`.
+#[no_mangle]
+pub unsafe extern "C" fn belay_client_request_keyframe(handle: *mut c_void) -> c_int {
+    let Some(client) = (handle as *mut BelayClient).as_mut() else { return BELAY_ERR_ARGS };
+    client.session.request_keyframe();
+    BELAY_OK
+}
+
+/// Largest input frame accepted, in bytes.
+///
+/// A gamepad report is 17 bytes; anything approaching a datagram is not
+/// input, and the Input channel is the one that must never queue behind bulk.
+pub const BELAY_INPUT_MAX_LEN: usize = 64;
+
+/// Send one input report to the host on the Input channel.
+///
+/// The Input channel is the highest priority BWP carries: the report leaves
+/// ahead of any queued video, unpaced, which is the whole reason to route
+/// gamepad state here instead of over the control WebSocket. Returns BELAY_OK,
+/// BELAY_ERR_ARGS for a null handle, null data, or a length outside
+/// `1..=BELAY_INPUT_MAX_LEN`, and BELAY_ERR_IO when the socket refused it.
+///
+/// # Safety
+/// `handle` must be a live handle from `belay_client_open`; `data` must point
+/// to at least `len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn belay_client_send_input(
+    handle: *mut c_void,
+    data: *const u8,
+    len: usize,
+) -> c_int {
+    let Some(client) = (handle as *mut BelayClient).as_mut() else { return BELAY_ERR_ARGS };
+    if data.is_null() || len == 0 || len > BELAY_INPUT_MAX_LEN {
+        return BELAY_ERR_ARGS;
+    }
+    let report = std::slice::from_raw_parts(data, len);
+    match client.session.send_frame(Channel::Input, report, false) {
+        Ok(()) => BELAY_OK,
+        Err(_) => BELAY_ERR_IO,
+    }
+}
+
+/// Smoothed round-trip time to the host in milliseconds, or a negative value
+/// while it is not yet known.
+///
+/// # Safety
+/// `handle` must be a live handle from `belay_client_open`.
+#[no_mangle]
+pub unsafe extern "C" fn belay_client_rtt_ms(handle: *mut c_void) -> f64 {
+    let Some(client) = (handle as *mut BelayClient).as_ref() else { return -1.0 };
+    client.session.rtt_ms().unwrap_or(-1.0)
 }
 
 /// Release the handle. Safe to call with null. Calling twice is not safe.
@@ -469,7 +531,72 @@ mod tests {
             }
             assert!(got_video, "video must reach the C API");
             assert!(got_cursor, "cursor must reach the C API");
+
+            // The decoder says it is broken: the host must hear about it.
+            assert_eq!(belay_client_request_keyframe(h), BELAY_OK);
+            // And a gamepad report goes the other way on the Input channel.
+            let report: [u8; 17] = [0x01, 0, 0, 0, 0x7f, 0x80, 0, 0, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0x2a];
+            assert_eq!(belay_client_send_input(h, report.as_ptr(), report.len()), BELAY_OK);
+            let mut frame = BelayFrame::default();
+            let _ = belay_client_next_frame(h, &mut frame);
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            let events = host.poll().unwrap();
+            assert!(
+                events.iter().any(|e| matches!(e, Event::KeyframeNeeded)),
+                "the host must receive the keyframe request: {events:?}"
+            );
+            assert!(
+                events.iter().any(|e| matches!(
+                    e,
+                    Event::Frame { channel: Channel::Input, payload, .. } if payload[..] == report[..]
+                )),
+                "the host must receive the input report byte-for-byte: {events:?}"
+            );
+
+            // RTT is a display value: unknown reads as negative, never as zero.
+            let rtt = belay_client_rtt_ms(h);
+            assert!(rtt < 0.0 || rtt < 500.0);
             belay_client_close(h);
         }
+    }
+
+    #[test]
+    fn keyframe_and_rtt_calls_tolerate_a_null_handle() {
+        unsafe {
+            assert_eq!(belay_client_request_keyframe(std::ptr::null_mut()), BELAY_ERR_ARGS);
+            assert!(belay_client_rtt_ms(std::ptr::null_mut()) < 0.0);
+            let byte = [0u8];
+            assert_eq!(belay_client_send_input(std::ptr::null_mut(), byte.as_ptr(), 1), BELAY_ERR_ARGS);
+        }
+    }
+
+    #[test]
+    fn input_refuses_bad_arguments_without_touching_the_socket() {
+        use std::net::UdpSocket;
+        let host_sock = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let client_sock = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let host_addr = host_sock.local_addr().unwrap();
+        let client_addr = client_sock.local_addr().unwrap();
+        drop(client_sock);
+        unsafe {
+            let h = belay_client_open(
+                c(&client_addr.to_string()).as_ptr(),
+                c(&host_addr.to_string()).as_ptr(),
+                c(KEY).as_ptr(),
+                c(SALT).as_ptr(),
+                c("max").as_ptr(),
+            );
+            assert!(!h.is_null());
+            let report = [0u8; 17];
+            assert_eq!(belay_client_send_input(h, std::ptr::null(), 17), BELAY_ERR_ARGS);
+            assert_eq!(belay_client_send_input(h, report.as_ptr(), 0), BELAY_ERR_ARGS);
+            let big = [0u8; BELAY_INPUT_MAX_LEN + 1];
+            assert_eq!(belay_client_send_input(h, big.as_ptr(), big.len()), BELAY_ERR_ARGS);
+            belay_client_close(h);
+        }
+        // Nothing was sent for any of the refused calls.
+        host_sock.set_nonblocking(true).unwrap();
+        let mut buf = [0u8; 64];
+        assert!(host_sock.recv_from(&mut buf).is_err(), "a refused input must not reach the wire");
     }
 }

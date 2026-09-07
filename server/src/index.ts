@@ -23,7 +23,7 @@ import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from '
 import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
-import { BwpSession } from './bwp-stream.js';
+import { BwpSession, bwpAvailable } from './bwp-stream.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
 import { messageOf } from './errors.js';
@@ -256,6 +256,11 @@ app.get('/health', async (req, res) => {
     native: native.isReady(),
     nativeBuilt,
     paired: deviceCount() > 0,
+    // Whether this host can stream H.264 over UDP (the streamer binary is
+    // present). The phone makes BWP its default only when this is true, and
+    // never asks a host that says false — so a Mac host is never left waiting
+    // for an offer it cannot make.
+    bwp: bwpAvailable(),
     ...identity(),
   });
 });
@@ -510,7 +515,7 @@ app.get('/screen/info', auth, async (_req, res) => {
     // handle the webrtc verb (a helper built without BELAY_WEBRTC_BUILD=1 answers
     // "unknown command"). UI can use this to disable high-FPS/codec/audio controls
     // when gated by either the flag or the build.
-    res.json({ ...info, webrtc: webrtcEnabled() });
+    res.json({ ...info, webrtc: webrtcEnabled(), bwp: bwpAvailable() });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1392,10 +1397,25 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
       if (!alive || bwp !== session || ws.readyState !== ws.OPEN) return;
       switch (event.type) {
         case 'stats':
-          ws.send(JSON.stringify({ type: 'bwpStats', fps: event.fps, kbps: event.kbps, bitrate: event.bitrate }));
+          ws.send(JSON.stringify({
+            type: 'bwpStats',
+            fps: event.fps,
+            kbps: event.kbps,
+            bitrate: event.bitrate,
+            keyframeRequests: event.keyframeRequests,
+            encodeMs: event.encodeMs,
+            rttMs: event.rttMs,
+          }));
           break;
         case 'bitrate':
           ws.send(JSON.stringify({ type: 'bwpBitrate', bps: event.bps }));
+          break;
+        case 'input':
+          // A gamepad report that took the UDP fast path. The /ws/gamepad
+          // session still owns the pad; this only delivers the sample sooner.
+          // Nothing to do when no pad is attached: the phone falls back to the
+          // WebSocket by itself, and a report with no owner has nowhere to go.
+          gamepadHub.inject(event.frame);
           break;
         case 'error':
         case 'exit': {

@@ -62,8 +62,21 @@ export interface BwpOffer {
 
 export type BwpEvent =
   | { readonly type: 'ready'; readonly offer: BwpOffer }
-  | { readonly type: 'stats'; readonly fps: number; readonly kbps: number; readonly bitrate: number }
+  | {
+      readonly type: 'stats';
+      readonly fps: number;
+      readonly kbps: number;
+      readonly bitrate: number;
+      /** Keyframes the phone asked for in the last second. */
+      readonly keyframeRequests: number;
+      /** Mean time inside the encoder per frame; null from an older streamer. */
+      readonly encodeMs: number | null;
+      /** Smoothed host-to-phone RTT; null until known or from an older streamer. */
+      readonly rttMs: number | null;
+    }
   | { readonly type: 'bitrate'; readonly bps: number }
+  /** One input report the phone sent on BWP's Input channel, verbatim. */
+  | { readonly type: 'input'; readonly frame: Buffer }
   | { readonly type: 'error'; readonly error: string }
   | { readonly type: 'exit'; readonly code: number | null };
 
@@ -124,6 +137,33 @@ export function validFps(raw: unknown): number {
   return Math.min(120, Math.max(1, n));
 }
 
+/**
+ * A millisecond figure the streamer may not send, or may send as negative to
+ * mean "not yet known". Either reads as null: a HUD must show nothing rather
+ * than -1 ms.
+ */
+function optionalMs(raw: unknown): number | null {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return null;
+  return raw;
+}
+
+/**
+ * Largest input report accepted, in bytes. Matches the streamer's own cap; a
+ * longer one did not come from our client and is not worth decoding.
+ */
+export const INPUT_MAX_BYTES = 64;
+
+const HEX_BYTES = /^(?:[0-9a-fA-F]{2})+$/;
+
+/**
+ * The bytes of an input report the streamer relayed as hex, or null when the
+ * text is not a whole number of bytes, empty, or longer than a report can be.
+ */
+export function decodeInputHex(raw: unknown): Buffer | null {
+  if (typeof raw !== 'string' || raw.length > INPUT_MAX_BYTES * 2 || !HEX_BYTES.test(raw)) return null;
+  return Buffer.from(raw, 'hex');
+}
+
 /** Parse one line of the streamer's stdout. Unknown shapes are ignored. */
 export function parseStreamerLine(line: string): BwpEvent | null {
   const trimmed = line.trim();
@@ -154,9 +194,16 @@ export function parseStreamerLine(line: string): BwpEvent | null {
         fps: Number(msg.fps) || 0,
         kbps: Number(msg.kbps) || 0,
         bitrate: Number(msg.bitrate) || 0,
+        keyframeRequests: Math.max(0, Math.floor(Number(msg.keyframeRequests) || 0)),
+        encodeMs: optionalMs(msg.encodeMs),
+        rttMs: optionalMs(msg.rttMs),
       };
     case 'bitrate':
       return { type: 'bitrate', bps: Number(msg.bps) || 0 };
+    case 'input': {
+      const frame = decodeInputHex(msg.hex);
+      return frame ? { type: 'input', frame } : null;
+    }
     case 'error':
       return { type: 'error', error: typeof msg.error === 'string' ? msg.error : 'stream failed' };
     default:

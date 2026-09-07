@@ -142,6 +142,7 @@ export function StageView(props: StageViewProps) {
           {stream.bwp && BelayStreamView ? (
             <BelayStreamView
               source={stream.bwp}
+              onStatus={(e) => stream.onBwpStatus(e.nativeEvent)}
               style={{ width: '100%', height: '100%' }}
             />
           ) : stream.frameUri ? (
@@ -178,6 +179,8 @@ export function StageView(props: StageViewProps) {
             bwp={stream.bwpStats}
             bwpSize={stream.bwp ? { width: stream.bwpWidth, height: stream.bwpHeight } : null}
             bwpPath={stream.bwpPath}
+            bwpClient={stream.bwpClient}
+            bwpFallback={stream.bwpFallback}
             topInset={immersive ? insets.top : 0}
           />
         ) : null}

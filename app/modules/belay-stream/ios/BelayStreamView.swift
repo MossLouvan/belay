@@ -121,8 +121,13 @@ public final class BelayStreamView: ExpoView {
         displayLayer.flushAndRemoveImage()
     }
 
+    /// How often the receive thread reports decoded frames and latency.
+    private static let statsInterval: TimeInterval = 1.0
+
     private func receiveLoop() {
         var reportedLive = false
+        var recovery = StreamRecovery()
+        var stats = StreamStats(startedAt: Self.monotonicNow())
         while true {
             lock.lock()
             let alive = running
@@ -136,20 +141,43 @@ public final class BelayStreamView: ExpoView {
             case BELAY_FRAME_VIDEO:
                 guard let data = frame.data, frame.len > 0 else { break }
                 let buffer = UnsafeRawBufferPointer(start: data, count: frame.len)
-                if let sample = stream.decode(buffer) {
-                    // The layer can fail into a state where every subsequent
-                    // enqueue is silently dropped — a decoder error, or a
-                    // background transition. Flushing and asking for a fresh
-                    // keyframe is the only way back.
-                    if displayLayer.status == .failed {
-                        displayLayer.flush()
+                let now = Self.monotonicNow()
+                // Trust the bytes over the header flag: see H264Stream.containsIDR.
+                let keyframe = frame.keyframe != 0 || H264Stream.containsIDR(buffer)
+                let layerFailed = displayLayer.status == .failed
+                switch recovery.judge(keyframe: keyframe, layerFailed: layerFailed, now: now) {
+                case .drop:
+                    stats = stats.dropped()
+                    continue
+                case .dropAndRequest:
+                    stats = stats.dropped()
+                    belay_client_request_keyframe(h)
+                    continue
+                case .show:
+                    break
+                }
+                guard let sample = stream.decode(buffer) else {
+                    // Parameter sets missing or a corrupt access unit: only a
+                    // fresh keyframe (which carries SPS/PPS) can fix either.
+                    stats = stats.dropped()
+                    if recovery.decodeFailed(now: now) {
+                        belay_client_request_keyframe(h)
                     }
-                    displayLayer.enqueue(sample)
-                    if !reportedLive {
-                        reportedLive = true
-                        DispatchQueue.main.async { [weak self] in
-                            self?.onStatus(["state": "live"])
-                        }
+                    continue
+                }
+                // The layer can fail into a state where every subsequent
+                // enqueue is silently dropped — a decoder error, or a
+                // background transition. Only a keyframe reaches here while it
+                // is failed (recovery drops the rest), so flush and restart.
+                if layerFailed {
+                    displayLayer.flush()
+                }
+                displayLayer.enqueue(sample)
+                stats = stats.decoded()
+                if !reportedLive {
+                    reportedLive = true
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onStatus(["state": "live"])
                     }
                 }
             case BELAY_FRAME_CURSOR:
@@ -179,6 +207,53 @@ public final class BelayStreamView: ExpoView {
                 }
                 return
             }
+
+            // Once a second: what actually decoded, and how far away the host
+            // is. Sent even when nothing decoded — a zero is how JS tells a
+            // stalled stream from one that is merely quiet.
+            let now = Self.monotonicNow()
+            if now - stats.startedAt >= Self.statsInterval {
+                let rtt = belay_client_rtt_ms(h)
+                let report = stats
+                let requests = recovery.requests
+                stats = StreamStats(startedAt: now)
+                DispatchQueue.main.async { [weak self] in
+                    self?.onStatus([
+                        "state": "stats",
+                        "decoded": report.decodedFrames,
+                        "dropped": report.droppedFrames,
+                        "keyframeRequests": requests,
+                        "rttMs": rtt < 0 ? -1 : Int(rtt.rounded()),
+                    ])
+                }
+            }
         }
+    }
+
+    /// A clock that does not jump when the wall clock is adjusted.
+    private static func monotonicNow() -> TimeInterval {
+        ProcessInfo.processInfo.systemUptime
+    }
+}
+
+/// Frames decoded and dropped since a point in time. Immutable: each event
+/// returns a new value rather than mutating the old one.
+private struct StreamStats {
+    let startedAt: TimeInterval
+    let decodedFrames: Int
+    let droppedFrames: Int
+
+    init(startedAt: TimeInterval, decodedFrames: Int = 0, droppedFrames: Int = 0) {
+        self.startedAt = startedAt
+        self.decodedFrames = decodedFrames
+        self.droppedFrames = droppedFrames
+    }
+
+    func decoded() -> StreamStats {
+        StreamStats(startedAt: startedAt, decodedFrames: decodedFrames + 1, droppedFrames: droppedFrames)
+    }
+
+    func dropped() -> StreamStats {
+        StreamStats(startedAt: startedAt, decodedFrames: decodedFrames, droppedFrames: droppedFrames + 1)
     }
 }

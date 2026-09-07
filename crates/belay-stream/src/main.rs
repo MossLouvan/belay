@@ -21,6 +21,7 @@
 //! parent is a program, not a person.
 
 mod config;
+mod input;
 mod stream;
 #[cfg(windows)]
 mod synthetic;

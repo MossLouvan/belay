@@ -30,7 +30,8 @@ import { createRepeater } from './repeat';
 import type { Repeater } from './repeat';
 import { DIMMED_OPACITY } from './autohide';
 import type { ModsState, StickyMod } from './mods';
-import type { PermissionState, Phase, StreamStats } from './stream';
+import type { BwpClientStats, PermissionState, Phase, StreamStats } from './stream';
+import type { BwpFallbackReason, BwpSkipReason } from './bwp-policy';
 import type { BwpStats } from './bwp';
 import { hudRows } from './hud';
 
@@ -544,6 +545,10 @@ export interface StreamHudProps {
   bwp?: BwpStats | null;
   bwpSize?: { readonly width: number; readonly height: number } | null;
   bwpPath?: string | null;
+  /** The phone decoder's own report, when H.264 is live. */
+  bwpClient?: BwpClientStats | null;
+  /** Why the picture is JPEG when H.264 was on the table. */
+  bwpFallback?: BwpSkipReason | BwpFallbackReason | null;
   topInset?: number;
 }
 
@@ -556,12 +561,14 @@ export function StreamHud({
   bwp = null,
   bwpSize = null,
   bwpPath = null,
+  bwpClient = null,
+  bwpFallback = null,
   topInset = 0,
 }: StreamHudProps) {
   const theme = useTheme();
   // Which rows make sense depends on which video path is live, and the JPEG
   // counters read zero throughout an H.264 stream. See ./hud.
-  const rows = hudRows({ stats, bwp, bwpSize, bwpPath, quality, pingMs, zoom });
+  const rows = hudRows({ stats, bwp, bwpSize, bwpPath, bwpClient, bwpFallback, quality, pingMs, zoom });
   return (
     <View
       testID="hud"

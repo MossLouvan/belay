@@ -136,6 +136,15 @@ experience.
 
 This authenticated WebSocket is separate from the Rust BWP datagrams above.
 Upgrade with the same one-shot `/ws-ticket` flow as `/ws/cursors`.
+
+While a BWP session is live the same 17-byte frame may also be sent on BWP
+channel 2 (`Input`), where it leaves ahead of any queued video. The host
+relays it into the session this WebSocket owns (`gamepadHub.inject`), and the
+newest sequence number wins whichever transport carried it. The WebSocket is
+still required: attach, hello, rumble and the 750 ms watchdog live there. Note
+that `belay-net` does not yet retransmit, so channel 2 is not actually
+reliable today — acceptable for a full-state sample every 8 ms, not for
+one-shot events.
 An optional `preset=generic|roblox|fortnite` query selects keyboard fallback
 bindings; it never remaps the virtual Xbox controller.
 

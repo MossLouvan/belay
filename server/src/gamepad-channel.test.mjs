@@ -66,3 +66,25 @@ test('neutral heartbeats preserve activity without masking local host input',asy
  }
  assert.deepEqual(activity,[false,true,true,false]);ws.close();
 });
+test('frames injected from another transport feed the owner session, never a stranger',async()=>{
+ let tick,at=100,updates=[];
+ const helper={gamepadAttach:async()=>({backend:'vigem'}),gamepadDetach:async()=>{},gamepad:s=>{updates=[...updates,s];return true;},onGamepadEvent:()=>()=>{}};
+ const hub=createGamepadHub(helper,{now:()=>at,schedule:fn=>{tick=fn;return ()=>{};}});
+ // Nobody owns the pad: nothing to deliver to.
+ assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,seq:1}))),false);
+ const ws=new Socket();hub.handle(ws,'generic');
+ // Owned but not yet attached: still refused, the sample would be stale by the time the helper is up.
+ assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,seq:1}))),false);
+ await new Promise(r=>setImmediate(r));
+ // A UDP frame and a WebSocket frame are the same sample stream: newest sequence wins across both.
+ assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,lx:.25,seq:2}))),true);
+ ws.emit('message',Buffer.from(encodeGamepad({...NEUTRAL,lx:.75,seq:3})),true);
+ assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,lx:1,seq:1}))),true);
+ tick();assert.equal(updates.length,1);assert.ok(Math.abs(updates[0].lx-.75)<.001);
+ // A corrupt datagram is dropped without touching the session or the socket.
+ assert.equal(hub.inject(Buffer.alloc(3)),false);assert.equal(ws.readyState,1);
+ // Injected samples keep the watchdog fed exactly like socket ones.
+ at=700;assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,seq:4}))),true);
+ at=1400;tick();assert.equal(ws.readyState,1);
+ ws.close();assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,seq:5}))),false);
+});

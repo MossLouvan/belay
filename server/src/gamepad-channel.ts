@@ -20,12 +20,26 @@ interface Options {
   readonly schedule?: (tick: () => void) => () => void;
   readonly onActivity?: (injected: boolean) => void;
 }
+type GamepadBytes = ArrayBuffer | ArrayBufferView;
+
 /** One virtual target per host. Ownership survives asynchronous attach/detach. */
 export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
   let owned = false;
+  // The current owner's frame intake, for reports that arrive by another
+  // transport (BWP's Input channel). Null whenever nobody owns the pad.
+  let injector: ((data: GamepadBytes) => boolean) | null = null;
   const now = options.now ?? Date.now;
   const schedule = options.schedule ?? ((tick: () => void) => { const timer = setInterval(tick, 4); timer.unref(); return () => clearInterval(timer); });
   return {
+    /**
+     * Feed one encoded frame that did not arrive on the owner's WebSocket.
+     * The WebSocket stays the session: attach, hello, rumble and the 750 ms
+     * watchdog all live there, so a UDP frame is only ever a faster way of
+     * delivering the same sample. Returns false when there is no attached
+     * owner to deliver to or the bytes are not a frame — a corrupt datagram
+     * is dropped, not fatal, because the next one is 4 ms away.
+     */
+    inject(data: GamepadBytes): boolean { return injector ? injector(data) : false; },
     handle(ws: GamepadSocket, preset: string): void {
       const send = (message: object): void => { if (ws.readyState === 1 && ws.bufferedAmount < 4096) ws.send(JSON.stringify(message)); };
       if (owned) { send({ type: 'hello', available: false, backend: 'unavailable', reason: 'Another controller is connected' }); ws.close(1008, 'Controller busy'); return; }
@@ -41,14 +55,20 @@ export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
         if (cleaning) return; cleaning = true;
         try { await helper.gamepadDetach(); } catch {/* helper watchdog also neutralizes */ } finally { owned = false; }
       };
-      const close = (): void => { if (closed) return; closed = true; stop(); unlisten(); if (attached) void detach(); };
+      const accept = (data: GamepadBytes): boolean => {
+        if (closed || !attached) return false;
+        const frame = decodeGamepad(data);
+        if (!frame) return false;
+        session = acceptFrame(session, frame, now());
+        return true;
+      };
+      injector = accept;
+      const close = (): void => { if (closed) return; closed = true; injector = null; stop(); unlisten(); if (attached) void detach(); };
       ws.on('close', close); ws.on('error', () => { close(); ws.close(); });
       ws.on('message', (data, isBinary) => {
         if (closed || !attached) return;
         if (!isBinary || !(data instanceof ArrayBuffer || ArrayBuffer.isView(data))) { ws.close(1003, 'Binary gamepad frames required'); close(); return; }
-        const frame = decodeGamepad(data);
-        if (!frame) { ws.close(1007, 'Invalid gamepad frame'); close(); return; }
-        session = acceptFrame(session, frame, now());
+        if (!accept(data)) { ws.close(1007, 'Invalid gamepad frame'); close(); }
       });
       void helper.gamepadAttach(preset === 'roblox' || preset === 'fortnite' ? preset : 'generic').then(reply => {
         attached = true;

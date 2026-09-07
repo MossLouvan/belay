@@ -2,6 +2,8 @@
 // persists them, and exposes typed helpers for every REST route plus WebSocket
 // URL builders for the screen and terminal streams.
 
+import { readBwpCapability } from './screen/bwp-policy.ts';
+
 export interface Connection {
   host: string; // e.g. http://100.101.102.103:8787
   token: string;
@@ -132,6 +134,11 @@ export interface HostCheck {
    * when the 6-digit code is required.
    */
   pairing?: 'tailnet' | 'code';
+  /**
+   * True when the host can stream H.264 over UDP (BWP). Absent from hosts
+   * older than the flag, which are asked anyway — see screen/bwp-policy.ts.
+   */
+  bwp?: boolean;
 }
 
 /**
@@ -155,6 +162,7 @@ export async function checkHost(host: string, signal?: AbortSignal): Promise<Hos
       addresses: Array.isArray(j.addresses) ? j.addresses : undefined,
       reachableFromAnywhere: j.reachableFromAnywhere === true,
       pairing: j.pairing === 'tailnet' ? 'tailnet' : 'code',
+      bwp: readBwpCapability(j),
     };
   } catch (e: unknown) {
     return { ok: false, error: e instanceof Error ? e.message : 'could not reach host' };
@@ -360,6 +368,8 @@ export interface ScreenInfo {
   permissions?: HostPermissions;
   /** True when the host has BELAY_WEBRTC / hardware encode path available. */
   webrtc?: boolean;
+  /** True when the host can stream H.264 over UDP; absent on older hosts. */
+  bwp?: boolean;
 }
 
 /**

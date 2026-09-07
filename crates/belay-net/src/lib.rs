@@ -28,10 +28,12 @@
 //! }
 //! ```
 
+pub mod control;
 pub mod feedback;
 pub mod pacer;
 pub mod session;
 
+pub use control::ControlMessage;
 pub use feedback::{ReceiveTracker, Report, RttEstimator};
 pub use pacer::Pacer;
 pub use session::{random_salt, Event, Session, SessionError, REPORT_INTERVAL};
