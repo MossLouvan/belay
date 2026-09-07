@@ -484,6 +484,32 @@ export interface DiscoveredSession {
   preview: string;
 }
 
+/**
+ * A permission ask from a `claude` running in a terminal, forwarded by the
+ * host's Claude Code hook (docs/AGENT-HOOKS.md). The PendingApproval shape —
+ * one card renders both — plus where it came from. `expiresAt` is when the
+ * host stops holding the hook and the terminal prompt takes over; nothing
+ * is denied by that.
+ */
+export interface HookPermission extends PendingApproval {
+  sessionId: string;
+  cwd: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+/** A terminal session finished a turn, or has a prompt waiting at the keyboard. */
+export interface HookNotice {
+  id: string;
+  kind: 'done' | 'terminal-prompt';
+  sessionId: string;
+  cwd: string;
+  text: string;
+  createdAt: number;
+}
+
+export interface HookList { permissions: HookPermission[]; notices: HookNotice[]; }
+
 export const api = {
   system: () => get<SystemStats>('/system'),
   fileRoots: () => get<{ roots: { name: string; path: string }[] }>('/files/roots'),
@@ -575,6 +601,12 @@ export const api = {
   agentInterrupt: (id: string, text: string) =>
     post<{ ok: boolean; outcome?: string }>(`/agent/sessions/${encodeURIComponent(id)}/interrupt`, { text }),
   agentDiscovered: () => get<{ sessions: DiscoveredSession[] }>('/agent/discovered'),
+  /** Asks and notices from terminal sessions; 404 on hosts without hooks. */
+  agentHooks: () => get<HookList>('/agent/hooks'),
+  /** Answer a terminal session's ask; `choice` is one of the ask's choice ids. */
+  agentHookDecide: (id: string, allow: boolean, choice?: string) =>
+    post<{ ok: boolean }>(`/agent/hooks/${encodeURIComponent(id)}/decide`, { allow, choice }),
+  agentHookDismiss: (id: string) => post<{ ok: boolean }>(`/agent/hooks/${encodeURIComponent(id)}/dismiss`, {}),
   /**
    * One window of a terminal-started session's transcript, read-only. With no
    * `after` the host returns the tail; with one, everything written past that

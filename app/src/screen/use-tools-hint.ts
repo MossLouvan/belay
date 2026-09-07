@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import { waitingSessions } from '../agent/attention';
+import { hookWaitingCount } from '../agent/hook-model';
 import { useAgentAttention } from '../agent/attention-store';
 import { loadHintSeen, persistHintSeen } from '../home/hint-store';
 
@@ -23,8 +24,9 @@ export interface ToolsHint {
 
 export function useToolsHint(): ToolsHint {
   const [showTools, setShowTools] = useState(false);
-  const { sessions } = useAgentAttention();
-  const waitingCount = waitingSessions(sessions ?? []).length;
+  const { sessions, hooks } = useAgentAttention();
+  // Belay's own sessions plus terminal sessions asking through the host's hook.
+  const waitingCount = waitingSessions(sessions ?? []).length + hookWaitingCount(hooks);
   /** null while the stored flag loads — the hint never flashes on first paint. */
   const [hintSeen, setHintSeen] = useState<boolean | null>(null);
   useEffect(() => {

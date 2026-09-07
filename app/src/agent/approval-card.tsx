@@ -72,16 +72,31 @@ export interface ApprovalCardProps {
   readonly now: number;
   /** Answer the ask; `choiceId` mints the matching scoped grant. */
   readonly onAnswer: (allow: boolean, choiceId?: string) => void;
+  /**
+   * What the deadline means, before the countdown. Belay's own asks
+   * auto-deny; a terminal session's ask goes back to its terminal prompt
+   * instead — the card must not claim a denial that will not happen.
+   */
+  readonly expiryLabel?: string;
+  /**
+   * Asks queued behind this one. Omit to read the open session's queue
+   * (the session view); pass a number when the card stands elsewhere.
+   */
+  readonly stackedCount?: number;
 }
 
-export function ApprovalCard({ pending, now, onAnswer }: ApprovalCardProps) {
+const DEFAULT_EXPIRY_LABEL = 'auto-denies in';
+
+export function ApprovalCard({ pending, now, onAnswer, expiryLabel = DEFAULT_EXPIRY_LABEL, stackedCount }: ApprovalCardProps) {
   const theme = useTheme();
   const [showInput, setShowInput] = useState(false);
   const [showChoices, setShowChoices] = useState(false);
   // Asks queued behind this one (Claude's parallel tool use). Fed by the
   // session socket via the approval-queue store; the card is its one reader.
-  const stacked = useSyncExternalStore(subscribeApprovalsWaiting, getApprovalsWaiting, getApprovalsWaiting);
-  const stackLine = waitingLabel(stacked);
+  const sessionStacked = useSyncExternalStore(subscribeApprovalsWaiting, getApprovalsWaiting, getApprovalsWaiting);
+  const stackLine = stackedCount === undefined
+    ? waitingLabel(sessionStacked)
+    : waitingLabel({ waiting: stackedCount, tools: [] });
 
   const danger = isDanger(pending.risk);
   const render = renderApproval(pending, GEN);
@@ -108,7 +123,7 @@ export function ApprovalCard({ pending, now, onAnswer }: ApprovalCardProps) {
         <Txt variant="label" color={band.ink}>{approvalHeading(pending.risk)}</Txt>
         {deadline !== undefined ? (
           <Micro testID="agent-ask-countdown" tone={expiryUrgent(deadline, now) ? 'bad' : 'dim'}>
-            {`auto-denies in ${countdown(deadline, now)}`}
+            {`${expiryLabel} ${countdown(deadline, now)}`}
           </Micro>
         ) : null}
       </Row>

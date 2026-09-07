@@ -14,6 +14,11 @@
 // It stands down in exactly one case: the Agent tab already has this session
 // open, where that full approval band is on screen — doubling it there would
 // stack two answer surfaces for one ask.
+//
+// A terminal session's ask (forwarded by the host's Claude Code hook) rides
+// the same band when no Belay session is waiting: Review opens the Agent
+// tab, where its card stands at the top of the list. There the deadline
+// means the terminal prompt takes over, not a denial, so the line says so.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
@@ -22,6 +27,18 @@ import { useTheme } from '../theme';
 import { Button, Dot, Micro, Row, Txt, haptic } from '../ui';
 import { askSummary, countdown, expiryUrgent, waitingSessions } from './attention';
 import { setOpenSession, useAgentAttention } from './attention-store';
+import { hookTitle, orderedHookAsks } from './hook-model';
+import { HOOK_EXPIRY_LABEL } from './hook-ask-card';
+
+/** What the band shows: a Belay session's ask, or a terminal session's. */
+interface BandAsk {
+  readonly sessionId: string | null;
+  readonly title: string;
+  readonly summary: string;
+  readonly deadline: number | undefined;
+  readonly expiryLabel: string;
+  readonly count: number;
+}
 
 export interface NeedsYouBannerProps {
   /**
@@ -37,12 +54,34 @@ export function NeedsYouBanner({ bottom }: NeedsYouBannerProps) {
   const theme = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  const { sessions, openId } = useAgentAttention();
+  const { sessions, hooks, openId } = useAgentAttention();
   const [now, setNow] = useState(() => Date.now());
 
   const waiting = waitingSessions(sessions ?? []);
-  const primary = waiting[0];
-  const deadline = primary?.pending?.expiresAt;
+  const hookAsks = orderedHookAsks(hooks);
+  const first = waiting[0];
+  const firstHook = hookAsks[0];
+  const count = waiting.length + hookAsks.length;
+  const primary: BandAsk | null = first
+    ? {
+      sessionId: first.id,
+      title: first.title,
+      summary: first.pending ? askSummary(first.pending.tool, first.pending.detail) : '',
+      deadline: first.pending?.expiresAt,
+      expiryLabel: 'auto-denies in',
+      count,
+    }
+    : firstHook
+      ? {
+        sessionId: null,
+        title: hookTitle(firstHook),
+        summary: askSummary(firstHook.tool, firstHook.detail),
+        deadline: firstHook.expiresAt,
+        expiryLabel: HOOK_EXPIRY_LABEL,
+        count,
+      }
+      : null;
+  const deadline = primary?.deadline;
 
   // The countdown ticks every second only while there is a deadline to count.
   useEffect(() => {
@@ -55,13 +94,15 @@ export function NeedsYouBanner({ bottom }: NeedsYouBannerProps) {
   const open = useCallback(() => {
     if (!primary) return;
     haptic('light');
-    setOpenSession(primary.id);
+    // A terminal ask lives on the list itself, so the list is where to go.
+    setOpenSession(primary.sessionId);
     router.navigate('/agent');
   }, [primary, router]);
 
   if (!primary) return null;
-  // The session view already shows this ask, with the full input.
-  if (pathname.includes('agent') && openId === primary.id) return null;
+  // The session view already shows this ask, with the full input — and the
+  // Agent list shows a terminal ask at its top.
+  if (pathname.includes('agent') && openId === primary.sessionId) return null;
 
   const left = countdown(deadline, now);
   const urgent = expiryUrgent(deadline, now);
@@ -95,15 +136,15 @@ export function NeedsYouBanner({ bottom }: NeedsYouBannerProps) {
           <Row gap="xs">
             <Dot status="warn" size={7} />
             <Txt variant="label" tone="dim" style={{ flexShrink: 1 }} numberOfLines={1}>
-              {waiting.length > 1 ? `Needs you · ${waiting.length} waiting` : 'Needs you'}
+              {primary.count > 1 ? `Needs you · ${primary.count} waiting` : 'Needs you'}
             </Txt>
             {left ? (
-              <Micro tone={urgent ? 'bad' : 'faint'}>{`auto-denies in ${left}`}</Micro>
+              <Micro tone={urgent ? 'bad' : 'faint'}>{`${primary.expiryLabel} ${left}`}</Micro>
             ) : null}
           </Row>
           <Txt variant="mono" numberOfLines={1}>
             <Txt variant="mono" tone="dim">{primary.title}</Txt>
-            {primary.pending ? `  ${askSummary(primary.pending.tool, primary.pending.detail)}` : ''}
+            {primary.summary ? `  ${primary.summary}` : ''}
           </Txt>
         </Pressable>
         {/* The one primary on this surface — blue, because it is the action. */}
