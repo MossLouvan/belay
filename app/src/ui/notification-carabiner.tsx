@@ -14,10 +14,14 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
-import { Txt, Caption, useReducedMotion } from './index';
+// Primitives come straight from their files, never from the `./index` barrel:
+// the barrel re-exports this component, so importing it here closed a require
+// cycle (index -> notification-carabiner -> index) that Metro warned about on
+// every launch.
+import { Txt, Caption } from './text';
 import { Carabiner } from './carabiner';
 import { RopeStrand } from './rope-strand';
-import { SPRING_CONFIGS } from './motion';
+import { SPRING_CONFIGS, useReducedMotion } from './motion';
 
 /**
  * Short rope segment with helical braid pattern - uses shared RopeStrand.

@@ -23,10 +23,15 @@ import { getAttention, refreshAttention, setOpenSession } from '../src/agent/att
 // Keep the splash screen visible while fonts load
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
-// The app intentionally registers two URI schemes (belay + the load-bearing
-// `tether` compat scheme), so expo-router notes that it picked one prefix. That
-// notice is expected config, not a defect — silence it so the dev LogBox stays
-// clean. (No blanket suppression; this matches only that one message.)
+// The app intentionally registers two URI schemes in app.json (`belay` + the
+// load-bearing `tether` compat scheme), so expo-router notes that it picked one
+// prefix. Both are live: pair links and agent notification links are parsed
+// with either protocol (src/connect/pair-link.ts, src/agent/deep-link.ts) and
+// the host still emits `tether:` for pre-rename installs
+// (server/src/pair-link.ts LEGACY_PAIR_LINK_SCHEME). app.json cannot carry a
+// comment, so this is where the second scheme is explained. The notice is
+// expected config, not a defect — silence it so the dev LogBox stays clean.
+// (No blanket suppression; this matches only that one message.)
 LogBox.ignoreLogs([/multiple possible URI schemes/i]);
 
 /**
