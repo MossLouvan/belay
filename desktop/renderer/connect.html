@@ -15,10 +15,13 @@
 <body>
   <main class="page">
     <header class="hero">
-      <div class="halo" aria-hidden="true">
-        <span class="halo-ring halo-outer"></span>
-        <span class="halo-ring halo-inner"></span>
-        <img class="beluga" src="beluga-cutout.png" alt="" draggable="false" />
+      <div class="halo">
+        <span class="halo-ring halo-outer" aria-hidden="true"></span>
+        <span class="halo-ring halo-inner" aria-hidden="true"></span>
+        <button class="beluga" id="beluga" type="button" aria-label="Belay mascot"
+          title="Click to spin; keep clicking to spin faster">
+          <img src="beluga-cutout.png" alt="" draggable="false" />
+        </button>
       </div>
       <h1 class="headline">Welcome to <span class="brand">Belay</span></h1>
       <p class="subtitle" id="subtitle">Connect to a computer running the Belay host.</p>

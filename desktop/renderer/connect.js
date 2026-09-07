@@ -9,6 +9,7 @@ import { displaysOf, preferredDisplay } from '../src/displays.js';
 import { windowsOf, windowLabel } from '../src/windows.js';
 import { legendText, modifierMap } from '../src/modmap.js';
 import { EXAMPLE_TAILSCALE_ADDRESS, addressFeedback } from '../src/address-feedback.js';
+import { attachBeluga } from './beluga.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { host: '', token: '', label: '', platform: '', keymap: 'remap' };
@@ -245,6 +246,7 @@ async function showWindows() {
   }
 }
 
+attachBeluga($('beluga'));
 $('refresh-windows').addEventListener('click', showWindows);
 $('keymap-remap').addEventListener('change', async (event) => {
   state.keymap = event.target.checked ? 'remap' : 'verbatim';

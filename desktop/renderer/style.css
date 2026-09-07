@@ -109,10 +109,21 @@ p.mono { margin: 0; }
 }
 .halo-inner { width: 184px; height: 184px; }
 .halo-outer { width: 272px; height: 272px; opacity: 0.45; }
+/* The mascot is a fidget toy, as on the phone: click to flip, keep clicking
+   to wind it up. beluga.js drives the swim + spin transform per frame. */
 .beluga {
   position: relative;
+  width: 120px; height: 120px; padding: 0; margin: 0;
+  display: grid; place-items: center;
+  background: none; border: 0; border-radius: var(--radius-pill);
+  cursor: pointer; will-change: transform;
+  -webkit-app-region: no-drag;
+}
+.beluga:active { opacity: 0.7; }
+.beluga:focus-visible { outline: 2px solid var(--accent-graphic); outline-offset: 4px; }
+.beluga img {
   width: 120px; height: 120px; object-fit: contain;
-  user-select: none; -webkit-user-drag: none;
+  user-select: none; -webkit-user-drag: none; pointer-events: none;
 }
 /* Entrance: a 400ms fade with an 8px rise, staggered like the phone's
    (0 / 140 / 280ms). Reduced motion renders everything in place. */
