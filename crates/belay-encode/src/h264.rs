@@ -22,6 +22,7 @@
 #![cfg(windows)]
 
 use std::time::{Duration, Instant};
+use std::collections::VecDeque;
 
 use windows::core::{Interface, Result as WinResult, GUID, IUnknown};
 use windows::Win32::Foundation::E_FAIL;
@@ -65,6 +66,9 @@ pub struct CodedFrame {
     pub keyframe: bool,
     /// Presentation timestamp in 100ns ticks.
     pub timestamp_hns: i64,
+    /// Submission to observed encoded output, including application polling.
+    /// This is not GPU-only duration or capture-to-display latency.
+    pub output_latency_us: Option<u64>,
 }
 
 pub struct H264Encoder {
@@ -87,6 +91,7 @@ pub struct H264Encoder {
     force_keyframe: bool,
     /// Frames collected while waiting for input capacity on an async MFT.
     pending_output: Vec<CodedFrame>,
+    submitted_at: VecDeque<(i64, Instant)>,
     /// Set once the MFT has accepted our D3D device and can take textures.
     device_manager: Option<IMFDXGIDeviceManager>,
 }
@@ -194,6 +199,7 @@ impl H264Encoder {
                 input_credits: 0,
                 force_keyframe: false,
                 pending_output: Vec::new(),
+                submitted_at: VecDeque::new(),
                 device_manager: None,
             })
         }
@@ -290,7 +296,9 @@ impl H264Encoder {
                 set_codec_u32(&codec_api, &CODECAPI_AVEncVideoForceKeyFrame, 1)?;
                 self.force_keyframe = false;
             }
+            let submitted = Instant::now();
             self.transform.ProcessInput(self.input_stream, &sample, 0)?;
+            self.remember_submission(sample.GetSampleTime()?, submitted);
             self.frame_index += 1;
             self.drain()
         }
@@ -303,6 +311,13 @@ impl H264Encoder {
     /// on a timer, which spends bandwidth on recovery nobody needed.
     pub fn request_keyframe(&mut self) {
         self.force_keyframe = true;
+    }
+
+    /// Collect asynchronous output without requiring another captured frame.
+    /// Input credits are retained by drain for the next submission.
+    pub fn poll_output(&mut self) -> WinResult<Vec<CodedFrame>> {
+        if !self.is_async { return Ok(Vec::new()); }
+        unsafe { self.drain() }
     }
 
     /// Change the target bitrate mid-stream.
@@ -343,7 +358,9 @@ impl H264Encoder {
                 set_codec_u32(&codec_api, &CODECAPI_AVEncVideoForceKeyFrame, 1)?;
                 self.force_keyframe = false;
             }
+            let submitted = Instant::now();
             self.transform.ProcessInput(self.input_stream, &sample, 0)?;
+            self.remember_submission(sample.GetSampleTime()?, submitted);
             self.frame_index += 1;
             self.drain()
         }
@@ -495,7 +512,13 @@ impl H264Encoder {
         }
     }
 
-    unsafe fn read_sample(&self, sample: &IMFSample) -> WinResult<CodedFrame> {
+    fn remember_submission(&mut self, timestamp: i64, when: Instant) {
+        // Bound diagnostic state even if a broken transform drops outputs.
+        if self.submitted_at.len() == 64 { self.submitted_at.pop_front(); }
+        self.submitted_at.push_back((timestamp, when));
+    }
+
+    unsafe fn read_sample(&mut self, sample: &IMFSample) -> WinResult<CodedFrame> {
         let buffer = sample.ConvertToContiguousBuffer()?;
         let mut ptr = std::ptr::null_mut();
         let mut len = 0u32;
@@ -506,8 +529,12 @@ impl H264Encoder {
         // A missing CleanPoint attribute means "not a keyframe"; absence is
         // normal, so it must not be treated as an error.
         let keyframe = sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) != 0;
-        let timestamp_hns = sample.GetSampleTime().unwrap_or(0);
-        Ok(CodedFrame { data, keyframe, timestamp_hns })
+        let timestamp = sample.GetSampleTime().ok();
+        let output_latency_us = timestamp.and_then(|stamp| self.submitted_at.iter()
+            .position(|(input_stamp,_)| *input_stamp == stamp))
+            .and_then(|position| self.submitted_at.remove(position))
+            .map(|(_,when)| when.elapsed().as_micros().min(u64::MAX as u128) as u64);
+        Ok(CodedFrame { data, keyframe, timestamp_hns:timestamp.unwrap_or(0), output_latency_us })
     }
 }
 
@@ -596,6 +623,44 @@ pub fn transmit_time(bytes: usize, bitrate_bps: u32) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires a Windows Media Foundation hardware encoder"]
+    fn async_output_is_available_without_submitting_another_frame() {
+        use windows::Win32::Graphics::Direct3D::*;
+        use windows::Win32::Graphics::Direct3D11::*;
+        use windows::Win32::Graphics::Dxgi::Common::*;
+        init_media_foundation().unwrap();
+        let mut encoder = H264Encoder::new(EncoderConfig { width:1920, height:1080,
+            fps:60, bitrate_bps:1_500_000, keyframe_interval_s:4 }).unwrap();
+        assert!(encoder.is_async, "this opt-in test must exercise an asynchronous encoder");
+        let pixels = vec![128u8;1920*1080*3/2];
+        let texture = unsafe {
+            let mut device = None;
+            D3D11CreateDevice(None,D3D_DRIVER_TYPE_HARDWARE,None,D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                None,D3D11_SDK_VERSION,Some(&mut device),None,None).unwrap();
+            let device = device.unwrap();
+            assert!(encoder.attach_d3d_device(&device).unwrap());
+            let desc = D3D11_TEXTURE2D_DESC { Width:1920,Height:1080,MipLevels:1,ArraySize:1,
+                Format:DXGI_FORMAT_NV12,SampleDesc:DXGI_SAMPLE_DESC {Count:1,Quality:0},
+                Usage:D3D11_USAGE_DEFAULT,..Default::default() };
+            let init = D3D11_SUBRESOURCE_DATA {pSysMem:pixels.as_ptr().cast(),SysMemPitch:1920,SysMemSlicePitch:0};
+            let mut texture = None;
+            device.CreateTexture2D(&desc,Some(&init),Some(&mut texture)).unwrap();
+            texture.unwrap()
+        };
+        for index in 0..3 {
+            let started = Instant::now();
+            let mut output = encoder.encode_texture(&texture).unwrap();
+            while output.is_empty() && started.elapsed() < Duration::from_secs(1) {
+                output.extend(encoder.poll_output().unwrap());
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert_eq!(output.len(),1,"output must not wait for the next input or drain command");
+            assert_eq!(output[0].timestamp_hns,index*(HNS_PER_SEC/60));
+            assert!(output[0].output_latency_us.is_some());
+        }
+    }
 
     #[test]
     #[ignore = "requires a Windows GPU with NV12 texture support"]

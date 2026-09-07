@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use belay_encode::capture::DesktopCapture;
 use belay_encode::color::{bgra_to_nv12, nv12_len};
 use belay_encode::gpu::VideoConverter;
-use belay_encode::h264::{init_media_foundation, EncoderConfig, H264Encoder};
+use belay_encode::h264::{init_media_foundation, CodedFrame, EncoderConfig, H264Encoder};
 use belay_net::{Event, Session};
 use belay_wire::crypto::Direction;
 use belay_wire::cursor::{CursorSample, CursorSampler};
@@ -42,6 +42,21 @@ const CURSOR_MAX_HZ: u32 = 120;
 /// loop. At 8 ms an idle desktop wakes ~125 times a second to do nothing, which
 /// is cheap, and a moving one never waits at all.
 const CAPTURE_TIMEOUT_MS: u32 = 8;
+
+fn send_coded(session: &mut Session, coded: Vec<CodedFrame>, frames: &mut u64,
+    sent_bytes: &mut u64, send_us: &mut u128, output_latencies: &mut Vec<u64>) -> Result<(), String> {
+    if coded.is_empty() { return Ok(()); }
+    let started = Instant::now();
+    for frame in coded {
+        if let Some(latency) = frame.output_latency_us { output_latencies.push(latency); }
+        session.send_frame(Channel::Video, &frame.data, frame.keyframe)
+            .map_err(|e| format!("video send failed: {e:?}"))?;
+        *frames += 1;
+        *sent_bytes += frame.data.len() as u64;
+    }
+    *send_us += started.elapsed().as_micros();
+    Ok(())
+}
 
 pub fn run(
     config: Config,
@@ -132,6 +147,7 @@ pub fn run(
     let mut last_keyframe = Instant::now();
     let (mut frames, mut sent_bytes) = (0u64, 0u64);
     let (mut capture_us, mut encode_us, mut send_us, mut samples) = (0u128, 0u128, 0u128, 0u64);
+    let mut output_latencies = Vec::<u64>::new();
     // Counted separately because they mean different things and only one of
     // them is a problem: `no_change` is an idle desktop working as designed,
     // `cursor_only` is the cursor moving over a still screen. A stream that is
@@ -148,17 +164,21 @@ pub fn run(
         // nothing at all — silence that reads as a crash.
         if last_stats.elapsed() >= Duration::from_secs(1) {
             let secs = last_stats.elapsed().as_secs_f64();
+            output_latencies.sort_unstable();
+            let output_p95_ms = output_latencies.get((output_latencies.len()*95).div_ceil(100).saturating_sub(1))
+                .copied().unwrap_or(0) as f64 / 1000.0;
             emit(
                 "stats",
                 &format!(
-                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only},\"captureMs\":{:.3},\"convertEncodeMs\":{:.3},\"sendMs\":{:.3},\"rttMs\":{:.3}",
+                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only},\"captureMs\":{:.3},\"convertEncodeMs\":{:.3},\"sendMs\":{:.3},\"rttMs\":{:.3},\"encoderOutputP95Ms\":{output_p95_ms:.3},\"encoderTimingSamples\":{}",
                     frames as f64 / secs,
                     (sent_bytes as f64 * 8.0 / 1000.0) / secs,
                     session.bitrate_bps(),
                     capture_us as f64 / samples.max(1) as f64 / 1000.0,
                     encode_us as f64 / samples.max(1) as f64 / 1000.0,
                     send_us as f64 / samples.max(1) as f64 / 1000.0,
-                    session.rtt_ms().unwrap_or(0.0)
+                    session.rtt_ms().unwrap_or(0.0),
+                    output_latencies.len()
                 ),
             );
             frames = 0;
@@ -167,6 +187,7 @@ pub fn run(
             cursor_only = 0;
             last_stats = Instant::now();
             capture_us = 0; encode_us = 0; send_us = 0; samples = 0;
+            output_latencies.clear();
         }
 
         // 1. Session first, so the client's feedback applies to THIS frame.
@@ -194,6 +215,9 @@ pub fn run(
             }
             Err(e) => return Err(format!("session failed: {e:?}")),
         }
+
+        let ready = encoder.poll_output().map_err(|e| format!("encode failed: {e}"))?;
+        send_coded(&mut session, ready, &mut frames, &mut sent_bytes, &mut send_us, &mut output_latencies)?;
 
         // 2. Capture. Ok(None) is a static desktop, which is the common case
         //    and costs nothing.
@@ -281,16 +305,7 @@ pub fn run(
         };
 
         encode_us += encode_started.elapsed().as_micros();
-        let send_started = Instant::now();
-        for frame in coded {
-            let bytes = frame.data.len();
-            session
-                .send_frame(Channel::Video, &frame.data, frame.keyframe)
-                .map_err(|e| format!("video send failed: {e:?}"))?;
-            frames += 1;
-            sent_bytes += bytes as u64;
-        }
-        send_us += send_started.elapsed().as_micros();
+        send_coded(&mut session, coded, &mut frames, &mut sent_bytes, &mut send_us, &mut output_latencies)?;
 
         let _ = escape; // reserved for error paths that carry free text
 
@@ -299,6 +314,8 @@ pub fn run(
         // the client will never display.
         while loop_start.elapsed() < frame_budget {
             session.service().map_err(|e| format!("session failed: {e:?}"))?;
+            let ready = encoder.poll_output().map_err(|e| format!("encode failed: {e}"))?;
+            send_coded(&mut session, ready, &mut frames, &mut sent_bytes, &mut send_us, &mut output_latencies)?;
             let remaining = frame_budget.saturating_sub(loop_start.elapsed());
             std::thread::sleep(remaining.min(Duration::from_millis(1)));
         }

@@ -81,8 +81,8 @@ compact layout, keyboard activation and simulated controller transport.
 
 - Extend the verified single-loss recovery to sustained loss, delay and jitter
   experiments; choose FEC or bounded retransmission based on those results.
-- Measure actual encoder input-to-output latency and ready-output scheduling;
-  keep capture, encoding and network queues bounded if overlapped.
+- Extend submission-to-output measurements to actual games, multiple GPUs and
+  CPU fallback; keep queues bounded if capture and sending are further overlapped.
 - Measure real moving desktop/game capture, quality under motion, client decode
   and presentation, audio, cursor and input separately on Mac/phone clients.
 - Complete Windows controller driver installation and physical controller/game
@@ -142,3 +142,36 @@ The previous bounded loop still called an API that could block indefinitely.
 Unexpected event errors now propagate, and ProcessOutput event collections are
 released. Device-loss and a deliberately wedged hardware encoder were not
 physically induced for this validation.
+
+## Ready-output scheduling follow-up
+
+Timing now correlates each encoded sample's media timestamp with its input
+submission time. `encoderOutputP95Ms` reports submission-to-observed-output
+duration, including application polling; `encoderTimingSamples` reports how
+many samples contributed. The bounded history reports no fabricated duration
+for uncorrelated output. This is not pure hardware execution time or display
+latency.
+
+Before scheduling changes, the same synthetic 1080p60 test produced steady
+one-second p95 values of about 17.5–17.8 ms. The main loop only collected output
+during a subsequent encode call. It now polls completed asynchronous output
+during the existing short frame waits and before capture, while retaining input
+credits and the capture FPS cap. Completed frames also no longer depend on a
+future changed desktop frame to be collected.
+
+After the change, steady one-second p95 values were about 6.7–7.3 ms, while
+throughput remained around 59 FPS (459 received frames in eight seconds). The
+loss-injection run delivered 457 frames, recovered in 47 ms, and had output p95
+values of roughly 6.6–7.4 ms. These are individual same-machine experiments,
+not cross-device latency guarantees or a statistical claim about WAN recovery.
+
+An opt-in hardware regression submits one frame, polls for its output without
+submitting another or flushing, and repeats for three frames. It verifies output
+timestamps and timing correlation and passes at 1080p on this machine:
+
+```
+cargo test --lib h264::tests::async_output_is_available_without_submitting_another_frame -- --ignored
+```
+
+The installed Electron playtest also passes with this rebuilt streamer. No new
+wire format, public protocol handshake, or client decoder requirement was added.
