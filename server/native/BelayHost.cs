@@ -42,6 +42,20 @@ static class Native
     const uint MIDDLEDOWN = 0x0020, MIDDLEUP = 0x0040, WHEEL = 0x0800, HWHEEL = 0x1000;
     const uint ABSOLUTE = 0x8000, VIRTUALDESK = 0x4000;
     const uint KEYUP = 0x0002, UNICODE = 0x0004;
+    [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code, uint mapType);
+
+    internal static INPUT KeyScan(ushort vk, bool down)
+    {
+        var input = new INPUT(); input.type = INPUT_KEYBOARD;
+        uint scan = MapVirtualKey(vk, 4); // extended scan code, including E0 prefix
+        input.U.ki.dwFlags = down ? 0u : KEYUP;
+        if (scan != 0) {
+            input.U.ki.wScan = (ushort)(scan & 0xff);
+            input.U.ki.dwFlags |= 0x0008;
+            if ((scan & 0xff00) == 0xe000) input.U.ki.dwFlags |= 0x0001;
+        } else input.U.ki.wVk = vk;
+        return input;
+    }
 
     [DllImport("user32.dll", SetLastError = true)]
     static extern uint SendInput(uint n, INPUT[] p, int cb);

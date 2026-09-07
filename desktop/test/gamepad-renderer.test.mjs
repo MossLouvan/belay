@@ -81,21 +81,20 @@ test('renderer obtains a ticket, waits for hello, sends binary newest state and 
     assert.equal(h.effects.at(-1).effect.weakMagnitude, 0);
   } finally { h.dispose(); }
 });
-test('hidden window switches to 4 ms polling, keeps lease alive and unplug releases input', async t => {
+test('hidden windows release cached held input; returning reconnects with a fresh ticket', async t => {
   const h = harness(t);
   try {
-    h.toggle(); await flush(); const ws = h.sockets[0]; ws.hello(); h.tick(0);
-    h.hide(true);
-    assert.equal([...h.scheduled.values()].some(job => job.kind === 'raf'), false);
-    assert.equal([...h.scheduled.values()].find(job => job.kind === 'interval').delay, 4);
-    h.tick(96); const count = ws.sent.length;
-    h.tick(101); assert.equal(ws.sent.length, count);
-    h.tick(346); assert.equal(ws.sent.length, count + 1);
-    h.hide(false); assert.equal([...h.scheduled.values()].some(job => job.kind === 'interval'), false);
-    h.unplug(); h.tick(350); assert.equal(ws.readyState, 3);
-    assert.match(h.indicator.textContent, /No pad/);
+    h.toggle(); await flush(); const ws=h.sockets[0]; ws.hello(); h.change({axes:[1,0,0,0]}); h.tick(0);
+    h.hide(true); assert.equal(ws.readyState,3);
+    assert.equal(new DataView(ws.sent.at(-1)).getInt16(5,true),0);
+    assert.match(h.indicator.textContent,/paused/);
+    h.tick(500); assert.equal(h.sockets.length,1);
+    h.hide(false); h.tick(510); await flush(); assert.equal(h.sockets.length,2);
+    h.sockets[1].hello(); h.tick(520); h.unplug(); h.tick(530);
+    assert.equal(h.sockets[1].readyState,3);
   } finally { h.dispose(); }
 });
+
 test('a ticket arriving after Gaming exits cannot attach a stale controller', async t => {
   let resolve;
   const pending = new Promise(done => { resolve = done; });

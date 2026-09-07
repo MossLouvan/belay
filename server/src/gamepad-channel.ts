@@ -32,6 +32,7 @@ export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
       owned = true;
       let closed = false, attached = false, cleaning = false;
       let session = emptySession();
+      let attachedAt = 0;
       let keymap = false, wasActive = false;
       let rumble: { readonly type: 'rumble'; readonly low: number; readonly high: number } | null = null;
       let rumbleAt = 0;
@@ -52,6 +53,7 @@ export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
       });
       void helper.gamepadAttach(preset === 'roblox' || preset === 'fortnite' ? preset : 'generic').then(reply => {
         attached = true;
+        attachedAt = now();
         if (closed) { void detach(); return; }
         const hello = helperHello(reply); send(hello); keymap = hello.backend === 'keymap';
         if (!hello.available) { ws.close(1011, 'Gamepad unavailable'); close(); return; }
@@ -70,7 +72,7 @@ export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
         let lastActivity = 0;
         stop = schedule(() => {
           if (closed) return;
-          if (session.last !== null && now() - session.receivedAt > 750) {
+          if (now() - (session.last === null ? attachedAt : session.receivedAt) > 750) {
             helper.gamepad(NEUTRAL); ws.close(1001, 'Controller timed out'); close(); return;
           }
           if (rumble && now() - rumbleAt >= 250) { send(rumble); rumbleAt = now(); }

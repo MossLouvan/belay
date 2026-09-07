@@ -8,6 +8,14 @@ class Socket extends EventEmitter {
  send(s){this.sent=[...this.sent,JSON.parse(s)];}
  close(){this.readyState=3;this.emit('close');}
 }
+test('a client that never sends its first state cannot hold the controller lease forever',async()=>{
+ let at=100,tick,detached=0;
+ const helper={gamepadAttach:async()=>({backend:'vigem'}),gamepadDetach:async()=>{detached++;},gamepad:()=>true,onGamepadEvent:()=>()=>{}};
+ const hub=createGamepadHub(helper,{now:()=>at,schedule:fn=>{tick=fn;return()=>{};}});
+ const socket=new Socket();hub.handle(socket,'generic');await new Promise(r=>setImmediate(r));
+ at=851;tick();await new Promise(r=>setImmediate(r));assert.equal(socket.readyState,3);assert.equal(detached,1);
+ const next=new Socket();hub.handle(next,'generic');await new Promise(r=>setImmediate(r));assert.equal(next.sent[0].available,true);next.close();
+});
 test('attach, newest sample, malformed close, detach and exclusive owner',async()=>{
  let updates=[],detaches=0,tick;
  const helper={gamepadAttach:async()=>({backend:'keymap'}),gamepadDetach:async()=>{detaches++;},gamepad:state=>{updates=[...updates,state];return true;},onGamepadEvent:()=>()=>{}};

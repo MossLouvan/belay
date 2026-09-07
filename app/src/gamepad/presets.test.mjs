@@ -6,7 +6,7 @@ test('stored preferences are validated and presets name fallback behavior',()=>{
  assert.equal(layoutChoice('southpaw'),'southpaw');
  assert.match(presetOf('roblox').hint,/Shift/); assert.match(presetOf('fortnite').hint,/build/i);
 });
-test('gaming uses maximum legal fps at moderate scale',()=>{
- assert.equal(gamingQuality(null).fps,30); assert.equal(gamingQuality('cpu').bwpFps,60);
- assert.equal(gamingQuality('gpu').bwpFps,120); assert.equal(gamingQuality('gpu').w,1024);
+test('gaming preserves motion quality without forcing data saver or 120 fps',()=>{
+ assert.equal(gamingQuality(null).bwpPreset,'max'); assert.equal(gamingQuality(null).fps,30); assert.equal(gamingQuality('cpu').bwpFps,60);
+ assert.equal(gamingQuality('gpu').bwpFps,60); assert.equal(gamingQuality('gpu').w,1600);
 });

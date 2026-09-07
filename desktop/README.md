@@ -137,3 +137,18 @@ on. The bearer token is kept by the main process and never touches
 - Seamless windows follow the remote window's size, not its position.
 - The macOS host side is written but has never been compiled — see
   [`MAC_HANDOFF.md`](../MAC_HANDOFF.md).
+
+## Windows installation and H.264 receiver
+
+Run `npm ci` in `desktop`, build `crates/belay-client` with `cargo build --release`,
+then run `powershell -ExecutionPolicy Bypass -File scripts/install-desktop-windows.ps1`
+from the repository root. This installs a per-user Belay app and Desktop/Start Menu
+shortcuts. Open Belay, enter your Mac host address and its pairing code (or use
+its Tailscale address). The Mac must run the host and grant Screen Recording
+and Accessibility permissions. Mac hosting currently uses JPEG.
+
+For a Windows gaming host, build `crates/belay-stream` with `cargo build --release`.
+The desktop client prefers H.264/UDP with hardware-preferred local decoding and
+returns to JPEG when unavailable. On a Mac client, build the cross-platform
+`belay-receiver` binary from `crates/belay-client`; development launches discover
+it in that crate?s `target/release` directory. See [research and validation](../docs/GAMING-RESEARCH.md).

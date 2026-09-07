@@ -13,6 +13,8 @@ async function pair(page: Page) {
   await page.goto('/');
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
+  await page.getByRole('button', { name: 'Get started', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await pairFrom(page);
 }
 

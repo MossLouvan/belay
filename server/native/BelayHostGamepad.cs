@@ -67,8 +67,10 @@ static class BelayHostGamepad
             if (Marshal.SizeOf(typeof(XUSB_REPORT)) != 12) throw new InvalidOperationException("Invalid XUSB_REPORT packing");
             client = vigem_alloc();
             if (client == IntPtr.Zero) throw new InvalidOperationException("ViGEm allocation failed");
-            Check(vigem_connect(client), "ViGEmBus connect");
+            Check(vigem_connect(client), "Install controller support on the Windows host: ViGEmBus connect");
         }
+        catch (DllNotFoundException) { reason = "Install the x64 controller runtime on the Windows host (ViGEmClient.dll)."; FreeDriver(); }
+        catch (BadImageFormatException) { reason = "The Windows host needs the x64 controller runtime; its installed DLL has the wrong architecture."; FreeDriver(); }
         catch (Exception e) { reason = e.Message; FreeDriver(); }
     }
     static void FreeDriver()
@@ -183,10 +185,7 @@ static class BelayHostGamepad
         desired[65]=Threshold(-lx,held[65]); desired[68]=Threshold(lx,held[68]);
         for (ushort key=0;key<256;key++) if (desired[key]!=held[key])
         {
-            injection[0]=new Native.INPUT(); injection[0].type=1;
-            injection[0].U.ki.wVk=key; injection[0].U.ki.dwFlags=desired[key]?0u:2u;
-            // Arrow keys use extended scan-code prefix semantics in SendInput.
-            if (key>=37 && key<=40) injection[0].U.ki.dwFlags|=1;
+            injection[0]=Native.KeyScan(key,desired[key]);
             Native.SendGamepad(injection); held[key]=desired[key];
         }
         Mouse(rt > (leftMouse?0.08:0.12),ref leftMouse,2,4);

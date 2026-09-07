@@ -6,6 +6,8 @@
 // Screen Recording / Accessibility permission flags.
 
 import { gamingQuality } from '../gamepad/presets';
+import { performanceQuality } from './performance';
+import type { StreamSettings } from './performance';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { api, checkHost, getConnection, ScreenInfo, wsUrl, UnauthorizedError } from '../api';
@@ -221,6 +223,7 @@ export function useScreenStream(
   screen?: number,
   virtual: VirtualRequest | null = null,
   gaming = false,
+  performanceSettings: StreamSettings | null = null,
 ): StreamState {
   const [phase, setPhase] = useState<Phase>('idle');
   const [frameUri, setFrameUri] = useState<string | null>(null);
@@ -231,7 +234,7 @@ export function useScreenStream(
   const [bwp, setBwp] = useState<BwpSource | null>(null);
   const [bwpStats, setBwpStats] = useState<BwpStats | null>(null);
   const [bwpPath, setBwpPath] = useState<string | null>(null);
-  const quality = useMemo(() => gaming ? gamingQuality(bwpPath) : requestedQuality, [gaming, bwpPath, requestedQuality]);
+  const quality = useMemo(() => performanceQuality(gaming ? gamingQuality(bwpPath) : requestedQuality, performanceSettings), [gaming, bwpPath, requestedQuality, performanceSettings]);
   const [bwpSize, setBwpSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   // A ref as well as state: the stall detector and the message handler both
   // need to know synchronously whether BWP is carrying video, and reading it

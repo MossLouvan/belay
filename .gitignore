@@ -8,6 +8,9 @@ web-build/
 .expo/
 .expo-shared/
 server/native/BelayHost.exe
+server/native/ViGEmClient.dll
+server/native/belay-stream.exe
+desktop/native/
 server/native/BelayHostMac
 # pre-rename helper binaries, still runnable until the next build:native
 server/native/TetherHost.exe

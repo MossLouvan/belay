@@ -129,6 +129,7 @@ pub fn run(
     let started = Instant::now();
     let frame_budget = Duration::from_micros(1_000_000 / config.fps.max(1) as u64);
     let mut last_stats = Instant::now();
+    let mut last_keyframe = Instant::now();
     let (mut frames, mut sent_bytes) = (0u64, 0u64);
     // Counted separately because they mean different things and only one of
     // them is a problem: `no_change` is an idle desktop working as designed,
@@ -234,6 +235,11 @@ pub fn run(
             continue;
         }
 
+        // Some hardware drivers ignore the GOP hint. Bound recovery time even
+        // with older clients that cannot request an IDR after dropped input.
+        if last_keyframe.elapsed() >= Duration::from_secs(config.keyframe_interval_s as u64) {
+            encoder.request_keyframe(); last_keyframe = Instant::now();
+        }
         let coded = if let Some(conv) = converter.as_mut() {
             conv.convert(&texture).map_err(|e| format!("gpu convert failed: {e}"))?;
             encoder

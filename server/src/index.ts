@@ -1490,6 +1490,11 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
         await sleep(BWP_IDLE_POLL_MS);
         continue;
       }
+      // Do not spend capture/encode time producing a frame we cannot send.
+      if (ws.bufferedAmount > MAX_BUFFERED_BYTES) {
+        await sleep(FRAME_DROP_BACKOFF_MS);
+        continue;
+      }
       try {
         // `selectCaptureMode` is the fallback gate: it only ever returns a
         // virtual mode while a display is genuinely up, so a create still in
@@ -1514,7 +1519,7 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
         }
         await sleep(CAPTURE_ERROR_BACKOFF_MS);
       }
-      const budget = 1000 / params.fps;
+      const budget = 1000 / Math.min(30, params.fps);
       const elapsed = Date.now() - started;
       if (elapsed < budget) await sleep(budget - elapsed);
     }

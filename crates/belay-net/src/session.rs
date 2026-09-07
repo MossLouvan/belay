@@ -242,6 +242,10 @@ impl Session {
     }
 
     /// Drain the socket and advance the session. Never blocks.
+    pub fn request_keyframe(&mut self) -> Result<(), SessionError> {
+        self.send_frame(Channel::Control, b"IDR1", false)
+    }
+
     pub fn poll(&mut self) -> Result<Vec<Event>, SessionError> {
         let mut events = Vec::new();
         let mut buf = [0u8; 2048];
@@ -285,6 +289,7 @@ impl Session {
         }
         if self.want_keyframe {
             self.want_keyframe = false;
+            self.request_keyframe()?;
             events.push(Event::KeyframeNeeded);
         }
         Ok(events)
@@ -325,6 +330,7 @@ impl Session {
     }
 
     fn on_control(&mut self, plaintext: &[u8]) -> Option<Event> {
+        if plaintext == b"IDR1" { return Some(Event::KeyframeNeeded); }
         let report = Report::decode(plaintext)?;
         let rtt_ms = self.rtt.sample(self.now_us(), &report)?;
 
@@ -379,6 +385,13 @@ pub fn random_salt() -> [u8; 8] {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn receiver_keyframe_request_reaches_encoder_peer() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        client.request_keyframe().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(host.poll().unwrap().iter().any(|e| matches!(e, Event::KeyframeNeeded)));
+    }
     use super::*;
     use std::net::{IpAddr, Ipv4Addr};
 

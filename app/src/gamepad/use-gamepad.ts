@@ -74,7 +74,7 @@ export function useGamepad(enabled: boolean, preset: PresetId, connectionKey: st
           if (message?.type === 'hello') {
             ready = message.available;
             setKeymap(message.backend === 'keymap');
-            setBackend(message.available ? (message.backend === 'vigem' ? 'Xbox controller' : 'Keyboard / mouse fallback') : message.reason ?? 'Controller unavailable');
+            setBackend(message.available ? (message.backend === 'vigem' ? 'Xbox controller' : `Keyboard / mouse fallback${message.reason ? ' · Controller support needs setup on the host' : ''}`) : message.reason ?? 'Controller unavailable');
           } else if (message?.type === 'rumble') {
             rumbleAt = Date.now(); void gamepadNative?.rumble(message.low, message.high).catch(() => { });
           }

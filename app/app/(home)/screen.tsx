@@ -189,6 +189,7 @@ export default function ScreenTab() {
     audioEnabled: audioOn,
     codec: 'h264',
   });
+  const [performanceApplied, setPerformanceApplied] = useState(false);
   const [text, setText] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [box, setBox] = useState<Size>(EMPTY_SIZE);
@@ -265,7 +266,7 @@ export default function ScreenTab() {
     [selectedScreen, screens]
   );
 
-  const stream = useScreenStream(active, quality, screenIndex, virtualRequest, gaming.enabled);
+  const stream = useScreenStream(active, quality, screenIndex, virtualRequest, gaming.enabled, performanceApplied ? streamSettings : null);
 
   // Only the presets this host can actually honour. Performance and Ultra need
   // a hardware encoder; offering them to a host without one costs the user a
@@ -1103,22 +1104,13 @@ export default function ScreenTab() {
       <StreamSettingsSheet
         visible={showStreamSettings}
         onClose={() => setShowStreamSettings(false)}
-        settings={streamSettings}
+        settings={{ ...streamSettings, audioEnabled: audioOn }}
         onApply={(settings) => {
           setStreamSettings(settings);
           setAudioOn(settings.audioEnabled);
-          // Wire to WebRTC ABR: send control message to update encoder bitrate ceiling
-          // Control channel message: {"t":"bitrate","bps":settings.bitrateMbps*1_000_000}
-          // If bitrateMbps === 0 (Auto), congestion.ts decides with no ceiling
-          // On JPEG fallback: bitrate maps indirectly via quality/width presets
-          if (connection && settings.bitrateMbps > 0) {
-            const bps = settings.bitrateMbps * 1_000_000;
-            // TODO: Send via WebRTC control channel when session is WebRTC-backed
-            // For now this state is read by quality presets and HUD
-            console.log(`[stream-settings] bitrate ceiling: ${bps} bps (${settings.bitrateMbps} Mbps)`);
-          }
+          setPerformanceApplied(true);
         }}
-        webrtcAvailable={facts.info?.webrtc === true}
+        webrtcAvailable={stream.bwp !== null}
       />
 
       {/* The tool drawer: the four former tabs, named and explained, each
@@ -1139,7 +1131,7 @@ export default function ScreenTab() {
           <ListItem
             testID="stream-settings"
             title="Performance settings"
-            subtitle={`${streamSettings.fps} Hz • ${streamSettings.bitrateMbps === 0 ? 'Auto' : `${streamSettings.bitrateMbps} Mbps`} • ${streamSettings.codec.toUpperCase()}`}
+            subtitle={stream.bwp === null ? 'JPEG • up to 30 FPS' : performanceApplied ? `${streamSettings.fps} FPS requested • ${streamSettings.bitrateMbps === 0 ? 'Auto bitrate' : `up to ${streamSettings.bitrateMbps} Mbps`} • H.264` : 'H.264 • quality preset'}
             onPress={() => {
               setShowMenu(false);
               setShowStreamSettings(true);
@@ -1202,7 +1194,7 @@ export default function ScreenTab() {
             testID="quality-options"
             accessibilityLabel="Stream quality"
             value={qualityId}
-            onChange={setQualityId}
+            onChange={(id) => { setPerformanceApplied(false); setQualityId(id); }}
             options={qualityChoices.map((preset) => ({ value: preset.id, label: preset.label }))}
           />
           <Caption>{quality.hint}</Caption>

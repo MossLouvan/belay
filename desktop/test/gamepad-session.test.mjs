@@ -40,6 +40,6 @@ test('chrome labels and JPEG gaming config preserve display identity and default
   assert.match(controllerLabel('dualshock', 'keymap'), /Keyboard \/ mouse fallback/);
   assert.match(controllerLabel('generic', 'unavailable'), /ABXY · unavailable/);
   const defaults = Object.freeze({ w: 1600, q: 62, fps: 24 });
-  assert.deepEqual(streamConfig(true, defaults, 2), { type: 'config', w: 1024, q: 35, fps: 30, screen: 2 });
+  assert.deepEqual(streamConfig(true, defaults, 2), { type: 'config', w: 1600, q: 65, fps: 30, screen: 2 });
   assert.deepEqual(streamConfig(false, defaults), { type: 'config', ...defaults });
 });

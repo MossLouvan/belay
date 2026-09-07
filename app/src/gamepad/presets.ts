@@ -8,8 +8,7 @@ export const PRESETS = Object.freeze([
 ] as const);
 export function presetOf(raw: unknown) { return PRESETS.find(p => p.id === raw) ?? PRESETS[0]; }
 export function layoutChoice(raw: unknown): LayoutChoice { return raw === 'southpaw' ? raw : 'classic'; }
-/** JPEG tops out at the legal CPU preset (30); GPU matches Ultra's 120 ceiling.
- * Width stays moderate. Existing JPEG presentation replaces frames, without a queue. */
+/** Prefer clear 60 Hz motion; high refresh remains an explicit choice. */
 export function gamingQuality(path: string | null): QualityPreset {
-  return { id: 'smooth', label: 'Gaming', w: 1024, q: 35, fps: 30, hint: 'Lowest latency', bwpPreset: 'data-saver', bwpFps: path === 'gpu' ? 120 : 60 };
+  return { id: 'performance', label: 'Gaming', w: 1600, q: 65, fps: 30, hint: 'Clear motion at 60 fps with H.264; JPEG fallback targets 30 fps', bwpPreset: 'max', bwpFps: 60 };
 }

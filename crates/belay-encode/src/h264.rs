@@ -281,7 +281,8 @@ impl H264Encoder {
             sample.SetSampleTime(self.frame_index * dur)?;
             sample.SetSampleDuration(dur)?;
             if self.force_keyframe {
-                sample.SetUINT32(&MFSampleExtension_CleanPoint, 1)?;
+                let codec_api = self.transform.cast::<ICodecAPI>()?;
+                set_codec_u32(&codec_api, &CODECAPI_AVEncVideoForceKeyFrame, 1)?;
                 self.force_keyframe = false;
             }
             self.transform.ProcessInput(self.input_stream, &sample, 0)?;
@@ -330,9 +331,10 @@ impl H264Encoder {
             }
             let sample = self.make_input_sample(nv12, expected)?;
             if self.force_keyframe {
-                // MFSampleExtension_CleanPoint on the INPUT asks the encoder to
-                // start a new GOP here.
-                sample.SetUINT32(&MFSampleExtension_CleanPoint, 1)?;
+                // CleanPoint describes encoded output; the codec property
+                // requests a keyframe for the next ProcessInput call.
+                let codec_api = self.transform.cast::<ICodecAPI>()?;
+                set_codec_u32(&codec_api, &CODECAPI_AVEncVideoForceKeyFrame, 1)?;
                 self.force_keyframe = false;
             }
             self.transform.ProcessInput(self.input_stream, &sample, 0)?;
@@ -538,12 +540,13 @@ unsafe fn set_ratio(t: &IMFMediaType, key: &GUID, hi: u32, lo: u32) -> WinResult
 }
 
 unsafe fn set_codec_u32(api: &ICodecAPI, key: &GUID, value: u32) -> WinResult<()> {
-    let v = windows::core::VARIANT::from(value as i32);
+    let v = windows::core::VARIANT::from(value);
     api.SetValue(key, &v)
 }
 
 unsafe fn set_codec_bool(api: &ICodecAPI, key: &GUID, value: bool) -> WinResult<()> {
-    set_codec_u32(api, key, value as u32)
+    let v = windows::core::VARIANT::from(value);
+    api.SetValue(key, &v)
 }
 
 /// How long a coded frame would take to send at a given bitrate — the honest

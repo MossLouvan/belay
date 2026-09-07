@@ -94,6 +94,8 @@ export function Sheet({
               // so it reads as material lifted off the page (a bg-colored slab
               // disappears against the page on dark).
               backgroundColor: theme.colors.sheet,
+              maxHeight: '92%',
+              flexShrink: 1,
               borderTopWidth: theme.layout.hairline,
               borderColor: theme.colors.border,
               paddingHorizontal: theme.layout.margin,

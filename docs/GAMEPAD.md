@@ -1,5 +1,11 @@
 # Gaming and controller passthrough
 
+September 2026: see [gaming research and validation](GAMING-RESEARCH.md) for the
+new desktop H.264 path, current checks, and remaining real-device requirements.
+Windows setup can be performed with `server/scripts/setup-controller.ps1 -InstallDriver`;
+then run `node server/scripts/probe-gamepad.mjs` to verify the target through XInput.
+The driver step requires administrator approval.
+
 Gaming in the screen dock opens a sheet for Generic, Roblox, or Fortnite and a
 Classic/Southpaw touch layout. Start gaming locks the iPhone in landscape,
 keeps it awake, replaces desktop gestures and chrome with a labelled Exit
@@ -63,15 +69,19 @@ controller**, **Keyboard / mouse fallback**, or **unavailable**; hover it for
 the host's reason. Only one window/client can own a host's controller lane.
 Turn Gaming off in the current owner before enabling it elsewhere.
 
-Gaming retunes the existing JPEG socket to the phone's JPEG gaming preset:
-1024 px, quality 35, 30 FPS. Turning it off restores 1600 px, quality 62,
-24 FPS for that window. Reconnects retain the current choice. The desktop
-does not currently decode the phone's H.264 path, so its 60/120 FPS presets
-do not apply. Seamless per-application windows do not have this toggle.
+Display windows now prefer hardware H.264 over encrypted UDP through the native
+desktop receiver and local WebCodecs decoder. Gaming requests 60 FPS and the
+20 Mbps adaptive ceiling. Build the receiver with `cargo build --release
+--manifest-path crates/belay-client/Cargo.toml`, or use the Windows installation
+script. Startup/decode failures fall back to JPEG at 1600 px, quality 65,
+30 FPS. Turning Gaming off restores the normal JPEG preference (1600 px,
+quality 62, 24 FPS) and uses the 10 Mbps H.264 profile when available.
+Mac hosts and seamless per-application windows retain their JPEG path.
 
-The renderer polls `navigator.getGamepads()` on animation frames, switching
-to a 4 ms interval while hidden. Electron background timer throttling is
-disabled so the fallback can maintain the lease. Browser Y axes are inverted
+The renderer polls `navigator.getGamepads()` on animation frames. Hiding the
+window closes the controller lane and releases input: Chromium may stop
+sampling hidden pages, so repeating its cached state can leave buttons held.
+Returning reconnects with a fresh ticket. Browser Y axes are inverted
 before encoding the same 17-byte frame as the phone. Frames repeat for the
 first 100 ms after a change, then quiet state sends a 250 ms keepalive. A
 bounded socket buffer drops intermediate samples and always samples fresh.
@@ -172,14 +182,12 @@ while updating remote activity timestamps for the idle probe. Only active
 keymap samples and their release mark OS injection; neutral heartbeats do not
 hide activity from a person using the host keyboard.
 
-Gaming requests 1024 px / JPEG quality 35 / 30 FPS on the CPU/JPEG path, and
-60 FPS on CPU H.264 or 120 FPS on the GPU H.264 path, matching the current
-quality-availability ceiling. H.264 uses the data-saver bitrate ceiling;
-changing Gaming mode retunes the active stream. The existing H.264 renderer
-presents immediately, and JPEG replaces frames without adding a queue. The
-H.264 path retains the host's capture dimensions (it has no width control in
-its current start protocol). FPS is a request, not a throughput guarantee.
-The displayed milliseconds are RTT, not measured glass-to-glass latency.
+Gaming requests 1600 px / JPEG quality 65 / 30 FPS on the JPEG path and
+60 FPS with a 20 Mbps adaptive ceiling on H.264. High refresh is an explicit
+performance-setting choice. The H.264 path retains the host capture dimensions;
+there is no capture-width control in its current start protocol. FPS is a
+request, not a throughput guarantee. Displayed milliseconds are RTT, not
+measured glass-to-glass latency.
 
 ## iPhone build and device checks
 
@@ -208,7 +216,10 @@ On a real iPhone and Windows PC:
    rumble stops. Repeat Exit/re-entry quickly and rotate the phone afterward.
 7. On macOS, check fallback both with and without Accessibility permission.
 
-## Validation and remaining hardware checks
+## Prior implementation validation notes
+
+The following records earlier implementation passes. The current pass and
+remaining hardware checks are recorded in [GAMING-RESEARCH.md](GAMING-RESEARCH.md).
 
 Pure tests cover packet round trips and cross-codec parity, invalid values,
 sequence wrap, rate limiting, coalescing/backpressure, exclusive ownership,

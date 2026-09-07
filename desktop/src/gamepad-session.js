@@ -31,5 +31,5 @@ export function controllerLabel(kind, backend) {
   return `Controller: ${name} · ${glyphs} · ${target}`;
 }
 export function streamConfig(gaming, defaults, screen) {
-  return { type: 'config', ...(gaming ? { w: 1024, q: 35, fps: 30 } : defaults), ...(screen === undefined ? {} : { screen }) };
+  return { type: 'config', ...(gaming ? { w: 1600, q: 65, fps: 30 } : defaults), ...(screen === undefined ? {} : { screen }) };
 }

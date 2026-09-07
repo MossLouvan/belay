@@ -184,3 +184,13 @@ changes may send a new hello. One socket owns the controller until detach
 finishes. Disconnect and 750 ms of inactivity release held state. Clients
 send full-state heartbeats even when buttons do not change. The gamepad lane
 bypasses input-floor arbitration but retains idle/injection accounting.
+
+### BWP decoder recovery control
+
+A four-byte ASCII `IDR1` payload on the authenticated encrypted Control channel
+requests a new H.264 keyframe. It is separate from the 20-byte feedback report.
+New receivers send it after video reassembly loss or a bounded desktop handoff
+drop; old peers ignore the shorter unknown message. Encoder peers report
+`KeyframeNeeded` and force the next encoded frame. Periodic keyframes remain
+a compatibility backstop. Session credentials and source-address validation
+apply before this control is interpreted.

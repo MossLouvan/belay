@@ -23,11 +23,10 @@ import { dirname, join } from 'node:path';
 import { clearSession, keymapModeOf, migrateLegacySession, readSession, writeSession } from './src/session.js';
 import { fitWindow } from './src/displays.js';
 import { cascadeOffset, initialSize, windowLabel } from './src/windows.js';
+import { reserveVideo } from './src/video-receiver.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// Keep the controller's 4 ms hidden-window timer running. Unlike disabling
-// backgroundThrottling, this preserves visibilityState and the rAF fallback.
-app.commandLine.appendSwitch('disable-background-timer-throttling');
+// Preserve visibilityState: hidden controller windows must release cached input.
 // .cjs, not .js: package.json sets "type": "module", and Electron loads a
 // sandboxed preload script as CommonJS. The extension is what keeps those two
 // facts from contradicting each other.
@@ -35,6 +34,7 @@ const preload = join(__dirname, 'preload.cjs');
 
 /** Every display window, so a "disconnect" can close them all at once. */
 const displayWindows = new Set();
+const videoHosts = new Map(), receivers = new Map(), videoEpochs = new Map();
 
 // The Ledger grounds (renderer/tokens.css), repeated here because the frame's
 // first paint happens before any CSS loads and a flash of the wrong theme is
@@ -104,7 +104,9 @@ function createDisplayWindow(session, display) {
   win.loadFile(join(__dirname, 'renderer', 'display.html'), { search: params.toString() });
 
   displayWindows.add(win);
-  win.on('closed', () => displayWindows.delete(win));
+  videoHosts.set(win.webContents.id, session.host);
+  const id = win.webContents.id;
+  win.on('closed', () => { displayWindows.delete(win); videoHosts.delete(id); videoEpochs.delete(id); receivers.get(id)?.stop(); receivers.delete(id); });
   return win;
 }
 
@@ -151,6 +153,20 @@ function createSeamlessWindow(session, remote, index = 0) {
 }
 
 app.whenReady().then(() => {
+  ipcMain.handle('video:reserve', async event => {
+    const id=event.sender.id, host=videoHosts.get(id);
+    if(!host || event.senderFrame !== event.sender.mainFrame) throw new Error('Not a display window');
+    receivers.get(id)?.stop(); receivers.delete(id);
+    const epoch=(videoEpochs.get(id)||0)+1;videoEpochs.set(id,epoch);
+    const receiver=await reserveVideo(__dirname,host,
+      frame=>{if(videoEpochs.get(id)===epoch&&!event.sender.isDestroyed())event.sender.send('video:frame',frame);},
+      ()=>{if(videoEpochs.get(id)===epoch&&!event.sender.isDestroyed())event.sender.send('video:ended');});
+    if(videoEpochs.get(id)!==epoch || event.sender.isDestroyed()){receiver.stop();throw new Error('Video cancelled');}
+    receivers.set(id,receiver);return receiver.port;
+  });
+  ipcMain.handle('video:configure',(event,offer,preset)=>receivers.get(event.sender.id)?.configure(offer,preset));
+  ipcMain.on('video:ack',event=>receivers.get(event.sender.id)?.ack());
+  ipcMain.handle('video:stop',event=>{const id=event.sender.id;videoEpochs.set(id,(videoEpochs.get(id)||0)+1);receivers.get(id)?.stop();receivers.delete(id);});
   const userData = app.getPath('userData');
   // The rename moved the userData directory; pick up the session the
   // pre-rename build saved so pairing survives the update (see session.js).

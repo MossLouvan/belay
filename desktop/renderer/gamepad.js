@@ -9,7 +9,7 @@ export function attachGamepad({ host, token, indicator, toggle, onGaming }) {
   let sender = emptySender(), retryAt = 0, raf = 0, interval = null;
 
   function render() {
-    const label = controllerLabel(pad ? kindOf(pad.id) : null, backend);
+    const label = !enabled ? 'Controller off · enable Gaming' : document.hidden ? 'Controller paused · return to this window' : reason ? `${controllerLabel(pad ? kindOf(pad.id) : null, backend)} · ${reason}` : controllerLabel(pad ? kindOf(pad.id) : null, backend);
     if (indicator.textContent !== label) indicator.textContent = label;
     indicator.title = reason || (enabled ? 'Press a controller button if no pad appears.' : 'Turn on Gaming to pass this controller to the computer.');
   }
@@ -69,13 +69,20 @@ export function attachGamepad({ host, token, indicator, toggle, onGaming }) {
   }
   function poll() {
     if (disposed) return;
+    // Chromium stops sampling hidden pages. Repeating its cached snapshot
+    // would keep movement/fire held indefinitely even after physical release.
+    if (document.hidden) { if (socket || opening) disconnect(); render(); return; }
     let next = null;
-    try { next = firstPad(navigator.getGamepads?.()); } catch { /* Gamepad API may be unavailable */ }
+    try {
+      if (!navigator.getGamepads) reason = 'Controller API unavailable in this browser';
+      next = firstPad(navigator.getGamepads?.());
+    } catch { reason = 'Controller access blocked by this page’s permissions'; }
     if (next?.index !== pad?.index || next?.id !== pad?.id) {
       disconnect(); retryAt = 0; reason = ''; pad = next;
     } else pad = next;
     const sample = standardState(pad);
     if (pad && !sample) reason = 'This controller does not expose the browser standard mapping.';
+    if (!pad && !reason) reason = 'Connect a controller and press a button in this window';
     render();
     if (!enabled || !sample || !host || !token) {
       if (socket || opening) disconnect();
@@ -92,7 +99,7 @@ export function attachGamepad({ host, token, indicator, toggle, onGaming }) {
   function animate() { poll(); if (!disposed && !document.hidden) raf = requestAnimationFrame(animate); }
   function schedule() {
     cancelAnimationFrame(raf); clearInterval(interval); interval = null;
-    if (document.hidden) interval = setInterval(poll, 4);
+    if (document.hidden) poll();
     else raf = requestAnimationFrame(animate);
   }
   function change() {

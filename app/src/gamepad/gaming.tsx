@@ -68,7 +68,7 @@ export function GamingSheet({ gaming }: { readonly gaming: GamingState }) {
   return <Sheet title="Gaming" visible={gaming.sheet} onClose={() => gaming.setSheet(false)} testID="gaming-sheet" style={{ maxHeight: height * 0.9 }}>
     <ScrollView>
     <Column gap="md">
-      <Caption>Pair a Bluetooth controller in iPhone Settings, or use the touch controls.</Caption>
+      <Caption>Connect a controller in your device’s Bluetooth settings, or use the touch controls. In a browser, keep this page visible and press a controller button to activate it.</Caption>
       <SegmentedControl accessibilityLabel="Game preset" value={gaming.preset} onChange={gaming.setPreset} options={PRESETS.map(p => ({ value: p.id, label: p.label }))} />
       <Caption>{presetOf(gaming.preset).hint} Xbox passthrough uses the game’s controller bindings.</Caption>
       <SegmentedControl accessibilityLabel="Touch layout" value={gaming.layout} onChange={gaming.setLayout} options={[{ value: 'classic', label: 'Classic' }, { value: 'southpaw', label: 'Southpaw' }]} />

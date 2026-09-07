@@ -24,6 +24,10 @@ body { margin: 0; background: var(--machine); overflow: hidden; }
 #overlay:hover, #overlay:focus-within, #overlay.gaming { opacity: 1; }
 #overlay { flex-wrap: wrap; }
 #controller { flex: 1 1 300px; }
+#controller { overflow-wrap: anywhere; letter-spacing: .3px; min-width: 0; }
+#title, #keys, #stats { min-width: 0; overflow-wrap: anywhere; }
+#overlay { gap: 8px 12px; max-height: 45vh; overflow-y: auto; }
+#screen:focus { outline: none; }
 #gaming {
   font: inherit; text-transform: uppercase; padding: 6px 12px;
   color: var(--on-machine); background: var(--machine); cursor: pointer;

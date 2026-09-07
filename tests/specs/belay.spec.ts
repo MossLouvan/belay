@@ -11,6 +11,8 @@ async function pair(page: Page) {
   // Clear any stored connection so we always begin at the connect screen.
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
+  await page.getByRole('button', { name: 'Get started', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
 
   await expect(page.getByTestId('host-input')).toBeVisible();
   await page.getByTestId('host-input').fill(HOST);
@@ -37,6 +39,8 @@ test.describe('Belay', () => {
     await page.goto('/');
     await page.evaluate(() => window.localStorage.clear());
     await page.reload();
+  await page.getByRole('button', { name: 'Get started', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
 
     // Empty host shows an error.
     await page.getByTestId('check-host').click();

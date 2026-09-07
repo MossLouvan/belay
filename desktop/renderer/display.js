@@ -1,7 +1,8 @@
 // One remote display, streamed into this window and driven from it.
 //
-// Frames arrive as base64 JPEG over /ws/screen exactly as they do for the
-// phone app; input goes back over the REST endpoints. Coordinates cross the
+// Prefer H.264 over encrypted UDP with local WebCodecs decoding. Hosts without
+// that path retain JPEG over /ws/screen; input uses dedicated controller and
+// REST channels. Coordinates cross the
 // wire normalized 0..1 against the display being shown, and every input request
 // carries that display's index, so the pixels the user aims at and the pixels
 // the host clicks are the same ones even on a multi-monitor host.
@@ -11,6 +12,8 @@ import { translateKey, modifiersOf } from '../src/keymap.js';
 import { bareTapKey, legendText, modifierMap } from '../src/modmap.js';
 import { streamConfig } from '../src/gamepad-session.js';
 import { attachGamepad } from './gamepad.js';
+import { latestFramePainter } from '../src/latest-frame.js';
+import { attachVideo } from './video.js';
 
 const params = new URLSearchParams(location.search);
 const host = hostOrigin(params.get('host')) ?? '';
@@ -47,7 +50,7 @@ function retune() {
 }
 attachGamepad({
   host, token, indicator: document.getElementById('controller'), toggle: document.getElementById('gaming'),
-  onGaming: enabled => { gaming = enabled; overlay.classList.toggle('gaming', enabled); retune(); },
+  onGaming: enabled => { gaming = enabled; overlay.classList.toggle('gaming', enabled); retune(); if(streamSocket?.readyState===WebSocket.OPEN)void video.start(gaming); wake(); canvas.focus(); },
 });
 
 function setStatus(text, bad = false, live = false) {
@@ -225,25 +228,31 @@ async function socketUrl() {
 
 let frames = 0;
 let bytes = 0;
+let streamMode = 'JPEG';
+const video=attachVideo({bridge:window.belay,canvas,context,
+  send:message=>{if(streamSocket?.readyState===WebSocket.OPEN)streamSocket.send(JSON.stringify(message));},
+  onFrame:()=>{frames++;},onMode:mode=>{streamMode=mode;},
+});
+window.addEventListener('beforeunload',()=>video.dispose());
+const painter = latestFramePainter(
+  src => new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = src; }),
+  image => {
+    if(video.live)return;
+    if (canvas.width !== image.width || canvas.height !== image.height) { canvas.width = image.width; canvas.height = image.height; }
+    context.drawImage(image, 0, 0);
+  },
+  src => { if (src.startsWith('blob:')) URL.revokeObjectURL(src); },
+);
+window.addEventListener('beforeunload', () => painter.close());
 setInterval(() => {
-  if (frames > 0) setStatus(frames + ' fps · ' + Math.round(bytes / 1024) + ' KB/s', false, true);
+  if (frames > 0) setStatus(streamMode + ' · ' + frames + ' fps' + (video.live ? '' : ' · ' + Math.round(bytes / 1024) + ' KB/s'), false, true);
   frames = 0;
   bytes = 0;
 }, 1000);
 
 /** Paint one JPEG onto the canvas from any URI (data: or blob:). */
 function paint(src, revoke) {
-  const image = new Image();
-  image.onload = () => {
-    if (canvas.width !== image.width || canvas.height !== image.height) {
-      canvas.width = image.width;
-      canvas.height = image.height;
-    }
-    context.drawImage(image, 0, 0);
-    if (revoke) URL.revokeObjectURL(src);
-  };
-  image.onerror = () => { if (revoke) URL.revokeObjectURL(src); };
-  image.src = src;
+  painter.push(src);
 }
 
 function draw(frame) {
@@ -303,11 +312,12 @@ async function connect() {
   // Binary frames must arrive as ArrayBuffer, not the default Blob.
   socket.binaryType = 'arraybuffer';
   streamSocket = socket;
-  socket.addEventListener('open', () => { attempt = 0; retune(); setStatus('live', false, true); });
+  socket.addEventListener('open', () => { attempt = 0; retune(); setStatus('live', false, true); void video.start(gaming); });
   socket.addEventListener('message', (event) => {
     if (event.data instanceof ArrayBuffer) { drawBinary(event.data); return; }
     let message;
     try { message = JSON.parse(event.data); } catch { return; }
+    if(video.handle(message,gaming))return;
     if (message?.type === 'frame' && typeof message.data === 'string') {
       frames += 1;
       bytes += Number(message.bytes) || 0;
@@ -318,7 +328,7 @@ async function connect() {
       setStatus(String(message.error).slice(0, 120), true);
     }
   });
-  socket.addEventListener('close', () => { if (streamSocket === socket) streamSocket = null; retry(); });
+  socket.addEventListener('close', () => { video.stop(); if (streamSocket === socket) streamSocket = null; retry(); });
   socket.addEventListener('error', () => socket.close());
 }
 

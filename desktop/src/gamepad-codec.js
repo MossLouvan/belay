@@ -12,7 +12,8 @@ export function kindOf(id) {
   return 'generic';
 }
 export function firstPad(pads) {
-  return Array.from(pads ?? []).find(pad => pad?.connected === true) ?? null;
+  const connected = Array.from(pads ?? []).filter(pad => pad?.connected === true);
+  return connected.find(pad => standardState(pad) !== null) ?? connected[0] ?? null;
 }
 export function standardState(pad) {
   if (pad?.connected !== true || pad.mapping !== 'standard' || !Array.isArray(pad.buttons)
