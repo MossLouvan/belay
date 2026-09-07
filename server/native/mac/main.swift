@@ -24,6 +24,7 @@ private let captureQualityRange = 1...100
 private let replies = ReplyWriter()
 private let capture = CaptureEngine()
 private let input = InputController()
+private let gamepad = GamepadKeymap()
 private let virtualDisplays = VirtualDisplayManager()
 
 // Mode bounds mirror server/src/virtual-display.ts. Node validates before
@@ -71,6 +72,7 @@ private func run() {
     // holding down before exiting, or the OS keeps a mouse button or modifier
     // physically pressed — a phone that disconnects mid-drag would otherwise
     // leave the desktop stuck in a drag with no way to clear it.
+    gamepad.detach()
     input.releaseAll()
     #if BELAY_WEBRTC_BUILD
     webrtc.stop() // close the peer + encoder before the capture streams they feed
@@ -85,6 +87,12 @@ private func run() {
 
 private func handle(_ command: Command) throws {
     switch command.name {
+    case "gamepad": try gamepad.state(command) // fire-and-forget fast path
+    case "gamepadstatus": replies.ok(id: command.id, gamepad.status())
+    case "gamepadattach":
+        gamepad.attach(preset: try command.string("preset") ?? "generic")
+        replies.ok(id: command.id, gamepad.status())
+    case "gamepaddetach": gamepad.detach(); replies.ok(id: command.id)
     case "info": try handleInfo(command)
     case "capture": try handleCapture(command)
     case "move": try handleMove(command)

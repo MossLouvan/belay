@@ -15,6 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { backoffDelay, isHealthyRun } from './backoff.js';
+import type { GamepadState } from './gamepad-codec.js';
 import type { RawScreen } from './displays.js';
 import type { ValidSignal } from './webrtc/relay.js';
 
@@ -184,6 +185,23 @@ class NativeHost {
   /** Subscribers to audio frames the helper pushes while capture runs. */
   private audioListeners = new Set<AudioFrameListener>();
 
+  private gamepadListeners: readonly ((event: unknown) => void)[] = [];
+
+  gamepadAttach(preset: string): Promise<unknown> { return this.send({cmd:'gamepadattach',preset}); }
+  gamepadDetach(): Promise<unknown> { return this.send({cmd:'gamepaddetach'}); }
+  gamepadStatus(): Promise<unknown> { return this.send({cmd:'gamepadstatus'}); }
+  onGamepadEvent(listener: (event: unknown) => void): () => void {
+    this.gamepadListeners = [...this.gamepadListeners, listener];
+    return () => { this.gamepadListeners = this.gamepadListeners.filter(value => value !== listener); };
+  }
+  /** Fire-and-forget hot path; don't queue behind a slow capture or a full pipe.
+   * The channel retains the newest state until the helper can accept it. */
+  gamepad(state: GamepadState): boolean {
+    if (!this.proc || !this.ready || this.pending.size > 0 || this.proc.stdin.writableLength > 0) return false;
+    this.proc.stdin.write(JSON.stringify({cmd:'gamepad',...state}) + '\n');
+    return true;
+  }
+
   available(): boolean {
     return TARGET !== null && existsSync(TARGET.path);
   }
@@ -262,6 +280,10 @@ class NativeHost {
         }
         // A pushed audio frame (not an id-matched reply): one 20 ms encoded
         // frame of system audio, on its way to the phone via audio-routes.ts.
+        if (msg.type === 'rumble' || msg.type === 'gamepadstatus') {
+          for (const listener of this.gamepadListeners) { try { listener(msg); } catch { /* isolate subscribers */ } }
+          return;
+        }
         if (msg.type === 'audio') {
           this.dispatchAudioFrame(msg);
           return;
@@ -293,6 +315,9 @@ class NativeHost {
 
         const how = signal ? `signal ${signal}` : `code ${code}`;
         const err = new Error(`native host exited (${how})`);
+        for (const listener of this.gamepadListeners) {
+          try { listener({type:'gamepadstatus',backend:'unavailable',reason:err.message}); } catch { /* isolate subscribers */ }
+        }
         for (const p of this.pending.values()) p.reject(err);
         this.pending.clear();
 

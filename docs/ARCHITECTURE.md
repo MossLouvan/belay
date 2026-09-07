@@ -165,3 +165,20 @@ the host's resolution.
 - ScreenCaptureKit's `SCScreenshotManager` for macOS window capture, once a
   macOS 14 deployment target is acceptable — `CGWindowListCreateImage` is
   deprecated, though it still works.
+
+## Gaming input
+
+The phone's Gaming mode uses `app/modules/belay-gamepad` (Expo autolinking,
+Apple GameController/CoreHaptics) or the themed UI-thread touch sampler in
+`app/src/gamepad`. Both feed full-state binary packets into `/ws/gamepad`,
+independent of video and pointer-floor arbitration. The host validates,
+rate-limits and coalesces input in `gamepad-codec.ts`, `gamepad-session.ts` and
+`gamepad-channel.ts`, then uses the existing helper stdin connection.
+
+Windows lazily loads ViGEmClient for one virtual Xbox 360 target; missing
+ViGEm components select a reusable-buffer SendInput keymap. macOS implements
+only CGEvent keymap fallback. Helper rumble/status pushes return over the same
+socket. Socket ownership and independent 750 ms helper watchdogs prevent held
+inputs surviving a lost phone. Gaming restores screen preferences on exit and
+requests the fastest currently supported streaming preset. Setup, mappings,
+validation limits and device checks are in [GAMEPAD.md](GAMEPAD.md).

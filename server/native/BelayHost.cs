@@ -90,6 +90,9 @@ static class Native
     static int Size { get { return Marshal.SizeOf(typeof(INPUT)); } }
     static void Send(INPUT[] i) { SendInput((uint)i.Length, i, Size); }
 
+    static readonly int GamepadInputSize = Marshal.SizeOf(typeof(INPUT));
+    internal static void SendGamepad(INPUT[] inputs) { SendInput(1, inputs, GamepadInputSize); }
+
     public static void Dpi() { SetProcessDPIAware(); }
 
     // Some windows take the mouse for themselves: a Hyper-V virtual machine in
@@ -318,8 +321,13 @@ static class BelayHost
                 var c = (Dictionary<string, object>)J.DeserializeObject(line);
                 idObj = Get(c, "id");
                 string cmd = Str(Get(c, "cmd"));
+                // No reply or intermediate object on the controller hot path.
+                if (cmd == "gamepad") { BelayHostGamepad.State(c); continue; }
                 switch (cmd)
                 {
+                    case "gamepadstatus": BelayHostGamepad.Status(stdout,idObj); break;
+                    case "gamepadattach": BelayHostGamepad.Attach(stdout,idObj,c); break;
+                    case "gamepaddetach": BelayHostGamepad.Detach(); Ok(stdout,idObj); break;
                     case "info": DoInfo(stdout, idObj); break;
                     case "capture": DoCapture(stdout, idObj, c); break;
                     case "move": Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), TargetBounds(c)); Ok(stdout, idObj); break;
@@ -360,6 +368,7 @@ static class BelayHost
             }
             catch (Exception e) { Err(stdout, idObj, e.Message); }
         }
+        BelayHostGamepad.Detach();
 #if BELAY_WEBRTC_BUILD
         // stdin closed: Node is gone. Tear the peer + encoder down before exit
         // so the encode thread never outlives the process teardown.
@@ -410,6 +419,7 @@ static class BelayHost
     static void RouteChannelInput(Dictionary<string, object> c)
     {
         string cmd = Str(Get(c, "cmd"));
+        if (cmd == "gamepad") { BelayHostGamepad.State(c); return; }
         switch (cmd)
         {
             case "move": Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), TargetBounds(c)); break;

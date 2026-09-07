@@ -20,6 +20,7 @@
 // concern that ruled out the shared SegmentedControl is handled inside
 // ModeSwitch with the same dark-ink override DockKey uses.
 
+import type { ScreenMode } from './dock-modes';
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import { font, getTheme, useTheme } from '../theme';
@@ -30,7 +31,7 @@ import type { MonitorChoice } from './monitors';
 import { recordKeyLabel } from './record';
 import { layoutDockKeys } from './dock-layout';
 import type { RecordPhase } from './record';
-import type { PendingButton, PointerMode } from './viewport';
+import type { PendingButton } from './viewport';
 
 /** VoiceOver's stepper verbs on the zoom key — the old −/+ keys, as gestures. */
 const ZOOM_ACTIONS = Object.freeze([
@@ -132,8 +133,8 @@ function DockKeyRows({ children }: { children: React.ReactNode }) {
 }
 
 export interface ControlDockProps {
-  mode: PointerMode;
-  onModeChange: (mode: PointerMode) => void;
+  mode: ScreenMode;
+  onModeChange: (mode: ScreenMode) => void;
   /** The armed one-shot button override (right-/double-click). */
   armed: PendingButton;
   onToggleRight: () => void;
@@ -253,7 +254,7 @@ export function ControlDock({
           : undefined
       }
     >
-      <Row justify="space-between" gap="xs" align="center">
+      <Row justify="space-between" gap="xs" align="center" wrap>
         {/* The mode strip owns the row's slack width: Touch, Pad and Scroll
             answer the same question ("what does one finger do?"), exactly one
             answer holds at a time, and switching between them is THE screen's

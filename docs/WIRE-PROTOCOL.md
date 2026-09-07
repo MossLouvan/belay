@@ -131,3 +131,56 @@ on LAN/Tailscale-direct).
 Measurement happens on real hardware, not in the dev VM: the VM has no GPU, so
 there is no hardware encoder and any number taken there would misrepresent the
 experience.
+
+## Controller channel: `/ws/gamepad`
+
+This authenticated WebSocket is separate from the Rust BWP datagrams above.
+Upgrade with the same one-shot `/ws-ticket` flow as `/ws/cursors`.
+An optional `preset=generic|roblox|fortnite` query selects keyboard fallback
+bindings; it never remaps the virtual Xbox controller.
+
+Every client input message is **binary**, exactly **17 bytes**, little-endian:
+
+| Offset | Type | Field |
+|---:|---|---|
+| 0 | u8 | Version, must be 1 |
+| 1 | u16 | Buttons |
+| 3 | u8 | Left trigger, 0..255 → 0..1 |
+| 4 | u8 | Right trigger, 0..255 → 0..1 |
+| 5 | i16 | Left X |
+| 7 | i16 | Left Y |
+| 9 | i16 | Right X |
+| 11 | i16 | Right Y |
+| 13 | u32 | Sequence, wrapping |
+
+Sticks decode negative values divided by 32768 and nonnegative values by
+32767, giving exact -1 and +1 endpoints. Positive X is right, positive Y is up.
+Buttons use XUSB bits: Up `0x0001`, Down `0x0002`, Left `0x0004`, Right `0x0008`,
+Start `0x0010`, Select `0x0020`, L3 `0x0040`, R3 `0x0080`, LB `0x0100`, RB
+`0x0200`, A `0x1000`, B `0x2000`, X `0x4000`, Y `0x8000`. Two otherwise
+reserved bits are Belay touch extensions: Edit `0x0400`, Build `0x0800`.
+The ViGEm report strips these two bits; Fortnite keymap mode consumes them.
+
+Frames with the wrong length/version, or text messages, close the socket.
+The payload limit is also enforced at WebSocket assembly. A sequence is newer
+only when `(next - previous) >>> 0` is between 1 and `0x7fffffff` inclusive.
+Duplicate/stale samples are discarded. The server admits at most 500 frames
+per one-second window and forwards only the newest pending sample per 4 ms
+helper tick, retaining that sample while the helper pipe is busy.
+
+Server messages are validated JSON:
+
+```json
+{"type":"hello","available":true,"backend":"vigem"}
+{"type":"hello","available":true,"backend":"keymap","reason":"ViGEmBus connect failed"}
+{"type":"hello","available":false,"backend":"unavailable","reason":"Native helper unavailable"}
+{"type":"rumble","low":0.5,"high":1}
+```
+
+`low`/`high` are finite 0..1 motor intensities; zero stops that motor. While
+rumble is active, the host refreshes it every 250 ms. The phone stops motors
+after 750 ms without a refresh, including a stalled network. Backend
+changes may send a new hello. One socket owns the controller until detach
+finishes. Disconnect and 750 ms of inactivity release held state. Clients
+send full-state heartbeats even when buttons do not change. The gamepad lane
+bypasses input-floor arbitration but retains idle/injection accounting.

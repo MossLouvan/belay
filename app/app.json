@@ -23,7 +23,13 @@
         "NSCameraUsageDescription": "Belay uses the camera to scan the pairing code shown on your computer, and to take a photo to send to Claude.",
         "NSMicrophoneUsageDescription": "Belay listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
         "NSSpeechRecognitionUsageDescription": "Belay turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device.",
-        "NSPhotoLibraryUsageDescription": "Belay lets you pick photos or screenshots to send to Claude on your computer."
+        "NSPhotoLibraryUsageDescription": "Belay lets you pick photos or screenshots to send to Claude on your computer.",
+        "GCSupportedGameControllers": [
+          {
+            "ProfileName": "ExtendedGamepad"
+          }
+        ],
+        "GCSupportsControllerUserInteraction": true
       }
     },
     "android": {
