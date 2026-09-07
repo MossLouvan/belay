@@ -58,6 +58,16 @@ int belay_client_next_frame(void *handle, BelayFrame *out);
 // The bitrate the congestion controller has settled on, for display.
 uint64_t belay_client_bitrate(void *handle);
 
+// Ask the host for a keyframe. For the decoder to call when it cannot
+// continue (display layer failed, delta frame with no reference). Sent on the
+// next belay_client_next_frame; repeated calls before then cost one datagram.
+// Returns BELAY_OK or BELAY_ERR_ARGS.
+int belay_client_request_keyframe(void *handle);
+
+// Smoothed round-trip time to the host in milliseconds, or negative while it
+// is not yet known.
+double belay_client_rtt_ms(void *handle);
+
 // Release the handle. Safe with NULL. Calling twice is not safe.
 void belay_client_close(void *handle);
 

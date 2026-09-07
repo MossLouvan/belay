@@ -27,7 +27,8 @@ use belay_wire::crypto::{Direction, DirectionKey, ReplayWindow};
 use belay_wire::packet::{flags, fragment_count, fragment_range, Channel, Header, HEADER_LEN, MAX_DATAGRAM};
 use belay_wire::reassembly::{Accepted, Reassembler};
 
-use crate::feedback::{ReceiveTracker, Report, RttEstimator};
+use crate::control::ControlMessage;
+use crate::feedback::{ReceiveTracker, RttEstimator};
 use crate::pacer::Pacer;
 
 /// How often the receiver reports back.
@@ -64,7 +65,10 @@ pub enum Event {
     /// the ENCODER too — that shared setpoint is the whole benefit of owning
     /// both ends of the pipe.
     Bitrate { bps: u64 },
-    /// The decoder is broken and needs an I-frame to recover.
+    /// The decoder — ours, or the peer's, which told us so on the Control
+    /// channel — is broken and needs an I-frame to recover. On the sending
+    /// side this must reach the encoder; on the receiving side it is only
+    /// informational, the request having already gone out.
     KeyframeNeeded,
 }
 
@@ -94,9 +98,12 @@ pub struct Session {
 
     started: Instant,
     last_report_sent: Instant,
-    /// Set when reassembly gives up on a frame, so the next poll can ask for a
-    /// keyframe once rather than on every dropped fragment.
+    /// Set when reassembly gives up on a frame (or the decoder says so), so the
+    /// next poll sends ONE keyframe request rather than one per dropped
+    /// fragment.
     want_keyframe: bool,
+    /// The peer asked for a keyframe since the last poll.
+    peer_wants_keyframe: bool,
     /// How many times the OS has told us the peer was unreachable.
     ///
     /// Counted rather than ignored silently: a session where this only ever
@@ -152,6 +159,7 @@ impl Session {
             started: Instant::now(),
             last_report_sent: Instant::now(),
             want_keyframe: false,
+            peer_wants_keyframe: false,
             unreachable_reports: 0,
         })
     }
@@ -171,6 +179,22 @@ impl Session {
     /// there", which are worth telling apart.
     pub fn unreachable_reports(&self) -> u64 {
         self.unreachable_reports
+    }
+
+    /// Smoothed round-trip time in milliseconds, once the peer's reports have
+    /// echoed enough of our timestamps to know. `None` before that.
+    pub fn rtt_ms(&self) -> Option<f64> {
+        self.rtt.smoothed_ms()
+    }
+
+    /// Ask the peer for a keyframe on the next poll.
+    ///
+    /// For the receiving side's decoder to call when *it* knows it cannot
+    /// continue — a failed hardware decoder, a delta frame with no reference —
+    /// which the transport cannot see from fragment loss alone. Coalesced with
+    /// the transport's own detection so one poll sends at most one request.
+    pub fn request_keyframe(&mut self) {
+        self.want_keyframe = true;
     }
 
     /// Microseconds since this session started — the clock stamped into headers.
@@ -285,6 +309,11 @@ impl Session {
         }
         if self.want_keyframe {
             self.want_keyframe = false;
+            // Tell the peer: the sender is the only one who can fix this.
+            self.send_control(&ControlMessage::KeyframeRequest)?;
+        }
+        if self.peer_wants_keyframe {
+            self.peer_wants_keyframe = false;
             events.push(Event::KeyframeNeeded);
         }
         Ok(events)
@@ -325,7 +354,15 @@ impl Session {
     }
 
     fn on_control(&mut self, plaintext: &[u8]) -> Option<Event> {
-        let report = Report::decode(plaintext)?;
+        let report = match ControlMessage::decode(plaintext)? {
+            ControlMessage::Report(report) => report,
+            ControlMessage::KeyframeRequest => {
+                // Coalesced: a burst of requests from one bad GOP must cost the
+                // encoder one keyframe, not one per request.
+                self.peer_wants_keyframe = true;
+                return None;
+            }
+        };
         let rtt_ms = self.rtt.sample(self.now_us(), &report)?;
 
         let before = self.abr.bitrate_bps;
@@ -344,8 +381,14 @@ impl Session {
 
     fn send_report(&mut self) -> Result<(), SessionError> {
         let Some(report) = self.tracker.take_report(self.now_us() as u64) else { return Ok(()) };
-        let mut body = [0u8; Report::WIRE_LEN];
-        report.encode(&mut body);
+        self.send_control(&ControlMessage::Report(report))
+    }
+
+    /// One control message, one datagram, unpaced: control is tiny and its
+    /// whole value is being prompt.
+    fn send_control(&mut self, message: &ControlMessage) -> Result<(), SessionError> {
+        let mut body = [0u8; ControlMessage::MAX_WIRE_LEN];
+        let len = message.encode(&mut body);
 
         let header = Header {
             channel: Channel::Control,
@@ -360,9 +403,11 @@ impl Session {
         let ctl = Channel::Control as usize;
         self.next_frame_id[ctl] = self.next_frame_id[ctl].wrapping_add(1);
 
-        let wire = self.send_key.seal(&header, &body);
+        let wire = self.send_key.seal(&header, &body[..len]);
         match self.socket.send_to(&wire, self.peer) {
-            Ok(_) | Err(_) => Ok(()), // a lost report is repaired by the next one
+            // A lost report is repaired by the next one; a lost keyframe
+            // request by the next dropped frame, which will re-raise it.
+            Ok(_) | Err(_) => Ok(()),
         }
     }
 }
@@ -560,6 +605,58 @@ mod tests {
             "data-saver must cap the start, got {}",
             host.bitrate_bps()
         );
+    }
+
+    #[test]
+    fn a_keyframe_request_crosses_the_wire_to_the_sender() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+
+        // The decoder on the client side says it is broken.
+        client.request_keyframe();
+        let _ = client.poll().unwrap();
+
+        let events = drain(&mut host);
+        assert!(
+            events.iter().any(|e| matches!(e, Event::KeyframeNeeded)),
+            "the host must learn the client needs a keyframe: {events:?}"
+        );
+        // Coalesced: nothing more arrives until asked again.
+        let again = drain(&mut host);
+        assert!(!again.iter().any(|e| matches!(e, Event::KeyframeNeeded)));
+    }
+
+    #[test]
+    fn repeated_requests_between_host_polls_cost_one_keyframe() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        client.request_keyframe();
+        client.request_keyframe();
+        let _ = client.poll().unwrap();
+        // A second client poll sends a second datagram; the host must still
+        // surface a single event.
+        client.request_keyframe();
+        let _ = client.poll().unwrap();
+
+        let events = drain(&mut host);
+        let n = events.iter().filter(|e| matches!(e, Event::KeyframeNeeded)).count();
+        assert_eq!(n, 1, "requests arriving between two host polls must coalesce: {events:?}");
+    }
+
+    #[test]
+    fn rtt_is_unknown_until_reports_echo_and_then_small_on_loopback() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        assert_eq!(host.rtt_ms(), None);
+
+        for _ in 0..20 {
+            host.send_frame(Channel::Video, &[7u8; 800], false).unwrap();
+        }
+        let _ = drain(&mut client);
+        for _ in 0..6 {
+            std::thread::sleep(REPORT_INTERVAL);
+            let _ = client.poll().unwrap();
+            let _ = host.poll().unwrap();
+        }
+        let rtt = host.rtt_ms().expect("the host samples RTT from the client's reports");
+        assert!((0.0..500.0).contains(&rtt), "loopback RTT should be small, got {rtt}");
     }
 
     #[test]

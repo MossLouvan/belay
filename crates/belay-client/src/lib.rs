@@ -243,6 +243,33 @@ pub unsafe extern "C" fn belay_client_bitrate(handle: *mut c_void) -> u64 {
     client.session.bitrate_bps()
 }
 
+/// Ask the host for a keyframe.
+///
+/// For the decoder to call when it cannot continue: the display layer failed,
+/// or a delta frame arrived with no reference to decode against. The request
+/// goes out on the next `belay_client_next_frame`; repeated calls before then
+/// cost one datagram. Returns BELAY_OK, or BELAY_ERR_ARGS for a null handle.
+///
+/// # Safety
+/// `handle` must be a live handle from `belay_client_open`.
+#[no_mangle]
+pub unsafe extern "C" fn belay_client_request_keyframe(handle: *mut c_void) -> c_int {
+    let Some(client) = (handle as *mut BelayClient).as_mut() else { return BELAY_ERR_ARGS };
+    client.session.request_keyframe();
+    BELAY_OK
+}
+
+/// Smoothed round-trip time to the host in milliseconds, or a negative value
+/// while it is not yet known.
+///
+/// # Safety
+/// `handle` must be a live handle from `belay_client_open`.
+#[no_mangle]
+pub unsafe extern "C" fn belay_client_rtt_ms(handle: *mut c_void) -> f64 {
+    let Some(client) = (handle as *mut BelayClient).as_ref() else { return -1.0 };
+    client.session.rtt_ms().unwrap_or(-1.0)
+}
+
 /// Release the handle. Safe to call with null. Calling twice is not safe.
 ///
 /// # Safety
@@ -469,7 +496,30 @@ mod tests {
             }
             assert!(got_video, "video must reach the C API");
             assert!(got_cursor, "cursor must reach the C API");
+
+            // The decoder says it is broken: the host must hear about it.
+            assert_eq!(belay_client_request_keyframe(h), BELAY_OK);
+            let mut frame = BelayFrame::default();
+            let _ = belay_client_next_frame(h, &mut frame);
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            let events = host.poll().unwrap();
+            assert!(
+                events.iter().any(|e| matches!(e, Event::KeyframeNeeded)),
+                "the host must receive the keyframe request: {events:?}"
+            );
+
+            // RTT is a display value: unknown reads as negative, never as zero.
+            let rtt = belay_client_rtt_ms(h);
+            assert!(rtt < 0.0 || rtt < 500.0);
             belay_client_close(h);
+        }
+    }
+
+    #[test]
+    fn keyframe_and_rtt_calls_tolerate_a_null_handle() {
+        unsafe {
+            assert_eq!(belay_client_request_keyframe(std::ptr::null_mut()), BELAY_ERR_ARGS);
+            assert!(belay_client_rtt_ms(std::ptr::null_mut()) < 0.0);
         }
     }
 }

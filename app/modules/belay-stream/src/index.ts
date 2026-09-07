@@ -31,8 +31,21 @@ export interface BwpSource {
 
 export type StreamStatus =
   | { readonly state: 'opened'; readonly localPort: number }
+  /** The first frame reached the display layer. */
   | { readonly state: 'live' }
   | { readonly state: 'bitrate'; readonly bps: number }
+  /**
+   * Once a second from the receive thread, even when nothing decoded: a zero
+   * `decoded` is how the app tells a stalled stream from a quiet one.
+   * `rttMs` is -1 until the host's reports have echoed enough to know.
+   */
+  | {
+      readonly state: 'stats';
+      readonly decoded: number;
+      readonly dropped: number;
+      readonly keyframeRequests: number;
+      readonly rttMs: number;
+    }
   | { readonly state: 'error'; readonly error: string };
 
 export interface CursorEvent {

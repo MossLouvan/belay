@@ -31,6 +31,18 @@ final class H264Stream {
     /// True once an SPS and PPS have been seen and a decoder could start.
     var isReady: Bool { formatDescription != nil }
 
+    /// Whether an access unit carries an IDR slice (NAL type 5).
+    ///
+    /// The wire header has a keyframe flag too, but it is set from the
+    /// encoder's own report of what it produced, and some hardware encoders
+    /// never fill that in. The bytes do not lie: a frame the decoder can start
+    /// from has an IDR slice in it, whatever the header says.
+    static func containsIDR(_ payload: UnsafeRawBufferPointer) -> Bool {
+        nalUnits(in: payload).contains { range in
+            range.count > 0 && payload[range.lowerBound] & 0x1F == 5
+        }
+    }
+
     /// Split an Annex-B buffer into its NAL units.
     ///
     /// Handles both 3-byte and 4-byte start codes: encoders mix them within a
