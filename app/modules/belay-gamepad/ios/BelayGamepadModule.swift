@@ -9,10 +9,11 @@ public final class BelayGamepadModule: Module {
     public func definition() -> ModuleDefinition {
         Name("BelayGamepad")
         Events("onState", "onConnection")
-        AsyncFunction("start") { () -> [String: Any] in
+        AsyncFunction("start") { (accent: String) -> [String: Any] in
             if self.sampler == nil {
                 self.sampler = ControllerSampler { [weak self] name, payload in self?.sendEvent(name, payload) }
             }
+            self.sampler?.setAccent(accent)
             self.sampler?.start()
             return self.sampler?.connection() ?? ["connected": false]
         }.runOnQueue(.main)
@@ -38,6 +39,11 @@ private final class ControllerSampler: NSObject {
     private var engines: [GCHapticsLocality: CHHapticEngine] = [:]
     private var players: [GCHapticsLocality: CHHapticAdvancedPatternPlayer] = [:]
     private var intensities: [GCHapticsLocality: Float] = [:]
+    private var accent: GCColor?
+    private var previousColor: GCColor?
+    private var previousHomeGesture: GCControllerElement.SystemGestureState?
+    private var lastGuide = false
+    private var rumbleAt: CFTimeInterval?
 
     init(emit: @escaping (String, [String: Any]) -> Void) { self.emit = emit }
     func start() {
@@ -62,27 +68,51 @@ private final class ControllerSampler: NSObject {
         displayLink?.invalidate(); displayLink = nil
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers = []
         controller?.extendedGamepad?.valueChangedHandler = nil
-        stopRumble(); controller = nil
+        restoreController(); stopRumble(); controller = nil
         GCController.shouldMonitorBackgroundEvents = oldBackground
         UIApplication.shared.isIdleTimerDisabled = oldIdleDisabled
         emit("onConnection", connection())
     }
     func connection() -> [String: Any] {
-        ["connected": controller != nil, "name": controller?.vendorName ?? "Controller"]
+        let pad = controller?.extendedGamepad
+        let kind = pad is GCDualSenseGamepad ? "dualsense" : pad is GCDualShockGamepad ? "dualshock" : pad is GCXboxGamepad ? "xbox" : "generic"
+        return ["connected": controller != nil, "name": controller?.vendorName ?? "Controller", "kind": kind]
+    }
+    func setAccent(_ hex: String) {
+        guard hex.count == 7, hex.first == "#", let rgb = UInt32(hex.dropFirst(), radix: 16) else { return }
+        accent = GCColor(red: Float((rgb >> 16) & 255) / 255,
+                         green: Float((rgb >> 8) & 255) / 255, blue: Float(rgb & 255) / 255)
+        if let color = accent { controller?.light?.color = color }
+    }
+    private func restoreController() {
+        if let color = previousColor { controller?.light?.color = color }
+        if let gesture = previousHomeGesture { controller?.extendedGamepad?.buttonHome?.preferredSystemGestureState = gesture }
+        previousColor = nil
+        previousHomeGesture = nil
     }
     private func selectController() {
         let available = GCController.controllers().filter { $0.extendedGamepad != nil }
         if let selected = controller, available.contains(where: { $0 === selected }) { return }
         controller?.extendedGamepad?.valueChangedHandler = nil
-        stopRumble()
+        restoreController(); stopRumble()
         controller = available.first
+        previousColor = controller?.light?.color
+        previousHomeGesture = controller?.extendedGamepad?.buttonHome?.preferredSystemGestureState
+        // Request immediate PS/Guide input for our local exit hold. iOS may
+        // reserve a system gesture; restore its prior preference on detach.
+        controller?.extendedGamepad?.buttonHome?.preferredSystemGestureState = .disabled
+        if let color = accent { controller?.light?.color = color }
         controller?.handlerQueue = .main
         controller?.extendedGamepad?.valueChangedHandler = { [weak self] _, _ in self?.dirty = true }
-        dirty = true
+        dirty = true; lastGuide = false
         emit("onConnection", connection())
     }
     @objc private func sample() {
-        guard dirty, let pad = controller?.extendedGamepad else { return }
+        if let last = rumbleAt, CACurrentMediaTime() - last > 0.75 { stopRumble() }
+        guard let pad = controller?.extendedGamepad else { return }
+        let guide = pad.buttonHome?.isPressed == true
+        guard dirty || guide != lastGuide else { return }
+        lastGuide = guide
         dirty = false
         var buttons = 0
         let values: [(GCControllerButtonInput?, Int)] = [
@@ -92,13 +122,16 @@ private final class ControllerSampler: NSObject {
             (pad.buttonA,4096),(pad.buttonB,8192),(pad.buttonX,16384),(pad.buttonY,32768)
         ]
         for (button, mask) in values where button?.isPressed == true { buttons |= mask }
+        let touchpad = (pad as? GCDualSenseGamepad)?.touchpadButton ?? (pad as? GCDualShockGamepad)?.touchpadButton
+        if touchpad?.isPressed == true { buttons |= 32 }
         emit("onState", ["buttons":buttons,"lt":pad.leftTrigger.value,"rt":pad.rightTrigger.value,
                          "lx":pad.leftThumbstick.xAxis.value,"ly":pad.leftThumbstick.yAxis.value,
-                         "rx":pad.rightThumbstick.xAxis.value,"ry":pad.rightThumbstick.yAxis.value])
+                         "rx":pad.rightThumbstick.xAxis.value,"ry":pad.rightThumbstick.yAxis.value,"guide":guide])
     }
     func rumble(low: Double, high: Double) {
         guard low.isFinite, high.isFinite, (0...1).contains(low), (0...1).contains(high),
               let haptics = controller?.haptics else { return }
+        rumbleAt = CACurrentMediaTime()
         let localities = haptics.supportedLocalities
         if localities.contains(.leftHandle), localities.contains(.rightHandle) {
             play(haptics, .leftHandle, Float(low)); play(haptics, .rightHandle, Float(high))
@@ -133,5 +166,6 @@ private final class ControllerSampler: NSObject {
         for player in players.values { try? player.stop(atTime: CHHapticTimeImmediate) }
         for engine in engines.values { engine.stop(completionHandler: nil) }
         players = [:]; engines = [:]; intensities = [:]
+        rumbleAt = nil
     }
 }

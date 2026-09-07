@@ -48,6 +48,13 @@ npm test        # pure-logic unit tests, no Electron needed
   scroll, text, and shortcuts. Ctrl/Cmd combinations are forwarded to the remote
   desktop rather than acted on locally — Ctrl+W closes the remote tab, not this
   window.
+- **Controllers and Gaming.** Each display window has a Gaming toggle and a
+  controller/backend indicator. DualSense and DualShock 4 use PlayStation
+  glyphs; standard Xbox/generic pads use ABXY. Gaming sends the first connected
+  controller through the paired host's controller lane, returns rumble when
+  the browser supports it, and applies the phone's low-latency JPEG preset.
+  See [`docs/GAMEPAD.md`](../docs/GAMEPAD.md#from-the-desktop-client) for setup,
+  multi-window ownership, device checks and limitations.
 - **Modifiers that mean what your thumb means.** When the two computers run
   different platforms, modifiers are remapped by *role*, not forwarded by
   name — see below.
@@ -105,6 +112,8 @@ opened after the change.
 | `src/keymap.js` | KeyboardEvent → the host's key/text endpoints |
 | `src/modmap.js` | which modifier means what, per client/host pairing |
 | `src/url.js` | what someone types → a host origin |
+| `src/gamepad-*.js` | standard mapping, controller kind, binary frame, timing, rumble and Gaming config |
+| `renderer/gamepad.js` | Gamepad API polling, ticket/socket lifecycle and controller chrome |
 | `test/` | `node --test` over every `src/` module |
 | `test/smoke.cjs` | manual end-to-end check against a live host (see the header) |
 

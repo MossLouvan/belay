@@ -9,6 +9,8 @@
 import { hostOrigin, socketOrigin } from '../src/url.js';
 import { translateKey, modifiersOf } from '../src/keymap.js';
 import { bareTapKey, legendText, modifierMap } from '../src/modmap.js';
+import { streamConfig } from '../src/gamepad-session.js';
+import { attachGamepad } from './gamepad.js';
 
 const params = new URLSearchParams(location.search);
 const host = hostOrigin(params.get('host')) ?? '';
@@ -37,6 +39,16 @@ document.getElementById('keys').textContent = legendText(keymap);
 
 /** Stream tuning. Higher than the phone's defaults: this is a desktop on a LAN. */
 const STREAM = { w: 1600, q: 62, fps: 24 };
+let gaming = false;
+let streamSocket = null;
+const currentConfig = () => streamConfig(gaming, STREAM, screenIndex);
+function retune() {
+  if (streamSocket?.readyState === WebSocket.OPEN) streamSocket.send(JSON.stringify(currentConfig()));
+}
+attachGamepad({
+  host, token, indicator: document.getElementById('controller'), toggle: document.getElementById('gaming'),
+  onGaming: enabled => { gaming = enabled; overlay.classList.toggle('gaming', enabled); retune(); },
+});
 
 function setStatus(text, bad = false, live = false) {
   const stats = document.getElementById('stats');
@@ -135,6 +147,7 @@ canvas.addEventListener('wheel', (event) => {
 let armedTap = null;
 
 window.addEventListener('keydown', (event) => {
+  if (event.target.closest?.('button')) return;
   const translated = translateKey(event, keymap);
   if (!translated) {
     armedTap = bareTapKey(event.key, keymap) && modifiersOf(event, keymap).length === 1
@@ -152,6 +165,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 window.addEventListener('keyup', (event) => {
+  if (event.target.closest?.('button')) return;
   if (event.key !== armedTap) return;
   armedTap = null;
   event.preventDefault();
@@ -189,9 +203,10 @@ async function socketUrl() {
   // layout). An old host ignores the param and keeps sending JSON, which the
   // message handler below still accepts — the two shapes share one socket.
   url.searchParams.set('bin', '1');
-  url.searchParams.set('w', String(STREAM.w));
-  url.searchParams.set('q', String(STREAM.q));
-  url.searchParams.set('fps', String(STREAM.fps));
+  const config = currentConfig();
+  url.searchParams.set('w', String(config.w));
+  url.searchParams.set('q', String(config.q));
+  url.searchParams.set('fps', String(config.fps));
   if (screenIndex !== undefined) url.searchParams.set('screen', String(screenIndex));
   try {
     const response = await fetch(host + '/ws-ticket', {
@@ -287,7 +302,8 @@ async function connect() {
 
   // Binary frames must arrive as ArrayBuffer, not the default Blob.
   socket.binaryType = 'arraybuffer';
-  socket.addEventListener('open', () => { attempt = 0; setStatus('live', false, true); });
+  streamSocket = socket;
+  socket.addEventListener('open', () => { attempt = 0; retune(); setStatus('live', false, true); });
   socket.addEventListener('message', (event) => {
     if (event.data instanceof ArrayBuffer) { drawBinary(event.data); return; }
     let message;
@@ -302,7 +318,7 @@ async function connect() {
       setStatus(String(message.error).slice(0, 120), true);
     }
   });
-  socket.addEventListener('close', retry);
+  socket.addEventListener('close', () => { if (streamSocket === socket) streamSocket = null; retry(); });
   socket.addEventListener('error', () => socket.close());
 }
 
