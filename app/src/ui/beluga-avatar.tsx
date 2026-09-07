@@ -3,7 +3,8 @@
 // This is the CUTOUT era: `beluga-cutout.png` is a transparent RGBA cutout
 // (642x537, rope collar + carabiner intact), so the mascot floats directly on
 // whatever surface hosts it. No circle, no water, no video — the old
-// expo-video swim/flip clips are retired (the files stay on disk, unused).
+// expo-video swim/flip clips are retired and deleted along with the
+// dependency (see assets/BELUGA-ASSETS.md).
 //
 // IDLE (default, always, unless reduced motion):
 //   - A slow vertical bob + a subtle rotational sway, phase-offset so the
