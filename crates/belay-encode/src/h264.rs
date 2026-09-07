@@ -82,6 +82,7 @@ pub struct H264Encoder {
     is_async: bool,
     events: Option<IMFMediaEventGenerator>,
     frame_index: i64,
+    input_credits: u32,
     /// True once the encoder has been told to emit a keyframe next.
     force_keyframe: bool,
     /// Frames collected while waiting for input capacity on an async MFT.
@@ -190,6 +191,7 @@ impl H264Encoder {
                 output_stream: 0,
                 provides_output_samples,
                 frame_index: 0,
+                input_credits: 0,
                 force_keyframe: false,
                 pending_output: Vec::new(),
                 device_manager: None,
@@ -286,6 +288,7 @@ impl H264Encoder {
                 self.force_keyframe = false;
             }
             self.transform.ProcessInput(self.input_stream, &sample, 0)?;
+            self.frame_index += 1;
             self.drain()
         }
     }
@@ -338,6 +341,7 @@ impl H264Encoder {
                 self.force_keyframe = false;
             }
             self.transform.ProcessInput(self.input_stream, &sample, 0)?;
+            self.frame_index += 1;
             self.drain()
         }
     }
@@ -355,6 +359,10 @@ impl H264Encoder {
     /// An async MFT signals METransformNeedInput when it has capacity; feeding
     /// it before that is an error, not backpressure.
     unsafe fn await_need_input(&mut self) -> WinResult<()> {
+        if self.input_credits > 0 {
+            self.input_credits -= 1;
+            return Ok(());
+        }
         let Some(events) = self.events.clone() else { return Ok(()) };
         // Bounded so a wedged encoder surfaces as an error instead of hanging
         // the capture thread forever.
@@ -409,6 +417,8 @@ impl H264Encoder {
                         if ev.GetType()? == METransformHaveOutput.0 as u32 {
                             let mut got = self.process_output_once()?;
                             out.append(&mut got);
+                        } else if ev.GetType()? == METransformNeedInput.0 as u32 {
+                            self.input_credits = self.input_credits.saturating_add(1);
                         }
                     }
                     Err(_) => break, // no event pending
@@ -457,7 +467,6 @@ impl H264Encoder {
 
         match hr {
             Ok(()) => {
-                self.frame_index += 1;
                 match sample {
                     Some(s) => Ok(vec![self.read_sample(&s)?]),
                     None => Ok(Vec::new()),

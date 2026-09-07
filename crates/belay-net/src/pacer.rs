@@ -43,7 +43,9 @@ impl Pacer {
     }
 
     fn burst_bytes(bitrate_bps: u64) -> f64 {
-        (bitrate_bps as f64 / 8.0) * MAX_BURST_SECONDS
+        // The bucket must fit one datagram even below one Mbps.
+        ((bitrate_bps as f64 / 8.0) * MAX_BURST_SECONDS)
+            .max((belay_wire::packet::MAX_DATAGRAM + belay_wire::packet::HEADER_LEN) as f64)
     }
 
     /// Retarget. The congestion controller's setpoint lands here and at the
@@ -105,6 +107,15 @@ impl Pacer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn low_bitrate_can_eventually_send_a_whole_datagram() {
+        let mut p = Pacer::new(300_000, 0);
+        assert!(p.try_send(1216, 0));
+        assert!(!p.try_send(1216, 0));
+        let wait = p.wait_for(1216, 0);
+        assert!(p.try_send(1216, wait.as_micros() as u64 + 1));
+    }
 
     #[test]
     fn a_fresh_pacer_can_send_immediately() {

@@ -159,13 +159,14 @@ app.whenReady().then(() => {
     receivers.get(id)?.stop(); receivers.delete(id);
     const epoch=(videoEpochs.get(id)||0)+1;videoEpochs.set(id,epoch);
     const receiver=await reserveVideo(__dirname,host,
-      frame=>{if(videoEpochs.get(id)===epoch&&!event.sender.isDestroyed())event.sender.send('video:frame',frame);},
+      frame=>{if(videoEpochs.get(id)===epoch&&!event.sender.isDestroyed())event.sender.send('video:frame',{...frame,generation:epoch});},
       ()=>{if(videoEpochs.get(id)===epoch&&!event.sender.isDestroyed())event.sender.send('video:ended');});
     if(videoEpochs.get(id)!==epoch || event.sender.isDestroyed()){receiver.stop();throw new Error('Video cancelled');}
     receivers.set(id,receiver);return receiver.port;
   });
   ipcMain.handle('video:configure',(event,offer,preset)=>receivers.get(event.sender.id)?.configure(offer,preset));
-  ipcMain.on('video:ack',event=>receivers.get(event.sender.id)?.ack());
+  ipcMain.on('video:ack',(event,generation,deliveryId)=>{if(videoEpochs.get(event.sender.id)===generation)receivers.get(event.sender.id)?.ack(deliveryId);});
+  ipcMain.on('video:keyframe',(event,generation)=>{if(videoEpochs.get(event.sender.id)===generation)receivers.get(event.sender.id)?.requestKeyframe();});
   ipcMain.handle('video:stop',event=>{const id=event.sender.id;videoEpochs.set(id,(videoEpochs.get(id)||0)+1);receivers.get(id)?.stop();receivers.delete(id);});
   const userData = app.getPath('userData');
   // The rename moved the userData directory; pick up the session the

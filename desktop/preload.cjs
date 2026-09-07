@@ -12,7 +12,8 @@ contextBridge.exposeInMainWorld('belay', {
   reserveVideo: () => ipcRenderer.invoke('video:reserve'),
   configureVideo: (offer,preset) => ipcRenderer.invoke('video:configure',offer,preset),
   stopVideo: () => ipcRenderer.invoke('video:stop'),
-  acknowledgeVideo: () => ipcRenderer.send('video:ack'),
+  acknowledgeVideo: (generation, deliveryId) => ipcRenderer.send('video:ack', generation, deliveryId),
+  requestVideoKeyframe: generation => ipcRenderer.send('video:keyframe', generation),
   onVideo: callback => { const listener=(_event,frame)=>callback(frame);ipcRenderer.on('video:frame',listener);return()=>ipcRenderer.removeListener('video:frame',listener); },
   onVideoEnded: callback => { const listener=()=>callback();ipcRenderer.on('video:ended',listener);return()=>ipcRenderer.removeListener('video:ended',listener); },
   /** The saved host and token, or empty strings when not paired yet. */

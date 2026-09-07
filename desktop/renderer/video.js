@@ -10,7 +10,14 @@ export function attachVideo({ bridge, canvas, context, send, onFrame, onMode }) 
   const unframe=bridge?.onVideo?.(frame=>{
     try {
       if(!active || !frame?.data || !decoder) return;
-      if(decoder.decodeQueueSize>2){fallback();return;}
+      if(decoder.decodeQueueSize>2){
+        // A short decoder stall should recover H.264, not permanently downgrade.
+        decoder.reset();needKey=true;
+        bridge.requestVideoKeyframe(frame.generation);
+        clearTimeout(timer);const current=epoch;
+        timer=setTimeout(()=>{if(current===epoch)fallback();},6000);
+        return;
+      }
       if(needKey&&!frame.keyframe)return;
       if(decoder.state==='unconfigured') {
         const bytes=new Uint8Array(frame.data);let codec=null;
@@ -24,7 +31,7 @@ export function attachVideo({ bridge, canvas, context, send, onFrame, onMode }) 
       needKey=false;timestamp+=16667;
       decoder.decode(new EncodedVideoChunk({type:frame.keyframe?'key':'delta',timestamp,data:frame.data}));
     } catch {fallback();}
-    finally {bridge.acknowledgeVideo();}
+    finally {bridge.acknowledgeVideo(frame?.generation,frame?.deliveryId);}
   });
   const unend=bridge?.onVideoEnded?.(()=>{if(active)fallback();});
   return {

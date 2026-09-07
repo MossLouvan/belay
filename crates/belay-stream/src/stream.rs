@@ -131,6 +131,7 @@ pub fn run(
     let mut last_stats = Instant::now();
     let mut last_keyframe = Instant::now();
     let (mut frames, mut sent_bytes) = (0u64, 0u64);
+    let (mut capture_us, mut encode_us, mut send_us, mut samples) = (0u128, 0u128, 0u128, 0u64);
     // Counted separately because they mean different things and only one of
     // them is a problem: `no_change` is an idle desktop working as designed,
     // `cursor_only` is the cursor moving over a still screen. A stream that is
@@ -150,10 +151,14 @@ pub fn run(
             emit(
                 "stats",
                 &format!(
-                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only}",
+                    "\"fps\":{:.1},\"kbps\":{:.0},\"bitrate\":{},\"noChange\":{no_change},\"cursorOnly\":{cursor_only},\"captureMs\":{:.3},\"convertEncodeMs\":{:.3},\"sendMs\":{:.3},\"rttMs\":{:.3}",
                     frames as f64 / secs,
                     (sent_bytes as f64 * 8.0 / 1000.0) / secs,
-                    session.bitrate_bps()
+                    session.bitrate_bps(),
+                    capture_us as f64 / samples.max(1) as f64 / 1000.0,
+                    encode_us as f64 / samples.max(1) as f64 / 1000.0,
+                    send_us as f64 / samples.max(1) as f64 / 1000.0,
+                    session.rtt_ms().unwrap_or(0.0)
                 ),
             );
             frames = 0;
@@ -161,6 +166,7 @@ pub fn run(
             no_change = 0;
             cursor_only = 0;
             last_stats = Instant::now();
+            capture_us = 0; encode_us = 0; send_us = 0; samples = 0;
         }
 
         // 1. Session first, so the client's feedback applies to THIS frame.
@@ -191,6 +197,7 @@ pub fn run(
 
         // 2. Capture. Ok(None) is a static desktop, which is the common case
         //    and costs nothing.
+        let capture_started = Instant::now();
         let grabbed = match (capture.as_mut(), synthetic.as_mut()) {
             (Some(c), _) => c
                 .next_frame_gpu(CAPTURE_TIMEOUT_MS)
@@ -240,6 +247,9 @@ pub fn run(
         if last_keyframe.elapsed() >= Duration::from_secs(config.keyframe_interval_s as u64) {
             encoder.request_keyframe(); last_keyframe = Instant::now();
         }
+        capture_us += capture_started.elapsed().as_micros();
+        samples += 1;
+        let encode_started = Instant::now();
         let coded = if let Some(conv) = converter.as_mut() {
             conv.convert(&texture).map_err(|e| format!("gpu convert failed: {e}"))?;
             encoder
@@ -270,6 +280,8 @@ pub fn run(
             encoder.encode(&nv12).map_err(|e| format!("encode failed: {e}"))?
         };
 
+        encode_us += encode_started.elapsed().as_micros();
+        let send_started = Instant::now();
         for frame in coded {
             let bytes = frame.data.len();
             session
@@ -278,15 +290,17 @@ pub fn run(
             frames += 1;
             sent_bytes += bytes as u64;
         }
+        send_us += send_started.elapsed().as_micros();
 
         let _ = escape; // reserved for error paths that carry free text
 
         // Pace the capture loop. Without this a fast machine captures and
         // encodes far past the requested rate and spends the bitrate on frames
         // the client will never display.
-        let elapsed = loop_start.elapsed();
-        if elapsed < frame_budget {
-            std::thread::sleep(frame_budget - elapsed);
+        while loop_start.elapsed() < frame_budget {
+            session.service().map_err(|e| format!("session failed: {e:?}"))?;
+            let remaining = frame_budget.saturating_sub(loop_start.elapsed());
+            std::thread::sleep(remaining.min(Duration::from_millis(1)));
         }
     }
 }

@@ -19,11 +19,12 @@
 //! peer-supplied fragment count.
 
 use std::io;
+use std::collections::VecDeque;
 use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
 use belay_wire::congestion::{AbrConfig, AbrState, BitratePreset, LinkFeedback};
-use belay_wire::crypto::{Direction, DirectionKey, ReplayWindow};
+use belay_wire::crypto::{Direction, DirectionKey, ReplayWindow, TAG_LEN};
 use belay_wire::packet::{flags, fragment_count, fragment_range, Channel, Header, HEADER_LEN, MAX_DATAGRAM};
 use belay_wire::reassembly::{Accepted, Reassembler};
 
@@ -103,6 +104,9 @@ pub struct Session {
     /// climbs is one where nothing is listening at the other end, and that is
     /// worth being able to see. It is not itself an error.
     unreachable_reports: u64,
+    deferred_events: Vec<Event>,
+    sent_stamps: VecDeque<(u32, u32)>,
+    last_report_sequence: Option<u32>,
 }
 
 impl core::fmt::Debug for Session {
@@ -153,6 +157,9 @@ impl Session {
             last_report_sent: Instant::now(),
             want_keyframe: false,
             unreachable_reports: 0,
+            deferred_events: Vec::new(),
+            sent_stamps: VecDeque::new(),
+            last_report_sequence: None,
         })
     }
 
@@ -162,6 +169,20 @@ impl Session {
 
     pub fn bitrate_bps(&self) -> u64 {
         self.abr.bitrate_bps
+    }
+
+    pub fn rtt_ms(&self) -> Option<f64> { self.rtt.smoothed_ms() }
+
+    fn remember_sent(&mut self, sequence: u32) {
+        if self.sent_stamps.len() == 8192 { self.sent_stamps.pop_front(); }
+        self.sent_stamps.push_back((sequence, self.now_us()));
+    }
+
+    /// Service control traffic while waiting; preserve application events.
+    pub fn service(&mut self) -> Result<(), SessionError> {
+        let events = self.poll()?;
+        self.deferred_events.extend(events);
+        Ok(())
     }
 
     /// How many times the OS has reported the peer unreachable.
@@ -198,6 +219,17 @@ impl Session {
         let _max_wire = MAX_DATAGRAM + HEADER_LEN;
         for i in 0..count {
             let (s, e) = fragment_range(payload.len(), i);
+            if paced {
+                let wire_len = HEADER_LEN + TAG_LEN + e - s;
+                while !self.pacer.try_send(wire_len, self.started.elapsed().as_micros() as u64) {
+                    // A large access unit must not prevent feedback processing:
+                    // that delay otherwise masquerades as network RTT and holds
+                    // ABR down, making the next frame block even longer.
+                    self.service()?;
+                    let wait = self.pacer.wait_for(wire_len, self.started.elapsed().as_micros() as u64);
+                    std::thread::sleep(wait.min(Duration::from_millis(1)));
+                }
+            }
             let mut f = 0u8;
             if keyframe {
                 f |= flags::KEYFRAME;
@@ -219,19 +251,8 @@ impl Session {
             let wire = self.send_key.seal(&header, &payload[s..e]);
             debug_assert!(wire.len() <= _max_wire);
 
-            if paced {
-                let now = self.now_us() as u64;
-                if !self.pacer.try_send(wire.len(), now) {
-                    let wait = self.pacer.wait_for(wire.len(), now);
-                    // Sleeping here paces the frame. It is bounded by the
-                    // bitrate, so at 8 Mbps this is ~1ms between datagrams.
-                    std::thread::sleep(wait);
-                    let now = self.now_us() as u64;
-                    let _ = self.pacer.try_send(wire.len(), now);
-                }
-            }
             match self.socket.send_to(&wire, self.peer) {
-                Ok(_) => {}
+                Ok(_) => self.remember_sent(header.sequence),
                 // A full socket buffer is backpressure, not a failure; the
                 // pacer will have slowed us by the next fragment anyway.
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
@@ -247,7 +268,7 @@ impl Session {
     }
 
     pub fn poll(&mut self) -> Result<Vec<Event>, SessionError> {
-        let mut events = Vec::new();
+        let mut events = core::mem::take(&mut self.deferred_events);
         let mut buf = [0u8; 2048];
 
         loop {
@@ -331,7 +352,16 @@ impl Session {
 
     fn on_control(&mut self, plaintext: &[u8]) -> Option<Event> {
         if plaintext == b"IDR1" { return Some(Event::KeyframeNeeded); }
-        let report = Report::decode(plaintext)?;
+        let mut report = Report::decode(plaintext)?;
+        if self.last_report_sequence.is_some_and(|last| !belay_wire::packet::seq_newer(report.highest_seq, last)) {
+            return None;
+        }
+        // V1's 16-byte header never serialized send_us. Correlate the peer's
+        // authenticated sequence acknowledgement with our bounded send history
+        // instead, preserving the existing wire format and client compatibility.
+        report.echo_send_us = self.sent_stamps.iter().rev()
+            .find(|(seq, _)| *seq == report.highest_seq)?.1;
+        self.last_report_sequence = Some(report.highest_seq);
         let rtt_ms = self.rtt.sample(self.now_us(), &report)?;
 
         let before = self.abr.bitrate_bps;
@@ -368,7 +398,8 @@ impl Session {
 
         let wire = self.send_key.seal(&header, &body);
         match self.socket.send_to(&wire, self.peer) {
-            Ok(_) | Err(_) => Ok(()), // a lost report is repaired by the next one
+            Ok(_) => { self.remember_sent(header.sequence); Ok(()) },
+            Err(_) => Ok(()), // a lost report is repaired by the next one
         }
     }
 }
@@ -385,6 +416,31 @@ pub fn random_salt() -> [u8; 8] {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn v1_reports_measure_packet_round_trip_instead_of_session_age() {
+        let (mut host, _) = pair(BitratePreset::Max);
+        host.started -= Duration::from_secs(5);
+        host.send_frame(Channel::Cursor, b"cursor", false).unwrap();
+        let report = Report { highest_seq: 0, received: 1, expected: 1, echo_send_us: 0, delay_us: 0 };
+        let mut bytes = [0; Report::WIRE_LEN];
+        report.encode(&mut bytes);
+        host.on_control(&bytes);
+        assert!(host.rtt_ms().unwrap() < 100.0, "session age must not masquerade as RTT");
+        let before = host.rtt_ms();
+        assert!(host.on_control(&bytes).is_none());
+        assert_eq!(host.rtt_ms(), before, "non-advancing acknowledgements have no fresh timing");
+    }
+
+    #[test]
+    fn serviced_events_are_delivered_once_to_application() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        client.request_keyframe().unwrap();
+        std::thread::sleep(Duration::from_millis(5));
+        host.service().unwrap(); host.service().unwrap();
+        assert_eq!(host.poll().unwrap().iter().filter(|e| matches!(e, Event::KeyframeNeeded)).count(), 1);
+        assert!(!host.poll().unwrap().iter().any(|e| matches!(e, Event::KeyframeNeeded)));
+    }
+
     #[test]
     fn receiver_keyframe_request_reaches_encoder_peer() {
         let (mut host, mut client) = pair(BitratePreset::Max);

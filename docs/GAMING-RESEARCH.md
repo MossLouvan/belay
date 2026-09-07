@@ -2,6 +2,11 @@
 
 Engineering assessment for Belay, 7 September 2026.
 
+Follow-up: [architecture alignment and corrected RTT measurements](STREAMING-ARCHITECTURE-ALIGNMENT.md)
+supersede the earlier throughput result below. Sequence-correlated RTT raised
+the same synthetic test from 303 to 460 received frames in eight seconds, with
+steady intervals around 59 FPS. This remains a synthetic test, not game latency.
+
 Belay's desktop client needed a video-path change, not merely a higher FPS
 setting. It previously used only JPEG, and Gaming lowered its picture to
 1024 pixels wide at quality 35. The phone's Gaming preset capped H.264 at the
@@ -58,7 +63,7 @@ Rust capture crate. The legacy C# WebRTC capture scaffold is not a WGC backend.
 
 ## Validation and limits
 
-The final RTX 2070 SUPER synthetic video smoke test received 309 H.264 frames
+The earlier RTX 2070 SUPER synthetic video smoke test received 309 H.264 frames
 and three keyframes in 8 seconds (about 39 FPS) through GPU encoding and encrypted
 UDP. Before correcting the encoder property types it received 466 frames but
 only one keyframe; that earlier result did not validate recovery or the requested
