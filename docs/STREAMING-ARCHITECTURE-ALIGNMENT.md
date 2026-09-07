@@ -36,12 +36,12 @@ brief. No Sunshine or Moonlight implementation code was copied into Belay.
 | Low-latency hardware encoding | h264.rs | Corrected COM setting types, forced keyframes, retained async input credits, submission-based timestamps |
 | Encrypted UDP data plane | belay-net/session.rs | Own BWP, compatible v1 framing preserved |
 | Link adaptation | session.rs and feedback.rs | Fixed actual RTT calculation using acknowledged sequence send history |
-| Responsive scheduling | stream.rs and session.rs | Service feedback during pacing/frame waits; strict pacing at low rates can always earn one datagram |
+| Responsive scheduling | stream.rs, sender.rs and session.rs | Dedicated sender with two total pipeline credits; capture skips before encoding under backpressure; feedback serviced during pacing |
 | Bounded client delivery | desktop/src/video-queue.js | One in-flight plus two queued access units, 50 ms age limit, ordered delivery and keyframe recovery |
 | Decoder recovery | desktop/renderer/video.js | Short overload resets to waiting for keyframe; timeout/unavailable codec still falls back |
 | Controller input | existing gamepad channel and native target | Separate from video; native driver/device acceptance remains outstanding |
 | Loss recovery | Complete video frame IDs checked for missing dependencies | Missing frames suppress deltas until a complete keyframe; requests retry at most every 250 ms; stale/duplicate packets do not request recovery |
-| FEC/retransmission | reassembly has nack_list but no active repair sender | Not implemented; do not claim Sunshine-equivalent loss resilience |
+| FEC/retransmission | Negotiated XOR parity in belay-net; no active retransmission sender | Opt-in repair implemented and tested; measured results and limits in FEC-EXPERIMENT.md |
 | Audio and cursor | Existing separate paths | Full client delivery and synchronization still require an end-to-end audit |
 
 ## Measured defect and improvement
@@ -198,9 +198,10 @@ retransmission typically adds a round trip after detection and requires waiting
 on dependent frames. These are architectural tradeoffs consistent with
 [RFC 5109](https://www.rfc-editor.org/info/rfc5109/) and
 [RFC 4588](https://www.rfc-editor.org/info/rfc4588/); Belay would implement its own
-extension rather than copying Sunshine code. This is a next implementation
-choice, not a claim that FEC is already implemented or measured to outperform
-retransmission in Belay.
+extension rather than copying Sunshine code. This was the initial implementation
+choice. The extension is now implemented; see [FEC-EXPERIMENT.md](FEC-EXPERIMENT.md)
+for current measurements. A direct comparison against retransmission remains
+unmeasured.
 
 Acceptance requirements for that extension:
 
@@ -220,5 +221,7 @@ Acceptance requirements for that extension:
   impair both. Include two-to-four-packet bursts and compare delivered FPS,
   keyframes, p95/max gaps and total wire bitrate.
 
-The sustained-loss objective is not yet satisfied: the observed 429 ms gap is
-too large to use this result as evidence of smooth game streaming.
+The baseline's 429 ms gap was too large to establish smooth game streaming.
+The subsequent parity comparison reduced the maximum gap to 68 ms in that
+simulated profile, at additional bandwidth cost. This does not establish
+real-device gaming latency or equal-quality performance across networks.

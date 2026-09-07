@@ -27,6 +27,8 @@ pub struct Config {
     pub preset: BitratePreset,
     pub fps: u32,
     pub fec: bool,
+    /// Explicit experimental backend; ordinary sessions retain MF fallback.
+    pub encoder: String,
     pub monitor: u32,
     /// Seconds between forced keyframes.
     pub keyframe_interval_s: u32,
@@ -145,7 +147,8 @@ impl Config {
 
         // Experimental until quality, jitter and low-rate pacing are validated.
         let fec = field(json, "fec") == Some("true");
-        Ok(Config { bind, peer, token, salt, preset, fps, fec, monitor, keyframe_interval_s, source })
+        let encoder = if field(json, "encoder") == Some("nvenc") { "nvenc" } else { "mf" }.to_string();
+        Ok(Config { bind, peer, token, salt, preset, fps, fec, encoder, monitor, keyframe_interval_s, source })
     }
 }
 
@@ -166,6 +169,8 @@ mod tests {
         assert_eq!(c.preset, BitratePreset::HighQuality);
         assert_eq!(c.fps, 60);
         assert!(!c.fec, "experimental parity requires explicit opt-in");
+        assert_eq!(c.encoder, "mf", "direct NVENC is opt-in until validated");
+        assert_eq!(Config::parse(&GOOD.replace("\"monitor\":\"0\"", "\"encoder\":\"nvenc\"")).unwrap().encoder, "nvenc");
         assert!(Config::parse(&GOOD.replace("\"monitor\":\"0\"", "\"fec\":true")).unwrap().fec);
     }
 

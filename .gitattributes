@@ -13,3 +13,6 @@
 # Swift and the module map are consumed only by Xcode.
 *.swift text eol=lf
 *.modulemap text eol=lf
+
+# Preserve the upstream NVENC header, including its final blank line.
+crates/belay-nvenc/vendor/nvEncodeAPI.h text eol=lf whitespace=-blank-at-eof

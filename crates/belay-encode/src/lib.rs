@@ -22,6 +22,9 @@ pub mod gpu;
 #[cfg(windows)]
 pub mod h264;
 
+#[cfg(windows)]
+pub mod video_encoder;
+
 pub use color::{bgra_to_nv12, nv12_len, ConvertError};
 
 #[cfg(windows)]

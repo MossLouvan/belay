@@ -1,0 +1,13 @@
+[package]
+name = "belay-nvenc"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Bounded Direct3D11 NVENC bridge for Belay"
+
+[build-dependencies]
+cc = "1"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = ["Win32_Graphics_Direct3D11"]

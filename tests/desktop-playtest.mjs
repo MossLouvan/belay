@@ -7,9 +7,10 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from '../server/node_modules/ws/wrapper.mjs';
 
-const root=resolve('..'), shots=resolve('screenshots/desktop');await mkdir(shots,{recursive:true});
+const root=fileURLToPath(new URL('../',import.meta.url)), shots=resolve(root,'tests/screenshots/desktop');await mkdir(shots,{recursive:true});
 const wss=new WebSocketServer({noServer:true});let streamer=null,gamepadFrames=0,lastPad=null;
 const server=createServer((req,res)=>{
  res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Headers','authorization,content-type');
@@ -31,7 +32,7 @@ server.on('upgrade',(req,socket,head)=>wss.handleUpgrade(req,socket,head,ws=>{
    if(m.type==='ready')ws.send(JSON.stringify({type:'bwpOffer',port:m.port,key:token,salt,width:m.width,height:m.height,path:m.path}));
    if(m.type==='error')ws.send(JSON.stringify({type:'bwpEnded',error:m.error}));
   });
-  child.stdin.write(JSON.stringify({peer:`127.0.0.1:${msg.port}`,token,salt,preset:msg.preset,fps:msg.fps,source:'synthetic'})+'\n');
+  child.stdin.write(JSON.stringify({peer:`127.0.0.1:${msg.port}`,token,salt,preset:msg.preset,fps:msg.fps,source:'synthetic',encoder:process.env.BELAY_TEST_ENCODER==='nvenc'?'nvenc':'mf'})+'\n');
  });
  ws.on('close',()=>{streamer?.kill();streamer=null;});
 }));

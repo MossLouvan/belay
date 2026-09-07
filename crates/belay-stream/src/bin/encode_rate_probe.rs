@@ -10,7 +10,8 @@ fn main() { eprintln!("Windows only"); }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::{Duration, Instant};
     use belay_encode::gpu::VideoConverter;
-    use belay_encode::h264::{init_media_foundation, EncoderConfig, H264Encoder};
+    use belay_encode::h264::{init_media_foundation, EncoderConfig};
+    use belay_encode::video_encoder::VideoEncoder;
     let args: Vec<_> = std::env::args().collect();
     let count: u64 = args.iter().find_map(|a| a.strip_prefix("--frames=")).unwrap_or("180").parse()?;
     if !(60..=3600).contains(&count) { return Err("frames must be 60..3600".into()); }
@@ -20,20 +21,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_media_foundation()?;
     let mut source = synthetic::SyntheticSource::new(1920, 1080)?.with_motion();
     let mut converter = VideoConverter::new(source.device(), 1920, 1080)?;
-    let mut encoder = H264Encoder::new(EncoderConfig {
+    let backend = if args.iter().any(|arg| arg == "--nvenc") { "nvenc" } else { "mf" };
+    let mut encoder = VideoEncoder::new(EncoderConfig {
         width: 1920, height: 1080, fps: 60, bitrate_bps: initial_bps,
         keyframe_interval_s: 4,
-    })?;
-    if !encoder.attach_d3d_device(source.device())? { return Err("GPU input unavailable".into()); }
+    }, source.device(), backend)?;
+    if !encoder.accepts_textures() { return Err("GPU input unavailable".into()); }
     eprintln!("encoder backend: {}", encoder.backend_name());
     if let Some(value) = args.iter().find_map(|a| a.strip_prefix("--buffer=")) {
-        encoder.set_rate_control_buffer(value.parse()?)?;
+        match &mut encoder {
+            VideoEncoder::MediaFoundation(mf) => mf.set_rate_control_buffer(value.parse()?)?,
+            _ => return Err("buffer experiment is MF-only".into()),
+        }
     }
     let budgets = if initial.is_some() { vec![initial_bps] } else { vec![20_000_000, 8_000_000] };
     for budget in budgets {
         encoder.set_bitrate(budget)?;
-        eprintln!("codec rate control readback: {:?}", encoder.rate_control_state());
-        eprintln!("codec rate control limits: {:?}", encoder.rate_control_limits());
+        if let VideoEncoder::MediaFoundation(mf) = &encoder {
+            eprintln!("codec rate control readback: {:?}", mf.rate_control_state());
+            eprintln!("codec rate control limits: {:?}", mf.rate_control_limits());
+        }
         let mut frames = 0;
         let mut bytes = 0;
         let mut largest = 0;

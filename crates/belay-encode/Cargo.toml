@@ -12,6 +12,9 @@ belay-wire = { path = "../belay-wire" }
 # overhead - it capped speedup at 3x on 16 cores.
 rayon = "1.10"
 
+[target.'cfg(windows)'.dependencies.belay-nvenc]
+path = "../belay-nvenc"
+
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.58"
 features = [

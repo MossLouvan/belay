@@ -207,3 +207,54 @@ Session cancellation is checked during packet pacing and receive draining;
 also passed the desktop UI test with actual H.264 presentation and 47 simulated
 controller frames. Cursor updates are prioritized between access units; they
 still cannot interrupt an active access-unit send, a remaining limitation.
+
+## Direct NVENC checkpoint
+
+An independently implemented C++ bridge with Rust ownership can now be selected
+with startup `encoder: "nvenc"`. Ordinary sessions still select Media Foundation.
+The bridge loads the installed NVIDIA driver from System32 and requires NVENC
+API 13.0. It owns GPU input snapshots, limits outstanding submissions to two,
+polls completion without waiting, and supports forced IDRs and rate changes.
+The vendored API header retains NVIDIA's MIT license; no SDK sample code or
+driver binary is bundled. Building on Windows requires the MSVC C++ toolchain.
+
+On this RTX 2070 SUPER, the direct P1 single-pass path delivered 366 motion frames
+in eight seconds, versus the prior MFT sender-worker result of 226. The direct
+run transmitted 13,654,229 encoded bytes; steady intervals ranged from 48 to
+60 FPS, with output p95 about 5.3–6.5 ms. Startup remained slow (four frames in
+the first reporting interval), and maximum arrival gap was 296 ms. These are
+individual synthetic measurements, not a claim of stable 60 FPS gaming.
+
+The 8 Mbps encoder-only test still exceeded its target. Diagnostic output showed
+average QP near 49–51 with no enabled min/max QP clamps. P4 and quarter-resolution
+two-pass trials did not reduce output enough and increased encoding latency;
+they were reverted. The measurements support quantizer saturation on this stress
+source, rather than proving NVENC ignored bitrate updates. Source content changes
+between phases, so the 20-to-8 Mbps totals alone cannot prove rate-control failure.
+See [the native measurement table](../crates/belay-nvenc/vendor/README.md).
+
+Validation: 17 streamer tests and 18 ordinary encoder tests pass. An opt-in
+hardware lifecycle regression passes repeated creation, independent output,
+timestamps, forced IDR after rate change, two-frame backpressure, and teardown
+with pending work followed by successful recreation. Electron's NVENC playtest
+passes actual H.264 decoding/presentation, pairing, gaming and rapid toggles,
+compact layout and keyboard activation, with 47 simulated controller messages.
+The compact screenshot was visually inspected. The playtest now resolves paths
+from its own file and works from the repository root as well as `tests/`.
+
+Reproduce:
+
+```powershell
+# From crates/belay-stream:
+cargo run --release --bin encode_rate_probe -- --nvenc --initial-rate=8000000 --frames=600
+# From crates/belay-encode:
+cargo test --lib nvenc_lifecycle_preserves_timestamps_and_forced_idr -- --ignored --test-threads=1
+# From the repository root, after building the release streamer:
+node scripts/probe-desktop-video.mjs --motion --no-fec --nvenc
+$env:BELAY_TEST_ENCODER='nvenc'
+node tests/desktop-playtest.mjs
+```
+
+Equal-quality comparisons, bandwidth-driven resolution changes, representative
+game footage, remote Mac/phone decoding, and physical controller acceptance
+remain open. This checkpoint does not switch production sessions to NVENC.

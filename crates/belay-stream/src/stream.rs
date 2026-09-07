@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 use belay_encode::capture::DesktopCapture;
 use belay_encode::color::{bgra_to_nv12, nv12_len};
 use belay_encode::gpu::VideoConverter;
-use belay_encode::h264::{init_media_foundation, CodedFrame, EncoderConfig, H264Encoder};
+use belay_encode::h264::{init_media_foundation, CodedFrame, EncoderConfig};
+use belay_encode::video_encoder::VideoEncoder;
 use belay_net::Session;
 use belay_wire::crypto::Direction;
 use belay_wire::cursor::{CursorSample, CursorSampler};
@@ -87,13 +88,13 @@ pub fn run(config: Config, emit: fn(&str, &str), escape: fn(&str) -> String) -> 
         .map_err(|e| format!("cannot read the local address: {e}"))?;
 
     init_media_foundation().map_err(|e| format!("Media Foundation would not start: {e}"))?;
-    let mut encoder = H264Encoder::new(EncoderConfig {
+    let mut encoder = VideoEncoder::new(EncoderConfig {
         width,
         height,
         fps: config.fps,
         bitrate_bps: session.bitrate_bps() as u32,
         keyframe_interval_s: config.keyframe_interval_s,
-    })
+    }, &device, &config.encoder)
     .map_err(|e| format!("no usable H.264 encoder: {e}"))?;
 
     // The GPU path, when the machine has one. Both halves must succeed
@@ -101,7 +102,7 @@ pub fn run(config: Config, emit: fn(&str, &str), escape: fn(&str) -> String) -> 
     // more than converting on the CPU in the first place.
     let converter = VideoConverter::new(&device, width, height).ok();
     let zero_copy = match converter {
-        Some(_) => encoder.attach_d3d_device(&device).unwrap_or(false),
+        Some(_) => encoder.accepts_textures(),
         None => false,
     };
     let mut converter = if zero_copy { converter } else { None };
@@ -116,10 +117,11 @@ pub fn run(config: Config, emit: fn(&str, &str), escape: fn(&str) -> String) -> 
     emit(
         "ready",
         &format!(
-            "\"port\":{},\"width\":{width},\"height\":{height},\"path\":\"{}\",\"bitrate\":{}",
+            "\"port\":{},\"width\":{width},\"height\":{height},\"path\":\"{}\",\"bitrate\":{},\"encoder\":\"{}\"",
             local.port(),
             if converter.is_some() { "gpu" } else { "cpu" },
-            session.bitrate_bps()
+            session.bitrate_bps(),
+            escape(encoder.backend_name())
         ),
     );
 
