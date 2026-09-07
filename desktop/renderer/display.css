@@ -20,7 +20,18 @@ body { margin: 0; background: var(--machine); overflow: hidden; }
   border-top: var(--hairline) solid var(--machine-line);
   transition: opacity 160ms ease;
 }
-#overlay.idle { opacity: 0; pointer-events: none; }
+#overlay.idle { opacity: 0; }
+#overlay:hover, #overlay:focus-within, #overlay.gaming { opacity: 1; }
+#overlay { flex-wrap: wrap; }
+#controller { flex: 1 1 300px; }
+#gaming {
+  font: inherit; text-transform: uppercase; padding: 6px 12px;
+  color: var(--on-machine); background: var(--machine); cursor: pointer;
+  border: var(--hairline) solid var(--on-machine-dim); border-radius: var(--radius);
+}
+#gaming[aria-pressed="true"] { color: var(--machine-accent); border-color: var(--machine-accent); }
+#gaming:hover { background: var(--machine-line); }
+#gaming:focus-visible { outline: var(--rule) solid var(--machine-accent); outline-offset: 2px; }
 #overlay .bad { color: var(--machine-bad); }
 /* the live dot: accent means activity, and leaves when activity stops */
 #stats.live::before {

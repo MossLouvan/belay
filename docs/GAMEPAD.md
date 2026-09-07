@@ -17,6 +17,83 @@ controller state at most once per display frame; touch gestures update
 Reanimated shared state and sample on the UI thread. The socket sends full
 binary state every 8 ms, with a small backpressure bound.
 
+## PlayStation controllers
+
+DualSense (PS5) and DualShock 4 are recognized on both clients. The host still
+receives the existing Xbox-compatible button layout; no binary protocol or
+host controller-kind field is needed. Games using the Windows virtual Xbox
+backend may therefore continue showing Xbox prompts.
+
+On iPhone, pair the controller in Bluetooth settings and open Gaming. The
+sheet detects the native controller profile and previews **✕ ○ □ △**, **L1 /
+R1 / L2 / R2**, **Options / Create**. Choose **PlayStation** under Controller
+glyph style to keep these labels for touch controls too; Auto follows the
+connected controller. The choice is saved with the preset and touch layout.
+Physical controllers continue to take precedence over touch controls.
+
+Options maps to Start; Create (Share on DualShock 4) and a touchpad click map
+to Back/Select. PS/Guide has no host bit: hold it for one second to exit Gaming
+on the phone. The visible Exit control remains available. Belay requests
+immediate Guide input, but iOS can reserve system gestures. Test the hold on
+the actual phone/controller pair.
+
+When a controller exposes a light, the phone sets it to the current
+`theme.colors.accent` supplied from JS (`#3B82F6` in the default dark theme,
+`#1D6FE0` in light). Detaching restores the previous light and Guide gesture
+preference. Rumble uses separate left/right handle engines when supported,
+otherwise the default engine. JS and the native sampler stop rumble after
+750 ms without a refresh. Adaptive trigger resistance, touchpad gestures,
+motion, speaker audio and PlayStation-specific haptic waveforms are not sent.
+
+Phone device check: verify both stick directions, analog triggers, every face
+button, Options/Create, touchpad click, short PS presses (no host input), and
+the one-second exit hold. Check the light, independent motor rumble, saved
+glyph style after relaunch, unplug/reconnect, backgrounding and network loss.
+Use a fresh native development build; Expo Go cannot load this module.
+
+## From the desktop client
+
+Pair or plug a controller into the Mac/PC running `desktop/`, connect to the
+host, and open a **display** window. Its bottom chrome includes **Controller**
+and a per-window **Gaming** toggle. Press a controller button if the browser
+has not exposed the pad yet. The first connected pad is selected; a pad must
+expose the browser's `standard` mapping. DualSense/DS4 show PlayStation face
+glyphs; Xbox and generic pads show ABXY. The backend readout is **Xbox
+controller**, **Keyboard / mouse fallback**, or **unavailable**; hover it for
+the host's reason. Only one window/client can own a host's controller lane.
+Turn Gaming off in the current owner before enabling it elsewhere.
+
+Gaming retunes the existing JPEG socket to the phone's JPEG gaming preset:
+1024 px, quality 35, 30 FPS. Turning it off restores 1600 px, quality 62,
+24 FPS for that window. Reconnects retain the current choice. The desktop
+does not currently decode the phone's H.264 path, so its 60/120 FPS presets
+do not apply. Seamless per-application windows do not have this toggle.
+
+The renderer polls `navigator.getGamepads()` on animation frames, switching
+to a 4 ms interval while hidden. Electron background timer throttling is
+disabled so the fallback can maintain the lease. Browser Y axes are inverted
+before encoding the same 17-byte frame as the phone. Frames repeat for the
+first 100 ms after a change, then quiet state sends a 250 ms keepalive. A
+bounded socket buffer drops intermediate samples and always samples fresh.
+Each attachment gets a new `/ws-ticket`; no bearer token is placed in the
+gamepad URL. Guide is omitted from the desktop frame as well.
+
+Host rumble remains normalized 0..1 on the wire. The desktop converts it to
+byte-scale values and applies `dual-rumble` with independent strong/weak
+magnitudes, guarded for missing or rejecting browser actuators. Effects last
+500 ms and the host refreshes them every 250 ms. Exit, unplug and socket close
+stop rumble and release input. Desktop light control and adaptive triggers
+are outside the Web Gamepad API path used here.
+
+Desktop device check: run `cd desktop && npm start`, pair with a Windows or
+macOS host, open a display, and enable Gaming. On Windows/ViGEm, check
+`joy.cpl` for buttons, analog triggers and all stick directions; then check
+rumble in a game. Repeat with keyboard fallback. Minimize/restore the window,
+unplug while holding movement/fire, interrupt the network, close the window,
+and toggle Gaming quickly. Verify release, reconnect, the backend indicator,
+and restoration of stream settings. Open a second display and confirm it
+reports the busy controller until the first releases it.
+
 ## Windows setup
 
 1. Install the bus driver from the official
@@ -139,6 +216,26 @@ attach/disconnect races, watchdog/helper failure, presets and layout geometry.
 Run `cd app && npx tsc --noEmit && npm test` and the same command in `server/`.
 The host test command uses Node's tsx import hook to avoid the tsx CLI's
 unnecessary local IPC listener.
+
+PlayStation additions include desktop standard mapping, controller ID
+detection, byte parity with the phone, sender timing/backpressure, rumble
+scaling, mocked renderer ticket/socket/visibility lifecycle, glyph preferences
+and menu layout, and one-shot Guide holds. Run:
+
+```sh
+cd desktop && npm test
+cd ../app && npx tsc --noEmit && npm test
+cd ../server && npx tsc --noEmit && node --import tsx --test test/*.test.ts src/*.test.mjs
+```
+
+The PS5 implementation check passed desktop tests, app tests, both TypeScript
+checks, Swift syntax parsing and the controller sampler's iOS SDK typecheck.
+The controller-specific host tests passed. The full host suite was attempted
+but existing home-directory fixture writes and a local listener were denied
+by the implementation sandbox; run it with normal local test permissions.
+No live controller, native app build or Electron launch was used for these
+checks. Hardware behavior, especially Bluetooth rumble and PS system-gesture
+handling, remains to be verified using the device checks above.
 
 No C# build, CocoaPods installation, Xcode build, driver installation, or live
 controller/game test was performed in the implementation sandbox. Swift syntax

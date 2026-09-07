@@ -10,8 +10,10 @@ import type { GamepadState } from './codec';
 import { gamepadLayout, stickVector } from './layout';
 import type { ControlRect } from './layout';
 import type { LayoutChoice, PresetId } from './presets';
+import { controlLabel, glyphLayout } from './glyphs';
+import type { ControllerLabels } from './glyphs';
 
-function TouchControl({ rect, state }: { readonly rect: ControlRect; readonly state: SharedValue<GamepadState> }) {
+function TouchControl({ rect, state, labels }: { readonly rect: ControlRect; readonly state: SharedValue<GamepadState>; readonly labels: ControllerLabels }) {
   const theme = useTheme();
   const stick = rect.id === 'lx' || rect.id === 'rx';
   const trigger = rect.id === 'lt' || rect.id === 'rt';
@@ -47,7 +49,7 @@ function TouchControl({ rect, state }: { readonly rect: ControlRect; readonly st
     }) : Gesture.LongPress().minDuration(0).maxDistance(1000).onBegin(() => press(true)).onFinalize(() => press(false));
   const style = useAnimatedStyle(() => ({ borderColor: pressed.value ? theme.colors.accentGraphic : theme.colors.borderStrong }));
   const marker = useAnimatedStyle(() => ({ transform: [{ translateX: axis.value.x * rect.w / 4 }, { translateY: -axis.value.y * (rect.h - theme.layout.minTouch) / 4 }] }));
-  const label = rect.id === 'lx' ? 'Move' : rect.id === 'rx' ? 'Look' : rect.id === 'select' ? 'Back' : rect.id.toUpperCase();
+  const label = controlLabel(rect.id, labels);
   return <GestureDetector gesture={gesture}>
     <Animated.View testID={`gamepad-${rect.id}`} accessible accessibilityRole={stick ? 'adjustable' : 'button'} accessibilityLabel={label}
       onAccessibilityTap={() => accessibilityPulse()}
@@ -59,11 +61,11 @@ function TouchControl({ rect, state }: { readonly rect: ControlRect; readonly st
     </Animated.View>
   </GestureDetector>;
 }
-export function TouchGamepad({ width, height, layout, preset, onState }: { readonly width: number; readonly height: number; readonly layout: LayoutChoice; readonly preset: PresetId; readonly onState: (state: GamepadState) => void }) {
+export function TouchGamepad({ width, height, layout, preset, labels, onState }: { readonly width: number; readonly height: number; readonly layout: LayoutChoice; readonly preset: PresetId; readonly labels: ControllerLabels; readonly onState: (state: GamepadState) => void }) {
   const theme = useTheme();
   const state = useSharedValue<GamepadState>(NEUTRAL);
   useFrameCallback(() => { runOnJS(onState)(state.value); });
   useEffect(() => () => onState(NEUTRAL), [onState]);
-  const controls = gamepadLayout(width, height, layout, preset, theme.layout.minTouch, theme.space.xs);
-  return <GestureHandlerRootView pointerEvents="box-none" style={{ width, height }}>{controls.map(rect => <TouchControl key={rect.id} rect={rect} state={state} />)}</GestureHandlerRootView>;
+  const controls = glyphLayout(gamepadLayout(width, height, layout, preset, theme.layout.minTouch, theme.space.xs), labels, theme.layout.minTouch + theme.space.xl);
+  return <GestureHandlerRootView pointerEvents="box-none" style={{ width, height }}>{controls.map(rect => <TouchControl key={rect.id} rect={rect} state={state} labels={labels} />)}</GestureHandlerRootView>;
 }

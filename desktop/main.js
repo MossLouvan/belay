@@ -25,6 +25,9 @@ import { fitWindow } from './src/displays.js';
 import { cascadeOffset, initialSize, windowLabel } from './src/windows.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// Keep the controller's 4 ms hidden-window timer running. Unlike disabling
+// backgroundThrottling, this preserves visibilityState and the rAF fallback.
+app.commandLine.appendSwitch('disable-background-timer-throttling');
 // .cjs, not .js: package.json sets "type": "module", and Electron loads a
 // sandboxed preload script as CommonJS. The extension is what keeps those two
 // facts from contradicting each other.

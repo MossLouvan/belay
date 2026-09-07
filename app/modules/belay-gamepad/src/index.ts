@@ -1,7 +1,7 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 interface GamepadNative {
   addListener(event: 'onState' | 'onConnection', listener: (event: unknown) => void): { remove(): void };
-  start(): Promise<unknown>;
+  start(accent: string): Promise<unknown>;
   stop(): Promise<void>;
   rumble(low: number, high: number): Promise<void>;
 }

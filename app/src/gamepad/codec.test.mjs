@@ -36,3 +36,13 @@ test('phone and host codecs are byte-for-byte interoperable over deterministic s
   assert.deepEqual(host.decodeGamepad(encodeGamepad(state)),decodeGamepad(host.encodeGamepad(state)));
  }
 });
+
+test('desktop standard mapping matches phone/host codec quantization', async () => {
+ const desktop = await import('../../../desktop/src/gamepad-codec.js');
+ for (let i=0;i<256;i++) {
+  const axes = [Math.sin(i), Math.cos(i), -1, 1];
+  const buttons = Array.from({length:17},(_,n)=>({pressed:n===0,value:n===6?i/255:n===7?(255-i)/255:0}));
+  const sample = desktop.standardState({ connected:true, mapping:'standard', axes, buttons });
+  assert.deepEqual(desktop.encodeFrame(sample,i),encodeGamepad({buttons:4096,lt:i/255,rt:(255-i)/255,lx:axes[0],ly:-axes[1],rx:-1,ry:-1,seq:i}));
+ }
+});
