@@ -38,3 +38,20 @@ export function hostOrigin(input) {
 export function socketOrigin(origin) {
   return String(origin).replace(/^http/i, (m) => (m === 'HTTP' ? 'WS' : 'ws'));
 }
+
+/**
+ * Whether an origin points at a Tailscale peer (CGNAT 100.64.0.0/10). A host
+ * on the owner's own tailnet pairs on identity alone, so the client can skip
+ * the code instead of asking for one that will never be checked.
+ */
+export function isTailscaleOrigin(origin) {
+  let hostname;
+  try {
+    hostname = new URL(String(origin ?? '')).hostname;
+  } catch {
+    return false;
+  }
+  const parts = hostname.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  return parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+}

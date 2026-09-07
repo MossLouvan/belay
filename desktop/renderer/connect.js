@@ -4,7 +4,7 @@
 // directly rather than through the main process — the only things that cross
 // IPC are the saved session and the request to open a display window.
 
-import { hostOrigin } from '../src/url.js';
+import { hostOrigin, isTailscaleOrigin } from '../src/url.js';
 import { displaysOf, preferredDisplay } from '../src/displays.js';
 import { windowsOf, windowLabel } from '../src/windows.js';
 import { legendText, modifierMap } from '../src/modmap.js';
@@ -50,8 +50,12 @@ async function pair() {
   if (!origin) return showError('That does not look like an address. Try 192.168.1.20:8787');
 
   state.host = origin;
-  const code = $('code').value.trim();
-  setBusy(true, 'pairing…');
+  // Over Tailscale the host pairs on the peer's identity; a code is neither
+  // needed nor checked, so an empty one is the normal case, not an error.
+  const tailnet = isTailscaleOrigin(origin);
+  const code = tailnet ? '' : $('code').value.trim();
+  if (!tailnet && !code) return showError('Type the pairing code shown on that computer, or use its Tailscale address to skip it.');
+  setBusy(true, tailnet ? 'pairing over Tailscale…' : 'pairing…');
   try {
     // deviceName is what the host shows in its paired-devices list, so it says
     // which machine this is rather than just "desktop".
@@ -249,6 +253,17 @@ $('connect').addEventListener('click', pair);
 for (const id of ['host', 'code']) {
   $(id).addEventListener('keydown', (event) => { if (event.key === 'Enter') pair(); });
 }
+// The code field steps aside as soon as the address is a Tailscale one.
+function syncCodeField() {
+  const tailnet = isTailscaleOrigin(hostOrigin($('host').value));
+  $('code').disabled = tailnet;
+  $('code').placeholder = tailnet ? 'not needed over Tailscale' : '123456';
+  $('code-hint').textContent = tailnet
+    ? 'This is a Tailscale address — the host recognises this computer, no code needed.'
+    : 'Leave blank when connecting over Tailscale.';
+}
+$('host').addEventListener('input', syncCodeField);
+syncCodeField();
 // Escape dismisses the error line. Claimed locally without hesitation: unlike
 // the display windows, nothing typed here is ever forwarded to the host.
 window.addEventListener('keydown', (event) => {
