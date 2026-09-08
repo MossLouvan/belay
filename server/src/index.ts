@@ -15,7 +15,7 @@ import { URL } from 'node:url';
 
 import {
   loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices,
-  revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, Device,
+  revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, stateFilePath, Device,
 } from './state.js';
 import { wantsPairingReset } from './reset-pairing.js';
 import { buildAddresses, hasStableAddress } from './addresses.js';
@@ -1782,6 +1782,10 @@ server.listen(PORT, () => {
   console.log(`  Agent     : ${agentBannerLine()}`);
   console.log(`  Hooks     : ${hooksBannerLine()}`);
   console.log(`  Notify    : ${notifyBannerLine()}`);
+  // Printed because it is the answer to "why did my phone lose the pairing":
+  // the file defaults to process.cwd(), so a start from another folder without
+  // BELAY_STATE_FILE is a fresh, unpaired host with a new id.
+  console.log(`  State     : ${stateFilePath()}`);
   console.log('');
 
   // Raise the tray icon. Belay runs hidden and starts at logon, so without this

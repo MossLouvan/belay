@@ -35,6 +35,9 @@ const STATE_FILE = CONFIGURED_STATE_FILE || join(process.cwd(), 'belay-state.jso
  */
 const LEGACY_STATE_FILE = join(process.cwd(), 'tether-state.json');
 
+/** The file this process reads and writes, for the startup banner. */
+export function stateFilePath(): string { return STATE_FILE; }
+
 /** Owner read/write only — these are credentials, not config. */
 const STATE_FILE_MODE = 0o600;
 

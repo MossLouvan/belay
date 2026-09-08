@@ -99,17 +99,33 @@ reports the busy controller until the first releases it.
 ## Windows setup
 
 1. Install the bus driver from the official
-   [Nefarius ViGEmBus releases](https://github.com/nefarius/ViGEmBus/releases).
-   Reboot if the installer requests it. This upstream project is archived;
-   its final setup release removes its updater.
-2. Place an **x64 `ViGEmClient.dll`** beside `server/native/BelayHost.exe`.
-   The bus installer and the client DLL are separate requirements. Use the
-   official [ViGEmClient SDK](https://github.com/nefarius/ViGEmClient) to obtain
-   or build the client; Belay does not download drivers or ship a DLL here.
+   [Nefarius ViGEmBus releases](https://github.com/nefarius/ViGEmBus/releases),
+   then **reboot**. The installer does not always ask, but the bus does not
+   create devices until the next boot. The tell is the host reporting
+   `Xbox target add failed (0xE0000007)` — ViGEm's "target not plugged in":
+   the driver is installed and answers, but the virtual pad never appears.
+   Reboot and re-enter Gaming. The upstream project is archived; its final
+   setup release removes its updater.
+2. Put an **x64 `ViGEmClient.dll`** beside `server/native/BelayHost.exe`.
+   The bus installer and the client DLL are separate requirements, and no one
+   ships the DLL prebuilt: the ViGEmClient GitHub releases carry no assets and
+   neither NuGet package (`Nefarius.ViGEm.Client`, `Nefarius.ViGEmClient`)
+   contains the native DLL (verified 2026-09-07). Either build
+   [nefarius/ViGEmClient](https://github.com/nefarius/ViGEmClient) yourself or
+   run `vcpkg install vigemclient:x64-windows` and copy the DLL out of the
+   vcpkg `installed\x64-windows\bin` folder. Belay does not download drivers
+   or ship a DLL here.
 3. In `server/`, run `npm run build:native:win`, then start the host normally.
    `build.ps1` includes `BelayHostGamepad.cs`, using csc.exe and .NET Framework.
-4. Enter Gaming. The readout should say **Xbox controller**. Run `joy.cpl` on
+4. Enter Gaming. The readout should say **Xbox game input**. Run `joy.cpl` on
    Windows and check every axis/button before testing the game.
+
+While Gaming is on, the host's own mouse and keyboard no longer pause remote
+input. The old "person at the machine wins" freeze surfaced as *key failed:
+someone is using this computer directly* for anyone playing from the phone
+while sitting at the PC, so it is off by default. `BELAY_LOCAL_PRIORITY=1`
+restores it (3 s freeze after any local input) for a machine somebody else
+actually shares.
 
 The virtual target is an Xbox 360 controller. The ViGEm path sends the game's
 normal controller inputs without game-specific remapping. Roblox and Fortnite
