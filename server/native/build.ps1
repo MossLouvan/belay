@@ -36,3 +36,10 @@ $refs = @(
 & $csc /nologo /target:exe /platform:x64 /optimize+ /out:"$out" @defines $refs $src
 if ($LASTEXITCODE -ne 0) { throw "csc failed with exit code $LASTEXITCODE" }
 Write-Host "Built $out"
+
+# The H.264 streamer is a separate Rust build. Its absence is not an error -
+# the host serves JPEG without it - but it is the difference between the phone
+# decoding video natively and decoding it on its JavaScript thread.
+if (-not (Test-Path (Join-Path $PSScriptRoot 'belay-stream.exe'))) {
+    Write-Host "note: native\belay-stream.exe not found - H.264 streaming is off (JPEG only). Run 'npm run build:stream:win' to build it."
+}
