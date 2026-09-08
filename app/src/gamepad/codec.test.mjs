@@ -2,6 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeGamepad, decodeGamepad, newerSequence, NEUTRAL } from './codec.ts';
 
+test('golden vector shared with the native encoder (ios/GamepadSession.swift)', () => {
+  // Pinned bytes, not a round trip: the Swift encoder is written to this exact
+  // output (note lt 0.5 → 128, JS Math.round rounds halves up), so a change on
+  // either side must change this line too.
+  const bytes = encodeGamepad({ buttons: 0x1234, lt: 0.5, rt: 1, lx: -0.25, ly: 0.75, rx: -1, ry: 0, seq: 0xDEADBEEF });
+  assert.equal([...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join(' '),
+    '01 34 12 80 ff 00 e0 ff 5f 00 80 00 00 ef be ad de');
+});
+
 test('17-byte little endian packet, normalized extrema and full bitmask round trip', () => {
   const state = { buttons: 0xffff, lt: 1, rt: 0, lx: -1, ly: 1, rx: 0, ry: -0.5, seq: 0x12345678 };
   const bytes = encodeGamepad(state);
