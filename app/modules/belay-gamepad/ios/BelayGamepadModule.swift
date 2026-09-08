@@ -6,12 +6,16 @@ import QuartzCore
 
 public final class BelayGamepadModule: Module {
     private var sampler: ControllerSampler?
+    /// Shared with the sampler (physical pad) and the session (wire); see
+    /// GamepadSession.swift for why the send loop lives here and not in JS.
+    private let store = GamepadStateStore()
+    private var session: GamepadSession?
     public func definition() -> ModuleDefinition {
         Name("BelayGamepad")
-        Events("onState", "onConnection")
+        Events("onState", "onConnection", "onSessionMessage", "onSessionClose")
         AsyncFunction("start") { (accent: String) -> [String: Any] in
             if self.sampler == nil {
-                self.sampler = ControllerSampler { [weak self] name, payload in self?.sendEvent(name, payload) }
+                self.sampler = ControllerSampler(store: self.store) { [weak self] name, payload in self?.sendEvent(name, payload) }
             }
             self.sampler?.setAccent(accent)
             self.sampler?.start()
@@ -21,15 +25,42 @@ public final class BelayGamepadModule: Module {
         AsyncFunction("rumble") { (low: Double, high: Double) in
             self.sampler?.rumble(low: low, high: high)
         }.runOnQueue(.main)
+        // --- the wire session: native socket + 8 ms timer (GamepadSession.swift)
+        AsyncFunction("startSession") { (url: String) in
+            guard let parsed = URL(string: url), let scheme = parsed.scheme, scheme == "ws" || scheme == "wss" else {
+                throw GamepadSessionError.badUrl
+            }
+            self.session?.stop()
+            self.store.setSuppressed(false)
+            let session = GamepadSession(store: self.store,
+                onMessage: { [weak self] text in self?.sendEvent("onSessionMessage", ["text": text]) },
+                onClose: { [weak self] code, reason in self?.sendEvent("onSessionClose", ["code": code, "reason": reason]) })
+            self.session = session
+            session.start(url: parsed)
+        }
+        AsyncFunction("stopSession") {
+            self.session?.stop(); self.session = nil
+            self.store.resetInputs()
+        }
+        AsyncFunction("setTouchState") { (state: [String: Any]) in
+            guard let sample = GamepadSample(dictionary: state) else { throw GamepadSessionError.badState }
+            self.store.setTouch(sample)
+        }
+        AsyncFunction("setInputMode") { (mode: String) in self.store.setInputMode(mode) }
+        AsyncFunction("setSuppressed") { (value: Bool) in self.store.setSuppressed(value) }
         OnDestroy {
             let sampler = self.sampler
+            self.session?.stop(); self.session = nil
             DispatchQueue.main.async { sampler?.stop() }
         }
     }
 }
 
+enum GamepadSessionError: Error { case badUrl, badState }
+
 private final class ControllerSampler: NSObject {
     private let emit: (String, [String: Any]) -> Void
+    private let store: GamepadStateStore
     private var controller: GCController?
     private var observers: [NSObjectProtocol] = []
     private var displayLink: CADisplayLink?
@@ -45,7 +76,7 @@ private final class ControllerSampler: NSObject {
     private var lastGuide = false
     private var rumbleAt: CFTimeInterval?
 
-    init(emit: @escaping (String, [String: Any]) -> Void) { self.emit = emit }
+    init(store: GamepadStateStore, emit: @escaping (String, [String: Any]) -> Void) { self.store = store; self.emit = emit }
     func start() {
         guard displayLink == nil else { return }
         oldBackground = GCController.shouldMonitorBackgroundEvents
@@ -71,6 +102,7 @@ private final class ControllerSampler: NSObject {
         restoreController(); stopRumble(); controller = nil
         GCController.shouldMonitorBackgroundEvents = oldBackground
         UIApplication.shared.isIdleTimerDisabled = oldIdleDisabled
+        store.setPhysicalConnected(false)
         emit("onConnection", connection())
     }
     func connection() -> [String: Any] {
@@ -105,6 +137,7 @@ private final class ControllerSampler: NSObject {
         controller?.handlerQueue = .main
         controller?.extendedGamepad?.valueChangedHandler = { [weak self] _, _ in self?.dirty = true }
         dirty = true; lastGuide = false
+        store.setPhysicalConnected(controller != nil)
         emit("onConnection", connection())
     }
     @objc private func sample() {
@@ -124,6 +157,12 @@ private final class ControllerSampler: NSObject {
         for (button, mask) in values where button?.isPressed == true { buttons |= mask }
         let touchpad = (pad as? GCDualSenseGamepad)?.touchpadButton ?? (pad as? GCDualShockGamepad)?.touchpadButton
         if touchpad?.isPressed == true { buttons |= 32 }
+        // The wire reads the store; JS gets the same sample for the exit hold
+        // (guide) and the HUD, but nothing on the wire waits for JS.
+        store.setPhysical(GamepadSample(buttons: buttons,
+            lt: Double(pad.leftTrigger.value), rt: Double(pad.rightTrigger.value),
+            lx: Double(pad.leftThumbstick.xAxis.value), ly: Double(pad.leftThumbstick.yAxis.value),
+            rx: Double(pad.rightThumbstick.xAxis.value), ry: Double(pad.rightThumbstick.yAxis.value)))
         emit("onState", ["buttons":buttons,"lt":pad.leftTrigger.value,"rt":pad.rightTrigger.value,
                          "lx":pad.leftThumbstick.xAxis.value,"ly":pad.leftThumbstick.yAxis.value,
                          "rx":pad.rightThumbstick.xAxis.value,"ry":pad.rightThumbstick.yAxis.value,"guide":guide])
