@@ -6,13 +6,29 @@ import { CODE, HOST } from '../test-env';
 // opt-in) and starts unpaired, so each run pairs fresh. Every interactive
 // control on every screen is exercised.
 
+/**
+ * A cold start now opens on the Welcome → How it works intro before the
+ * address field. Walk it the way a new user does. With storage cleared the
+ * intro always shows, but the guards keep the helper honest if that changes.
+ */
+async function intro(page: Page) {
+  const welcome = page.getByTestId('welcome-continue');
+  const host = page.getByTestId('host-input');
+  await expect(welcome.or(host).first()).toBeVisible();
+  if (await welcome.isVisible()) {
+    await welcome.click();
+    await page.getByTestId('how-it-works-continue').click();
+  }
+  await expect(host).toBeVisible();
+}
+
 async function pair(page: Page) {
   await page.goto('/');
   // Clear any stored connection so we always begin at the connect screen.
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
 
-  await expect(page.getByTestId('host-input')).toBeVisible();
+  await intro(page);
   await page.getByTestId('host-input').fill(HOST);
   await page.getByTestId('check-host').click();
 
@@ -32,11 +48,22 @@ async function pair(page: Page) {
   await expect(surface).toBeVisible({ timeout: 15000 });
 }
 
+/**
+ * The tab bar is gone: Agent, Terminal, Files and System live in the tool
+ * drawer that the dock's TOOLS key slides up over the picture.
+ */
+async function openTool(page: Page, id: 'agent' | 'terminal' | 'files' | 'system') {
+  await page.getByTestId('open-tools').click();
+  await expect(page.getByTestId('tool-drawer')).toBeVisible();
+  await page.getByTestId(`tool-${id}`).click();
+}
+
 test.describe('Belay', () => {
   test('connect screen validates and pairs', async ({ page }) => {
     await page.goto('/');
     await page.evaluate(() => window.localStorage.clear());
     await page.reload();
+    await intro(page);
 
     // Empty host shows an error.
     await page.getByTestId('check-host').click();
@@ -76,18 +103,24 @@ test.describe('Belay', () => {
   });
 
   test('screen tab: streaming and every control', async ({ page }) => {
-    // Redesigned Screen tab: a single control dock, keys and the text field
-    // behind toggles, a paged key bar with sticky modifiers. Only page-1 keys
+    // Redesigned Screen tab: a single control dock, one Keyboard toggle that
+    // opens the text field together with a paged key bar of sticky modifiers. Only page-1 keys
     // and ungated controls are exercised here; the monitor switcher is gated on
     // a multi-monitor host and the paged keys need a live gesture, so both are
     // left for a manual pass against a real host.
     await pair(page);
 
-    // A live frame should arrive (fps text flips off "connecting").
-    await expect(page.getByTestId('fps')).toBeVisible();
     // Until the first frame lands, the panel-state overlay sits above the
     // surface and would swallow the taps below.
     await expect(page.getByTestId('panel-state')).toHaveCount(0, { timeout: 20000 });
+
+    // The stream readout is off by default and lives behind the screen menu;
+    // turning it on proves the menu, the toggle and a live stats line.
+    await page.getByTestId('screen-menu').click();
+    await page.getByTestId('toggle-hud').click();
+    const sheet = page.getByTestId('screen-menu-sheet');
+    if (await sheet.isVisible()) await sheet.getByRole('button', { name: 'Close', exact: true }).first().click();
+    await expect(page.getByTestId('hud')).toBeVisible();
 
     // The remote surface accepts taps (sends a click to the host).
     await page.getByTestId('screen-surface').click({ position: { x: 100, y: 60 } });
@@ -121,7 +154,7 @@ test.describe('Belay', () => {
 
   test('terminal tab: runs a command and quick keys', async ({ page }) => {
     await pair(page);
-    await page.getByText('Terminal', { exact: true }).click();
+    await openTool(page, 'terminal');
 
     await expect(page.getByTestId('term-input')).toBeVisible();
     await page.getByTestId('term-input').fill('echo belay-terminal-ok');
@@ -138,7 +171,7 @@ test.describe('Belay', () => {
 
   test('files tab: browse, roots, up, and open a file', async ({ page }) => {
     await pair(page);
-    await page.getByText('Files', { exact: true }).click();
+    await openTool(page, 'files');
 
     await expect(page.getByTestId('file-list')).toBeVisible();
 
@@ -165,19 +198,24 @@ test.describe('Belay', () => {
 
   test('system tab: live stats and disconnect', async ({ page }) => {
     await pair(page);
-    await page.getByText('System', { exact: true }).click();
+    await openTool(page, 'system');
 
-    // Stats render with real numbers.
-    await expect(page.getByText('CPU', { exact: true })).toBeVisible();
-    await expect(page.getByText('Memory', { exact: true })).toBeVisible();
-    await expect(page.getByText(/Disk/)).toBeVisible();
+    // Stats render with real numbers. Each card carries its own testID; the
+    // bare label text is not unique because the CPU history chart repeats it.
+    for (const id of ['stat-cpu', 'stat-memory', 'stat-disk']) {
+      await expect(page.getByTestId(id)).toBeVisible();
+      await expect(page.getByTestId(id)).toContainText(/\d/);
+    }
 
     // Disconnect confirms first — same sheet as Forget on the devices screen,
     // and for the same reason: un-pairing means walking to the machine for a
-    // new code — then returns to the connect screen.
+    // new code — then returns to the cold-start intro.
     await page.getByTestId('disconnect').click();
     await expect(page.getByText(/This phone will be un-paired/)).toBeVisible();
     await page.getByRole('button', { name: 'Forget', exact: true }).click();
-    await expect(page.getByTestId('host-input')).toBeVisible();
+    // With no computers left the app is back at a cold start: the Welcome
+    // intro, and the address field behind it.
+    await expect(page.getByTestId('welcome-screen')).toBeVisible();
+    await intro(page);
   });
 });
