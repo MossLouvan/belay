@@ -623,7 +623,16 @@ app.post('/windows/focus', auth, async (req, res) => {
 // that the person physically at the machine always outranks. See
 // docs/COLLABORATION.md for why it has to work this way.
 
-const floor = createInputFloor();
+/**
+ * Whether the person at the host's own keyboard freezes remote input
+ * (input-floor.ts rule 1). Off by default: in practice the owner is often at
+ * the PC *and* driving it from the phone — gaming with the screen in front of
+ * them — and every nudge of the real mouse produced "key failed: someone is
+ * using this computer directly". Set BELAY_LOCAL_PRIORITY=1 to restore the
+ * freeze on a machine someone else actually shares.
+ */
+const LOCAL_PRIORITY = productEnv('LOCAL_PRIORITY') === '1';
+const floor = createInputFloor({ localGraceMs: LOCAL_PRIORITY ? undefined : 0 });
 const cursors = createCursorRegistry({ actingId: () => floor.holder() });
 const cursorHub = createCursorHub({ registry: cursors });
 const gamepadWss = new WebSocketServer({ noServer: true, maxPayload: 17, perMessageDeflate: false });
@@ -655,7 +664,7 @@ let probeInFlight = false;
  * magnitude inside the grace window it feeds.
  */
 function probeLocalActivity(): void {
-  if (probeInFlight) return;
+  if (!LOCAL_PRIORITY || probeInFlight) return;
   probeInFlight = true;
   void native.idleMs()
     .then((idleMs) => {

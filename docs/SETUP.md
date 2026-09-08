@@ -319,6 +319,7 @@ regardless.
 | `BELAY_PORT` | `8787` | Port to listen on |
 | `BELAY_ALLOWED_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Browser origins allowed by CORS (the local web build) |
 | `BELAY_HOSTS` | *(empty)* | Extra hostnames accepted in the `Host` header, comma-separated. IP literals, `localhost` and `*.local` are always accepted; anything else is refused to defeat DNS rebinding. Add your Tailscale MagicDNS name here if you connect by name |
+| `BELAY_LOCAL_PRIORITY` | `0` | `1` freezes remote input for 3 s whenever the host's own mouse or keyboard is used ("someone is using this computer directly"). Off by default so you can sit at the PC and drive it from the phone at the same time |
 | `BELAY_TAILNET_PAIR` | `1` | Pair without a code for devices on the host's own Tailscale account (`0` to always require the code) |
 | `BELAY_TAILSCALE_CLI` | auto | Path to the `tailscale` CLI if it is somewhere unusual |
 | `BELAY_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |

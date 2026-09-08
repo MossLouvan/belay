@@ -164,3 +164,15 @@ test('denialBody never returns a negative backoff', () => {
   const body = denialBody({ ok: false, reason: 'held', retryInMs: -5 });
   assert.equal(body.retryInMs, 0);
 });
+
+test('with local priority off, host input never freezes remote input', () => {
+  // The default: the founder wants the phone to keep working while someone
+  // is also at the keyboard. Local activity is still recorded (it clears a
+  // remote grant) but the freeze window is zero.
+  const floor = createInputFloor({ localGraceMs: 0 });
+  floor.noteLocalActivity(T0);
+  assert.equal(floor.frozen(T0), false);
+  assert.equal(floor.frozen(T0 + 1), false);
+  const d = floor.request('a', 'Moss', T0 + 1);
+  assert.equal(d.ok, true);
+});
