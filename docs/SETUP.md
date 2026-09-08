@@ -198,7 +198,10 @@ world, entering the host's Tailscale address in the app is enough.
 
 For the host to be there when you are away, also:
 
-- run it on login (`npm run autostart` in `server/`, see below);
+- run it on login (`npm run autostart` in `server/`, see below). The task it
+  installs pins `BELAY_STATE_FILE` to `server/belay-state.json`; any other way
+  of starting the host at logon must set that variable too, or the host starts
+  with an empty pairing list;
 - set the power plan to never sleep, and enable automatic logon if the machine
   may reboot unattended.
 
@@ -300,6 +303,7 @@ regardless.
 |---|---|---|
 | App says "could not reach host" | both | Wrong IP, or a firewall blocking 8787. On Windows, allow Node through the firewall on private networks. On macOS, System Settings → Network → Firewall → Options → allow incoming connections for `node`. |
 | Screen tab stuck on "Waiting…" | both | `Native: NOT BUILT` in the host output — run `npm run build:native`. |
+| Phone shows the PC as offline or asks to pair again after a restart | both | The host was started from a different folder and created a fresh `belay-state.json` with a new host id, so the phone's saved token means nothing to it. Start it from `server/` or set `BELAY_STATE_FILE`; the `State :` line in the startup banner shows which file is in use. Then pair once more and delete the stale entry on the phone. |
 | Screen tab black, or input does nothing | macOS | Screen Recording / Accessibility not granted, granted to the wrong app, or the terminal app was not fully quit and reopened after granting. See the permissions section. |
 | Terminal works but `vim`/`htop` are broken | both | Session is `mode: pipe` instead of `pty`. On macOS see the node-pty note above; on Windows reinstall with build tools. |
 | Disk shows 0 in the Status tab | both | The host could not read disk usage; it logs one `[disk] …` line with the reason. |
@@ -320,6 +324,7 @@ regardless.
 | `BELAY_ALLOWED_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Browser origins allowed by CORS (the local web build) |
 | `BELAY_HOSTS` | *(empty)* | Extra hostnames accepted in the `Host` header, comma-separated. IP literals, `localhost` and `*.local` are always accepted; anything else is refused to defeat DNS rebinding. Add your Tailscale MagicDNS name here if you connect by name |
 | `BELAY_LOCAL_PRIORITY` | `0` | `1` freezes remote input for 3 s whenever the host's own mouse or keyboard is used ("someone is using this computer directly"). Off by default so you can sit at the PC and drive it from the phone at the same time |
+| `BELAY_STATE_FILE` | `<cwd>/belay-state.json` | Where pairings and this host's id live. Set it, or always run `npm start` from `server/`; started from anywhere else the host comes up as a brand-new, unpaired machine |
 | `BELAY_TAILNET_PAIR` | `1` | Pair without a code for devices on the host's own Tailscale account (`0` to always require the code) |
 | `BELAY_TAILSCALE_CLI` | auto | Path to the `tailscale` CLI if it is somewhere unusual |
 | `BELAY_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |

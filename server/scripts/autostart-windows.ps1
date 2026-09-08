@@ -110,6 +110,7 @@ if (-not (Test-Path $tsxCli)) {
 
 Write-Host "==> Server directory : $ServerDir"
 Write-Host "==> node             : $($node.Source)"
+Write-Host "==> state file       : $(Join-Path $ServerDir 'belay-state.json')"
 
 # Earlier versions generated a scripts\start-hidden.vbs here and pointed the
 # task at it. The task no longer executes anything written into the checkout,
@@ -131,7 +132,11 @@ Remove-LegacyHostTask
 # task's own process tree rather than a detached process, so stopping the task
 # takes the agent down with it.
 $powershellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$launchCmd = "& '$($node.Source)' '$tsxCli' '$(Join-Path $ServerDir 'src\index.ts')'"
+# Pin the state file. The server defaults it to process.cwd(), and a task
+# started with any other working directory would come up as a brand-new host
+# with a fresh id and no paired phones (docs/SETUP.md, Troubleshooting).
+$stateFile = Join-Path $ServerDir 'belay-state.json'
+$launchCmd = "`$env:BELAY_STATE_FILE = '$stateFile'; & '$($node.Source)' '$tsxCli' '$(Join-Path $ServerDir 'src\index.ts')'"
 $taskAction = New-ScheduledTaskAction -Execute $powershellExe `
                                      -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$launchCmd`"" `
                                      -WorkingDirectory $ServerDir
