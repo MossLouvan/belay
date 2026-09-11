@@ -176,7 +176,7 @@ export function SessionList({
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pullToRefresh} tintColor={theme.colors.accent} />}
     >
-      <Txt variant="title" heading>Agent</Txt>
+      <Txt variant="display" heading>Agent</Txt>
       {/* Use ConnectionStatus for consistent non-overlapping layout across all
           tabs. The freshness stamp (formatAsOf) is the visible twin of
           pull-to-refresh: it proves the rows below are live while the

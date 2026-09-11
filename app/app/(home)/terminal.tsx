@@ -74,7 +74,7 @@ type ShellMode = 'pty' | 'pipe';
 /** The panel route: the unchanged tab body inside the shared slide-up chrome. */
 export default function TerminalPanel() {
   return (
-    <ToolPanel testID="terminal-panel">
+    <ToolPanel tab="terminal" testID="terminal-panel">
       <TerminalTab />
     </ToolPanel>
   );
@@ -525,7 +525,7 @@ function TerminalTab() {
           Text size moved into the key bar (`Aa`) where it belongs. */}
       <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
         <Row justify="space-between" gap="sm">
-          <Txt variant="title" heading>
+          <Txt variant="display" heading>
             Terminal
           </Txt>
           <IconButton

@@ -84,7 +84,16 @@ export function AppearanceNav({ selected = 'screen' }: AppearanceNavProps) {
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             accessibilityLabel={tabLabel(tab)}
-            onPress={() => router.navigate(`/${tab}`)}
+            onPress={() => {
+              if (tab === selected) return;
+              // Inside a tool panel, moving to another tool REPLACES it. Pushing
+              // would stack a second panel — and a second copy of this bar —
+              // over the first, so the app would grow one tablist per tap and
+              // the way back to the desktop would need as many taps.
+              if (selected === 'screen') router.navigate(`/${tab}`);
+              else if (tab === 'screen') router.back();
+              else router.replace(`/${tab}`);
+            }}
             style={({ pressed }) => ({
               flex: 1,
               minHeight: 48,

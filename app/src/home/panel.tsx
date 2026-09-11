@@ -2,30 +2,38 @@
 //
 // Desktop-first IA: Agent, Terminal, Files and System open OVER the live
 // desktop, and every one of them must offer the same, unmissable way back.
-// This wrapper adds that one thing — a slim top bar with a grab handle and a
-// "⌄ Desktop" control — and floats the cross-surface "needs you" band over
-// the panel's bottom edge, so an agent blocked on an approval can still reach
-// you inside Terminal or Files. The tool's own screen renders unchanged
-// beneath the bar; on iOS the panel is a native sheet, so swipe-down works
-// too and the handle is drawn where the platform's own sheets draw theirs.
+//
+// The concept mockups stand the whole app on a five-tab bar, and a tool that
+// arrives with no tab bar reads as a different app — so this wrapper carries
+// the same bar the desktop and the computers list do, with the tool's own tab
+// lit. The way back to the desktop is the header's `‹ Desktop`, the same
+// chevron-and-word row the desktop uses to reach the computers list, rather
+// than a grab handle that only says "a sheet" and only on iOS. On iOS the
+// panel is still a native sheet, so swipe-down keeps working alongside it.
+//
+// It also floats the cross-surface "needs you" band over the panel's bottom
+// edge, so an agent blocked on an approval can still reach you inside Terminal
+// or Files.
 
 import React, { useCallback } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { IconChevronLeft } from '@tabler/icons-react-native';
 import { useTheme } from '../theme';
-import { Label, Txt, haptic } from '../ui';
+import { Txt, haptic } from '../ui';
 import { NeedsYouBanner } from '../agent/needs-you-banner';
-
-/** The sheet-style grab handle: platform furniture, drawn once, centred. */
-const HANDLE = { width: 36, height: 4 } as const;
+import { AppearanceNav } from './appearance-nav';
+import type { NavTab } from './appearance-nav';
 
 export interface ToolPanelProps {
   children: React.ReactNode;
+  /** Which of the five tabs this panel is. Lights it in the bar. */
+  tab: Exclude<NavTab, 'screen'>;
   testID?: string;
 }
 
-export function ToolPanel({ children, testID }: ToolPanelProps) {
+export function ToolPanel({ children, tab, testID }: ToolPanelProps) {
   const theme = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -45,20 +53,10 @@ export function ToolPanel({ children, testID }: ToolPanelProps) {
           // iOS presents the panel as a native sheet (top inset 0); Android
           // slides it up full screen, where the bar owns the status-bar inset.
           paddingTop: insets.top + theme.space.xxs,
-          borderBottomWidth: theme.layout.hairline,
-          borderBottomColor: theme.colors.border,
+          paddingHorizontal: theme.layout.margin,
+          paddingBottom: 0,
         }}
       >
-        <View style={{ alignItems: 'center', paddingTop: theme.space.xxs }}>
-          <View
-            style={{
-              width: HANDLE.width,
-              height: HANDLE.height,
-              borderRadius: HANDLE.height / 2,
-              backgroundColor: theme.colors.border,
-            }}
-          />
-        </View>
         <Pressable
           testID="panel-close"
           accessibilityRole="button"
@@ -70,16 +68,14 @@ export function ToolPanel({ children, testID }: ToolPanelProps) {
             alignSelf: 'flex-start',
             flexDirection: 'row',
             alignItems: 'center',
-            gap: theme.space.xxs,
+            gap: 2,
             minHeight: theme.layout.minTouch,
-            paddingHorizontal: theme.layout.margin,
-            opacity: pressed ? 0.6 : 1,
+            marginLeft: -6,
+            opacity: pressed ? theme.motion.pressOpacity : 1,
           })}
         >
-          <Txt variant="label" tone="dim">
-            {'⌄'}
-          </Txt>
-          <Label>Desktop</Label>
+          <IconChevronLeft size={22} strokeWidth={2.2} color={theme.colors.text} />
+          <Txt variant="body">Desktop</Txt>
         </Pressable>
       </View>
       {/* The bar above has already spent the top inset (real on Android's
@@ -91,6 +87,7 @@ export function ToolPanel({ children, testID }: ToolPanelProps) {
       </SafeAreaInsetsContext.Provider>
       {/* Approvals must reach you in every tool, not only on the desktop. */}
       <NeedsYouBanner bottom={0} />
+      <AppearanceNav selected={tab} />
     </View>
   );
 }

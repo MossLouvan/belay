@@ -361,7 +361,11 @@ export default function ScreenTab() {
       {gaming.enabled ? <GamingOverlay gaming={gaming} width={view.window.width} height={view.window.height}
         fps={stream.bwpStats?.fps ?? stream.stats.fps} pingMs={facts.pingMs} /> : null}
       <GamingSheet gaming={gaming} />
-      {!immersive && !gaming.enabled ? <AppearanceNav /> : null}
+      {/* `focused` is load-bearing, not a nicety: a tool panel presents OVER
+          the desktop and brings its own copy of the bar, so without this the
+          app mounts two tablists at once — ambiguous to a screen reader, and
+          to anything looking for `nav-files`. */}
+      {focused && !immersive && !gaming.enabled ? <AppearanceNav /> : null}
 
       {/* Gated on `ready`, not just the flag: a stop that failed leaves
           nothing to send, and a sheet promising to send nothing would lie. */}

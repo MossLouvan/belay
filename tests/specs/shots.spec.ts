@@ -11,6 +11,14 @@ test('capture all screens', async ({ page }) => {
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
 
+  // The first run walks the welcome and how-it-works cards before the address
+  // form; both are worth a shot of their own.
+  const welcome = page.getByTestId('welcome-continue');
+  if (await welcome.isVisible().catch(() => false)) {
+    await page.screenshot({ path: `${DIR}/00-welcome.png` });
+    await welcome.click();
+    await page.getByTestId('how-it-works-continue').click();
+  }
   await page.getByTestId('host-input').waitFor();
   await page.screenshot({ path: `${DIR}/01-connect.png` });
 
@@ -31,18 +39,18 @@ test('capture all screens', async ({ page }) => {
   await page.waitForTimeout(2500); // let a frame or two arrive
   await page.screenshot({ path: `${DIR}/03-screen.png` });
 
-  await page.getByText('Terminal', { exact: true }).click();
+  await page.getByTestId('nav-terminal').click();
   await page.getByTestId('term-input').fill('Get-Date');
   await page.getByTestId('term-run').click();
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${DIR}/04-terminal.png` });
 
-  await page.getByText('Files', { exact: true }).click();
+  await page.getByTestId('nav-files').click();
   await page.getByTestId('file-list').waitFor();
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${DIR}/05-files.png` });
 
-  await page.getByText('System', { exact: true }).click();
+  await page.getByTestId('nav-system').click();
   await page.waitForTimeout(1200);
   await page.screenshot({ path: `${DIR}/06-system.png` });
 });

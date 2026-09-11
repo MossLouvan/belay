@@ -78,7 +78,7 @@ const message = (e: unknown): string =>
 /** The panel route: the unchanged tab body inside the shared slide-up chrome. */
 export default function SystemPanel() {
   return (
-    <ToolPanel testID="system-panel">
+    <ToolPanel tab="system" testID="system-panel">
       <SystemTab />
     </ToolPanel>
   );
@@ -215,7 +215,7 @@ function SystemTab() {
     >
       {/* Header anatomy shared by every tab: title, label status line, rule. */}
       <View>
-        <Txt variant="title" heading numberOfLines={1}>
+        <Txt variant="display" heading numberOfLines={1}>
           {title}
         </Txt>
         <ConnectionStatus

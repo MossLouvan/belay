@@ -138,8 +138,9 @@ test.describe('Computer list', () => {
     // cannot be the answer when adding another.
     await expect(page.getByTestId('host-input')).toHaveValue('');
 
-    // And the way back is explicit, not just the browser's back gesture.
-    await page.getByTestId('cancel-add').click();
+    // And the way back is explicit, not just the browser's back gesture: the
+    // pairing form lives in a sheet now, and the sheet's Close is that way out.
+    await page.getByTestId('sheet-close').click();
     await expect(page.getByText('Your computers')).toBeVisible();
   });
 
