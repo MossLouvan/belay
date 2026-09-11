@@ -91,6 +91,82 @@ test('native transport: forwards state to the module and relays its events', asy
   assert.equal(listeners.onSessionMessage, undefined, 'listeners removed on close');
 });
 
+test('js transport: the fast path carries the same bytes, and only while it is on', async () => {
+  globalThis.WebSocket = FakeSocket;
+  const udp = [];
+  const wire = jsTransport({ onMessage: () => { }, onClose: () => { } }, report => udp.push(decodeGamepad(report)));
+  wire.open('ws://host/ws/gamepad');
+  const socket = FakeSocket.instances.at(-1);
+  socket.open();
+  socket.onmessage({ data: JSON.stringify({ type: 'hello', available: true, backend: 'vigem' }) });
+  wire.setTouch({ ...NEUTRAL, lx: 1 });
+  await tick(30);
+  assert.ok(socket.sent.length > 0, 'the WebSocket is carrying the controller');
+  assert.equal(udp.length, 0, 'nothing takes the UDP channel until it is open');
+
+  wire.setFastPath(true);
+  const before = socket.sent.length;
+  await tick(30);
+  assert.ok(udp.length > 0, 'reports take the UDP channel once it is open');
+  // The same report on both wires, sequence included: that is what lets the
+  // host drop the second copy instead of replaying it as a new sample.
+  assert.deepEqual(udp.at(-1), socket.sent.at(-1));
+  assert.ok(socket.sent.length > before, 'the WebSocket is never given up');
+
+  wire.setFastPath(false);
+  const parked = udp.length;
+  await tick(30);
+  assert.equal(udp.length, parked, 'the fallback to JPEG stops the UDP copy at once');
+  wire.close();
+});
+
+test('js transport: with no UDP channel in this build, the fast path is inert', async () => {
+  globalThis.WebSocket = FakeSocket;
+  const wire = jsTransport({ onMessage: () => { }, onClose: () => { } });
+  wire.open('ws://host/ws/gamepad');
+  const socket = FakeSocket.instances.at(-1);
+  socket.open();
+  socket.onmessage({ data: JSON.stringify({ type: 'hello', available: true, backend: 'vigem' }) });
+  wire.setFastPath(true);
+  wire.setTouch({ ...NEUTRAL, rt: 1 });
+  await tick(30);
+  assert.ok(socket.sent.at(-1).rt > 0.99, 'the WebSocket still carries everything');
+  wire.close();
+});
+
+test('native transport: the fast path is one call, not a per-frame hop through JS', async () => {
+  const fast = [];
+  const native = {
+    addListener: () => ({ remove() { } }),
+    startSession: async () => { }, stopSession: async () => { },
+    setTouchState: async () => { }, setInputMode: async () => { }, setSuppressed: async () => { },
+    setFastPath: async enabled => { fast.push(enabled); },
+  };
+  const wire = nativeTransport({ onMessage: () => { }, onClose: () => { } }, native);
+  wire.open('ws://host/ws/gamepad');
+  wire.setFastPath(true);
+  wire.setTouch({ ...NEUTRAL, lx: 1 });
+  await tick(20);
+  assert.deepEqual(fast, [true], 'told once; the module posts its own reports');
+  wire.setFastPath(false);
+  await tick(1);
+  assert.deepEqual(fast, [true, false]);
+  wire.close();
+});
+
+test('native transport: a module without the fast path is not called and does not throw', async () => {
+  const native = {
+    addListener: () => ({ remove() { } }),
+    startSession: async () => { }, stopSession: async () => { },
+    setTouchState: async () => { }, setInputMode: async () => { }, setSuppressed: async () => { },
+  };
+  const wire = nativeTransport({ onMessage: () => { }, onClose: () => { } }, native);
+  wire.open('ws://host/ws/gamepad');
+  assert.doesNotThrow(() => wire.setFastPath(true));
+  await tick(1);
+  wire.close();
+});
+
 test('native transport: a failed native start reports a close so the hook retries', async () => {
   const native = {
     addListener: () => ({ remove() { } }), startSession: async () => { throw new Error('bad url'); }, stopSession: async () => { },

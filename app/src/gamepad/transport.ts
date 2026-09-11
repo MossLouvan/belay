@@ -8,9 +8,17 @@
 //   jsTransport — the original loop, kept for web and for a binary without the
 //   native session. Same wire, same gating, same neutral-on-close.
 //
+// Either transport can also put the same bytes on the H.264 session's UDP
+// Input channel ("the fast path"). That channel leaves ahead of queued video
+// and never waits on a socket buffer, and the host dedupes by sequence number,
+// so the copy that arrives second is dropped rather than replayed. The
+// WebSocket is never given up: it carries attach, hello, rumble and the 2 s
+// watchdog, and it is what makes the fallback to JPEG seamless.
+//
 // use-gamepad.ts owns everything above the wire: exit hold, status strings,
 // reconnect backoff, rumble. This file stays free of the native module import
-// so the node test runner can load it; select-transport.ts does the choosing.
+// so the node test runner can load it; select-transport.ts does the choosing,
+// and passes the JS transport the sink that reaches the stream module.
 
 import type { GamepadNative } from '../../modules/belay-gamepad/src';
 import { encodeGamepad, NEUTRAL } from './codec.ts';
@@ -35,7 +43,15 @@ export interface GamepadTransport {
   readonly setInputMode: (mode: InputMode) => void;
   /** While true the wire carries neutral (the exit hold is in progress). */
   readonly setSuppressed: (value: boolean) => void;
+  /**
+   * Whether the H.264 session is open, so reports can also take its UDP Input
+   * channel. Safe to leave off: the WebSocket alone is a complete session.
+   */
+  readonly setFastPath: (enabled: boolean) => void;
 }
+
+/** Where a transport hands an encoded report for the UDP Input channel. */
+export type InputSink = (report: ArrayBuffer) => void;
 
 const SEND_INTERVAL_MS = 8;
 /** One frame is 17 bytes; two queued means the link is stalling. */
@@ -69,17 +85,26 @@ export function nativeTransport(events: TransportEvents, native: GamepadNative |
     setPhysicalConnected: () => { },
     setInputMode: mode => { void native?.setInputMode?.(mode).catch(ignore); },
     setSuppressed: value => { void native?.setSuppressed?.(value).catch(ignore); },
+    // The module posts its own reports straight to the stream session, so the
+    // fast path costs the JS thread one call when it changes and nothing per
+    // frame — which is the whole point of the native session.
+    setFastPath: enabled => { void native?.setFastPath?.(enabled).catch(ignore); },
   };
 }
 
-export function jsTransport(events: TransportEvents): GamepadTransport {
+export function jsTransport(events: TransportEvents, sink: InputSink | null = null): GamepadTransport {
   let live = true, ready = false, seq = 0;
   let ws: WebSocket | null = null;
   let touch: GamepadState = NEUTRAL, physical: GamepadState = NEUTRAL;
-  let physicalConnected = false, mode: InputMode = 'auto', suppressed = false;
+  let physicalConnected = false, mode: InputMode = 'auto', suppressed = false, fastPath = false;
   const send = (state: GamepadState): void => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    try { ws.send(encodeGamepad({ ...state, seq })); seq = (seq + 1) >>> 0; } catch { ws.close(); }
+    const report = encodeGamepad({ ...state, seq });
+    seq = (seq + 1) >>> 0;
+    // UDP first: it is the faster wire, and the host keeps whichever copy of
+    // this sequence number arrives first.
+    if (fastPath && sink) sink(report);
+    try { ws.send(report); } catch { ws.close(); }
   };
   // Full-state heartbeat also repairs missed releases. No unbounded send queue.
   const timer = setInterval(() => {
@@ -114,5 +139,6 @@ export function jsTransport(events: TransportEvents): GamepadTransport {
     setPhysicalConnected: connected => { physicalConnected = connected; if (!connected) physical = NEUTRAL; },
     setInputMode: next => { mode = next; touch = NEUTRAL; physical = NEUTRAL; },
     setSuppressed: value => { suppressed = value; },
+    setFastPath: enabled => { fastPath = enabled; },
   };
 }

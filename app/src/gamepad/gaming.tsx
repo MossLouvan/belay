@@ -26,6 +26,9 @@ export function useGaming(active: boolean, connectionKey: string, onExitFullscre
   const [glyphStyle, setGlyphStyle] = useState<GlyphStyle>('auto');
   const [loaded, setLoaded] = useState(false);
   const [exitCount, setExitCount] = useState(0);
+  // Set by the screen once its stream hook exists: H.264 open means the
+  // controller has a UDP channel to take as well as the WebSocket.
+  const [fastPath, setFastPath] = useState(false);
   const exitToPortrait = useRef(false);
   const leaveGaming = useCallback(() => {
     exitToPortrait.current = true;
@@ -35,7 +38,7 @@ export function useGaming(active: boolean, connectionKey: string, onExitFullscre
     orientationWork = orientationWork.then(() => onExitFullscreen()).catch(() => { });
     setEnabled(false);
   }, [onExitFullscreen]);
-  const gamepad = useGamepad(active && enabled, preset, connectionKey, leaveGaming, active && (enabled || sheet));
+  const gamepad = useGamepad(active && enabled, preset, connectionKey, leaveGaming, active && (enabled || sheet), fastPath);
   const labels = labelsFor(gamepad.kind, glyphStyle);
   useEffect(() => {
     let live = true;
@@ -70,7 +73,7 @@ export function useGaming(active: boolean, connectionKey: string, onExitFullscre
     };
   }, [enabled, active, gamepad.foreground]);
   return {
-    enabled, exitCount, sheet, preset, layout, glyphStyle, labels, loaded, ...gamepad, setSheet, setPreset, setLayout, setGlyphStyle,
+    enabled, exitCount, sheet, preset, layout, glyphStyle, labels, loaded, ...gamepad, setSheet, setPreset, setLayout, setGlyphStyle, setFastPath,
     enter: () => { exitToPortrait.current = false; setSheet(false); setEnabled(true); },
     exit: () => { gamepad.updateTouch(NEUTRAL); leaveGaming(); }
   };

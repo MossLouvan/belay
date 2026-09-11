@@ -26,7 +26,13 @@ const RECONNECT_MS = 1500;
 /** Game-generated rumble that stops being refreshed is a lost link; stop the motors. */
 const RUMBLE_STALE_MS = 750;
 
-export function useGamepad(enabled: boolean, preset: PresetId, connectionKey: string, onGuideExit: () => void, monitor = enabled) {
+/**
+ * @param fastPath whether the H.264 session is open, so reports can also take
+ * its UDP Input channel. It is a separate argument rather than read from the
+ * stream here because the stream hook is built after this one on the screen,
+ * and because Gaming must work identically when the picture is JPEG.
+ */
+export function useGamepad(enabled: boolean, preset: PresetId, connectionKey: string, onGuideExit: () => void, monitor = enabled, fastPath = false) {
   const theme = useTheme();
   const exitRef = useRef(onGuideExit); exitRef.current = onGuideExit;
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
@@ -38,6 +44,7 @@ export function useGamepad(enabled: boolean, preset: PresetId, connectionKey: st
   const [controllerError, setControllerError] = useState<string | null>(null);
   const [exitProgress, setExitProgress] = useState(0);
   const inputModeRef = useRef(inputMode); inputModeRef.current = inputMode;
+  const fastPathRef = useRef(fastPath); fastPathRef.current = fastPath;
   const touch = useRef<GamepadState>(NEUTRAL);
   const controller = useRef<GamepadState>(NEUTRAL);
   const physicalRef = useRef(false);
@@ -61,6 +68,10 @@ export function useGamepad(enabled: boolean, preset: PresetId, connectionKey: st
     const subscription = AppState.addEventListener('change', state => setForeground(state === 'active'));
     return () => subscription.remove();
   }, []);
+  // The UDP session comes and goes under the controller — H.264 starting, or
+  // falling back to JPEG — without the wire being rebuilt, so it is told
+  // separately from the connect effect below.
+  useEffect(() => { transport.current?.setFastPath(fastPath); }, [fastPath]);
   useEffect(() => {
     if (!monitor || !foreground) return;
     let live = true;
@@ -139,6 +150,7 @@ export function useGamepad(enabled: boolean, preset: PresetId, connectionKey: st
       },
     });
     transport.current = wire;
+    wire.setFastPath(fastPathRef.current);
     wire.setInputMode(inputModeRef.current);
     wire.setPhysicalConnected(physicalRef.current);
     wire.setPhysical(controller.current);

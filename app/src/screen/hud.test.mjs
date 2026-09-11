@@ -180,6 +180,26 @@ test('the H.264 readout shows the round trip and encode time when known', () => 
   assert.equal(unknown.encode, '—');
 });
 
+test('the readout names the wire the controller took, and only while it is taking it', () => {
+  const live = {
+    ...base,
+    stats: idleStats,
+    bwpPath: 'gpu',
+    bwp: { fps: 60, kbps: 1500, bitrate: 2e6, keyframeRequests: 0, encodeMs: 3.6, rttMs: 12.4 },
+  };
+  // Gaming off, or a controller carried by the WebSocket alone: no row. The
+  // picture looks the same either way, so a row saying "0/s" would read as a
+  // broken controller rather than an idle one.
+  assert.equal(rowMap(hudRows({ ...live, bwpClient: { fps: 60, dropped: 0, keyframeRequests: 0, inputSent: 0, rttMs: 9 } })).pad, undefined);
+  assert.equal(rowMap(hudRows(live)).pad, undefined);
+  assert.equal(
+    rowMap(hudRows({ ...live, bwpClient: { fps: 60, dropped: 0, keyframeRequests: 0, inputSent: 125, rttMs: 9 } })).pad,
+    '125/s · UDP',
+  );
+  // JPEG has no UDP session at all, so the row cannot appear there.
+  assert.equal(rowMap(hudRows({ ...base, bwpClient: { fps: 0, dropped: 0, keyframeRequests: 0, inputSent: 125, rttMs: 9 } })).pad, undefined);
+});
+
 test('on JPEG the readout says why H.264 is not carrying the picture', () => {
   const r = rowMap(hudRows({ ...base, bwpFallback: 'timeout' }));
   assert.equal(r.h264, 'no H.264 frames arrived');

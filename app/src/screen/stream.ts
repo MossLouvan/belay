@@ -99,6 +99,12 @@ export interface BwpClientStats {
   readonly fps: number;
   readonly dropped: number;
   readonly keyframeRequests: number;
+  /**
+   * Controller reports the session put on the UDP Input channel in the last
+   * second. Zero whenever Gaming is off, and the only evidence on a device
+   * that the controller is taking that channel and not just the WebSocket.
+   */
+  readonly inputSent: number;
   /** Round trip as the phone measures it, or null until known. */
   readonly rttMs: number | null;
 }
@@ -325,6 +331,8 @@ export function useScreenStream(
           fps: status.decoded,
           dropped: status.dropped,
           keyframeRequests: status.keyframeRequests,
+          // A binary built before the Input channel reports no field at all.
+          inputSent: status.inputSent ?? 0,
           rttMs: status.rttMs >= 0 ? status.rttMs : null,
         });
         break;

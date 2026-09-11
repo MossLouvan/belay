@@ -84,6 +84,12 @@ export function hudRows(i: HudInputs): readonly HudRow[] {
     // Frames the phone actually showed, next to what the host sent: a gap
     // between the two is packet loss, which no host-side number can see.
     const shown = i.bwpClient ? `${i.bwpClient.fps}${i.bwpClient.dropped > 0 ? ` (−${i.bwpClient.dropped})` : ''}` : dash;
+    // Only while something is actually sending. The controller can reach the
+    // host on either wire and the picture looks identical either way, so this
+    // row is the one place that says which one carried it.
+    const input = i.bwpClient && i.bwpClient.inputSent > 0
+      ? [['pad', `${i.bwpClient.inputSent}/s · UDP`] as HudRow]
+      : [];
     return [
       ['codec', i.bwpPath === 'gpu' ? 'H.264 · GPU' : 'H.264'],
       ['fps', fps],
@@ -91,6 +97,7 @@ export function hudRows(i: HudInputs): readonly HudRow[] {
       ['rate', rate],
       ['cap', cap],
       ['source', size],
+      ...input,
       ...latencyRows(i),
       ['ping', ping],
       ['zoom', zoom],

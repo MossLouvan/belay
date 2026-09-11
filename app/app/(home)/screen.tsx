@@ -30,7 +30,7 @@
 // register as extra routes. The pure decisions are src/screen/screen-chrome.ts.
 
 import { GamingOverlay, GamingSheet, useGaming } from '../../src/gamepad/gaming';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -118,6 +118,13 @@ export default function ScreenTab() {
   );
   const stream = useScreenStream(active, presets.quality, screenIndex, presets.virtualRequest, gaming.enabled, bwpOptions);
   const qualityChoices = useQualityAvailability(stream.bwpPath, presets, gaming.enabled);
+  // A live UDP session is also a wire for the controller: its Input channel
+  // leaves ahead of queued video, where the control WebSocket queues behind
+  // whatever the phone's JavaScript thread is doing. `stream.bwp` is the
+  // session itself, so this goes false the instant H.264 falls back to JPEG
+  // and the controller is carried by the WebSocket alone again.
+  const setGamingFastPath = gaming.setFastPath;
+  useEffect(() => { setGamingFastPath(stream.bwp !== null); }, [setGamingFastPath, stream.bwp]);
 
   const permissions = useMemo(() => readPermissions(facts.info, stream.error), [facts.info, stream.error]);
   const isMac = isMacHost(facts.info);
