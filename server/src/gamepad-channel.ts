@@ -74,14 +74,22 @@ export function createGamepadHub(helper: GamepadHelper, options: Options = {}) {
         owned = false;
         try { await reply; } catch {/* helper watchdog also neutralizes */ }
       };
-      const accept = (data: GamepadBytes): boolean => {
+      const accept = (data: GamepadBytes, injected = false): boolean => {
         if (closed || !attached) return false;
         const frame = decodeGamepad(data);
         if (!frame) return false;
+        // An injected datagram may not START a sequence. A report still in
+        // flight when the gamepad socket reconnects carries the previous
+        // session's sequence number; accepting it into a fresh session latches
+        // that stale sample and then rejects every frame from the new socket
+        // until the counter catches up — a full-deflection stick held until
+        // the watchdog fires. The socket that owns the pad opens the sequence;
+        // UDP only ever delivers a sample of one already under way.
+        if (injected && session.last === null) return false;
         session = acceptFrame(session, frame, now());
         return true;
       };
-      injector = accept;
+      injector = (data: GamepadBytes): boolean => accept(data, true);
       const close = (): void => { if (closed) return; closed = true; injector = null; stop(); unlisten(); if (attached) void detach(); };
       ws.on('close', close); ws.on('error', () => { close(); ws.close(); });
       ws.on('message', (data, isBinary) => {

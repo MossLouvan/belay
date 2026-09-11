@@ -9,13 +9,13 @@
 
 import { gamepadNative, hasNativeSession } from '../../modules/belay-gamepad/src';
 import { canSendInput, sendInput } from '../../modules/belay-stream/src';
-import { jsTransport, nativeTransport } from './transport';
+import { jsTransport, makeInputSink, nativeTransport } from './transport';
 import type { GamepadTransport, InputSink, TransportEvents } from './transport';
 
-/** Null where this build cannot reach the Input channel at all. */
+/** Null where this build cannot reach the Input channel at all. The decision
+ *  itself lives in transport.ts (makeInputSink) so it is unit-testable. */
 export function inputSink(): InputSink | null {
-  if (!canSendInput()) return null;
-  return report => { sendInput(new Uint8Array(report)); };
+  return makeInputSink(canSendInput, sendInput);
 }
 
 export function createTransport(events: TransportEvents): GamepadTransport {

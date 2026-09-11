@@ -9,8 +9,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeGamepad, NEUTRAL } from './codec.ts';
-import { jsTransport, nativeTransport } from './transport.ts';
+import { decodeGamepad, encodeGamepad, NEUTRAL } from './codec.ts';
+import { jsTransport, makeInputSink, nativeTransport } from './transport.ts';
 
 class FakeSocket {
   static instances = [];
@@ -178,4 +178,17 @@ test('native transport: a failed native start reports a close so the hook retrie
   await tick(1);
   assert.deepEqual(closes, [[1006, 'bad url']]);
   wire.close();
+});
+
+test('the Input-channel sink is null where the build cannot reach the channel', () => {
+  assert.equal(makeInputSink(() => false, () => { throw new Error('must not send'); }), null);
+});
+
+test('the sink forwards a report to the channel byte for byte', () => {
+  const sent = [];
+  const sink = makeInputSink(() => true, bytes => sent.push([...bytes]));
+  const report = encodeGamepad({ ...NEUTRAL, buttons: 0x1234, seq: 7 });
+  sink(report);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0], [...new Uint8Array(report)], 'the sink must not reshape the frame');
 });

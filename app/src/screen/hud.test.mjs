@@ -180,7 +180,7 @@ test('the H.264 readout shows the round trip and encode time when known', () => 
   assert.equal(unknown.encode, '—');
 });
 
-test('the readout names the wire the controller took, and only while it is taking it', () => {
+test('the readout names the wire the controller took, and says it is a sent count', () => {
   const live = {
     ...base,
     stats: idleStats,
@@ -194,7 +194,9 @@ test('the readout names the wire the controller took, and only while it is takin
   assert.equal(rowMap(hudRows(live)).pad, undefined);
   assert.equal(
     rowMap(hudRows({ ...live, bwpClient: { fps: 60, dropped: 0, keyframeRequests: 0, inputSent: 125, rttMs: 9 } })).pad,
-    '125/s · UDP',
+    // "sent", not a delivery confirmation: the number comes from the phone
+    // counting what it queued, so a black-holed channel still shows a row.
+    '125/s sent · UDP',
   );
   // JPEG has no UDP session at all, so the row cannot appear there.
   assert.equal(rowMap(hudRows({ ...base, bwpClient: { fps: 0, dropped: 0, keyframeRequests: 0, inputSent: 125, rttMs: 9 } })).pad, undefined);

@@ -206,9 +206,12 @@ value. Native resources and the rooted callback are released on detach.
 and feeds it into the same session, so the newest sequence wins across both
 wires and the watchdog counts both.
 
-Socket close, malformed input, helper failure, or 750 ms without accepted
+Socket close, malformed input, helper failure, or 2 s without accepted
 frames ends the lease and releases inputs. A separate helper timer neutralizes
-held state after 750 ms even if Node or capture stalls. New attachments reset
+held state after the same 2 s even if Node or capture stalls. The window is
+two seconds, not the original 750 ms, because the phone's JavaScript thread
+stalls for hundreds of milliseconds under the JPEG stream and a shorter
+watchdog closed healthy sessions. New attachments reset
 state. Gamepad bypasses the input floor's exclusive keyboard/pointer lease,
 while updating remote activity timestamps for the idle probe. Only active
 keymap samples and their release mark OS injection; neutral heartbeats do not

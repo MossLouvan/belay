@@ -88,7 +88,7 @@ export function hudRows(i: HudInputs): readonly HudRow[] {
     // host on either wire and the picture looks identical either way, so this
     // row is the one place that says which one carried it.
     const input = i.bwpClient && i.bwpClient.inputSent > 0
-      ? [['pad', `${i.bwpClient.inputSent}/s · UDP`] as HudRow]
+      ? [['pad', `${i.bwpClient.inputSent}/s sent · UDP`] as HudRow]
       : [];
     return [
       ['codec', i.bwpPath === 'gpu' ? 'H.264 · GPU' : 'H.264'],

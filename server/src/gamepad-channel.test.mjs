@@ -77,6 +77,12 @@ test('frames injected from another transport feed the owner session, never a str
  // Owned but not yet attached: still refused, the sample would be stale by the time the helper is up.
  assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,seq:1}))),false);
  await new Promise(r=>setImmediate(r));
+ // Attached, but the socket has not sent yet: an injected datagram may not
+ // OPEN the sequence. One still in flight across a reconnect carries the old
+ // session's number, and bootstrapping the new session with it latched that
+ // sample and locked the new socket out until the counter caught up.
+ assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,lx:1,seq:90000}))),false);
+ ws.emit('message',Buffer.from(encodeGamepad({...NEUTRAL,seq:1})),true);
  // A UDP frame and a WebSocket frame are the same sample stream: newest sequence wins across both.
  assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,lx:.25,seq:2}))),true);
  ws.emit('message',Buffer.from(encodeGamepad({...NEUTRAL,lx:.75,seq:3})),true);
@@ -102,4 +108,25 @@ test('ownership releases as soon as detach is issued, not when the helper answer
  assert.equal(next.sent[0].available,true,'a new owner attaches while the old detach is still in flight');
  releaseDetach();await new Promise(r=>setImmediate(r));
  assert.equal(next.readyState,1,'the late detach reply must not close the new owner');
+});
+test('an injected datagram cannot start a sequence, so a stale one cannot latch a fresh session',async()=>{
+ // A report still in flight over UDP when the gamepad socket reconnects
+ // carries the OLD session's sequence number. Accepting it into the new
+ // session latched that sample and then rejected every frame from the new
+ // socket until the counter caught up: a full-deflection stick held until
+ // the watchdog fired. Only the owning socket may open the sequence.
+ let updates=[],tick;
+ const helper={gamepadAttach:async()=>({backend:'vigem'}),gamepadDetach:async()=>{},gamepad:s=>{updates=[...updates,s];return true;},onGamepadEvent:()=>()=>{}};
+ const hub=createGamepadHub(helper,{schedule:fn=>{tick=fn;return ()=>{};},now:()=>100});
+ const ws=new Socket();hub.handle(ws,'generic');await new Promise(r=>setImmediate(r));
+ // The stale datagram arrives before the new socket has sent anything.
+ assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,lx:1,seq:90000}))),false,'a fresh session must not accept an injected frame');
+ tick();assert.equal(updates.length,0,'nothing reaches the pad');
+ // The socket opens the sequence; from then on UDP is delivering samples of
+ // a sequence already under way and is accepted normally.
+ ws.emit('message',Buffer.from(encodeGamepad({...NEUTRAL,seq:1})),true);
+ tick();assert.equal(updates.length,1);
+ assert.equal(hub.inject(Buffer.from(encodeGamepad({...NEUTRAL,lx:.5,seq:2}))),true,'UDP joins a live sequence');
+ tick();assert.ok(Math.abs(updates.at(-1).lx-.5)<.001);
+ ws.close();
 });

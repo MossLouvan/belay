@@ -92,6 +92,20 @@ export function nativeTransport(events: TransportEvents, native: GamepadNative |
   };
 }
 
+/**
+ * The Input-channel sink, as a pure factory so it can be tested: the wiring in
+ * select-transport.ts cannot be imported under `node --test` (it reaches the
+ * native modules through a directory import Metro resolves and node does not),
+ * which is how gutting the sink once left the whole suite green.
+ *
+ * Null where this build cannot reach the channel at all, so the caller sends
+ * on the socket alone rather than into a sink that silently drops reports.
+ */
+export function makeInputSink(canSend: () => boolean, send: (bytes: Uint8Array) => void): InputSink | null {
+  if (!canSend()) return null;
+  return report => { send(new Uint8Array(report)); };
+}
+
 export function jsTransport(events: TransportEvents, sink: InputSink | null = null): GamepadTransport {
   let live = true, ready = false, seq = 0;
   let ws: WebSocket | null = null;
@@ -104,11 +118,15 @@ export function jsTransport(events: TransportEvents, sink: InputSink | null = nu
     // UDP first: it is the faster wire, and the host keeps whichever copy of
     // this sequence number arrives first.
     if (fastPath && sink) sink(report);
+    if (ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
     try { ws.send(report); } catch { ws.close(); }
   };
   // Full-state heartbeat also repairs missed releases. No unbounded send queue.
   const timer = setInterval(() => {
-    if (!ready || !ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
+    if (!ready || !ws || ws.readyState !== WebSocket.OPEN) return;
+    // A backed-up socket only stops the loop when there is no UDP path to
+    // carry the report instead; the native session guards the same way.
+    if (!fastPath && ws.bufferedAmount > MAX_BUFFERED_BYTES) return;
     const input = usesPhysicalController(mode, physicalConnected) ? physical : touch;
     send(suppressed ? NEUTRAL : input);
   }, SEND_INTERVAL_MS);
