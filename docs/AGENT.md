@@ -6,6 +6,20 @@ Tailscale — with every action gated on an Allow/Deny tap.
 ```
   iPhone (Agent tab)                       PC (Belay host)
  ┌───────────────────────┐               ┌─────────────────────────────┐
+ │ the live session      │──/ws/agent-───►│ claude  (interactive, in a │
+ │ keystrokes / prompts  │◄──attach──────│   pty the HOST owns)        │
+ └───────────────────────┘               │          ▲                  │
+                                         │          │ same session     │
+  at the computer:                       │          │ same screen      │
+  $ npm run attach ──────────────────────┼──────────┘                  │
+    (Ctrl-] to detach; it keeps running) └─────────────────────────────┘
+```
+
+Sessions created before this — and anything that asks for `kind: "stream"` —
+still run the original stream-json child with Allow/Deny on the phone:
+
+```
+ ┌───────────────────────┐               ┌─────────────────────────────┐
  │ prompt (text / voice) │──ws /agent───►│ claude  (stream-json, in    │
  │ live activity feed    │◄──events──────│          the project folder)│
  │ Allow / Deny banner   │◄──permission──│   ▲ every tool use          │
@@ -16,10 +30,14 @@ Tailscale — with every action gated on an Allow/Deny tap.
 
 ## How it works
 
-- Each session is a `claude` process started in a project folder you pick,
-  speaking bidirectional stream-json. The process stays alive between prompts
-  and is revived with `--resume` after restarts, so conversations keep their
-  context.
+- Each session is a `claude` process started in a project folder you pick.
+  New sessions run the real interactive CLI inside a terminal the host owns, so
+  the phone and the computer can be on the same live session at once — see
+  [Parity](#parity-one-session-the-phone-and-the-computer-at-the-same-time)
+  below. Sessions created before that (and anything asking for
+  `kind: "stream"`) speak bidirectional stream-json instead, described here.
+  Either way the process stays alive between prompts and is revived with
+  `--resume` after a host restart, so conversations keep their context.
 - Permissions use Claude Code's `--permission-prompt-tool` hook: a tiny
   bundled MCP sidecar (`server/approval-mcp.cjs`) receives every "may I run
   this?" ask, forwards it to the Belay host over loopback, and the host holds
@@ -34,6 +52,199 @@ Tailscale — with every action gated on an Allow/Deny tap.
 - Transcripts are appended to `server/agent-logs/<id>.jsonl` (gitignored) so a
   session's history survives host restarts; session metadata lives in
   `server/belay-agent.json`.
+
+## Parity: one session, the phone and the computer at the same time
+
+The goal is that using Belay feels like coding with an agent while the computer
+is right in front of you — because it *is* the same session either way.
+
+A session the phone creates is now the real interactive `claude` CLI running in
+a terminal **the Belay host owns** (`server/src/agent-pty.ts`). Nobody's shell
+owns that terminal, so anybody can join it:
+
+```
+  iPhone ──ws /ws/agent-attach──┐
+                                ├──► one pty ──► claude (interactive, in the project)
+  npm run attach ───────────────┘        ▲
+  (at the computer)                      └ scrollback replayed to whoever joins
+```
+
+Walk to the computer, run one command, and you are inside the session already
+in progress. Nothing restarts, nothing replays a transcript into a new process,
+and the phone stays attached at the same time.
+
+```bash
+cd server && npm run attach            # lists the sessions you can join
+cd server && npm run attach -- <id>    # join one
+```
+
+**Ctrl-]** detaches. It leaves the session running and says so — detaching is
+walking away from a screen, not ending the work.
+
+### What that buys over `claude --resume`
+
+| | `--resume` (the old handoff) | attach (parity) |
+|---|---|---|
+| the process | a **new** one, replaying memory | the **same** one, still running |
+| when it works | only once the phone's session is stopped | any time |
+| the phone | must let go first | stays attached |
+| what you see | a fresh screen | the screen as it is right now |
+
+`--resume` still exists and is still right for one thing: reviving a session
+whose process died with a host restart. That is the only time `agent-pty.ts`
+passes the flag.
+
+### The rules that make sharing safe
+
+- **Scrollback.** Every session keeps the last ~256 KB of its own output, trimmed
+  on a line boundary (a cut inside an escape sequence paints garbage). A client
+  that joins mid-session is replayed that buffer before any live data, so it
+  sees the current screen rather than an empty rectangle.
+- **Size is the *minimum* of every attached client** — tmux's rule. A pty has
+  one size, so with a phone at 60x30 and a laptop at 200x50 somebody has to be
+  wrong. Sizing to the largest client means the smaller one silently loses the
+  right-hand columns and the bottom rows, and loses them invisibly, because the
+  program drawing the screen believes it has room it does not have. Sizing to
+  the smallest leaves unused space around the session on the big screen, which
+  is obvious, harmless, and correct for everyone. Recomputed on attach, detach,
+  and any client's resize; with nobody attached the last size is kept.
+- **Backpressure is per client and it drops.** A saturated client's output is
+  discarded (and it is told, rather than letting a hole pass for silence) — the
+  shared pty is never paused, because one phone on a bad connection must not
+  stall the session for the laptop next to it.
+- **The session outlives every client.** Detaching never kills it. The idle
+  reaper measures *silence*, not loneliness: thirty minutes with no bytes in
+  either direction, regardless of whether anyone is watching. A session with
+  nobody attached is not abandoned, it is unattended — which is the entire
+  premise of starting work from the phone and putting the phone away.
+- **A host restart revives it.** `server/belay-agent.json` keeps the kind, the
+  folder and the Claude session id (recovered from Claude Code's own transcript
+  on disk), and the first attach after a restart starts the session again with
+  `--resume`. Lazily, because a host that just booted should not spawn one
+  Claude per session nobody has asked for yet.
+
+### Session kinds
+
+Sessions now carry an explicit `kind`, published in every REST payload the app
+reads (`GET /agent/sessions`, `GET /agent/sessions/:id`) alongside `attached`
+and `live` counts:
+
+- **`pty`** — the default for anything created from the phone today. Attachable,
+  shareable, its own terminal. Permission asks are Claude Code's own dialog, in
+  the session, answerable from either side.
+- **`stream`** — the original stream-json child with the phone-only approval
+  flow (`--permission-prompt-tool` + `approval-mcp.cjs`). Sessions that already
+  existed keep this shape, and `POST /agent/sessions` still accepts
+  `{"kind":"stream"}` explicitly. Nothing about that path changed.
+
+`POST /agent/sessions/:id/prompt` works for both: on a `pty` session it types
+the line and presses Enter, which is what "send a prompt" means when the session
+has a terminal.
+
+### The attach socket, for client authors
+
+`/ws/agent-attach?id=<session>&cols=<n>&rows=<n>`, authenticated exactly like
+`/ws/terminal` (a `/ws-ticket` ticket, or the legacy token). The message
+vocabulary is `/ws/terminal`'s, so a client can reuse its terminal renderer:
+
+| direction | message |
+|---|---|
+| host → client | `{type:'ready', mode:'pty', cols, rows, attached, session:{id,title,cwd}}` |
+| host → client | `{type:'data', data}` — scrollback first, then live output |
+| host → client | `{type:'resize', cols, rows}` — the effective (minimum) size |
+| host → client | `{type:'exit'}` / `{type:'error', error}` |
+| client → host | `{type:'data', data}` — keystrokes |
+| client → host | `{type:'resize', cols, rows}` — this client's window |
+
+`ready` always arrives before the first `data`. The host→client `resize` is the
+addition over `/ws/terminal`: with several clients the size is negotiated, so a
+client has to be told what it actually got.
+
+### On the phone
+
+The Agent tab branches on `kind` before it draws anything. A `pty` session opens
+the Terminal tab's own machinery pointed at `/ws/agent-attach` — the same ANSI
+parser, the same line list, the same key bar that supplies the Esc / Tab / Ctrl
+/ arrows a phone keyboard does not have — so there is one terminal renderer in
+the app, not two. A `stream` session opens the structured feed and approval
+cards exactly as before. Until the host has said which it is, neither is drawn:
+a feed rendered over a live terminal looks like a session that lost its history.
+
+What the phone does with the parts of the protocol that are specific to sharing:
+
+- **The negotiated size is authoritative.** The phone measures itself, asks for
+  that, and then lays the screen out to whatever the host granted — the minimum
+  across every attached client. When that is smaller *and* somebody else is on
+  the session, the header says so quietly: `sized to the desk terminal · 40×12`.
+  Alone on the pty it stays silent, because then the smaller size is the host's
+  own floor and blaming a colleague would be an invention.
+- **"Someone else is looking at this"** is worded differently in the two places
+  it appears, on purpose. In the session view this phone is one of the attached
+  clients, so it reports the others (`1 other attached`). In the session list
+  the view is closed and this phone is attached to nothing, so every client the
+  host reports is somebody else and the row shows the plain count
+  (`1 attached`). Subtracting one there would hide the single desk terminal
+  that is the entire point of saying it.
+- **The count is polled, not pushed.** `ready` carries `attached` once and the
+  socket has no message for somebody joining later, so the open session view
+  asks `GET /agent/sessions/:id` every few seconds while it is live. Without
+  that the header would go stale the moment anyone attached.
+- **A dropped socket re-attaches on a backoff** and the host's scrollback replay
+  restores the screen, so the phone never sits on a dead one. An *exit* and a
+  *refusal* do not retry: there is nothing to replay after an exit, and
+  re-attaching would silently start a second `claude`; a refusal would fail the
+  same way forever. Both get a visible Reattach instead.
+
+Sessions in the **On this PC** list are untouched by all of this. They are
+`claude` processes someone started by typing it themselves, they have no
+Belay-owned pty, and the phone offers no Attach on them — only watch, answer,
+and take over once the terminal is quiet.
+
+One honest limitation of drawing a TUI this way: the phone's renderer is a
+scrollback of lines, not a fixed screen grid with alternate-screen support, and
+`terminal-ansi.ts` explicitly no-ops the scroll-region escapes (`DECSTBM`).
+Claude Code scrolls *inside* a region, so its absolute cursor addressing lands
+one row off on the phone and can scribble over text that had already settled.
+This needs no resize to happen — plain scrolling is enough — so fixing the
+width negotiation would not fix it and must not be mistaken for having done so.
+The live region is always correct, and a full repaint — the key bar's
+`clear`, which resets the phone's copy and sends Ctrl-L — restores the rest, which is why this is a rough edge rather than a defect: what
+you are reading right now is right; what scrolled past may need one keystroke.
+The real fix is a screen-grid renderer with scroll-region support.
+
+### How the command at the computer authenticates
+
+`npm run attach` runs on the host machine, over loopback, and authenticates
+with a per-install secret in `~/.belay/attach-secret` (0600, minted at boot) —
+the same pattern as the hook secret and the approval sidecar, but its own file,
+because the capabilities differ in kind: the hook secret buys an attacker fake
+prompts on a phone, this one buys them a keyboard. The secret never travels in
+a URL. The CLI presents it in a header on a loopback POST to
+`/agent/attach/ticket`, gets back an ordinary single-use WebSocket ticket, and
+spends that on the upgrade. That ticket authenticates as a "local console"
+handle which **only** `/ws/agent-attach` accepts — it cannot reach the screen,
+the shell, or the cursor channel.
+
+### What this does *not* cover, honestly
+
+**A session you start yourself by typing `claude` in your own terminal is still
+yours alone.** Belay cannot attach to it, and no amount of work on this side
+will change that: that pty belongs to your shell, not to the host, and there is
+no supported way for another process to join it. What Belay can do for those
+sessions it already does — read the transcript live (`/ws/transcript`), answer
+their permission prompts on your phone through the Claude Code hooks, and offer
+a `--resume` takeover once the terminal has gone quiet. All of that is below.
+
+Two smaller gaps worth naming:
+
+- The Claude session id used for a post-restart `--resume` is recovered by
+  matching Claude Code's transcript files on disk against the session's folder.
+  If transcript saving is off, the session still works perfectly — it just
+  cannot be revived after a host restart, which is a better failure than
+  guessing an id and resuming the wrong conversation.
+- `node-pty` is required for a `pty` session; there is no piped fallback, because
+  a full-screen TUI cannot run down a pipe. On macOS the usual failure is
+  node-pty's `spawn-helper` missing its execute bit, and the error says so.
 
 ## Setup
 
@@ -286,3 +497,14 @@ already most of the value.
 - A session runs with your user account's permissions. Deny anything you don't
   recognize; `rm`, `git push --force`, and friends deserve a hard look before
   Allow.
+- Attaching to a session is a live keyboard on the machine, so it is gated
+  twice over: the phone needs a pairing token like every other route, and the
+  command at the computer needs a 0600 secret in `~/.belay/attach-secret` and a
+  loopback connection. The ticket that secret buys is single-use, expires in
+  thirty seconds, and is refused on every WebSocket route except
+  `/ws/agent-attach`.
+- A `pty` session answers its own permission prompts in Claude Code's dialog,
+  where either side can answer them — the phone's Allow/Deny cards belong to
+  `stream` sessions and to terminal sessions using the hooks. One ask never
+  exists in two places at once: the host marks the pty session's environment so
+  the hook stands aside.

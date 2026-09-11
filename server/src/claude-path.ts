@@ -8,6 +8,9 @@
 // banner on exactly the machines meant to run unattended. Pure so the order
 // and the platform split are testable without a filesystem.
 
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export interface PathEnv {
@@ -52,4 +55,37 @@ export function pickClaude(
     try { if (exists(c)) return c; } catch { /* unreadable — not it */ }
   }
   return null;
+}
+
+// ---- the resolved binary ---------------------------------------------------
+
+/**
+ * PATH first (`which`/`where`), then the well-known install locations above.
+ * The PATH answer wins so a deliberately chosen binary is respected; the
+ * fallbacks exist for hosts started as a service, whose PATH is the bare
+ * system default and knows nothing about ~/.local/bin or Homebrew.
+ *
+ * Looked up once per process and memoised — the boot banner prints whichever
+ * was chosen. Lives here rather than in agent.ts so both session kinds (the
+ * stream-json child and the pty-backed interactive one) resolve the binary
+ * through exactly one door, with no import cycle between them.
+ */
+export function findClaude(): string | null {
+  if (claudePath !== undefined) return claudePath;
+  claudePath = claudeOnPath() ?? pickClaude(
+    claudeCandidates({ platform: process.platform, home: homedir(), env: process.env }),
+    existsSync,
+  );
+  return claudePath;
+}
+
+let claudePath: string | null | undefined; // undefined = not looked up yet
+
+function claudeOnPath(): string | null {
+  const probe = process.platform === 'win32' ? ['where.exe', ['claude']] as const : ['which', ['claude']] as const;
+  try {
+    const out = execFileSync(probe[0], probe[1] as unknown as string[], { encoding: 'utf8' });
+    const first = out.split(/\r?\n/).find((l) => l.trim());
+    return first ? first.trim() : null;
+  } catch { return null; }
 }
