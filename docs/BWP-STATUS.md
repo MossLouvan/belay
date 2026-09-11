@@ -19,45 +19,72 @@ is the delta, so the two can be diffed against each other.
 | 1. iOS decode with delta frames + keyframe request on error/loss | **Done, Swift uncompiled here.** `KeyframeRequest` control message end to end; Swift asks on display-layer failure, on a delta with no reference, and on a frame gap; `onStatus` reports `stats` every second. | `crates/belay-net/src/control.rs`, `crates/belay-client/src/lib.rs`, `app/modules/belay-stream/ios/StreamRecovery.swift`, `BelayStreamView.swift` |
 | 2. Host encoder (Windows MF H.264, low latency, CBR) | **Done in Rust, `cargo check --target x86_64-pc-windows-msvc` clean, never run.** Keyframe forcing fixed; stats carry `encodeMs`/`rttMs`/`keyframeRequests`. macOS host still absent. | `crates/belay-encode/src/h264.rs`, `crates/belay-stream/src/stream.rs` |
 | 3. BWP default with fallback + HUD toggle, gaming prefers BWP | **Done, tested (13 policy tests).** `/health` and `/screen/info` advertise `bwp`; the app requests it under an `auto/on/off` switch; liveness is *decoded* frames — 3 s without one (or 3 s of host-reported fps > 0 with nothing decoded) sends `bwpStop` and JPEG resumes; 60 s cooldown before retrying, skipped in gaming mode; `bwpEnded`/`bwpUnavailable`/decoder error also fall back; HUD shows the fallback reason. | `app/src/screen/bwp-policy.ts`, `stream.ts`, `hud.ts`, `app/app/(home)/screen.tsx`, `server/src/index.ts` |
-| 4. Gamepad over BWP Input channel | **Host-to-hub path done and tested; phone-side sender not written.** See "What remains for item 4". | `crates/belay-client` (`belay_client_send_input`), `crates/belay-stream/src/input.rs`, `server/src/bwp-stream.ts` (`input` line), `server/src/gamepad-channel.ts` (`inject`) |
+| 4. Gamepad over BWP Input channel | **End to end, Swift uncompiled here.** The phone now sends each 17-byte report on the Input channel as well as the WebSocket, from the native controller session's own queue. See "Item 4: the phone-side sender". | `app/modules/belay-gamepad/ios/GamepadSession.swift`, `app/modules/belay-stream/ios/BelayStreamView.swift`, `app/src/gamepad/transport.ts`, plus the host path below |
 | 5. Glass-to-glass latency | **The measurable part is done.** Phone-side smoothed RTT from the echoed send timestamp (`belay_client_rtt_ms` → Swift `stats` → HUD `rtt` row), plus host `encode` time. True glass-to-glass (capture → display) is not observable without a camera; the HUD labels say `rtt` and `encode`, not "latency". | `crates/belay-net/src/session.rs` (`rtt_ms`), `app/src/screen/hud.ts` (`latencyRows`) |
 
-### What remains for item 4
+### Item 4: the phone-side sender
 
-Everything from the UDP socket on the host to the virtual pad is in place and
-tested: the Rust client can send on the Input channel, the streamer relays each
-report to Node as `{"type":"input","hex":"…"}`, `bwp-stream.ts` decodes it, and
-`gamepadHub.inject()` feeds it into the *same* session the `/ws/gamepad` socket
-owns (newest sequence wins across both transports, the 750 ms watchdog counts
-both). The WebSocket stays mandatory: it carries attach, hello, rumble and the
-watchdog. UDP is only a faster way to deliver the same 17-byte sample.
+Everything from the UDP socket on the host to the virtual pad was already in
+place and tested: the Rust client can send on the Input channel, the streamer
+relays each report to Node as `{"type":"input","hex":"…"}`, `bwp-stream.ts`
+decodes it, and `gamepadHub.inject()` feeds it into the *same* session the
+`/ws/gamepad` socket owns (newest sequence wins across both transports, the 2 s
+watchdog counts both). The WebSocket stays mandatory: it carries attach, hello,
+rumble and the watchdog. UDP is only a faster way to deliver the same sample.
 
-Not written, because it cannot be compiled or run on this machine and a broken
-Swift build would take items 1–3 down with it:
+The phone now sends on it.
 
-1. **Swift**: an `AsyncFunction("sendInput")` (or a view method) on
-   `BelayStreamModule` that hands bytes to the live `BelayStreamView`. The
-   session handle is **not thread-safe** (`belay_client.h`), and the receive
-   thread is polling it, so do not call `belay_client_send_input` from the JS
-   thread. Add a locked mailbox on the view (`pendingInput: [Data]`), and drain
-   it in the receive loop right after each `belay_client_next_frame` call —
-   that is the same thread that already owns the handle. Keep at most one
-   pending report (the newest); an old sample is worse than none.
-2. **JS**: `app/src/gamepad/use-gamepad.ts` sends `encodeGamepad(...)` every
-   8 ms on the socket. When the stream reports BWP live (`stream.bwpPath !==
-   null`), send the same bytes through the module *and* keep the WebSocket
-   open; drop to WebSocket-only the moment the module call fails or BWP falls
-   back. Sending on both while BWP is live is acceptable at 17 bytes per 8 ms
-   and makes the fallback seamless; the hub already dedupes by sequence.
-3. **Reliability caveat**: `belay-net` still never sends NACKs, so the Input
-   channel is *not* reliable despite `Channel::repairable`. This is fine for
-   gamepad — every report is the full state and the next one is 8 ms away —
-   but it is not a transport for one-shot events.
+1. **The report reaches the session's own thread, not the sender's.**
+   `BelayStreamView` keeps a lock-guarded, newest-only mailbox and drains it in
+   the receive loop immediately after each `belay_client_next_frame` — the one
+   thread that owns the handle, which is not thread-safe. Newest-only because a
+   controller report is the complete state: an old sample is worse than none,
+   and the next is 8 ms away. The loop sleeps 2 ms when no video is ready, so
+   that is the ceiling on how long a report waits.
+
+2. **Two ways in, one mailbox.** On a build with the native controller session
+   the reports never touch the JavaScript thread at all: `GamepadSession.tick`
+   posts each encoded frame on a `Notification` that the live view observes,
+   with the same sequence number the WebSocket copy carries. The JavaScript
+   transport (web, Expo Go, a binary whose controller module predates that
+   session) goes through `BelayStreamModule.sendInput`, a *synchronous* Expo
+   `Function` — 125 promises a second to report something the caller cannot act
+   on would be a poor trade.
+
+   A notification rather than a direct call because the two Expo modules are
+   separate pods: `BelayGamepad` depending on `BelayStream` would make the
+   controller unbuildable wherever `lib/BelayClient.xcframework` has not been
+   built, for a path the controller works perfectly well without.
+   `app/src/gamepad/bridge.test.mjs` fails if the two files' channel names drift.
+
+3. **When.** `screen.tsx` turns the fast path on while `stream.bwp` is non-null
+   — the UDP session itself, not the decoded picture — and off the instant
+   H.264 falls back to JPEG. Both copies are sent while it is on; the host keeps
+   whichever arrives first and drops the other as a duplicate sequence, which is
+   what makes the fallback seamless rather than a gap. The UDP copy is sent
+   *before* the WebSocket's backpressure check, so a stalling socket — the
+   condition the whole path exists for — no longer stops reports reaching the
+   host.
+
+4. **Evidence.** The view counts reports it put on the channel and reports the
+   figure in its per-second `stats`; the HUD shows `pad 125/s · UDP` while it is
+   non-zero. Without it there is no way to tell on a device whether the UDP path
+   carried anything or the WebSocket quietly did all the work.
+
+5. **Reliability caveat, unchanged**: `belay-net` still never sends NACKs, so the
+   Input channel is *not* reliable despite `Channel::repairable`. Fine for
+   gamepad — every report is the full state — but it is not a transport for
+   one-shot events.
+
+Not verified: none of the Swift above has been compiled, and no report has been
+observed arriving over UDP on real hardware. The TypeScript half is tested
+(`app/src/gamepad/transport.test.mjs`), as is the host half.
 
 ### Uncompiled on this branch
 
-* All Swift under `app/modules/belay-stream/ios/` — the parent session builds
-  it. The vendored `BelayClient.xcframework` must be rebuilt
+* All Swift under `app/modules/belay-stream/ios/` and the input additions to
+  `app/modules/belay-gamepad/ios/` — the parent session builds them. The
+  vendored `BelayClient.xcframework` must be rebuilt
   (`scripts/build-ios-client.sh`) because the C ABI gained
   `belay_client_request_keyframe`, `belay_client_rtt_ms` and
   `belay_client_send_input`.
@@ -97,7 +124,7 @@ this audit about "the encoder" refers to that crate, not to C#.
 | Decoded-frame liveness → fallback | **Missing**; `onStatus` never wired in the screen | `app/app/(home)/screen.tsx:894–895` |
 | Manual BWP toggle in HUD | **Missing** | `app/src/screen/hud.ts`, `parts.tsx` |
 | Gaming mode prefers BWP | **Partial**: it picks presets, not the transport | `app/src/screen/stream.ts:234`, `app/src/gamepad/presets.ts` |
-| Gamepad over BWP Input channel | **Missing entirely** — WebSocket only | `app/src/gamepad/use-gamepad.ts:68`, `server/src/gamepad-channel.ts` |
+| Gamepad over BWP Input channel | **Missing entirely** — WebSocket only *(the branch-point picture; see "Item 4" above)* | `app/src/gamepad/use-gamepad.ts:68`, `server/src/gamepad-channel.ts` |
 | Glass-to-glass latency in HUD | **Missing**; RTT exists internally, not exposed | `crates/belay-net/src/session.rs:89,327–329` |
 
 ## Detail by area

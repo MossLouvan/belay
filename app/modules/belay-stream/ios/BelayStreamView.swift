@@ -1,5 +1,6 @@
 import AVFoundation
 import ExpoModulesCore
+import Foundation
 import UIKit
 
 // The BWP protocol itself, as a C library. Declared by
@@ -7,6 +8,21 @@ import UIKit
 // Expo module is a pod, and a pod has no app bridging header to put a plain
 // #import in.
 import BelayClientFFI
+
+/// The channel the controller module hands its encoded reports to.
+///
+/// A notification rather than a direct call because the two Expo modules are
+/// separate CocoaPods: making BelayGamepad depend on BelayStream would make the
+/// controller unbuildable on a machine that has not built
+/// `lib/BelayClient.xcframework`, and the controller must keep working when
+/// there is no H.264 session at all.
+///
+/// The poster is `app/modules/belay-gamepad/ios/GamepadSession.swift`, which
+/// declares the same string. `app/src/gamepad/bridge.test.mjs` fails if the two
+/// ever drift. `object` is the encoded report as `Data`.
+extension Notification.Name {
+    static let belayInputReport = Notification.Name("belay.input.report")
+}
 
 /// The view that shows the host's desktop.
 ///
@@ -27,6 +43,25 @@ public final class BelayStreamView: ExpoView {
     /// Guards `handle` against a teardown racing the receive thread.
     private let lock = NSLock()
     private var running = false
+
+    /// The newest input report waiting for the receive thread, and nothing
+    /// older. The session handle is not thread-safe and the receive thread is
+    /// polling it, so a report cannot be sent from the thread that produced it;
+    /// it is parked here and drained by that same thread instead. Newest-only
+    /// on purpose: a controller report is the complete state, so a stale one is
+    /// worse than none, and the next is 8 ms away.
+    private let inputLock = NSLock()
+    private var pendingInput: Data?
+    private var inputObserver: NSObjectProtocol?
+    /// Reports handed to the transport since the last stats line. The only
+    /// evidence on a real device that the controller is taking the UDP path.
+    private var inputSent = 0
+
+    /// The view a `sendInput` call from JS reaches. Weak: React owns the view's
+    /// lifetime, and a stale strong reference here would keep a closed session
+    /// alive and swallow reports.
+    private static let liveLock = NSLock()
+    private static weak var liveView: BelayStreamView?
 
     let onStatus = EventDispatcher()
     let onCursor = EventDispatcher()
@@ -84,6 +119,16 @@ public final class BelayStreamView: ExpoView {
         running = true
         lock.unlock()
 
+        BelayStreamView.setLive(self)
+        // Only while a session is open: with no observer, posting a report
+        // costs the controller module a table lookup and nothing else.
+        inputObserver = NotificationCenter.default.addObserver(
+            forName: .belayInputReport, object: nil, queue: nil
+        ) { [weak self] note in
+            guard let data = note.object as? Data else { return }
+            self?.enqueueInput(data)
+        }
+
         stream = H264Stream()
         onStatus([
             "state": "opened",
@@ -101,6 +146,13 @@ public final class BelayStreamView: ExpoView {
     }
 
     func stop() {
+        BelayStreamView.clearLive(self)
+        if let observer = inputObserver {
+            NotificationCenter.default.removeObserver(observer)
+            inputObserver = nil
+        }
+        inputLock.lock(); pendingInput = nil; inputLock.unlock()
+
         lock.lock()
         running = false
         let h = handle
@@ -121,6 +173,60 @@ public final class BelayStreamView: ExpoView {
         displayLayer.flushAndRemoveImage()
     }
 
+    // MARK: input
+
+    /// Park one input report for the receive thread to send.
+    ///
+    /// Callable from any thread — the controller module's send queue posts from
+    /// its own 8 ms timer, and `sendInput` arrives on the JS thread. Neither
+    /// touches the session handle; they only take this lock.
+    ///
+    /// Reports outside the transport's length limit are dropped here rather
+    /// than rejected one layer down, so a malformed sample never costs a
+    /// round trip through the receive thread.
+    func enqueueInput(_ data: Data) {
+        guard data.count > 0, data.count <= BelayStreamView.maxInputBytes else { return }
+        inputLock.lock()
+        pendingInput = data
+        inputLock.unlock()
+    }
+
+    /// `BELAY_INPUT_MAX_LEN` in include/belay_client.h. A gamepad report is 17.
+    private static let maxInputBytes = 64
+
+    static func current() -> BelayStreamView? {
+        liveLock.lock(); defer { liveLock.unlock() }
+        return liveView
+    }
+
+    private static func setLive(_ view: BelayStreamView) {
+        liveLock.lock(); liveView = view; liveLock.unlock()
+    }
+
+    /// Clears the registration only if it is still this view's. A second view
+    /// starting before the first stops would otherwise be unregistered by the
+    /// old one's teardown.
+    private static func clearLive(_ view: BelayStreamView) {
+        liveLock.lock(); if liveView === view { liveView = nil }; liveLock.unlock()
+    }
+
+    /// Send whatever is parked, from the one thread that owns the handle.
+    ///
+    /// Returns whether a report went out, so the stats line can say the UDP
+    /// path is carrying the controller — on a phone that is the only way to
+    /// tell it apart from the WebSocket doing all the work.
+    private func drainInput(_ h: UnsafeMutableRawPointer) -> Bool {
+        inputLock.lock()
+        let report = pendingInput
+        pendingInput = nil
+        inputLock.unlock()
+        guard let report else { return false }
+        return report.withUnsafeBytes { raw -> Bool in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return false }
+            return belay_client_send_input(h, base, raw.count) == BELAY_OK
+        }
+    }
+
     /// How often the receive thread reports decoded frames and latency.
     private static let statsInterval: TimeInterval = 1.0
 
@@ -137,6 +243,11 @@ public final class BelayStreamView: ExpoView {
 
             var frame = BelayFrame()
             let result = belay_client_next_frame(h, &frame)
+            // Before the decode, not after: a report parked while the last
+            // frame was decoding should not wait for this one as well. Every
+            // branch below continues or returns, so this is the only place on
+            // the loop that all of them pass through.
+            if drainInput(h) { inputSent += 1 }
             switch result {
             case BELAY_FRAME_VIDEO:
                 guard let data = frame.data, frame.len > 0 else { break }
@@ -216,6 +327,8 @@ public final class BelayStreamView: ExpoView {
                 let rtt = belay_client_rtt_ms(h)
                 let report = stats
                 let requests = recovery.requests
+                let inputs = inputSent
+                inputSent = 0
                 stats = StreamStats(startedAt: now)
                 DispatchQueue.main.async { [weak self] in
                     self?.onStatus([
@@ -223,6 +336,7 @@ public final class BelayStreamView: ExpoView {
                         "decoded": report.decodedFrames,
                         "dropped": report.droppedFrames,
                         "keyframeRequests": requests,
+                        "inputSent": inputs,
                         "rttMs": rtt < 0 ? -1 : Int(rtt.rounded()),
                     ])
                 }

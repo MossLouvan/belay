@@ -66,6 +66,28 @@ public class BelayStreamModule: Module {
         AsyncFunction("reservePort") { () -> Int in
             Int(BelayPortReservation.reserve())
         }
+
+        /// Hand one input report to the live session's Input channel.
+        ///
+        /// Synchronous on purpose. This is called once per controller sample —
+        /// 125 times a second — and an AsyncFunction would allocate a promise
+        /// for each one to report something the caller cannot act on anyway.
+        /// The call only parks the bytes under a lock; the session's own thread
+        /// sends them, because the handle is not thread-safe.
+        ///
+        /// `false` means there is no open session, which is the normal state
+        /// whenever the picture is JPEG. The caller keeps using the WebSocket.
+        ///
+        /// Builds that carry the native controller session do not come through
+        /// here at all: `GamepadSession.swift` posts its reports directly, so
+        /// they never touch the JavaScript thread. This is the path for the
+        /// JavaScript transport — web, Expo Go, and binaries whose controller
+        /// module predates that session.
+        Function("sendInput") { (report: Data) -> Bool in
+            guard let view = BelayStreamView.current() else { return false }
+            view.enqueueInput(report)
+            return true
+        }
     }
 }
 

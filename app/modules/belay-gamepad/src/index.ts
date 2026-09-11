@@ -19,6 +19,11 @@ export interface GamepadNative {
   setTouchState?(state: GamepadState): Promise<void>;
   setInputMode?(mode: 'auto' | 'phone'): Promise<void>;
   setSuppressed?(value: boolean): Promise<void>;
+  /**
+   * Also put each report on the H.264 session's UDP Input channel. Absent in a
+   * binary built before that path landed, where the WebSocket is the only wire.
+   */
+  setFastPath?(enabled: boolean): Promise<void>;
 }
 /** Missing in Expo Go / web: touch controls remain usable. */
 export const gamepadNative = requireOptionalNativeModule<GamepadNative>('BelayGamepad');

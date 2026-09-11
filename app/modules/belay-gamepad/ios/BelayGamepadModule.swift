@@ -10,6 +10,9 @@ public final class BelayGamepadModule: Module {
     /// GamepadSession.swift for why the send loop lives here and not in JS.
     private let store = GamepadStateStore()
     private var session: GamepadSession?
+    /// Survives a session restart so a reconnect keeps the UDP path without
+    /// waiting for JS to re-assert it.
+    private var fastPath = false
     public func definition() -> ModuleDefinition {
         Name("BelayGamepad")
         Events("onState", "onConnection", "onSessionMessage", "onSessionClose")
@@ -36,6 +39,7 @@ public final class BelayGamepadModule: Module {
                 onMessage: { [weak self] text in self?.sendEvent("onSessionMessage", ["text": text]) },
                 onClose: { [weak self] code, reason in self?.sendEvent("onSessionClose", ["code": code, "reason": reason]) })
             self.session = session
+            session.setFastPath(self.fastPath)
             session.start(url: parsed)
         }
         AsyncFunction("stopSession") {
@@ -48,6 +52,13 @@ public final class BelayGamepadModule: Module {
         }
         AsyncFunction("setInputMode") { (mode: String) in self.store.setInputMode(mode) }
         AsyncFunction("setSuppressed") { (value: Bool) in self.store.setSuppressed(value) }
+        /// Also send each report over the H.264 session's UDP Input channel.
+        /// JS turns this on while that session is open and off the moment it
+        /// falls back to JPEG; the WebSocket carries the session either way.
+        AsyncFunction("setFastPath") { (enabled: Bool) in
+            self.fastPath = enabled
+            self.session?.setFastPath(enabled)
+        }
         OnDestroy {
             let sampler = self.sampler
             self.session?.stop(); self.session = nil

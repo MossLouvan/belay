@@ -7,6 +7,21 @@ import Foundation
 // screen stream. Here the timer, the encoder and the socket all live on a
 // background dispatch queue; JS only feeds state in and receives text messages.
 
+/// The channel encoded reports are handed to the H.264 session on.
+///
+/// A notification rather than a direct call because the two Expo modules are
+/// separate CocoaPods, and BelayStream links a vendored XCFramework that has to
+/// be built on a Mac first. Depending on it would make the controller
+/// unbuildable wherever that framework is missing, for a path the controller
+/// works perfectly well without.
+///
+/// The observer is `app/modules/belay-stream/ios/BelayStreamView.swift`, which
+/// declares the same string. `app/src/gamepad/bridge.test.mjs` fails if the two
+/// ever drift. `object` is the encoded report as `Data`.
+extension Notification.Name {
+    static let belayInputReport = Notification.Name("belay.input.report")
+}
+
 /// One full controller sample. Mirrors GamepadState in app/src/gamepad/codec.ts.
 struct GamepadSample: Equatable {
     var buttons: Int = 0
@@ -110,9 +125,18 @@ final class GamepadSession {
     private var seq: UInt32 = 0
     private var inFlight = 0
     private var closed = false
+    /// Whether to also hand each report to the H.264 session's Input channel.
+    /// Off until JS says the UDP session is open; see use-gamepad.ts.
+    private var fastPath = false
 
     init(store: GamepadStateStore, onMessage: @escaping (String) -> Void, onClose: @escaping (Int, String) -> Void) {
         self.store = store; self.onMessage = onMessage; self.onClose = onClose
+    }
+
+    /// Turn the UDP path on or off. Off is always safe: the WebSocket carries
+    /// the session regardless, and it is the one the host's watchdog watches.
+    func setFastPath(_ enabled: Bool) {
+        queue.async { self.fastPath = enabled }
     }
 
     func start(url: URL) {
@@ -148,9 +172,23 @@ final class GamepadSession {
     }
 
     private func tick() {
-        guard !closed, let task = task, task.state == .running, inFlight < GamepadSession.maxInFlight else { return }
+        guard !closed, let task = task, task.state == .running else { return }
+        // A backed-up socket still produces a report when the UDP channel is
+        // open: that channel never waits on URLSession, and a stalling socket
+        // is exactly when the short path matters. With no UDP channel there is
+        // nowhere for the report to go, so nothing is encoded.
+        let socketReady = inFlight < GamepadSession.maxInFlight
+        guard socketReady || fastPath else { return }
         let frame = GamepadWire.encode(store.selected(), seq: seq)
         seq &+= 1
+        // UDP first: the Input channel leaves ahead of any queued video, so the
+        // report the host acts on should be the one that took the short path.
+        // The host dedupes by sequence, so whichever copy arrives second is
+        // dropped rather than replayed.
+        if fastPath {
+            NotificationCenter.default.post(name: .belayInputReport, object: frame)
+        }
+        guard socketReady else { return }
         inFlight += 1
         task.send(.data(frame)) { [weak self] error in
             guard let self = self else { return }

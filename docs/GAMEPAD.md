@@ -165,6 +165,26 @@ CGEvent. It requires Accessibility permission for the host launcher. Without
 that grant it reports unavailable. No virtual controller is installed on macOS.
 `build-mac.sh` discovers the Swift source through its existing glob.
 
+## The UDP fast path
+
+While H.264 is carrying the picture, each report also goes out on the BWP
+Input channel — the highest priority the transport has, ahead of any queued
+video and unpaced. The WebSocket keeps the session: attach, hello, rumble and
+the watchdog all live there, and both copies carry the same sequence number, so
+the host keeps whichever arrives first and drops the other. Falling back to
+JPEG is therefore seamless rather than a gap.
+
+On iPhone the reports never touch the JavaScript thread: the controller module
+posts each encoded frame straight to the stream session, which sends it from
+the thread that owns the session handle. The UDP copy is sent before the
+WebSocket's backpressure check, so a socket that is stalling — the condition
+this path exists for — no longer stops reports reaching the host. The desktop
+client has no BWP path and stays on the WebSocket.
+
+Turn on the HUD while Gaming: `pad 125/s · UDP` means reports are taking the
+channel. No row means the WebSocket is carrying them, which is the normal state
+whenever the picture is JPEG. Neither is an error.
+
 ## Transport and lifecycle
 
 `/ws/gamepad` uses the normal paired-device ticket upgrade. It allows one owner
@@ -182,9 +202,16 @@ use the helper's shared stdout lock. The P/Invoke declarations follow the
 cdecl entrypoints, stdcall notification, and a 12-byte XUSB_REPORT passed by
 value. Native resources and the rooted callback are released on detach.
 
-Socket close, malformed input, helper failure, or 750 ms without accepted
+`gamepadHub.inject()` takes a report that arrived on the Input channel instead
+and feeds it into the same session, so the newest sequence wins across both
+wires and the watchdog counts both.
+
+Socket close, malformed input, helper failure, or 2 s without accepted
 frames ends the lease and releases inputs. A separate helper timer neutralizes
-held state after 750 ms even if Node or capture stalls. New attachments reset
+held state after the same 2 s even if Node or capture stalls. The window is
+two seconds, not the original 750 ms, because the phone's JavaScript thread
+stalls for hundreds of milliseconds under the JPEG stream and a shorter
+watchdog closed healthy sessions. New attachments reset
 state. Gamepad bypasses the input floor's exclusive keyboard/pointer lease,
 while updating remote activity timestamps for the idle probe. Only active
 keymap samples and their release mark OS injection; neutral heartbeats do not
@@ -234,6 +261,14 @@ attach/disconnect races, watchdog/helper failure, presets and layout geometry.
 Run `cd app && npx tsc --noEmit && npm test` and the same command in `server/`.
 The host test command uses Node's tsx import hook to avoid the tsx CLI's
 unnecessary local IPC listener.
+
+The UDP fast path is covered on the JavaScript side (same bytes on both wires,
+inert without a channel, one call rather than a per-frame hop on the native
+transport) and on the host side (`inject`, cross-transport sequence ordering).
+Its Swift has not been compiled and no report has been watched arrive over UDP
+on hardware: on the device, confirm the HUD's `pad` row appears while Gaming
+with H.264, and that the controller keeps working when the stream drops to JPEG
+and the row disappears.
 
 PlayStation additions include desktop standard mapping, controller ID
 detection, byte parity with the phone, sender timing/backpressure, rumble

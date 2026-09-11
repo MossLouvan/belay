@@ -44,6 +44,13 @@ export type StreamStatus =
       readonly decoded: number;
       readonly dropped: number;
       readonly keyframeRequests: number;
+      /**
+       * Controller reports this session put on the Input channel in the last
+       * second. Zero unless something is sending them, and the only evidence
+       * on a device that the controller took the UDP path rather than the
+       * WebSocket. Absent from a binary built before the Input channel.
+       */
+      readonly inputSent?: number;
       readonly rttMs: number;
     }
   | { readonly state: 'error'; readonly error: string };
@@ -62,6 +69,8 @@ export interface BelayStreamViewProps extends ViewProps {
 
 interface BelayStreamNativeModule {
   reservePort(): Promise<number>;
+  /** Absent in a binary built before the Input channel landed. */
+  sendInput?(report: Uint8Array): boolean;
 }
 
 let nativeModule: BelayStreamNativeModule | null = null;
@@ -91,6 +100,41 @@ export function isAvailable(): boolean {
 export async function reservePort(): Promise<number> {
   if (!nativeModule) throw new Error('the native stream module is not in this build');
   return nativeModule.reservePort();
+}
+
+/**
+ * Whether this build can put controller reports on the UDP Input channel.
+ *
+ * Separate from `isAvailable`: a binary can carry the stream view without
+ * `sendInput`, and the caller has to keep to the WebSocket in that case rather
+ * than crash on a missing method.
+ */
+export function canSendInput(): boolean {
+  return typeof nativeModule?.sendInput === 'function';
+}
+
+/**
+ * Hand one encoded controller report to the live H.264 session.
+ *
+ * Returns false when no session is open — the normal state while the picture
+ * is JPEG — in which case the WebSocket is carrying the controller and nothing
+ * is lost. Synchronous: this runs 125 times a second, and the native side only
+ * parks the bytes for the session's own thread to send.
+ *
+ * The host dedupes by sequence number, so the same report may safely arrive on
+ * both wires; whichever is second is dropped. That is what makes falling back
+ * to the WebSocket seamless rather than a gap.
+ */
+export function sendInput(report: Uint8Array): boolean {
+  const send = nativeModule?.sendInput;
+  if (!send) return false;
+  try {
+    return send.call(nativeModule, report);
+  } catch {
+    // A session that closed between the check and the call. The WebSocket
+    // copy of this same report is already on its way.
+    return false;
+  }
 }
 
 export const BelayStreamView = nativeView;
