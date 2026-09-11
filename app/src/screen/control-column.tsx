@@ -52,7 +52,7 @@ export function ControlColumn(props: ControlColumnProps) {
           top of the control bar wherever that bar happens to be. */}
       <NeedsYouBanner />
       {keyboardSurface}
-      {hint ? <ControlHint onDismiss={tools.dismissHint} /> : null}
+      {hint && immersive ? <ControlHint onDismiss={tools.dismissHint} /> : null}
       <ControlDock
         mode={dock.mode}
         onModeChange={onModeChange}

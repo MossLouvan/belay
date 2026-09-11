@@ -52,6 +52,7 @@ import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-pa
 import { ClipboardSheet } from '../../src/screen/clipboard-sheet';
 import { StreamSettingsSheet } from '../../src/screen/stream-settings-sheet';
 import { HostAudio, type HostAudioStatus } from '../../src/stream/audio-player';
+import { AppearanceNav } from '../../src/home/appearance-nav';
 import { ToolDrawer } from '../../src/home/tool-drawer';
 import { ControlColumn } from '../../src/screen/control-column';
 import { DockedControls, FloatingDock } from '../../src/screen/floating-dock';
@@ -135,7 +136,7 @@ export default function ScreenTab() {
     () => aspectOf(stream.stats, facts.info, { width: stream.bwpWidth, height: stream.bwpHeight }),
     [facts.info, stream.stats, stream.bwpWidth, stream.bwpHeight],
   );
-  const stage = useMemo(() => fitBox(box, aspect), [box, aspect]);
+  const stage = useMemo(() => fitBox(immersive ? box : { w: box.w, h: Math.max(1, box.h - 160) }, aspect), [box, aspect, immersive]);
   const stageRef = useRef<Size>(EMPTY_SIZE);
   stageRef.current = stage;
 
@@ -288,7 +289,6 @@ export default function ScreenTab() {
       ) : null}
       {!immersive && record.sent ? <SentNotice info={record.sent} onOpen={record.openSentSession} /> : null}
       {!immersive ? noticeArea : null}
-      {!immersive ? <Rule /> : null}
 
       <StageView
         onBoxLayout={onBoxLayout}
@@ -315,6 +315,9 @@ export default function ScreenTab() {
         onRetry={recheck}
         onHelp={openHelp}
         onToggleFullscreen={view.toggleFullscreen}
+        audioOn={sheets.audioOn}
+        audioLabel={!sheets.audioOn ? 'Audio off' : audioStatus.phase === 'playing' ? 'Audio on' : audioStatus.phase === 'error' ? 'Audio unavailable' : 'Connecting audio'}
+        onToggleAudio={sheets.toggleAudio}
       >
         {/* Input errors still matter while immersive; they float over the top edge. */}
         {immersive && !gaming.enabled ? (
@@ -358,6 +361,7 @@ export default function ScreenTab() {
       {gaming.enabled ? <GamingOverlay gaming={gaming} width={view.window.width} height={view.window.height}
         fps={stream.bwpStats?.fps ?? stream.stats.fps} pingMs={facts.pingMs} /> : null}
       <GamingSheet gaming={gaming} />
+      {!immersive && !gaming.enabled ? <AppearanceNav /> : null}
 
       {/* Gated on `ready`, not just the flag: a stop that failed leaves
           nothing to send, and a sheet promising to send nothing would lie. */}

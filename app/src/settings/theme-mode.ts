@@ -12,7 +12,7 @@ import { setThemeMode, ThemeMode } from '../theme';
 // under it: renaming it later is a theme snapping back to default.
 const MODE_KEY = 'belay.themeMode';
 
-const MODES: readonly ThemeMode[] = ['system', 'light', 'dark'];
+const MODES: readonly ThemeMode[] = ['system', 'light', 'dark', 'current', 'fieldwork'];
 
 const isThemeMode = (value: unknown): value is ThemeMode =>
   typeof value === 'string' && (MODES as readonly string[]).includes(value);

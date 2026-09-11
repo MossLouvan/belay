@@ -16,7 +16,7 @@
 import React from 'react';
 import { Text, View } from 'react-native';
 import type { GestureResponderHandlers } from 'react-native';
-import { font } from '../theme';
+import { font, useTheme } from '../theme';
 import { FILL } from './parts';
 import { padGapBelow, showsPadHint } from './trackpad';
 
@@ -45,20 +45,21 @@ export interface TrackpadSurfaceProps {
  * exists without the stream ever having to compete with it.
  */
 export function TrackpadSurface({ handlers, boxH, stageH, immersive, testID }: TrackpadSurfaceProps) {
+  const theme = useTheme();
   const hint = showsPadHint(padGapBelow(boxH, stageH), immersive);
   return (
     <View
       testID={testID}
       accessibilityLabel="Trackpad. Drag to move the mouse pointer, tap to click, two-finger tap to right-click, two fingers to scroll."
       {...handlers}
-      style={FILL}
+      style={immersive ? FILL : { position: 'absolute', top: stageH + 72, bottom: 8, left: 0, right: 0, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt, overflow: 'hidden' }}
     >
       {hint ? (
         <View
           pointerEvents="none"
           style={{
             position: 'absolute',
-            top: stageH,
+            top: immersive ? stageH : 0,
             left: 0,
             right: 0,
             bottom: 0,
@@ -72,8 +73,8 @@ export function TrackpadSurface({ handlers, boxH, stageH, immersive, testID }: T
               <View key={i} style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: HINT_INK }} />
             ))}
           </View>
-          <Text allowFontScaling={false} style={{ fontFamily: font.mono, fontSize: 10, letterSpacing: 2, color: HINT_INK }}>
-            TRACKPAD
+          <Text style={{ fontFamily: font.sans, fontSize: 13, color: theme.colors.textDim }}>
+            Swipe to move cursor
           </Text>
         </View>
       ) : null}

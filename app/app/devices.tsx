@@ -31,6 +31,9 @@ import type { Reachability } from '../src/devices/reachability';
 import { useAutoReconnect } from '../src/devices/use-auto-reconnect';
 import { DiscoveredSection } from '../src/devices/discovered-section';
 import { AddComputer } from '../src/devices/add-computer';
+import { BelugaAvatar } from '../src/ui';
+import { ThemeToggle } from '../src/settings/theme-toggle';
+import { ComputerGlyph } from '../src/home/appearance-nav';
 
 /** How a platform is described in the list. */
 function platformLabel(device: SavedDevice): string {
@@ -87,13 +90,16 @@ function DeviceCard({
       flush
       style={{
         overflow: 'hidden',
-        backgroundColor: isActive ? theme.colors.accentSoft : theme.colors.surface,
+        backgroundColor: theme.colors.surface,
+        borderRadius: 18,
+        paddingVertical: 12,
       }}
     >
       {/* Pressable row + trailing control as siblings: nesting the FORGET
           button inside the row's Pressable is invalid HTML on web and double
           fires on native (same split ListItem uses). */}
       <Row gap="sm" style={{ paddingLeft: theme.space.md, paddingRight: theme.space.md }}>
+        <View style={{ width: 64, alignItems: 'center' }}><ComputerGlyph color={theme.colors.textDim} /></View>
         <Pressable
           testID={`device-${device.id}`}
           accessibilityRole="button"
@@ -113,17 +119,17 @@ function DeviceCard({
           <View style={{ flex: 1, gap: 4 }}>
             <Row gap="xs" align="center">
               <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>{device.label}</Txt>
-              {statusLabel(state) ? <StatusBadge label={statusLabel(state)!} variant="quiet" /> : null}
             </Row>
-            <Txt variant="caption" tone="dim" numberOfLines={1}>{subtitle}</Txt>
+            <Row gap="xs"><View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: connected || state === 'online' ? theme.colors.good : theme.colors.textFaint }} /><Txt variant="caption" tone="dim" numberOfLines={1}>{connected ? 'Connected' : state === 'online' ? 'Available' : state === 'offline' ? 'Offline' : 'Checking…'}</Txt></Row>
           </View>
         </Pressable>
         <TrackLabel
-          label="Forget"
+          label="⋯"
           accessibilityLabel={`Forget ${device.label}`}
           onPress={onForget}
         />
       </Row>
+      {(connected || state === 'online') ? <View style={{ paddingHorizontal: 18, paddingTop: 8 }}><Button label={connected ? 'Open computer' : 'Connect'} testID={`connect-${device.id}`} fullWidth disabled={disabled} onPress={onPick} /></View> : null}
       {/* The agent readout — what Claude is doing on this computer right now.
           Its own row under the card, not inside the pick Pressable (nesting
           would double-fire); a tap lands on that computer's Agent surface
@@ -167,6 +173,8 @@ export default function Devices() {
   const { byId, refresh } = useReachability(devices);
 
   const [pendingForget, setPendingForget] = useState<SavedDevice | null>(null);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [addingOpen, setAddingOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   /** Bumped by Refresh so the tailnet look-around re-runs with the probes. */
   const [discoveryNonce, setDiscoveryNonce] = useState(0);
@@ -262,9 +270,10 @@ export default function Devices() {
   return (
     <Screen scroll padding="page">
       <View style={{ paddingTop: theme.space.md, gap: theme.space.lg }}>
+        <Row justify="space-between"><Row gap="xs"><Txt style={{ fontSize: 27, fontWeight: '700', letterSpacing: -1 }}>belay</Txt><BelugaAvatar size={28} /></Row><Button testID="choose-appearance" label="Appearance" variant="secondary" onPress={() => setAppearanceOpen(true)} /></Row>
         <View>
           <Row justify="space-between" align="flex-end" gap="sm">
-            <Heading>My computers</Heading>
+            <Txt variant="display" heading>Your computers</Txt>
             {/* Now that every tab header links here, arriving by push is the
                 normal case — and the swipe-back gesture needs its visible
                 twin (docs/DESIGN.md §11.2). ‹ alone is sanctioned in this
@@ -281,9 +290,8 @@ export default function Devices() {
             ) : null}
           </Row>
           <Label style={{ marginTop: theme.space.xxs, marginBottom: 0 }}>
-            {`${devices.length} paired · tap one to take control`}
+            Connect to your computer.
           </Label>
-          <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
         </View>
 
         {active && (phase === 'unreachable' || (keepTrying && phase === 'connecting')) ? (
@@ -354,7 +362,8 @@ export default function Devices() {
           />
         ) : null}
 
-        <AddComputer />
+        <Button label="＋  Add computer" testID="show-add-computer" variant="secondary" size="lg" fullWidth onPress={() => setAddingOpen(!addingOpen)} />
+        {addingOpen ? <AddComputer /> : null}
 
         <Row gap="sm" justify="flex-end">
           <Button label="Refresh" variant="ghost" onPress={refreshAll} />
@@ -365,6 +374,10 @@ export default function Devices() {
         </Caption>
       </View>
 
+      <Sheet visible={appearanceOpen} onClose={() => setAppearanceOpen(false)} title="Appearance" testID="appearance-sheet">
+        <Caption style={{ marginBottom: 20 }}>Current is light and clear. Fieldwork is dark and tactile.</Caption>
+        <ThemeToggle testID="appearance-picker" />
+      </Sheet>
       <Sheet
         visible={pendingForget !== null}
         onClose={() => setPendingForget(null)}

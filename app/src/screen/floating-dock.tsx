@@ -19,10 +19,9 @@ export function DockedControls({ children }: DockedControlsProps) {
   const insets = useSafeAreaInsets();
   return (
     <View style={{ paddingHorizontal: theme.layout.margin }}>
-      <Rule bleed={theme.layout.margin} />
       {/* Additional vertical spacing to prevent bottom text overlap on Android
           and ensure adequate clearance above system navigation/taskbar. */}
-      <View style={{ paddingTop: theme.space.xs, paddingBottom: Math.max(insets.bottom, theme.space.xs) + theme.space.sm }}>{children}</View>
+      <View style={{ paddingTop: theme.space.xs, paddingBottom: 0 }}>{children}</View>
     </View>
   );
 }

@@ -19,7 +19,7 @@ import { Appearance, Easing, Platform, StyleSheet } from 'react-native';
 import type { TextStyle } from 'react-native';
 
 export type ColorScheme = 'light' | 'dark';
-export type ThemeMode = 'system' | ColorScheme;
+export type ThemeMode = 'system' | ColorScheme | 'current' | 'fieldwork';
 
 /**
  * Every colour role available to a screen. The first block is the legacy set
@@ -208,10 +208,10 @@ export const darkPalette: Palette = Object.freeze({
  * original system but still restrained — no extreme rounding.
  */
 export const radius = Object.freeze({
-  xs: 4,  // standard: inputs, buttons, soft-fill bands — bumped from 2
-  sm: 6,  // interactive elements, key-bar keys
-  md: 8,  // cards, panels — now a real value
-  lg: 12, // larger panels, sheets — premium feel
+  xs: 10,
+  sm: 12,
+  md: 16,
+  lg: 20,
   xl: 16, // hero elements when needed
   /** @deprecated Pills are banned (docs/DESIGN.md §12). Delete after migration. */
   pill: 999,
@@ -233,7 +233,7 @@ export const font = Object.freeze({
   // Outfit from Google Fonts as the primary UI typeface. Loaded in app/_layout.tsx
   // with weights 400 (Regular), 500 (Medium), 600 (SemiBold), and 700 (Bold).
   // The font is specified by weight via the type scale below.
-  sans: 'Outfit' as string,
+  sans: Platform.select({ ios: 'System', default: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }) as string,
   mono: Platform.select({
     ios: 'Menlo',
     default: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
@@ -249,8 +249,8 @@ export const font = Object.freeze({
  * or the page turns into a shouting match (docs/DESIGN.md §4.3).
  */
 export const type = Object.freeze({
-  display: { fontFamily: font.sans, fontSize: 40, lineHeight: 42, fontWeight: '900', letterSpacing: -1.5, textTransform: 'uppercase' },
-  title: { fontFamily: font.sans, fontSize: 28, lineHeight: 32, fontWeight: '900', letterSpacing: -0.6, textTransform: 'uppercase' },
+  display: { fontFamily: font.sans, fontSize: 32, lineHeight: 38, fontWeight: '700', letterSpacing: -0.8 },
+  title: { fontFamily: font.sans, fontSize: 26, lineHeight: 32, fontWeight: '700', letterSpacing: -0.5 },
   heading: { fontFamily: font.sans, fontSize: 19, lineHeight: 24, fontWeight: '800', letterSpacing: -0.3 },
   subheading: { fontFamily: font.sans, fontSize: 16, lineHeight: 21, fontWeight: '700' },
   body: { fontFamily: font.sans, fontSize: 15, lineHeight: 21, fontWeight: '400' },
@@ -258,8 +258,8 @@ export const type = Object.freeze({
   caption: { fontFamily: font.sans, fontSize: 13, lineHeight: 17, fontWeight: '400' },
   // Hero stats ("39%"). Tabular numerals so live values do not jitter.
   numeral: { fontFamily: font.sans, fontSize: 34, lineHeight: 38, fontWeight: '800', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
-  label: { fontFamily: font.mono, fontSize: 11, lineHeight: 14, fontWeight: '400', letterSpacing: 1.5, textTransform: 'uppercase', fontVariant: ['tabular-nums'] },
-  micro: { fontFamily: font.mono, fontSize: 10, lineHeight: 13, fontWeight: '400', letterSpacing: 1.2, textTransform: 'uppercase', fontVariant: ['tabular-nums'] },
+  label: { fontFamily: font.sans, fontSize: 13, lineHeight: 18, fontWeight: '500' },
+  micro: { fontFamily: font.sans, fontSize: 11, lineHeight: 15, fontWeight: '400' },
   mono: { fontFamily: font.mono, fontSize: 13, lineHeight: 19, fontVariant: ['tabular-nums'] },
   monoSmall: { fontFamily: font.mono, fontSize: 11, lineHeight: 16, fontVariant: ['tabular-nums'] },
 }) satisfies Readonly<Record<string, TextStyle>>;
@@ -391,8 +391,22 @@ const buildTheme = (scheme: ColorScheme, colors: Palette): Theme =>
     elevation: FLAT_ELEVATION,
   });
 
-export const darkTheme: Theme = buildTheme('dark', darkPalette);
-export const lightTheme: Theme = buildTheme('light', lightPalette);
+export const fieldworkPalette: Palette = Object.freeze({ ...darkPalette,
+  bg: '#1C1E1F', surface: '#262829', surfaceAlt: '#2D3032', sheet: '#262829',
+  border: '#393C3E', borderStrong: '#656A6D', text: '#F2F2EF', textDim: '#B7BABD', textFaint: '#9A9FA2',
+  accent: '#FFA65C', accentGraphic: '#FFA65C', accentPress: '#E99249', onAccent: '#202222',
+  accentDim: '#624A37', accentSoft: '#44372D', onAccentSoft: '#FFBB82', focus: '#FFA65C',
+  heroBg: '#1C1E1F', heroGlow: 'transparent', trackRest: '#4A4F52',
+});
+export const currentPalette: Palette = Object.freeze({ ...lightPalette,
+  bg: '#F6F8FA', surface: '#FFFFFF', surfaceAlt: '#EAF0F5', sheet: '#FFFFFF',
+  text: '#172129', textDim: '#566476', textFaint: '#647184', border: '#DDE4EC',
+  accent: '#245CCC', accentGraphic: '#245CCC', accentPress: '#1B49A5',
+  accentSoft: '#E3ECFC', onAccentSoft: '#204FA5', focus: '#245CCC',
+  heroBg: '#F6F8FA', heroGlow: 'transparent',
+});
+export const darkTheme: Theme = buildTheme('dark', fieldworkPalette);
+export const lightTheme: Theme = buildTheme('light', currentPalette);
 
 /** Pure lookup — safe to call outside React (e.g. in StyleSheet factories). */
 export function getTheme(scheme: ColorScheme): Theme {
@@ -404,14 +418,14 @@ export function getTheme(scheme: ColorScheme): Theme {
 // component without requiring a provider to be mounted at the app root (the
 // root layout is owned by another part of the app and may not wrap us).
 
-const MODES: readonly ThemeMode[] = ['system', 'light', 'dark'];
+const MODES: readonly ThemeMode[] = ['system', 'light', 'dark', 'current', 'fieldwork'];
 
 // Follow the OS by default, which is only safe because every screen now reads
 // the theme through `useTheme()` rather than the static dark palette. app.json
 // asks for `userInterfaceStyle: "automatic"` to match; pinning it to dark there
 // would report a dark scheme on native no matter what this says. The user can
 // still override to light or dark, and that choice is persisted.
-const DEFAULT_MODE: ThemeMode = 'system';
+const DEFAULT_MODE: ThemeMode = 'current';
 
 let currentMode: ThemeMode = DEFAULT_MODE;
 const listeners = new Set<() => void>();
@@ -489,6 +503,8 @@ export function useSystemScheme(): ColorScheme {
 export function useColorScheme(): ColorScheme {
   const mode = useThemeMode();
   const system = useSystemScheme();
+  if (mode === 'current') return 'light';
+  if (mode === 'fieldwork') return 'dark';
   return mode === 'system' ? system : mode;
 }
 

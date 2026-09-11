@@ -46,13 +46,13 @@ export function ScreenHeader({ hostName, linkPhase, mascotLabel, onMascotPress, 
               and its tap is the orientation latch (plus the flip). */}
           <BelugaAvatar
             testID="screen-beluga-avatar"
-            size={36}
+            size={24}
             backgroundColor={theme.colors.heroBg}
             accessibilityLabel={mascotLabel}
             onPress={onMascotPress}
           />
           <Txt
-            variant="title"
+            variant="heading"
             heading
             numberOfLines={1}
             adjustsFontSizeToFit
@@ -77,7 +77,6 @@ export function ScreenHeader({ hostName, linkPhase, mascotLabel, onMascotPress, 
       <ConnectionStatus
         testID="screen-connection"
         phase={linkPhase}
-        trailing={<SwitchComputerLink />}
         style={{ marginTop: theme.space.xxs }}
       />
     </View>

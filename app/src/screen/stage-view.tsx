@@ -14,6 +14,7 @@ import type { ReactNode } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BelayStreamView } from '../../modules/belay-stream/src';
 import { useTheme } from '../theme';
+import { Button } from '../ui';
 import { RemoteCursors } from './cursors-overlay';
 import type { CursorsState } from './cursors-store';
 import type { QualityPreset, Size } from './model';
@@ -51,6 +52,9 @@ export interface StageViewProps {
   readonly onRetry: () => void;
   readonly onHelp: () => void;
   readonly onToggleFullscreen: () => void;
+  readonly audioOn?: boolean;
+  readonly audioLabel?: string;
+  readonly onToggleAudio: () => void;
   /** The immersive HUD overlay, floated over the panel's top edge. */
   readonly children?: ReactNode;
 }
@@ -88,7 +92,8 @@ export function StageView(props: StageViewProps) {
       onLayout={onBoxLayout}
       style={{
         flex: 1,
-        backgroundColor: theme.colors.machine,
+        backgroundColor: immersive ? theme.colors.machine : theme.colors.bg,
+        marginHorizontal: immersive ? 0 : theme.layout.margin,
         alignItems: 'center',
         justifyContent: 'flex-start',
       }}
@@ -117,6 +122,7 @@ export function StageView(props: StageViewProps) {
           height: stage.h > 0 ? stage.h : undefined,
           aspectRatio: stage.h > 0 ? undefined : aspect,
           backgroundColor: theme.colors.machine,
+          borderRadius: immersive ? 0 : 16,
           overflow: 'hidden',
         }}
       >
@@ -187,10 +193,11 @@ export function StageView(props: StageViewProps) {
 
         {/* Portrait: the Full control rides the stage's own top-right
             corner. Landscape shows nothing here — it is already full. */}
-        {!immersive && !permissions.captureBlocked
-          ? stageControls({ top: theme.space.xs, right: theme.space.xs, zIndex: 2 })
-          : null}
       </View>
+      {!immersive ? <View style={{ position: 'absolute', top: stage.h + 12, left: 0, right: 0, flexDirection: 'row', gap: 12 }}>
+        <View style={{ flex: 1 }}><Button testID="quick-audio" label={props.audioLabel ?? (props.audioOn ? 'Audio on' : 'Audio off')} variant={props.audioOn ? 'subtle' : 'secondary'} onPress={props.onToggleAudio} fullWidth /></View>
+        <View style={{ flex: 1 }}><Button testID="stage-fullscreen" label="Fullscreen" accessibilityLabel="Enter full screen" variant="secondary" onPress={onToggleFullscreen} fullWidth /></View>
+      </View> : null}
 
       {/* No picture: the panel interior becomes the guidance surface —
           state name, the observed cause, one accent action, proof of life.
