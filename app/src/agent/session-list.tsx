@@ -20,6 +20,7 @@ import {
 import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
 import { ago, groupDiscovered, projectName, statusLabel } from './model';
+import { attachedLabel, kindLabel, sessionKind } from './session-kind';
 import { askSummary, countdown } from './attention';
 import { decideHook, dismissHookNotice, getAttention, refreshAttention, refreshDiscovered, refreshHooks, useAgentAttention } from './attention-store';
 import { discoveredFromHook, noticeLine, orderedHookAsks } from './hook-model';
@@ -432,11 +433,13 @@ function SessionRow({
   const dot = rowDot(s.status);
   const spend = ledger ? ledgerLine(ledger) : '';
   const idle = s.status === 'idle';
+  const kind = sessionKind(s);
+  const attached = attachedLabel(s);
   return (
     <Row testID={`agent-session-${s.id}`} gap="xs" align="flex-start" style={{ paddingLeft: theme.space.md }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Open ${s.title}, ${statusLabel(s.status)}`}
+        accessibilityLabel={`Open ${s.title}, ${kindLabel(kind)} session, ${statusLabel(s.status)}${attached ? `, ${attached}` : ''}`}
         onPress={() => {
           haptic('light');
           onOpen(s.id);
@@ -452,7 +455,16 @@ function SessionRow({
       >
         <Row gap="xs">
           <Dot status={dot.status} ring={dot.ring} size={7} />
-          <Txt variant="subheading" numberOfLines={1} style={{ flex: 1 }}>{s.title}</Txt>
+          <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>{s.title}</Txt>
+          {/* Which of the two a row is matters before it is tapped: one opens a
+              terminal you can type into, the other a feed you approve from. */}
+          <Micro testID={`agent-kind-${s.id}`} tone="faint">{kindLabel(kind)}</Micro>
+          <View style={{ flex: 1 }} />
+          {/* Someone else is on this pty right now — the fact that changes
+              what you should do next, so it outranks the idle timestamp. */}
+          {attached ? (
+            <Micro testID={`agent-attached-${s.id}`} tone="accent">{attached}</Micro>
+          ) : null}
           {/* One trailing fact: what it is doing, or — when idle — when it last did. */}
           <Micro tone={idle ? 'faint' : s.status === 'waiting' ? 'warn' : s.status === 'error' ? 'bad' : 'accent'}>
             {idle ? ago(s.lastUsed, now) : statusLabel(s.status)}

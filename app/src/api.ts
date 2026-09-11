@@ -455,8 +455,27 @@ export interface PendingApproval {
  */
 export interface PendingApprovalSummary { id: string; tool: string; detail: string; expiresAt?: number; }
 
+/**
+ * Which machinery is behind a session, as the host reports it (server/src/agent.ts).
+ *
+ * `pty` is a real interactive `claude` inside a terminal the host owns, which
+ * any number of clients — this phone, a terminal at the desk — can attach to at
+ * once. `stream` is the original structured feed with approval cards.
+ *
+ * Hosts older than the pty path send no `kind` at all, and everything they run
+ * is a stream session; `sessionKind` in agent/session-kind.ts is the one place
+ * that absence is turned into a value.
+ */
+export type AgentSessionKind = 'pty' | 'stream';
+
 export interface AgentSessionMeta {
   id: string; title: string; cwd: string; status: AgentStatus; lastUsed: number; createdAt: number;
+  /** Absent on hosts from before attachable sessions; treat as 'stream'. */
+  kind?: AgentSessionKind;
+  /** Clients attached to a pty session right now, this one included. Absent on older hosts. */
+  attached?: number;
+  /** Whether the session's process is running. Absent on older hosts. */
+  live?: boolean;
   /** Present (or null) on new hosts; absent entirely on hosts from before it shipped. */
   pending?: PendingApprovalSummary | null;
 }
@@ -594,7 +613,9 @@ export const api = {
   agentCreateProject: (name: string, parent: string) =>
     post<{ project: AgentProject }>('/agent/projects', { name, parent }),
   agentSessions: () => get<{ sessions: AgentSessionMeta[] }>('/agent/sessions'),
-  agentCreate: (cwd: string, title?: string) => post<AgentSnapshot>('/agent/sessions', { cwd, title }),
+  /** Omitting `kind` lets the host choose; every host that knows the field defaults to 'pty'. */
+  agentCreate: (cwd: string, title?: string, kind?: AgentSessionKind) =>
+    post<AgentSnapshot>('/agent/sessions', kind ? { cwd, title, kind } : { cwd, title }),
   agentSnapshot: (id: string) => get<AgentSnapshot>(`/agent/sessions/${encodeURIComponent(id)}`),
   agentPrompt: (id: string, text: string) => post<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/prompt`, { text }),
   agentStop: (id: string) => post<{ ok: boolean }>(`/agent/sessions/${encodeURIComponent(id)}/stop`, {}),

@@ -160,6 +160,53 @@ vocabulary is `/ws/terminal`'s, so a client can reuse its terminal renderer:
 addition over `/ws/terminal`: with several clients the size is negotiated, so a
 client has to be told what it actually got.
 
+### On the phone
+
+The Agent tab branches on `kind` before it draws anything. A `pty` session opens
+the Terminal tab's own machinery pointed at `/ws/agent-attach` — the same ANSI
+parser, the same line list, the same key bar that supplies the Esc / Tab / Ctrl
+/ arrows a phone keyboard does not have — so there is one terminal renderer in
+the app, not two. A `stream` session opens the structured feed and approval
+cards exactly as before. Until the host has said which it is, neither is drawn:
+a feed rendered over a live terminal looks like a session that lost its history.
+
+What the phone does with the parts of the protocol that are specific to sharing:
+
+- **The negotiated size is authoritative.** The phone measures itself, asks for
+  that, and then lays the screen out to whatever the host granted — the minimum
+  across every attached client. When that is smaller *and* somebody else is on
+  the session, the header says so quietly: `sized to the desk terminal · 40×12`.
+  Alone on the pty it stays silent, because then the smaller size is the host's
+  own floor and blaming a colleague would be an invention.
+- **"Someone else is looking at this"** is worded differently in the two places
+  it appears, on purpose. In the session view this phone is one of the attached
+  clients, so it reports the others (`1 other attached`). In the session list
+  the view is closed and this phone is attached to nothing, so every client the
+  host reports is somebody else and the row shows the plain count
+  (`1 attached`). Subtracting one there would hide the single desk terminal
+  that is the entire point of saying it.
+- **The count is polled, not pushed.** `ready` carries `attached` once and the
+  socket has no message for somebody joining later, so the open session view
+  asks `GET /agent/sessions/:id` every few seconds while it is live. Without
+  that the header would go stale the moment anyone attached.
+- **A dropped socket re-attaches on a backoff** and the host's scrollback replay
+  restores the screen, so the phone never sits on a dead one. An *exit* and a
+  *refusal* do not retry: there is nothing to replay after an exit, and
+  re-attaching would silently start a second `claude`; a refusal would fail the
+  same way forever. Both get a visible Reattach instead.
+
+Sessions in the **On this PC** list are untouched by all of this. They are
+`claude` processes someone started by typing it themselves, they have no
+Belay-owned pty, and the phone offers no Attach on them — only watch, answer,
+and take over once the terminal is quiet.
+
+One honest limitation of drawing a TUI this way: the phone's renderer is a
+scrollback of lines, not a fixed screen grid with alternate-screen support. A
+normal session reads correctly, but when the pty's *width changes mid-session*
+(another client attaches or leaves) the lines already in the scrollback were
+wrapped at the old width and the re-render of them can show character-level
+artifacts until the CLI repaints. The live region is correct throughout.
+
 ### How the command at the computer authenticates
 
 `npm run attach` runs on the host machine, over loopback, and authenticates
