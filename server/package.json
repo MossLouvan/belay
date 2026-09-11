@@ -17,6 +17,7 @@
     "test": "node --import tsx --test test/*.test.ts src/*.test.mjs",
     "autostart": "node -e \"const cp=require('node:child_process');const p=process.platform;const a=process.argv.slice(1);if(p==='darwin'){cp.execFileSync('/bin/bash',['scripts/autostart-macos.sh',...a],{stdio:'inherit'})}else if(p==='win32'){cp.execFileSync('powershell',['-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/autostart-windows.ps1','-Action',a[0]||'install'],{stdio:'inherit'})}else{console.error('[autostart] no recipe for '+p);process.exit(1)}\" --",
     "sessions": "node scripts/list-sessions.mjs",
+    "attach": "tsx src/agent-attach-cli.ts",
     "hooks:install": "tsx src/hooks-install-cli.ts install",
     "hooks:uninstall": "tsx src/hooks-install-cli.ts uninstall",
     "hooks:status": "tsx src/hooks-install-cli.ts status"

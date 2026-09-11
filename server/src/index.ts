@@ -58,6 +58,8 @@ import { registerAgentApprovalRoutes } from './agent-routes.js';
 import { attentionClients, handleAttention } from './agent-attention.js';
 import { hookWaitMs, registerHookRoutes } from './hooks-routes.js';
 import { ensureHookSecret } from './hooks-secret.js';
+import { handleAgentAttach, registerAttachRoutes } from './agent-attach.js';
+import { ensureAttachSecret, localConsoleDevice } from './attach-secret.js';
 import { hooksStore } from './hooks-store.js';
 import { hooksStatusLine } from './hooks-install.js';
 import { readSettings, settingsPath } from './hooks-install-cli.js';
@@ -906,9 +908,20 @@ app.post('/agent/projects', auth, async (req, res) => {
 
 app.get('/agent/sessions', auth, (_req, res) => res.json({ sessions: listSessions() }));
 
+// `kind` is optional and new sessions default to 'pty' — the live terminal any
+// number of clients can attach to. An older app that does not send it gets the
+// new shape, which is the point of the change; a client that explicitly wants
+// the original stream-json session (and its phone-only approval flow) can still
+// ask for it by name while both paths exist.
 app.post('/agent/sessions', auth, (req, res) => {
-  try { res.json(createSession(String(req.body?.cwd || ''), req.body?.title ? String(req.body.title) : undefined)); }
-  catch (e: any) { res.status(400).json({ error: e.message }); }
+  try {
+    const kind = req.body?.kind === 'stream' ? 'stream' as const : undefined;
+    res.json(createSession(
+      String(req.body?.cwd || ''),
+      req.body?.title ? String(req.body.title) : undefined,
+      kind,
+    ));
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 // Every Claude Code session found on this machine (terminal-started included)
@@ -988,6 +1001,9 @@ app.post('/agent/approval-request', (req, res) => {
 
 registerRecordingRoutes(app, auth);
 registerAgentApprovalRoutes(app, auth);
+// Loopback-only, authenticated by ~/.belay/attach-secret: how `npm run attach`
+// at the computer gets a WebSocket ticket for /ws/agent-attach.
+registerAttachRoutes(app, { issueTicket: (token) => tickets.issue(token), secret: ensureAttachSecret() });
 // Terminal-started `claude` sessions ask the phone through Claude Code hooks
 // (hooks/belay-hook.mjs → POST /hooks/<event>, loopback + ~/.belay/hook-secret).
 registerHookRoutes(app, auth, {
@@ -1011,7 +1027,19 @@ registerAudioRoutes(app, auth);
 // ---- server + websockets -------------------------------------------------
 
 const server = createServer(app);
-const wss = new WebSocketServer({ noServer: true });
+/**
+ * A ceiling on any single frame a client can send.
+ *
+ * Every route on this socket takes small JSON: keystrokes, a resize, a frame
+ * ack. Without a cap a paired device could send a 100 MiB frame that is
+ * buffered whole, JSON.parsed, and — on the terminal and agent-attach routes —
+ * written straight into a pty. A megabyte is far past the largest legitimate
+ * message (a clipboard paste) and far below the point where one frame is a
+ * problem. ws refuses anything larger and closes the socket itself; the
+ * gamepad server has always done this (17 bytes, at its own construction).
+ */
+const WS_MAX_PAYLOAD = 1024 * 1024;
+const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
 // Open sockets by the token that opened them, so revocation can tear them down.
 const liveSockets = new Map<WebSocket, string>();
 // Liveness per socket: set true on open and on every pong, cleared each sweep.
@@ -1049,7 +1077,7 @@ heartbeat.unref?.();
 // /ws/audio is always available: audio capture works in the default native
 // build and is separate from the WebRTC signaling path. The phone enables audio
 // per-session via the stream settings toggle.
-const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/attention', '/ws/transcript', '/ws/cursors', '/ws/audio', '/ws/gamepad']);
+const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/agent-attach', '/ws/attention', '/ws/transcript', '/ws/cursors', '/ws/audio', '/ws/gamepad']);
 if (webrtcEnabled()) { WS_ROUTES.add('/ws/webrtc'); }
 
 server.on('upgrade', (req, socket, head) => {
@@ -1082,7 +1110,10 @@ server.on('upgrade', (req, socket, head) => {
     const redeemed = ticket ? tickets.redeem(ticket) : null;
     const token = redeemed ?? url.searchParams.get('token') ?? '';
 
-    const device = findDevice(token);
+    // A paired phone, or — only on /ws/agent-attach, and only for a ticket
+    // minted through the loopback attach route — the person standing at this
+    // computer. See attach-secret.ts for why that is a separate credential.
+    const device = findDevice(token) ?? localConsoleDevice(token, url.pathname);
     if (!device) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
     touchDevice(device);
     // Every tracked socket gets an 'error' listener: an unhandled 'error' event
@@ -1125,6 +1156,16 @@ server.on('upgrade', (req, socket, head) => {
       track(ws);
       void handleTerminal(ws, url).catch((e: unknown) => {
         console.error('[terminal] session failed:', messageOf(e));
+        if (ws.readyState === ws.OPEN) ws.close();
+      });
+    });
+  } else if (url.pathname === '/ws/agent-attach') {
+    // Join a live pty-backed session. Any number of clients at once, and
+    // leaving never ends it — agent-pty.ts.
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      track(ws);
+      void handleAgentAttach(ws, url).catch((e: unknown) => {
+        console.error('[agent-attach] failed:', messageOf(e));
         if (ws.readyState === ws.OPEN) ws.close();
       });
     });
@@ -1707,6 +1748,17 @@ function agentBannerLine(): string {
   return `claude CLI at ${claude} · sessions: ${sessionIndex().mode === 'watch' ? 'watching ~/.claude/projects' : 'polling ~/.claude/projects'}`;
 }
 
+/**
+ * How to join a phone-started session from this keyboard.
+ *
+ * The desk half of the feature was discoverable only by reading docs/AGENT.md,
+ * which is the one place a user standing at his computer wondering how to get
+ * at the session on his phone will not look. It costs one line here.
+ */
+function attachBannerLine(): string {
+  return 'npm run attach            (join a session from this keyboard; no id lists them)';
+}
+
 /** "installed in ~/.claude/settings.json (4 events)" — or how to get there. */
 function hooksBannerLine(): string {
   const read = readSettings(settingsPath());
@@ -1780,6 +1832,7 @@ server.listen(PORT, () => {
     platform: getPlatform(),
   });
   console.log(`  Agent     : ${agentBannerLine()}`);
+  console.log(`  Attach    : ${attachBannerLine()}`);
   console.log(`  Hooks     : ${hooksBannerLine()}`);
   console.log(`  Notify    : ${notifyBannerLine()}`);
   // Printed because it is the answer to "why did my phone lose the pairing":

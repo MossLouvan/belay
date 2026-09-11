@@ -23,13 +23,77 @@ import { PhotoButton, usePhotoSend } from './photo-button';
 import type { PhotoSource } from './photo-button';
 import { appendTranscript, composerControls, isBusy, promptMode, statusLabel, statusTone } from './model';
 import { useAgentSession } from './session';
+import { useSessionKind } from './use-session-kind';
+import { PtySessionView } from './pty-view';
+
+export interface SessionViewProps {
+  readonly id: string;
+  readonly onBack: () => void;
+}
 
 /** Above this the composer stops growing and scrolls instead. */
 const COMPOSER_MAX_HEIGHT = 110;
 /** Height of the tab bar plus header the keyboard must clear. */
 const KEYBOARD_OFFSET = 90;
 
-export function SessionView({ id, onBack }: { id: string; onBack: () => void }) {
+/**
+ * One open session, whichever kind it is.
+ *
+ * A 'pty' session is the real interactive CLI in a terminal the host owns: the
+ * phone attaches to it and draws it, and the computer can attach to the very
+ * same one. A 'stream' session is the original structured feed with approval
+ * cards, unchanged below. Which one this is is the host's fact, so it is read
+ * rather than guessed — and until it has been read, neither is rendered: a feed
+ * drawn over a live terminal would look like a session that had lost its
+ * history.
+ */
+export function SessionView({ id, onBack }: SessionViewProps) {
+  const theme = useTheme();
+  const resolved = useSessionKind(id);
+
+  if (resolved.kind === null) {
+    return (
+      <View testID="agent-session-resolving" style={{ flex: 1, padding: theme.layout.margin, gap: theme.space.sm }}>
+        <Pressable
+          testID="agent-back"
+          accessibilityRole="button"
+          accessibilityLabel="Back to sessions"
+          onPress={onBack}
+          hitSlop={theme.layout.hitSlop}
+        >
+          <Label tone="accent" style={{ marginBottom: 0 }}>‹ Back</Label>
+        </Pressable>
+        <Row gap="sm">
+          <ActivityIndicator color={theme.colors.accent} />
+          <Caption>{resolved.error || 'Opening the session…'}</Caption>
+        </Row>
+      </View>
+    );
+  }
+
+  if (resolved.kind === 'pty') {
+    return (
+      <PtySessionView
+        id={id}
+        title={resolved.meta?.title ?? ''}
+        cwd={resolved.meta?.cwd ?? ''}
+        attached={resolved.meta?.attached}
+        resumable={resolved.meta?.resumable}
+        onBack={onBack}
+      />
+    );
+  }
+
+  return <StreamSessionView id={id} onBack={onBack} />;
+}
+
+/**
+ * The structured-feed session: the live feed, the Allow / Deny / Always prompt
+ * whenever Claude wants to touch the machine, and the prompt composer with
+ * hold-to-talk. Unchanged by the parity work — the founder judges the new path
+ * first, and this one has to keep working exactly as it did while he does.
+ */
+function StreamSessionView({ id, onBack }: SessionViewProps) {
   const theme = useTheme();
   const session = useAgentSession(id);
   const {

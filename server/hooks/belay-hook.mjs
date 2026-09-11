@@ -70,8 +70,12 @@ function readStdin() {
 const note = (msg) => { try { process.stderr.write(`[belay-hook] ${msg}\n`); } catch { /* nothing to do */ } };
 
 async function main() {
-  // A Belay-spawned session answers through its own MCP sidecar; asking the
-  // phone twice for one tool call would be worse than not asking at all.
+  // A session Belay spawned already has its own way to ask, and asking the
+  // phone twice for one tool call would be worse than not asking at all:
+  //   - a stream session answers through Belay's own MCP sidecar;
+  //   - a pty session has no sidecar — it has a real terminal, so the CLI's
+  //     own permission dialog is the ask, reachable from the phone and the
+  //     desk alike. Either way this hook must stay out of it.
   if (process.env.BELAY_SPAWNED === '1') return;
 
   const raw = await readStdin();

@@ -26,7 +26,9 @@ import {
 import type { FlowIO, PendingState, QueuedPrompt } from './agent-flow.js';
 import type { ApprovalGrant } from './approval-scopes.js';
 import { productEnv } from './env.js';
-import { claudeCandidates, pickClaude } from './claude-path.js';
+import { findClaude } from './claude-path.js';
+import { createPtyRegistry } from './agent-pty.js';
+import type { PtyRegistry } from './agent-pty.js';
 
 // The stream-json ↔ feed-event translation lives in agent-events.ts (shared
 // with the transcript history loader); re-exported so existing importers and
@@ -76,10 +78,36 @@ const EVENT_CAP = 400;                        // in-memory transcript cap per se
 
 export type AgentStatus = 'idle' | 'running' | 'waiting' | 'error';
 
+/**
+ * Which machinery is behind a session.
+ *
+ * `stream` is the original: a `claude` child speaking stream-json over pipes,
+ * with the phone answering every permission ask through the MCP sidecar. It is
+ * invisible at the computer — nothing to see, nothing to type into.
+ *
+ * `pty` is the parity path (agent-pty.ts): the real interactive CLI inside a
+ * terminal Belay owns, which any number of clients can attach to at once.
+ * New sessions are born `pty`; existing ones keep whatever they were created
+ * as, so nothing already on disk changes shape under the user.
+ *
+ * The kind is persisted and published in every REST payload the app reads, so
+ * the phone can branch on it rather than guess from a session's behaviour.
+ */
+export type AgentSessionKind = 'stream' | 'pty';
+
+/** What a session created today is, absent an explicit choice. */
+export const DEFAULT_SESSION_KIND: AgentSessionKind = 'pty';
+
+/** Sessions written before the kind existed were all stream-json. */
+export function sessionKindOf(raw: unknown): AgentSessionKind {
+  return raw === 'pty' ? 'pty' : 'stream';
+}
+
 interface SessionMeta {
   id: string;
   title: string;
   cwd: string;
+  kind: AgentSessionKind;
   claudeSessionId?: string;
   createdAt: number;
   lastUsed: number;
@@ -123,16 +151,26 @@ export function loadAgentState(): void {
     } catch { persisted = { sessions: [], recentProjects: [] }; }
   }
   for (const meta of persisted.sessions) {
+    const kind = sessionKindOf(meta.kind);
     sessions.set(meta.id, {
-      ...meta, status: 'idle', events: loadEventTail(meta.id), buffer: '',
+      ...meta, kind, status: 'idle', events: loadEventTail(meta.id), buffer: '',
       approvalQueue: [], grants: [], subscribers: new Set(),
     });
+    // Revive across a host restart: the metadata is enough to re-create the
+    // session, and the pty is (re)started lazily on the first attach with
+    // `--resume <claudeSessionId>`. Lazily, because a host that just booted
+    // should not spawn one Claude per session nobody has asked for yet — and
+    // because a restarted session genuinely is not "in progress" until
+    // somebody looks at it.
+    if (kind === 'pty' && existsSync(meta.cwd)) {
+      ptyRegistry().register({ id: meta.id, cwd: meta.cwd, title: meta.title, claudeSessionId: meta.claudeSessionId });
+    }
   }
 }
 
 function saveMeta(): void {
-  persisted.sessions = [...sessions.values()].map(({ id, title, cwd, claudeSessionId, createdAt, lastUsed }) =>
-    ({ id, title, cwd, claudeSessionId, createdAt, lastUsed }));
+  persisted.sessions = [...sessions.values()].map(({ id, title, cwd, kind, claudeSessionId, createdAt, lastUsed }) =>
+    ({ id, title, cwd, kind, claudeSessionId, createdAt, lastUsed }));
   writeFileSync(META_FILE, JSON.stringify(persisted, null, 2), 'utf8');
 }
 
@@ -153,31 +191,37 @@ function loadEventTail(id: string, n = 200): AgentEvent[] {
 
 // ---- claude executable ----------------------------------------------------
 
-let claudePath: string | null | undefined; // undefined = not looked up yet
+// Binary resolution lives in claude-path.ts so the stream-json sessions here
+// and the pty-backed sessions in agent-pty.ts share one door (and no cycle).
+// Re-exported because index.ts and the boot banner have always imported it
+// from here.
+export { findClaude } from './claude-path.js';
+
+// ---- the pty-backed session registry --------------------------------------
+
+let ptyRegistrySingleton: PtyRegistry | null = null;
 
 /**
- * PATH first (`which`/`where`), then the well-known install locations from
- * claude-path.ts. The PATH answer wins so a deliberately chosen binary is
- * respected; the fallbacks exist for hosts started as a service, whose PATH
- * is the bare system default and knows nothing about ~/.local/bin or
- * Homebrew. Looked up once; the boot banner prints whichever was chosen.
+ * The one registry of pty-backed sessions on this host.
+ *
+ * Owned here rather than inside agent-pty.ts so the dependency runs one way
+ * (agent.ts knows about ptys; ptys know nothing about sessions), and so the
+ * claude session id the registry recovers from disk lands in the same
+ * belay-agent.json that every other piece of session metadata lives in — that
+ * id is what makes a revive after a host restart possible at all.
  */
-export function findClaude(): string | null {
-  if (claudePath !== undefined) return claudePath;
-  claudePath = claudeOnPath() ?? pickClaude(
-    claudeCandidates({ platform: process.platform, home: homedir(), env: process.env }),
-    existsSync,
-  );
-  return claudePath;
-}
-
-function claudeOnPath(): string | null {
-  const probe = process.platform === 'win32' ? ['where.exe', ['claude']] as const : ['which', ['claude']] as const;
-  try {
-    const out = execFileSync(probe[0], probe[1] as unknown as string[], { encoding: 'utf8' });
-    const first = out.split(/\r?\n/).find((l) => l.trim());
-    return first ? first.trim() : null;
-  } catch { return null; }
+export function ptyRegistry(): PtyRegistry {
+  if (!ptyRegistrySingleton) {
+    ptyRegistrySingleton = createPtyRegistry({
+      onClaudeSessionId: (id, claudeSessionId) => {
+        const s = sessions.get(id);
+        if (!s || s.claudeSessionId === claudeSessionId) return;
+        s.claudeSessionId = claudeSessionId;
+        saveMeta();
+      },
+    });
+  }
+  return ptyRegistrySingleton;
 }
 
 // The full claude invocation for a session, as a pure function so tests can
@@ -400,7 +444,16 @@ export function listSessions() {
   return [...sessions.values()]
     .sort((a, b) => b.lastUsed - a.lastUsed)
     .map((s) => ({
-      id: s.id, title: s.title, cwd: s.cwd, status: s.status, lastUsed: s.lastUsed, createdAt: s.createdAt,
+      id: s.id, title: s.title, cwd: s.cwd, kind: s.kind, status: s.status,
+      lastUsed: s.lastUsed, createdAt: s.createdAt,
+      // Only meaningful for kind 'pty'; the phone uses it to show "2 attached"
+      // and to decide whether opening the session means a terminal or a feed.
+      attached: s.kind === 'pty' ? (ptyRegistry().info(s.id)?.attached ?? 0) : 0,
+      live: s.kind === 'pty' ? !!ptyRegistry().info(s.id)?.running : !!s.proc,
+      // Whether stopping this session could ever bring the same conversation
+      // back. False means a later attach starts a fresh one, and the phone
+      // says that rather than implying otherwise (agent-pty.ts, DetectState).
+      resumable: s.kind === 'pty' ? !!ptyRegistry().info(s.id)?.resumable : false,
       pending: s.pending
         ? {
             id: s.pending.id, tool: s.pending.tool, detail: s.pending.detail, expiresAt: s.pending.expiresAt,
@@ -442,11 +495,14 @@ export function resolveSessionCwd(cwd: string): string {
   return real;
 }
 
-function newSession(cwd: string, title?: string, claudeSessionId?: string): Session {
+function newSession(
+  cwd: string, title?: string, claudeSessionId?: string,
+  kind: AgentSessionKind = DEFAULT_SESSION_KIND,
+): Session {
   const resolved = resolveSessionCwd(cwd);
   const id = randomBytes(8).toString('hex');
   const s: Session = {
-    id, cwd: resolved, claudeSessionId,
+    id, cwd: resolved, kind, claudeSessionId,
     title: title || resolved.split(/[\\/]/).filter(Boolean).pop() || 'session',
     createdAt: Date.now(), lastUsed: Date.now(),
     status: 'idle', events: [], buffer: '', approvalQueue: [], grants: [], subscribers: new Set(),
@@ -458,8 +514,27 @@ function newSession(cwd: string, title?: string, claudeSessionId?: string): Sess
   return s;
 }
 
-export function createSession(cwd: string, title?: string) {
-  return getSnapshot(newSession(cwd, title).id)!;
+/**
+ * A new session, pty-backed unless the caller explicitly asks for the old
+ * stream-json shape. The pty starts now rather than on the first prompt: the
+ * promise is that walking to the computer joins a session already in progress,
+ * and a session that has not started yet is nothing to join.
+ *
+ * Starting is fire-and-forget because createSession answers an HTTP request —
+ * a failure (no claude, no node-pty, folder vanished between the check and the
+ * spawn) lands as a visible `[belay]` line in the session's own stream instead
+ * of a 500 on a session that now exists, which is the honest place for it.
+ */
+export function createSession(cwd: string, title?: string, kind: AgentSessionKind = DEFAULT_SESSION_KIND) {
+  const s = newSession(cwd, title, undefined, kind);
+  if (s.kind === 'pty') {
+    ptyRegistry().register({ id: s.id, cwd: s.cwd, title: s.title });
+    void ptyRegistry().ensureRunning(s.id).catch((e: unknown) => {
+      pushEvent(s, { t: Date.now(), kind: 'error', text: `could not start the session: ${e instanceof Error ? e.message : String(e)}` });
+      setStatus(s, 'error');
+    });
+  }
+  return getSnapshot(s.id)!;
 }
 
 // Adopt a session Claude Code already has on disk (started from a terminal or
@@ -475,7 +550,10 @@ export function attachSession(cwd: string, claudeSessionId: string, title?: stri
   for (const s of sessions.values()) {
     if (s.claudeSessionId === claudeSessionId) return getSnapshot(s.id)!; // already attached
   }
-  const s = newSession(cwd, title, claudeSessionId);
+  // Adopting an existing Claude session keeps the stream-json shape: its
+  // history is being replayed into the feed, and the phone's approval flow is
+  // what the takeover exists to attach.
+  const s = newSession(cwd, title, claudeSessionId, 'stream');
   // Restore the tail of the Claude-side transcript so the resumed session
   // opens showing the conversation being resumed, not a blank feed. Pushed
   // through pushEvent so the history also lands in Belay's own log and
@@ -504,8 +582,11 @@ export function getSnapshot(id: string) {
   const s = sessions.get(id);
   if (!s) return null;
   return {
-    id: s.id, title: s.title, cwd: s.cwd, status: s.status,
+    id: s.id, title: s.title, cwd: s.cwd, kind: s.kind, status: s.status,
     createdAt: s.createdAt, lastUsed: s.lastUsed,
+    attached: s.kind === 'pty' ? (ptyRegistry().info(s.id)?.attached ?? 0) : 0,
+    live: s.kind === 'pty' ? !!ptyRegistry().info(s.id)?.running : !!s.proc,
+    resumable: s.kind === 'pty' ? !!ptyRegistry().info(s.id)?.resumable : false,
     events: s.events,
     pending: s.pending ? pendingWire(s.pending) : null,
     // The stack behind the card, so a fresh socket's hello starts honest.
@@ -519,6 +600,7 @@ export function deleteSession(id: string): boolean {
   const s = sessions.get(id);
   if (!s) return false;
   s.proc?.kill();
+  if (s.kind === 'pty') ptyRegistry().remove(id);
   if (s.pending) clearTimeout(s.pending.timer);
   for (const p of s.approvalQueue) clearTimeout(p.timer);
   sessions.delete(id);
@@ -536,6 +618,16 @@ export function sendPrompt(id: string, text: string): 'sent' | 'queued' {
   const s = sessions.get(id);
   if (!s) throw new Error('no such session');
   if (!text.trim()) throw new Error('a prompt needs some text');
+  if (s.kind === 'pty') {
+    // A pty session has no prompt queue and no turn state — it has a terminal.
+    // "Send a prompt" is literally typing the line and pressing Enter, which is
+    // also what makes /prompt keep working for callers (the screenshot route,
+    // an older app build) that predate the attach socket.
+    s.lastUsed = Date.now();
+    saveMeta();
+    if (!ptyRegistry().write(id, `${text}\r`)) throw new Error('this session is not running — attach to it to start it again');
+    return 'sent';
+  }
   return flowPrompt(s, flowIO(s), text);
 }
 
@@ -558,6 +650,10 @@ export function stopSession(id: string): void {
   if (!s) throw new Error('no such session');
   flowDenyAll(s, flowIO(s), 'stopped from phone');
   flowDropQueued(s, flowIO(s), 'stopped from phone');
+  // Stop means stop for both kinds: the pty's process is killed and every
+  // attached client sees the exit. The metadata (including the claude session
+  // id) survives, so the session can be started again with --resume.
+  if (s.kind === 'pty') ptyRegistry().stop(id);
   if (s.proc) { s.proc.kill(); s.proc = undefined; }
   if (s.status !== 'idle') {
     pushEvent(s, { t: Date.now(), kind: 'info', text: 'stopped' });
