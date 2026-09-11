@@ -201,11 +201,16 @@ Belay-owned pty, and the phone offers no Attach on them — only watch, answer,
 and take over once the terminal is quiet.
 
 One honest limitation of drawing a TUI this way: the phone's renderer is a
-scrollback of lines, not a fixed screen grid with alternate-screen support. A
-normal session reads correctly, but when the pty's *width changes mid-session*
-(another client attaches or leaves) the lines already in the scrollback were
-wrapped at the old width and the re-render of them can show character-level
-artifacts until the CLI repaints. The live region is correct throughout.
+scrollback of lines, not a fixed screen grid with alternate-screen support, and
+`terminal-ansi.ts` explicitly no-ops the scroll-region escapes (`DECSTBM`).
+Claude Code scrolls *inside* a region, so its absolute cursor addressing lands
+one row off on the phone and can scribble over text that had already settled.
+This needs no resize to happen — plain scrolling is enough — so fixing the
+width negotiation would not fix it and must not be mistaken for having done so.
+The live region is always correct, and a full repaint — the key bar's
+`clear`, which resets the phone's copy and sends Ctrl-L — restores the rest, which is why this is a rough edge rather than a defect: what
+you are reading right now is right; what scrolled past may need one keystroke.
+The real fix is a screen-grid renderer with scroll-region support.
 
 ### How the command at the computer authenticates
 

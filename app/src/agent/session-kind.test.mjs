@@ -6,7 +6,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { attachedLabel, isAttachable, kindLabel, pickKind, sessionKind } from './session-kind.ts';
+import {
+  attachedLabel, isAttachable, isLive, kindLabel, pickKind, ptyStateLabel, restartNote,
+  runningCount, sessionKind,
+} from './session-kind.ts';
 
 const meta = (over = {}) => ({
   id: 'a', title: 'belay', cwd: '/p/belay', status: 'idle', lastUsed: 0, createdAt: 0, ...over,
@@ -70,4 +73,50 @@ test('a session not in the list is unknown, which is not the same as stream', ()
   assert.equal(pickKind(null, 'a'), null);
   assert.equal(pickKind(undefined, 'a'), null);
   assert.equal(pickKind([], 'a'), null);
+});
+
+// ---- live vs dead, which the list could not tell apart ---------------------
+
+test('a pty row says whether the terminal is alive and who is on it', () => {
+  assert.equal(ptyStateLabel(meta({ kind: 'pty', live: true, attached: 0 })), 'live');
+  assert.equal(ptyStateLabel(meta({ kind: 'pty', live: true, attached: 1 })), 'live · 1 attached');
+  assert.equal(ptyStateLabel(meta({ kind: 'pty', live: true, attached: 2 })), 'live · 2 attached');
+  // A killed session used to render exactly like a running one.
+  assert.equal(ptyStateLabel(meta({ kind: 'pty', live: false, attached: 0 })), 'stopped');
+});
+
+test('a state word is never invented for a session that cannot have one', () => {
+  assert.equal(ptyStateLabel(meta({ kind: 'stream', live: true })), null, 'a guided session has a status instead');
+  assert.equal(ptyStateLabel(meta({ kind: 'pty' })), null, 'an older host sends no live flag');
+  assert.equal(ptyStateLabel(null), null);
+});
+
+test('isLive is only true when the host actually said so', () => {
+  assert.equal(isLive(meta({ kind: 'pty', live: true })), true);
+  assert.equal(isLive(meta({ kind: 'pty', live: false })), false);
+  assert.equal(isLive(meta({ kind: 'pty' })), false);
+  assert.equal(isLive(meta({ kind: 'stream', live: true })), false);
+});
+
+test('the RUNNING stat counts a live terminal, which no status word ever reports', () => {
+  const list = [
+    meta({ id: 'a', kind: 'pty', live: true, status: 'idle' }),
+    meta({ id: 'b', kind: 'pty', live: false, status: 'idle' }),
+    meta({ id: 'c', kind: 'stream', status: 'running' }),
+    meta({ id: 'd', kind: 'stream', status: 'idle' }),
+  ];
+  // Before this the tile read 1 — the stream session only — while a pty
+  // session was live and being typed into.
+  assert.equal(runningCount(list), 2);
+  assert.equal(runningCount([]), 0);
+  assert.equal(runningCount(null), 0);
+});
+
+test('what starting a session again does is the host\'s answer, not a guess', () => {
+  assert.match(restartNote({ kind: 'pty', resumable: true }), /resumes this same conversation/);
+  assert.match(restartNote({ kind: 'pty', resumable: false }), /fresh one/);
+  // An older host never sends it, so the sentence claims neither.
+  const silent = restartNote({ kind: 'pty' });
+  assert.doesNotMatch(silent, /fresh/);
+  assert.doesNotMatch(silent, /resumes/);
 });

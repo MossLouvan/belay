@@ -1027,7 +1027,19 @@ registerAudioRoutes(app, auth);
 // ---- server + websockets -------------------------------------------------
 
 const server = createServer(app);
-const wss = new WebSocketServer({ noServer: true });
+/**
+ * A ceiling on any single frame a client can send.
+ *
+ * Every route on this socket takes small JSON: keystrokes, a resize, a frame
+ * ack. Without a cap a paired device could send a 100 MiB frame that is
+ * buffered whole, JSON.parsed, and — on the terminal and agent-attach routes —
+ * written straight into a pty. A megabyte is far past the largest legitimate
+ * message (a clipboard paste) and far below the point where one frame is a
+ * problem. ws refuses anything larger and closes the socket itself; the
+ * gamepad server has always done this (17 bytes, at its own construction).
+ */
+const WS_MAX_PAYLOAD = 1024 * 1024;
+const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD });
 // Open sockets by the token that opened them, so revocation can tear them down.
 const liveSockets = new Map<WebSocket, string>();
 // Liveness per socket: set true on open and on every pong, cleared each sweep.
@@ -1736,6 +1748,17 @@ function agentBannerLine(): string {
   return `claude CLI at ${claude} · sessions: ${sessionIndex().mode === 'watch' ? 'watching ~/.claude/projects' : 'polling ~/.claude/projects'}`;
 }
 
+/**
+ * How to join a phone-started session from this keyboard.
+ *
+ * The desk half of the feature was discoverable only by reading docs/AGENT.md,
+ * which is the one place a user standing at his computer wondering how to get
+ * at the session on his phone will not look. It costs one line here.
+ */
+function attachBannerLine(): string {
+  return 'npm run attach            (join a session from this keyboard; no id lists them)';
+}
+
 /** "installed in ~/.claude/settings.json (4 events)" — or how to get there. */
 function hooksBannerLine(): string {
   const read = readSettings(settingsPath());
@@ -1809,6 +1832,7 @@ server.listen(PORT, () => {
     platform: getPlatform(),
   });
   console.log(`  Agent     : ${agentBannerLine()}`);
+  console.log(`  Attach    : ${attachBannerLine()}`);
   console.log(`  Hooks     : ${hooksBannerLine()}`);
   console.log(`  Notify    : ${notifyBannerLine()}`);
   // Printed because it is the answer to "why did my phone lose the pairing":

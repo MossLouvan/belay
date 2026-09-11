@@ -62,6 +62,71 @@ export function attachedLabel(meta: KindBearing | null | undefined): string | nu
 }
 
 /**
+ * Whether this pty session's process is running on the computer right now.
+ *
+ * `live` is only meaningful for a pty session; a stream session's own status
+ * word already says everything there is to say about it. An older host sends
+ * no `live` at all, and "I was not told" is not "no" — hence the explicit
+ * boolean check rather than a truthiness test.
+ */
+export function isLive(meta: KindBearing | null | undefined): boolean {
+  return isAttachable(meta) && meta?.live === true;
+}
+
+/**
+ * The list row's one-line state for a pty session: the fact that decides what
+ * tapping it will do.
+ *
+ * A running pty and a killed one used to render identically — same grey dot,
+ * same "terminal", same timestamp — so the list could not tell a session
+ * someone is typing into from one that has been dead for an hour. The desk CLI
+ * has always said it plainly ("live · 1 attached" / "stopped") and the data was
+ * already on every row; this is the same sentence, from the same numbers.
+ *
+ * `null` for a stream session, and for a host too old to have sent `live` —
+ * silence rather than a guess.
+ */
+export function ptyStateLabel(meta: KindBearing | null | undefined): string | null {
+  if (!isAttachable(meta) || typeof meta?.live !== 'boolean') return null;
+  if (!meta.live) return 'stopped';
+  const who = attachedLabel(meta);
+  return who ? `live · ${who}` : 'live';
+}
+
+/**
+ * How many sessions are actually working — the list's RUNNING stat.
+ *
+ * A pty session's `status` is about its stream-json twin and stays 'idle' while
+ * a human types into it, so counting statuses alone read 0 over a live
+ * terminal. A pty counts when its process is up; everything else counts when
+ * its status says so.
+ */
+export function runningCount(sessions: readonly KindBearing[] | null | undefined): number {
+  if (!sessions) return 0;
+  let n = 0;
+  for (const s of sessions) {
+    if (isAttachable(s)) { if (isLive(s)) n += 1; }
+    else if ((s as { status?: string }).status === 'running') n += 1;
+  }
+  return n;
+}
+
+/**
+ * What starting this pty session again will actually do.
+ *
+ * The screen used to promise "a fresh one in this folder" on every ended
+ * session, which is wrong whenever the host knows the conversation: it will
+ * `--resume` it and pick up exactly where it stopped. Both answers are true
+ * somewhere, so the host's `resumable` decides, and an older host that never
+ * sends it gets the sentence that claims the least.
+ */
+export function restartNote(meta: KindBearing & { resumable?: boolean } | null | undefined): string {
+  if (meta?.resumable === true) return 'Starting it again resumes this same conversation where it left off.';
+  if (meta?.resumable === false) return 'The computer never identified this conversation, so starting it again begins a fresh one in this folder.';
+  return 'Starting it again reopens the session on the computer.';
+}
+
+/**
  * The kind of a session id, from a list already in hand. `null` means "not in
  * this list" — which is not the same as 'stream', and callers must fetch
  * rather than render a feed over a live terminal.

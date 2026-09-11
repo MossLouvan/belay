@@ -29,7 +29,8 @@ import { TerminalOutput } from '../terminal-output';
 import { useTerminalGeometry } from '../terminal-geometry';
 import { useAgentAttach } from './attach-session';
 import { useAttachedCount } from './attached-count';
-import { attachedNote, linkLabel, sizeNote } from './attach-model';
+import { attachedNote, deskCommand, linkLabel, sizeNote } from './attach-model';
+import { restartNote } from './session-kind';
 
 const LINE_HEIGHT_RATIO = 1.45;
 /** How close to the bottom still counts as "following" the output. */
@@ -50,10 +51,15 @@ export interface PtySessionViewProps {
    * so somebody joining afterwards is only visible through this.
    */
   readonly attached?: number;
+  /**
+   * Whether the host knows which conversation this is, and so whether starting
+   * it again resumes it or opens a blank one. Absent on older hosts.
+   */
+  readonly resumable?: boolean;
   readonly onBack: () => void;
 }
 
-export function PtySessionView({ id, title, cwd, attached, onBack }: PtySessionViewProps) {
+export function PtySessionView({ id, title, cwd, attached, resumable, onBack }: PtySessionViewProps) {
   const theme = useTheme();
   const keyboardUp = useKeyboardShown();
   const [fontKey, setFontKey] = useState<FontKey>('md');
@@ -123,7 +129,9 @@ export function PtySessionView({ id, title, cwd, attached, onBack }: PtySessionV
       return {
         status: 'dim',
         name: 'Session ended',
-        body: 'The Claude session on the computer exited. Attaching again starts a fresh one in this folder.',
+        // What happens next depends on whether the host managed to identify
+        // this conversation, so it asks rather than promising one of the two.
+        body: `The Claude session on the computer exited. ${restartNote({ kind: 'pty', resumable })}`,
         action: { label: 'Start again', onPress: reattach },
       };
     }
@@ -201,6 +209,12 @@ export function PtySessionView({ id, title, cwd, attached, onBack }: PtySessionV
         {shrunk ? (
           <Micro testID="agent-size-note" tone="dim" style={{ marginTop: theme.space.xxs }}>{shrunk}</Micro>
         ) : null}
+        {/* The other half of the feature, on the screen that makes you want
+            it: this is the same session, and that command joins it from a real
+            keyboard without restarting or evicting anything. */}
+        <Txt variant="monoSmall" tone="faint" numberOfLines={1} testID="agent-desk-command" style={{ marginTop: theme.space.xxs }}>
+          {`at the computer: ${deskCommand(id)}`}
+        </Txt>
       </View>
 
       <Rule />

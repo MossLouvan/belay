@@ -450,6 +450,10 @@ export function listSessions() {
       // and to decide whether opening the session means a terminal or a feed.
       attached: s.kind === 'pty' ? (ptyRegistry().info(s.id)?.attached ?? 0) : 0,
       live: s.kind === 'pty' ? !!ptyRegistry().info(s.id)?.running : !!s.proc,
+      // Whether stopping this session could ever bring the same conversation
+      // back. False means a later attach starts a fresh one, and the phone
+      // says that rather than implying otherwise (agent-pty.ts, DetectState).
+      resumable: s.kind === 'pty' ? !!ptyRegistry().info(s.id)?.resumable : false,
       pending: s.pending
         ? {
             id: s.pending.id, tool: s.pending.tool, detail: s.pending.detail, expiresAt: s.pending.expiresAt,
@@ -582,6 +586,7 @@ export function getSnapshot(id: string) {
     createdAt: s.createdAt, lastUsed: s.lastUsed,
     attached: s.kind === 'pty' ? (ptyRegistry().info(s.id)?.attached ?? 0) : 0,
     live: s.kind === 'pty' ? !!ptyRegistry().info(s.id)?.running : !!s.proc,
+    resumable: s.kind === 'pty' ? !!ptyRegistry().info(s.id)?.resumable : false,
     events: s.events,
     pending: s.pending ? pendingWire(s.pending) : null,
     // The stack behind the card, so a fresh socket's hello starts honest.

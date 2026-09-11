@@ -61,6 +61,14 @@ async function loopback(path: string, secret: string, method: 'GET' | 'POST'): P
   return res.json();
 }
 
+/** Set the terminal's window title (OSC 2) — out-of-band, so nothing is overwritten. */
+function setTitle(text: string): void {
+  if (!process.stdout.isTTY) return;
+  // Control characters in a title escape are how a title becomes an injection.
+  const safe = text.replace(/[\x00-\x1f\x7f]/g, '');
+  try { process.stdout.write(`\x1b]2;${safe}\x07`); } catch { /* not a tty any more */ }
+}
+
 function ago(ms: number): string {
   const secs = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (secs < 60) return `${secs}s ago`;
@@ -195,12 +203,15 @@ async function attach(id: string, secret: string): Promise<number> {
         );
       } else if (msg.type === 'resize') {
         // Informational: the pty is sized to the smallest attached client, so
-        // this says what everyone actually got.
+        // this says what everyone actually got. It goes in the window title,
+        // not on the screen — `claude` is a full-screen TUI on the alternate
+        // buffer, and a line of our text written into it overwrites whatever
+        // the CLI had drawn on that row until its next repaint. The title is
+        // the one place a terminal will show a word of ours without one of
+        // Claude's going missing for it.
         const mine = termSize();
         if (msg.cols && msg.rows && (msg.cols < mine.cols || msg.rows < mine.rows)) {
-          process.stdout.write(
-            `\x1b[2m[belay] session is ${msg.cols}x${msg.rows} — sized to the smallest attached client\x1b[0m\r\n`,
-          );
+          setTitle(`belay · ${msg.cols}x${msg.rows} (smallest attached client) · Ctrl-] detaches`);
         }
       } else if (msg.type === 'exit') {
         finish(0, '\r\n\x1b[2m[belay] the session ended.\x1b[0m\r\n');

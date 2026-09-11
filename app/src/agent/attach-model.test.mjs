@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  INITIAL_ATTACH, RETRY_DELAYS_MS, attachedNote, effectiveAttached, linkLabel,
+  INITIAL_ATTACH, RETRY_DELAYS_MS, attachedNote, deskCommand, effectiveAttached, linkLabel,
   othersAttached, parseAttachMessage, reduceAttach, retryDelay, shouldReattach, sizeNote,
 } from './attach-model.ts';
 
@@ -317,4 +317,8 @@ test('every link state has a word for the header — the screen is never blank a
   assert.equal(linkLabel({ ...INITIAL_ATTACH, link: 'closed' }), 'reattaching');
   assert.equal(linkLabel({ ...INITIAL_ATTACH, link: 'exited' }), 'ended');
   assert.equal(linkLabel({ ...INITIAL_ATTACH, link: 'error' }), 'failed');
+});
+
+test('the desk command names this exact session, so it can be typed as printed', () => {
+  assert.equal(deskCommand('abc123'), 'npm run attach -- abc123');
 });

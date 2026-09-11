@@ -476,6 +476,12 @@ export interface AgentSessionMeta {
   attached?: number;
   /** Whether the session's process is running. Absent on older hosts. */
   live?: boolean;
+  /**
+   * Whether the host knows which Claude conversation this pty session is, and
+   * so whether starting it again resumes it or begins a blank one. Absent on
+   * older hosts, where it was never knowable either way.
+   */
+  resumable?: boolean;
   /** Present (or null) on new hosts; absent entirely on hosts from before it shipped. */
   pending?: PendingApprovalSummary | null;
 }

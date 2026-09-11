@@ -60,6 +60,32 @@ export function clampDim(raw: unknown, fallback: number): number {
 }
 
 /**
+ * The floor a single client is allowed to drag the shared pty down to.
+ *
+ * minSize is tmux's rule and it is right, but taken literally it hands every
+ * attached client a veto over everyone else's screen: one client reporting
+ * 1x1 makes the pty 1x1, and a full-screen TUI drawn into one cell is not a
+ * clipped view, it is a wrecked session for everybody. The realistic cause is
+ * not malice — a phone raising its keyboard reports a viewport of zero rows
+ * for a frame, and the number it sends is whatever that measured.
+ *
+ * So a client smaller than this is letterboxed instead of obeyed: it sees a
+ * window onto a 20x5-or-larger terminal rather than dictating one nobody can
+ * use. 20x5 is below any real client (the narrowest phone in portrait is ~30
+ * columns) and above the point where a TUI stops being able to draw at all.
+ */
+export const MIN_CLIENT_COLS = 20;
+export const MIN_CLIENT_ROWS = 5;
+
+/** One client's reported size, clamped and floored. Returns a fresh object. */
+export function clientSize(size: TermSize, fallback: TermSize = DEFAULT_SIZE): TermSize {
+  return {
+    cols: Math.max(MIN_CLIENT_COLS, clampDim(size.cols, fallback.cols)),
+    rows: Math.max(MIN_CLIENT_ROWS, clampDim(size.rows, fallback.rows)),
+  };
+}
+
+/**
  * The size to give the pty when several clients are attached: the minimum of
  * every attached client's cols and rows, independently.
  *
@@ -76,16 +102,18 @@ export function clampDim(raw: unknown, fallback: number): number {
  * Recomputed on attach, detach and any client's own resize. With nobody
  * attached the last size is kept (the fallback) — an unattended session must
  * not be resized to nothing just because the room emptied.
+ *
+ * Each client's own number is floored first (see clientSize): the minimum rule
+ * decides whose screen wins, not whether there is a usable screen at all.
  */
 export function minSize(sizes: readonly TermSize[], fallback: TermSize = DEFAULT_SIZE): TermSize {
   if (sizes.length === 0) return fallback;
   let cols = Infinity;
   let rows = Infinity;
   for (const s of sizes) {
-    const c = clampDim(s.cols, fallback.cols);
-    const r = clampDim(s.rows, fallback.rows);
-    if (c < cols) cols = c;
-    if (r < rows) rows = r;
+    const floored = clientSize(s, fallback);
+    if (floored.cols < cols) cols = floored.cols;
+    if (floored.rows < rows) rows = floored.rows;
   }
   return { cols, rows };
 }

@@ -78,6 +78,7 @@ export function SessionView({ id, onBack }: SessionViewProps) {
         title={resolved.meta?.title ?? ''}
         cwd={resolved.meta?.cwd ?? ''}
         attached={resolved.meta?.attached}
+        resumable={resolved.meta?.resumable}
         onBack={onBack}
       />
     );

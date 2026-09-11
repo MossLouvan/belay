@@ -3,11 +3,18 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
-  appendScrollback, clampDim, minSize, DEFAULT_SIZE,
+  appendScrollback, clampDim, clientSize, minSize, DEFAULT_SIZE,
+  MIN_CLIENT_COLS, MIN_CLIENT_ROWS,
 } from '../src/agent-pty-buffer.js';
-import { buildPtyArgs, createPtyRegistry, INHERITED_CLAUDE_MARKERS, ptyEnv } from '../src/agent-pty.js';
+import {
+  buildPtyArgs, createPtyRegistry, detectClaudeSessionId, INHERITED_CLAUDE_MARKERS, ptyEnv,
+  transcriptIdsFor,
+} from '../src/agent-pty.js';
 import type { AttachClient, PtyHandle, SpawnSpec } from '../src/agent-pty.js';
 
 // ---- a pty that is really just an array -----------------------------------
@@ -45,6 +52,12 @@ function registryWithFakePty(extra: Record<string, unknown> = {}) {
   const registry = createPtyRegistry({
     reap: false,
     spawn: async (spec) => { const p = fakePty(spec); spawned.push(p); return p; },
+    // These sessions live in folders that do not exist, so the real
+    // ~/.claude/projects has nothing to say about them. `null` is the
+    // registry's "could not tell", which is what an unreadable or irrelevant
+    // projects root honestly is here — tests that care about the transcripts
+    // on disk pass their own set.
+    existingIds: () => null,
     ...extra,
   });
   return { registry, spawned };
@@ -406,4 +419,313 @@ test('ptyEnv never mutates the environment it was handed', () => {
   const input = { CLAUDECODE: '1', PATH: '/usr/bin' };
   ptyEnv(input, 'darwin');
   assert.deepEqual(input, { CLAUDECODE: '1', PATH: '/usr/bin' });
+});
+
+// ---- the lifecycle a stop has to announce ----------------------------------
+//
+// The fake above fires its exit callbacks straight out of kill(), which is the
+// one thing a real pty never does: node-pty's onExit lands on a later tick.
+// That gap is where the blocker lived, so these tests use a pty that behaves
+// like the real one.
+
+interface SlowPty extends PtyHandle {
+  readonly spec: SpawnSpec;
+  readonly sizes: { cols: number; rows: number }[];
+  killed: boolean;
+  /** Deliver the exit node-pty would have delivered a tick later. */
+  flushExit(): void;
+}
+
+function slowExitPty(spec: SpawnSpec): SlowPty {
+  const exitCbs: (() => void)[] = [];
+  const pty: SlowPty = {
+    spec,
+    sizes: [],
+    killed: false,
+    write: () => {},
+    resize: (cols, rows) => { pty.sizes.push({ cols, rows }); },
+    onData: () => {},
+    onExit: (cb) => { exitCbs.push(cb); },
+    kill: () => { pty.killed = true; },
+    flushExit: () => { for (const cb of exitCbs) cb(); },
+  };
+  return pty;
+}
+
+function slowRegistry() {
+  const spawned: SlowPty[] = [];
+  const registry = createPtyRegistry({
+    reap: false,
+    existingIds: () => null,
+    spawn: async (spec) => { const p = slowExitPty(spec); spawned.push(p); return p; },
+  });
+  return { registry, spawned };
+}
+
+/** A recorder that counts exits rather than only remembering that one happened. */
+function counting(cols = 100, rows = 40) {
+  const rec = recorder(cols, rows);
+  let exits = 0;
+  return {
+    client: { ...rec, onExit: () => { exits += 1; rec.exited = true; } } as AttachClient,
+    exits: () => exits,
+  };
+}
+
+test('stop tells every attached client the session is over, without waiting for the pty', async () => {
+  const { registry, spawned } = slowRegistry();
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+  const a = counting();
+  const b = counting();
+  await registry.attach('s1', a.client);
+  await registry.attach('s1', b.client);
+
+  registry.stop('s1');
+
+  // Before this fix the exit handler bailed on the very state stop() had just
+  // created, so both clients sat on a live-looking dead terminal for ever.
+  assert.equal(a.exits(), 1);
+  assert.equal(b.exits(), 1);
+  assert.equal(spawned[0].killed, true);
+  assert.equal(registry.info('s1')!.running, false);
+  // `attached` used to stay pinned at 2 in every REST payload after a stop.
+  assert.equal(registry.info('s1')!.attached, 0);
+});
+
+test('the pty exit that lands after a stop does not announce the session twice', async () => {
+  const { registry, spawned } = slowRegistry();
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+  const a = counting();
+  await registry.attach('s1', a.client);
+
+  registry.stop('s1');
+  spawned[0].flushExit();
+
+  assert.equal(a.exits(), 1);
+});
+
+test('remove notifies its clients exactly once, not once by hand and again on exit', async () => {
+  const { registry, spawned } = slowRegistry();
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+  const a = counting();
+  await registry.attach('s1', a.client);
+
+  registry.remove('s1');
+  spawned[0].flushExit();
+
+  assert.equal(a.exits(), 1);
+  assert.equal(registry.has('s1'), false);
+});
+
+test('removing a session that never started still tells its clients', async () => {
+  const { registry } = slowRegistry();
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+  registry.remove('s1');
+  assert.equal(registry.has('s1'), false);
+});
+
+test('a pty that exits on its own still reaches every client', async () => {
+  const { registry, spawned } = slowRegistry();
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+  const a = counting();
+  await registry.attach('s1', a.client);
+
+  spawned[0].flushExit();
+
+  assert.equal(a.exits(), 1);
+  assert.equal(registry.info('s1')!.running, false);
+  assert.equal(registry.info('s1')!.attached, 0);
+});
+
+// ---- the size race in the spawn window -------------------------------------
+
+test('a size negotiated while the pty was still spawning reaches the pty', async () => {
+  const spawned: SlowPty[] = [];
+  let release: (() => void) | null = null;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const registry = createPtyRegistry({
+    reap: false,
+    existingIds: () => null,
+    spawn: async (spec) => {
+      await gate;
+      const p = slowExitPty(spec);
+      spawned.push(p);
+      return p;
+    },
+  });
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+
+  // A starts the spawn at 100x30; B joins at 80x24 while it is still in flight.
+  const first = registry.attach('s1', recorder(100, 30));
+  const second = registry.attach('s1', recorder(80, 24));
+  release!();
+  await Promise.all([first, second]);
+
+  // The pty was born 100x30 — nothing can change that — so it has to be told.
+  // Before this fix it was told nothing at all: applySize's resize went to an
+  // undefined handle, and the session rendered 100 columns wide for its whole
+  // life while the registry insisted it was 80.
+  assert.deepEqual(registry.info('s1')!.size, { cols: 80, rows: 24 });
+  assert.deepEqual(spawned[0].sizes.at(-1), { cols: 80, rows: 24 });
+});
+
+test('the pty is told its size after every spawn, so no session is born out of sync', async () => {
+  const { registry, spawned } = slowRegistry();
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+  await registry.attach('s1', recorder(120, 40));
+  assert.deepEqual(spawned[0].sizes.at(-1), { cols: 120, rows: 40 });
+});
+
+// ---- the size floor --------------------------------------------------------
+
+test('one client reporting a degenerate size is letterboxed, not obeyed', () => {
+  assert.deepEqual(minSize([{ cols: 1, rows: 1 }, { cols: 100, rows: 40 }]), { cols: MIN_CLIENT_COLS, rows: MIN_CLIENT_ROWS });
+});
+
+test('clientSize floors a dimension without touching a usable one', () => {
+  assert.deepEqual(clientSize({ cols: 3, rows: 2 }), { cols: MIN_CLIENT_COLS, rows: MIN_CLIENT_ROWS });
+  assert.deepEqual(clientSize({ cols: 120, rows: 40 }), { cols: 120, rows: 40 });
+  // A nonsense number still falls back first, then meets the floor.
+  assert.deepEqual(clientSize({ cols: 0, rows: 0 }, { cols: 100, rows: 30 }), { cols: 100, rows: 30 });
+});
+
+test('a phone whose keyboard collapses its viewport cannot drag the shared pty to nothing', async () => {
+  const { registry, spawned } = slowRegistry();
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+  const desk = recorder(160, 50);
+  await registry.attach('s1', desk);
+  const phone = await registry.attach('s1', recorder(60, 30));
+
+  phone!.resize(1, 1);
+
+  assert.deepEqual(registry.info('s1')!.size, { cols: MIN_CLIENT_COLS, rows: MIN_CLIENT_ROWS });
+  assert.deepEqual(spawned[0].sizes.at(-1), { cols: MIN_CLIENT_COLS, rows: MIN_CLIENT_ROWS });
+});
+
+// ---- which conversation is ours -------------------------------------------
+//
+// Fixtures are synthetic transcripts in a temp dir, as in discover.test.ts —
+// no real ~/.claude is touched.
+
+function transcripts() {
+  const root = mkdtempSync(join(tmpdir(), 'belay-pty-detect-'));
+  const projects = join(root, 'projects');
+  const proj = join(projects, 'C--fake-proj');
+  mkdirSync(proj, { recursive: true });
+  const cwd = root;
+  const write = (id: string, ageMin = 0): void => {
+    const file = join(proj, `${id}.jsonl`);
+    writeFileSync(file, `${JSON.stringify({ type: 'user', cwd, message: { content: 'hi' } })}\n`, 'utf8');
+    const t = new Date(Date.now() - ageMin * 60000);
+    utimesSync(file, t, t);
+  };
+  return { projects, cwd, write };
+}
+
+test('detection ignores transcripts that were already there when the pty spawned', () => {
+  const { projects, cwd, write } = transcripts();
+  // Another Belay session in the same project, and the user's own `claude` in
+  // that folder — both newer than our spawn, neither ours.
+  write('1111aaaa-0000-0000-0000-000000000001');
+  write('2222bbbb-0000-0000-0000-000000000002');
+  const before = transcriptIdsFor(cwd, projects)!;
+  assert.equal(before.size, 2);
+
+  // Nothing new has appeared yet, so there is nothing to claim.
+  assert.equal(detectClaudeSessionId(cwd, Date.now() - 1000, before, projects), null);
+
+  write('3333cccc-0000-0000-0000-000000000003');
+  assert.equal(
+    detectClaudeSessionId(cwd, Date.now() - 1000, before, projects),
+    '3333cccc-0000-0000-0000-000000000003',
+  );
+});
+
+test('two new transcripts in the same folder means neither is claimed', () => {
+  const { projects, cwd, write } = transcripts();
+  const before = transcriptIdsFor(cwd, projects)!;
+  write('aaaa1111-0000-0000-0000-000000000001');
+  write('bbbb2222-0000-0000-0000-000000000002');
+  // The user started a `claude` of his own in this folder a second after Belay
+  // did. Recording the newest would revive into his conversation later, which
+  // looks exactly like success — so nothing is recorded.
+  assert.equal(detectClaudeSessionId(cwd, Date.now() - 1000, before, projects), null);
+});
+
+test('a transcript from before the spawn window is never claimed even if unknown', () => {
+  const { projects, cwd, write } = transcripts();
+  write('cccc3333-0000-0000-0000-000000000003', 60);
+  assert.equal(detectClaudeSessionId(cwd, Date.now(), new Set(), projects), null);
+});
+
+test('transcriptIdsFor says "could not tell" rather than "none" when there is no projects root', () => {
+  // The difference decides whether a saved conversation is declared deleted.
+  assert.equal(transcriptIdsFor('/tmp/demo', join(tmpdir(), 'belay-no-such-root-here')), null);
+  const { projects, cwd } = transcripts();
+  assert.deepEqual(transcriptIdsFor(cwd, projects), new Set());
+});
+
+test('the registry hands the detector the ids that existed before the spawn', async () => {
+  const seenBefore: ReadonlySet<string>[] = [];
+  const registry = createPtyRegistry({
+    reap: false,
+    detectIntervalMs: 1,
+    existingIds: () => new Set(['theirs-1', 'theirs-2']),
+    detect: (_cwd, _since, before) => { seenBefore.push(before); return null; },
+    spawn: async (spec) => slowExitPty(spec),
+  });
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+  await registry.ensureRunning('s1');
+  await new Promise((r) => setTimeout(r, 20));
+  registry.dispose();
+
+  assert.ok(seenBefore.length > 0, 'the detector never ran');
+  assert.deepEqual([...seenBefore[0]].sort(), ['theirs-1', 'theirs-2']);
+});
+
+test('a session whose conversation was never identified says so instead of looking resumable', async () => {
+  const registry = createPtyRegistry({
+    reap: false,
+    detectIntervalMs: 1,
+    detectTries: 2,
+    existingIds: () => new Set(),
+    detect: () => null,
+    spawn: async (spec) => slowExitPty(spec),
+  });
+  registry.register({ id: 's1', cwd: '/tmp/demo' });
+  await registry.ensureRunning('s1');
+  assert.equal(registry.info('s1')!.detect, 'pending');
+  assert.equal(registry.info('s1')!.resumable, false);
+
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(registry.info('s1')!.detect, 'unknown');
+  assert.equal(registry.info('s1')!.claudeSessionId, undefined);
+  registry.dispose();
+});
+
+test('a resume whose transcript is gone clears the id instead of retrying it forever', async () => {
+  const specs: SpawnSpec[] = [];
+  const registry = createPtyRegistry({
+    reap: false,
+    detectIntervalMs: 60_000,
+    // The projects root is readable and this conversation is not in it.
+    existingIds: () => new Set(['somebody-elses']),
+    detect: () => null,
+    spawn: async (spec) => { specs.push(spec); return slowExitPty(spec); },
+  });
+  registry.register({ id: 's1', cwd: '/tmp/demo', claudeSessionId: 'deleted-conversation' });
+
+  await registry.ensureRunning('s1');
+  // Noticed before the spawn, so not even the first attempt wastes a --resume.
+  assert.equal(specs[0].claudeSessionId, undefined);
+  assert.equal(registry.info('s1')!.resumable, false);
+  // Back to watching: this pty is a fresh conversation, and it can still be
+  // identified — what it can never do is keep pointing at a deleted one.
+  assert.equal(registry.info('s1')!.detect, 'pending');
+
+  registry.stop('s1');
+  await registry.ensureRunning('s1');
+  // The second attempt no longer carries a --resume that can only fail.
+  assert.equal(specs[1].claudeSessionId, undefined);
+  registry.dispose();
 });

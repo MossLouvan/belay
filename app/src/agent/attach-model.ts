@@ -269,6 +269,19 @@ export function attachedNote(state: AttachState, reported?: number): string | nu
   return state.ready ? othersAttached(effectiveAttached(state, reported)) : null;
 }
 
+/**
+ * The command to run AT the computer to join this same session.
+ *
+ * The desk half of the feature was documented only in docs/AGENT.md, which
+ * means the user who most needs it — the one holding the phone, looking at a
+ * session he would rather be typing into on a real keyboard — had no way to
+ * discover it existed. It is one line, it is exact, and it belongs on the
+ * screen that makes you want it.
+ */
+export function deskCommand(id: string): string {
+  return `npm run attach -- ${id}`;
+}
+
 /** The header's one-line truth about the link, for a screen that must never look dead. */
 export function linkLabel(state: AttachState): string {
   switch (state.link) {

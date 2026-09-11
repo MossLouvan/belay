@@ -26,7 +26,7 @@ import { existsSync } from 'node:fs';
 import { findClaude } from './claude-path.js';
 import { PROJECTS_ROOT, scanSessions } from './discover.js';
 import {
-  appendScrollback, clampDim, DEFAULT_SIZE, minSize, SCROLLBACK_CAP,
+  appendScrollback, clientSize, DEFAULT_SIZE, minSize, SCROLLBACK_CAP,
 } from './agent-pty-buffer.js';
 import type { TermSize } from './agent-pty-buffer.js';
 
@@ -50,9 +50,19 @@ export const PTY_IDLE_KILL_MS = 30 * 60 * 1000;
 /** How often the reaper looks for silent sessions. */
 const REAPER_INTERVAL_MS = 60 * 1000;
 
-/** Claude session-id detection: how often to look, and for how long. */
+/**
+ * Claude session-id detection: how often to look, and for how long.
+ *
+ * The transcript only appears once the user has actually said something, and a
+ * session started from the phone and left alone can sit at an empty prompt for
+ * a long time before the first message. Giving up after five minutes meant a
+ * session prompted at minute six had no id at all, and a later revive silently
+ * opened a blank `claude` under the old title as if nothing were wrong. So the
+ * window matches the idle reaper's: a session that has been silent longer than
+ * this is not around to be detected anyway.
+ */
 const DETECT_INTERVAL_MS = 15 * 1000;
-const DETECT_TRIES = 20;
+const DETECT_TRIES = Math.ceil(PTY_IDLE_KILL_MS / DETECT_INTERVAL_MS);
 
 // ---- the pty a session runs in --------------------------------------------
 
@@ -146,11 +156,17 @@ export function ptyEnv(
     if (INHERITED_CLAUDE_MARKERS.includes(key)) continue;
     env[key] = value;
   }
-  // Read by hooks/belay-hook.mjs. This session has a real terminal that the
-  // user can reach from the phone or the desk, so Claude's own permission
-  // dialog is the right UI for it — the hook must not also fire the ask at the
-  // phone, or one approval would exist in two places at once.
+  // Read by hooks/belay-hook.mjs, which returns immediately when it is set.
+  // This session has a real terminal the user can reach from the phone or the
+  // desk, so Claude's own permission dialog is the right UI for it — the hook
+  // must not also fire the ask at the phone, or one approval would exist in
+  // two places at once.
   env.BELAY_SPAWNED = '1';
+  // Nothing reads this one. It is set anyway, and deliberately: the marker
+  // above is shared with stream sessions, so anything inside a pty session
+  // that ever needs to know which of the two it is — a shell prompt, a user's
+  // own hook, a person running `env` at the desk to work out what he is
+  // attached to — has one honest way to tell.
   env.BELAY_PTY_SESSION = '1';
   if (plat !== 'win32') {
     env.TERM = env.TERM || TERM_NAME_POSIX;
@@ -272,6 +288,19 @@ export interface PtySessionSpec {
   readonly claudeSessionId?: string;
 }
 
+/**
+ * Whether this session knows which conversation it is.
+ *
+ *   'idle'    — never started, so there is nothing to identify yet.
+ *   'pending' — started, still watching the transcript directory for ours.
+ *   'found'   — identified; `--resume` after a host restart will land here.
+ *   'unknown' — the watch ran out, or two candidates appeared and neither
+ *               could be proved ours. Deliberately recorded as a failure
+ *               rather than a guess: reviving into somebody else's
+ *               conversation is worse than not reviving at all.
+ */
+export type DetectState = 'idle' | 'pending' | 'found' | 'unknown';
+
 export interface PtySessionInfo {
   readonly id: string;
   readonly cwd: string;
@@ -279,6 +308,9 @@ export interface PtySessionInfo {
   readonly running: boolean;
   readonly attached: number;
   readonly claudeSessionId?: string;
+  /** Whether a host restart could bring this conversation back. */
+  readonly resumable: boolean;
+  readonly detect: DetectState;
   readonly size: TermSize;
   readonly scrollbackBytes: number;
   readonly lastActivity: number;
@@ -297,6 +329,19 @@ interface PtySession {
   size: TermSize;
   lastActivity: number;
   detectTimer?: NodeJS.Timeout;
+  detect: DetectState;
+  /**
+   * Transcript ids that already existed in this folder when this pty was
+   * spawned. Anything in here belongs to somebody else — an earlier Belay
+   * session in the same project, or a `claude` the user is running in his own
+   * terminal — and can never be ours.
+   */
+  preSpawnIds?: ReadonlySet<string>;
+  /**
+   * Announce this session's pty as gone, exactly once. Set by start(); called
+   * by the pty's own onExit and by stop()/remove(), whichever gets there first.
+   */
+  finish?: () => void;
 }
 
 export interface RegistryOptions {
@@ -306,10 +351,21 @@ export interface RegistryOptions {
   readonly idleKillMs?: number;
   /** Called whenever a session's claude session id is first learned. */
   readonly onClaudeSessionId?: (id: string, claudeSessionId: string) => void;
-  /** Best-effort lookup of the claude session id for a project folder. */
-  readonly detect?: (cwd: string, since: number) => string | null;
-  /** How often to look for it. Tests shorten this; nothing else should. */
+  /**
+   * Best-effort lookup of the claude session id for a project folder.
+   * `before` is the set of transcript ids that existed when this pty spawned;
+   * a detector must never return one of them.
+   */
+  readonly detect?: (cwd: string, since: number, before: ReadonlySet<string>) => string | null;
+  /**
+   * The transcript ids already on disk for a folder, sampled before spawning.
+   * `null` means "could not tell" — which is not the same as "none", and is
+   * never treated as evidence that a saved conversation has been deleted.
+   */
+  readonly existingIds?: (cwd: string) => ReadonlySet<string> | null;
+  /** How often to look for it. Tests shorten these; nothing else should. */
   readonly detectIntervalMs?: number;
+  readonly detectTries?: number;
   /** Set false in tests: no background timers. */
   readonly reap?: boolean;
 }
@@ -345,7 +401,9 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
   const now = options.now ?? Date.now;
   const idleKillMs = options.idleKillMs ?? PTY_IDLE_KILL_MS;
   const detect = options.detect ?? detectClaudeSessionId;
+  const existingIds = options.existingIds ?? transcriptIdsFor;
   const detectIntervalMs = options.detectIntervalMs ?? DETECT_INTERVAL_MS;
+  const detectTries = options.detectTries ?? DETECT_TRIES;
   const sessions = new Map<string, PtySession>();
 
   const touch = (s: PtySession): void => { s.lastActivity = now(); };
@@ -381,16 +439,24 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
   const armDetect = (s: PtySession): void => {
     if (s.claudeSessionId || s.detectTimer) return;
     const since = now();
+    const before = s.preSpawnIds ?? new Set<string>();
+    s.detect = 'pending';
     let tries = 0;
     s.detectTimer = setInterval(() => {
       tries++;
       let found: string | null = null;
-      try { found = detect(s.cwd, since); } catch { found = null; }
+      try { found = detect(s.cwd, since, before); } catch { found = null; }
       if (found) {
         s.claudeSessionId = found;
+        s.detect = 'found';
         options.onClaudeSessionId?.(s.id, found);
+      } else if (tries >= detectTries) {
+        // Say so instead of leaving the session looking resumable. Nothing is
+        // recorded: a revive from here starts a fresh conversation, and the
+        // phone is told that in advance rather than after the fact.
+        s.detect = 'unknown';
       }
-      if (found || tries >= DETECT_TRIES) {
+      if (found || tries >= detectTries) {
         clearInterval(s.detectTimer!);
         s.detectTimer = undefined;
       }
@@ -402,27 +468,68 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
     if (s.handle) return;
     if (s.starting) return s.starting;
     const attempt = (async () => {
+      // Everything already on disk for this folder belongs to somebody else.
+      // Sampled before the spawn, so the transcript this `claude` is about to
+      // create is the one thing that is NOT in the set (see detectClaudeSessionId).
+      let known: ReadonlySet<string> | null;
+      try { known = existingIds(s.cwd); } catch { known = null; }
+      const before: ReadonlySet<string> = known ?? new Set<string>();
+      s.preSpawnIds = before;
+
+      // A `--resume <id>` whose transcript has been deleted fails every single
+      // time, and the id was never cleared, so every later attach retried the
+      // same doomed resume forever. Notice it here instead, once.
+      if (s.claudeSessionId && known && !known.has(s.claudeSessionId)) {
+        s.claudeSessionId = undefined;
+        s.detect = 'unknown';
+        const gone = belayLine('the saved conversation is gone from ~/.claude — starting a fresh one');
+        s.scrollback = appendScrollback(s.scrollback, gone, cap);
+        fanOut(s, gone);
+      }
+      const reviving = !!s.claudeSessionId;
+
       const handle = await spawn({
         cwd: s.cwd, cols: s.size.cols, rows: s.size.rows, claudeSessionId: s.claudeSessionId,
       });
       s.handle = handle;
+      // Unconditionally, not only when it changed. `s.size` can have moved
+      // while the spawn was in flight (a second client attaching, or the first
+      // one's post-ready resize) and applySize's write went to a handle that
+      // did not exist yet — so without this the pty keeps the size it was born
+      // with for the rest of its life while the registry reports another.
+      handle.resize(s.size.cols, s.size.rows);
       touch(s);
       handle.onData((data) => {
         s.scrollback = appendScrollback(s.scrollback, data, cap);
         touch(s);
         fanOut(s, data);
       });
-      handle.onExit(() => {
-        if (s.handle !== handle) return;
+
+      // Announcing the exit is a one-shot, and it must survive the handle
+      // having already been cleared: stop() clears it before node-pty's own
+      // onExit fires, and the old `s.handle !== handle` guard turned that into
+      // a session that was dead on the host and live-looking on every client —
+      // no exit message, no detach, keystrokes into nothing, and an `attached`
+      // count pinned forever.
+      let announced = false;
+      const finish = (): void => {
+        if (announced) return;
+        // A newer pty has taken this session over: its predecessor's exit is
+        // not ours to announce, and its clients are not ours to drop.
+        if (s.handle && s.handle !== handle) return;
+        announced = true;
         s.handle = undefined;
         const line = belayLine('the Claude session ended');
         s.scrollback = appendScrollback(s.scrollback, line, cap);
         for (const rec of s.clients) { try { rec.client.onExit(); } catch { /* gone */ } }
         s.clients.clear();
-      });
+      };
+      s.finish = finish;
+      handle.onExit(finish);
+
       // A revived session says so in its own stream: the screen a client is
       // about to see is a --resume replay, not the process they left behind.
-      if (s.claudeSessionId && s.scrollback) {
+      if (reviving && s.scrollback) {
         const line = belayLine('session revived on this computer with --resume');
         s.scrollback = appendScrollback(s.scrollback, line, cap);
         fanOut(s, line);
@@ -456,6 +563,7 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
   const infoOf = (s: PtySession): PtySessionInfo => ({
     id: s.id, cwd: s.cwd, title: s.title, running: !!s.handle,
     attached: s.clients.size, claudeSessionId: s.claudeSessionId,
+    resumable: !!s.claudeSessionId, detect: s.detect,
     size: s.size, scrollbackBytes: s.scrollback.length, lastActivity: s.lastActivity,
   });
 
@@ -466,6 +574,7 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
         id: spec.id, cwd: spec.cwd, title: spec.title || spec.id,
         claudeSessionId: spec.claudeSessionId,
         scrollback: '', clients: new Set(), size: DEFAULT_SIZE, lastActivity: now(),
+        detect: 'idle',
       });
     },
 
@@ -483,7 +592,7 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
 
       const rec: ClientRec = {
         client,
-        size: { cols: clampDim(client.size.cols, DEFAULT_SIZE.cols), rows: clampDim(client.size.rows, DEFAULT_SIZE.rows) },
+        size: clientSize(client.size, DEFAULT_SIZE),
         lagging: false,
       };
       s.clients.add(rec);
@@ -514,7 +623,7 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
         },
         resize(cols, rows) {
           if (detached) return;
-          rec.size = { cols: clampDim(cols, rec.size.cols), rows: clampDim(rows, rec.size.rows) };
+          rec.size = clientSize({ cols, rows }, rec.size);
           applySize(s);
         },
         detach() {
@@ -549,16 +658,36 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
     stop(id) {
       const s = sessions.get(id);
       if (!s) return;
-      s.handle?.kill();
+      const handle = s.handle;
+      // Cleared before the kill so the pty's own onExit, whenever it lands,
+      // sees a session with no owner and announces rather than bails.
       s.handle = undefined;
+      handle?.kill();
+      // node-pty's onExit is asynchronous, so waiting for it would leave every
+      // attached client staring at a live-looking dead terminal in the gap.
+      // finish() is one-shot: whichever of the two arrives first is the only
+      // one that fans out.
+      s.finish?.();
     },
 
     remove(id) {
       const s = sessions.get(id);
       if (!s) return;
-      s.handle?.kill();
+      const handle = s.handle;
+      s.handle = undefined;
+      handle?.kill();
       if (s.detectTimer) clearInterval(s.detectTimer);
-      for (const rec of s.clients) { try { rec.client.onExit(); } catch { /* gone */ } }
+      s.detectTimer = undefined;
+      // The same one-shot as stop(). This used to notify by hand AND leave
+      // s.handle set, so the pty's later onExit called onExit() a second time
+      // on clients that had already been told the session was over.
+      s.finish?.();
+      // A session that never started has no finish(); its clients still need
+      // to hear that it is gone.
+      if (!s.finish) {
+        for (const rec of s.clients) { try { rec.client.onExit(); } catch { /* gone */ } }
+        s.clients.clear();
+      }
       sessions.delete(id);
     },
 
@@ -572,24 +701,63 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
 }
 
 /**
+ * Every transcript id already on disk for a project folder.
+ *
+ * Sampled immediately before a spawn, so it is the "everyone else" set: an
+ * earlier Belay session in the same project, a `claude` the user is running in
+ * his own terminal in that folder, last week's conversation. Returns null when
+ * the projects directory cannot be read at all, because "I could not look" and
+ * "there is nothing there" lead to opposite decisions.
+ */
+export function transcriptIdsFor(cwd: string, root: string = PROJECTS_ROOT): Set<string> | null {
+  // No projects directory at all is "could not look", not "nothing there":
+  // scanSessions answers both with an empty list, and the two lead to opposite
+  // decisions about a saved conversation.
+  if (!existsSync(root)) return null;
+  let found: ReturnType<typeof scanSessions>;
+  try { found = scanSessions(root, new Set()); } catch { return null; }
+  const out = new Set<string>();
+  for (const s of found) if (s.cwd === cwd) out.add(s.claudeSessionId);
+  return out;
+}
+
+/**
  * Which Claude session id this pty ended up writing to.
  *
  * A stream-json child announces its session id on stdout; the interactive CLI
  * does not tell us anything, so the id has to be recovered from the transcript
- * Claude Code writes to disk — the newest transcript for this exact folder that
- * was touched after we spawned. Best effort by design: without it the session
- * still works perfectly, it just cannot be revived with --resume after a host
- * restart, which is a strictly better failure than guessing at the wrong id and
- * resuming somebody else's conversation.
+ * Claude Code writes to disk. "Newest transcript for this folder" is not good
+ * enough to identify it: the app allows two Belay pty sessions in one project,
+ * and the user can have a `claude` of his own open in that folder at the same
+ * time. All three write transcripts to the same directory, all three look
+ * equally new, and latching onto the wrong one means that after a host restart
+ * a session revives into somebody else's conversation — which is worse than
+ * not reviving at all, because it looks like it worked.
+ *
+ * So the test is identity, not recency: the transcript must not have existed
+ * when this pty spawned (`before`, sampled by transcriptIdsFor), and it must
+ * be the only such transcript. Two new ones means two `claude` processes
+ * started in this folder since the spawn and neither can be proved ours, so
+ * nothing is recorded — this run, and every run after it, until exactly one
+ * candidate stands. Best effort by design: without an id the session still
+ * works perfectly, it just cannot be revived with --resume after a restart.
  */
-export function detectClaudeSessionId(cwd: string, since: number): string | null {
-  let found: { id: string; mtime: number } | null = null;
-  for (const s of scanSessions(PROJECTS_ROOT, new Set())) {
+export function detectClaudeSessionId(
+  cwd: string,
+  since: number,
+  before: ReadonlySet<string> = new Set(),
+  root: string = PROJECTS_ROOT,
+): string | null {
+  const fresh: string[] = [];
+  for (const s of scanSessions(root, new Set())) {
     if (s.cwd !== cwd) continue;
+    // Somebody else's, and it was already theirs before we existed.
+    if (before.has(s.claudeSessionId)) continue;
     // A second of slack: the transcript is created around the spawn, and file
     // mtimes and Date.now() do not agree to the millisecond.
     if (s.mtime < since - 1000) continue;
-    if (!found || s.mtime > found.mtime) found = { id: s.claudeSessionId, mtime: s.mtime };
+    fresh.push(s.claudeSessionId);
   }
-  return found ? found.id : null;
+  // Exactly one unclaimed, new transcript, or no answer at all.
+  return fresh.length === 1 ? fresh[0] : null;
 }

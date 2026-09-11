@@ -32,6 +32,7 @@ through anyone else's servers.
 | File browser + text file viewer | ✅ |
 | Live system stats | ✅ |
 | Agent tab — drive Claude Code on the PC | ✅ pick a project, prompt from the phone, approve every action |
+| Join a phone-started Claude session at the keyboard | ✅ `cd server && npm run attach` — same live session, nothing restarts |
 | Voice prompts + global dictation | ✅ hold-to-talk, transcribed on the phone, on-device |
 | Resume any past Claude session | ✅ "On this PC" list in the Agent tab, or `npm run sessions` |
 | Runs on iPhone via Expo Go | ✅ |

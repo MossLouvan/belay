@@ -20,7 +20,7 @@ import {
 import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
 import { ago, groupDiscovered, projectName, statusLabel } from './model';
-import { attachedLabel, kindLabel, sessionKind } from './session-kind';
+import { isLive, kindLabel, ptyStateLabel, runningCount, sessionKind } from './session-kind';
 import { askSummary, countdown } from './attention';
 import { decideHook, dismissHookNotice, getAttention, refreshAttention, refreshDiscovered, refreshHooks, useAgentAttention } from './attention-store';
 import { discoveredFromHook, noticeLine, orderedHookAsks } from './hook-model';
@@ -165,7 +165,10 @@ export function SessionList({
   const hookAsks = orderedHookAsks(hooks);
   const hookNotices = hooks?.notices ?? [];
   const margin = theme.layout.margin;
-  const running = sessions?.filter((s) => s.status === 'running').length ?? 0;
+  // A pty session's status word is about its stream-json twin and stays
+  // 'idle' while a human is typing into it, so counting statuses alone read 0
+  // over a live terminal. runningCount asks each kind the right question.
+  const running = runningCount(sessions);
   const waiting = sessions?.filter((s) => s.status === 'waiting').length ?? 0;
   // The running total across every session — the strip's SPEND stat.
   const totalLine = ledgerLine(combineLedgers((sessions ?? []).map((s) => ledgers[s.id]).filter((l): l is CostLedger => l !== undefined)));
@@ -411,6 +414,16 @@ const rowDot = (s: AgentStatus): { status: 'accent' | 'warn' | 'bad' | 'neutral'
     : { status: s === 'waiting' ? 'warn' : s === 'error' ? 'bad' : 'neutral', ring: false };
 
 /**
+ * The same mark for a pty session, which has a second kind of "running": its
+ * process. A live terminal nobody is mid-turn on was drawn exactly like a
+ * killed one, so the list could not tell work in progress from a corpse.
+ */
+const ptyRowDot = (s: AgentSessionMeta): { status: 'accent' | 'warn' | 'bad' | 'neutral'; ring: boolean } =>
+  s.status === 'waiting' || s.status === 'error' || !isLive(s)
+    ? rowDot(s.status)
+    : { status: 'accent', ring: true };
+
+/**
  * One session, one table row: dot + title with the trailing status word, then
  * the mono footnote (cwd left, spend right), then — only when it is asking —
  * the amber "needs you" line with the auto-deny countdown. The remove control
@@ -430,16 +443,19 @@ function SessionRow({
   onRemove: (id: string) => void;
 }) {
   const theme = useTheme();
-  const dot = rowDot(s.status);
-  const spend = ledger ? ledgerLine(ledger) : '';
-  const idle = s.status === 'idle';
   const kind = sessionKind(s);
-  const attached = attachedLabel(s);
+  const dot = kind === 'pty' ? ptyRowDot(s) : rowDot(s.status);
+  const spend = ledger ? ledgerLine(ledger) : '';
+  // A pty row's trailing fact is whether the terminal is alive, not when it
+  // was last touched: "stopped" and "live · 2 attached" are the two things
+  // worth knowing before tapping it.
+  const ptyState = ptyStateLabel(s);
+  const idle = s.status === 'idle' && !ptyState;
   return (
     <Row testID={`agent-session-${s.id}`} gap="xs" align="flex-start" style={{ paddingLeft: theme.space.md }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Open ${s.title}, ${kindLabel(kind)} session, ${statusLabel(s.status)}${attached ? `, ${attached}` : ''}`}
+        accessibilityLabel={`Open ${s.title}, ${kindLabel(kind)} session, ${ptyState ?? statusLabel(s.status)}`}
         onPress={() => {
           haptic('light');
           onOpen(s.id);
@@ -460,14 +476,20 @@ function SessionRow({
               terminal you can type into, the other a feed you approve from. */}
           <Micro testID={`agent-kind-${s.id}`} tone="faint">{kindLabel(kind)}</Micro>
           <View style={{ flex: 1 }} />
-          {/* Someone else is on this pty right now — the fact that changes
-              what you should do next, so it outranks the idle timestamp. */}
-          {attached ? (
-            <Micro testID={`agent-attached-${s.id}`} tone="accent">{attached}</Micro>
+          {/* When it last did anything — kept for a pty row too, because
+              "live" says nothing about how long it has been sitting there. */}
+          {ptyState && s.status === 'idle' ? (
+            <Micro tone="faint">{ago(s.lastUsed, now)}</Micro>
           ) : null}
-          {/* One trailing fact: what it is doing, or — when idle — when it last did. */}
-          <Micro tone={idle ? 'faint' : s.status === 'waiting' ? 'warn' : s.status === 'error' ? 'bad' : 'accent'}>
-            {idle ? ago(s.lastUsed, now) : statusLabel(s.status)}
+          {/* One trailing fact: whether this terminal is alive and who is on
+              it, or — for a guided session — what it is doing. */}
+          <Micro
+            testID={`agent-state-${s.id}`}
+            tone={ptyState
+              ? (isLive(s) ? 'accent' : 'faint')
+              : idle ? 'faint' : s.status === 'waiting' ? 'warn' : s.status === 'error' ? 'bad' : 'accent'}
+          >
+            {ptyState && s.status === 'idle' ? ptyState : idle ? ago(s.lastUsed, now) : statusLabel(s.status)}
           </Micro>
         </Row>
         <Row justify="space-between" gap="sm">

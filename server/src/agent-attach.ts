@@ -37,6 +37,14 @@ import { messageOf } from './errors.js';
  */
 const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 
+/**
+ * Ceiling on one inbound keystroke frame. The shared WebSocketServer already
+ * refuses anything past its maxPayload, so this is the second line: a client
+ * cannot hand the pty a megabyte of input in a single write no matter how it
+ * got here. Well past the largest real paste.
+ */
+const MAX_INPUT_CHARS = 256 * 1024;
+
 export interface AttachDeps {
   /** Mint a single-use WebSocket ticket for a token. */
   readonly issueTicket: (token: string) => { ticket: string; expiresInSec: number };
@@ -120,7 +128,7 @@ export async function handleAgentAttach(ws: WebSocket, url: URL): Promise<void> 
   };
 
   const snap = getSnapshot(id);
-  if (!snap) { fail('no such session'); return; }
+  if (!snap) { fail('no such session — run `npm run attach` with no id to list the ones you can join'); return; }
   if (snap.kind !== 'pty') {
     fail('this session is not a live terminal session — it was created before Belay owned the terminal, so it can only be driven from the phone');
     return;
@@ -151,7 +159,7 @@ export async function handleAgentAttach(ws: WebSocket, url: URL): Promise<void> 
     fail(messageOf(e));
     return;
   }
-  if (!attachment) { fail('no such session'); return; }
+  if (!attachment) { fail('no such session — run `npm run attach` with no id to list the ones you can join'); return; }
 
   // Vanished while the session was starting: give the seat back at once.
   if (closed || ws.readyState !== ws.OPEN) { attachment.detach(); return; }
@@ -169,7 +177,9 @@ export async function handleAgentAttach(ws: WebSocket, url: URL): Promise<void> 
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
-      if (msg.type === 'data' && typeof msg.data === 'string') attachment!.write(msg.data);
+      // Belt to the socket's own maxPayload braces: a frame this large is
+      // not a paste, and there is no reason to push it at a pty.
+      if (msg.type === 'data' && typeof msg.data === 'string' && msg.data.length <= MAX_INPUT_CHARS) attachment!.write(msg.data);
       else if (msg.type === 'resize') attachment!.resize(msg.cols, msg.rows);
     } catch { /* malformed frames are ignored, as on every other socket */ }
   });
