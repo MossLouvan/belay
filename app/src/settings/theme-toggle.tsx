@@ -33,6 +33,7 @@ export function ThemeToggle({ style, testID }: ThemeToggleProps) {
       value={theme.isDark ? 'fieldwork' : 'current'}
       onChange={onChange}
       accessibilityLabel="Appearance"
+      role="radio"
       testID={testID}
       style={style}
     />

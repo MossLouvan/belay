@@ -21,12 +21,12 @@ test('Current and Fieldwork: persisted choice, controls, navigation, and phone l
     await page.getByTestId('choose-appearance').click();
     await page.getByTestId('appearance-picker').getByText(appearance, { exact: true }).click();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('belay.themeMode'))).toBe(appearance.toLowerCase());
-    await page.getByTestId('appearance-sheet').getByRole('button', { name: 'Close', exact: true }).click();
+    await page.getByTestId('sheet-close').click();
     await page.screenshot({ path: `../output/design-concepts-2026-09-11/${appearance.toLowerCase()}-devices-actual.png` });
     await page.reload();
     await page.getByTestId('choose-appearance').click();
     await expect(page.getByTestId('appearance-picker').getByRole('radio', { name: appearance })).toHaveAttribute('aria-checked', 'true');
-    await page.getByTestId('appearance-sheet').getByRole('button', { name: 'Close', exact: true }).click();
+    await page.getByTestId('sheet-close').click();
     await page.getByTestId(/^device-/).first().click();
     await expect(page.getByTestId('trackpad-surface')).toBeVisible({ timeout: 20000 });
     await page.screenshot({ path: `../output/design-concepts-2026-09-11/${appearance.toLowerCase()}-screen-actual.png` });

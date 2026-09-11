@@ -122,7 +122,7 @@ export function Sheet({
                 {title ?? ''}
               </Txt>
               {hideClose ? null : (
-                <IconButton accessibilityLabel="Close" variant="plain" onPress={onClose}>
+                <IconButton testID="sheet-close" accessibilityLabel="Close" variant="plain" onPress={onClose}>
                   <CloseGlyph color={theme.colors.textDim} />
                 </IconButton>
               )}

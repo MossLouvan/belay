@@ -14,12 +14,13 @@ import type { ReactNode } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BelayStreamView } from '../../modules/belay-stream/src';
 import { useTheme } from '../theme';
-import { Button } from '../ui';
+import { useLook } from '../design/use-look';
+import { StageActions } from './stage-actions';
 import { RemoteCursors } from './cursors-overlay';
 import type { CursorsState } from './cursors-store';
 import type { QualityPreset, Size } from './model';
 import { PanelState } from './panel-state';
-import { Crosshair, FullscreenGlyph, HUD, StageButton, StreamHud } from './parts';
+import { Crosshair, FILL, FullscreenGlyph, HUD, StageButton, StreamHud } from './parts';
 import { crosshairShown } from './screen-chrome';
 import type { PermissionState, StreamState } from './stream';
 import { TrackpadSurface } from './trackpad-surface';
@@ -66,6 +67,7 @@ export function StageView(props: StageViewProps) {
     connected, hostName, onRetry, onHelp, onToggleFullscreen, children,
   } = props;
   const theme = useTheme();
+  const look = useLook();
   const insets = useSafeAreaInsets();
 
   // The one remaining stage control: Full / Exit, portrait only (Keys moved
@@ -122,7 +124,7 @@ export function StageView(props: StageViewProps) {
           height: stage.h > 0 ? stage.h : undefined,
           aspectRatio: stage.h > 0 ? undefined : aspect,
           backgroundColor: theme.colors.machine,
-          borderRadius: immersive ? 0 : 16,
+          borderRadius: immersive ? 0 : look.cardRadius,
           overflow: 'hidden',
         }}
       >
@@ -194,15 +196,34 @@ export function StageView(props: StageViewProps) {
         {/* Portrait: the Full control rides the stage's own top-right
             corner. Landscape shows nothing here — it is already full. */}
       </View>
-      {!immersive ? <View style={{ position: 'absolute', top: stage.h + 12, left: 0, right: 0, flexDirection: 'row', gap: 12 }}>
-        <View style={{ flex: 1 }}><Button testID="quick-audio" label={props.audioLabel ?? (props.audioOn ? 'Audio on' : 'Audio off')} variant={props.audioOn ? 'subtle' : 'secondary'} onPress={props.onToggleAudio} fullWidth /></View>
-        <View style={{ flex: 1 }}><Button testID="stage-fullscreen" label="Fullscreen" accessibilityLabel="Enter full screen" variant="secondary" onPress={onToggleFullscreen} fullWidth /></View>
-      </View> : null}
+      {!immersive ? (
+        <View style={{ position: 'absolute', top: stage.h + 12, left: 0, right: 0 }}>
+          <StageActions
+            audioOn={props.audioOn ?? false}
+            audioLabel={props.audioLabel ?? (props.audioOn ? 'Audio on' : 'Audio off')}
+            onToggleAudio={props.onToggleAudio}
+            onToggleFullscreen={onToggleFullscreen}
+          />
+        </View>
+      ) : null}
 
       {/* No picture: the panel interior becomes the guidance surface —
           state name, the observed cause, one accent action, proof of life.
           It covers the stage, which has nothing to click anyway. */}
       {showPanelState ? (
+        // Portrait keeps the guidance INSIDE the stage rectangle. Left to fill
+        // the whole panel it painted straight over the Audio/Fullscreen pills
+        // and the trackpad — the controls that are still useful while there is
+        // no picture — so the panel state is clipped to the thing it explains.
+        <View
+          pointerEvents="box-none"
+          style={immersive ? FILL : {
+            position: 'absolute', top: 0, left: 0, right: 0,
+            height: stage.h > 0 ? stage.h : undefined,
+            aspectRatio: stage.h > 0 ? undefined : aspect,
+            borderRadius: look.cardRadius, overflow: 'hidden', zIndex: 1,
+          }}
+        >
         <PanelState
           testID="panel-state"
           connected={connected}
@@ -215,6 +236,7 @@ export function StageView(props: StageViewProps) {
           onRetry={onRetry}
           onHelp={onHelp}
         />
+        </View>
       ) : null}
 
       {/* Portrait fullscreen: the Exit control pins to the safe area (not

@@ -1,13 +1,20 @@
 // Selection controls and tappable list rows.
 //
-// The segmented control is a text-tab strip now, not a pill track: options are
-// mono micro-labels and the selection state IS the 2pt accentGraphic underline
-// (docs/DESIGN.md §6) — no fill moves around, nothing is boxed.
+// The segmented control is a filled chip track, the same drawing the desktop
+// screen's Trackpad · Keyboard · Controller strip uses: a recessed bordered
+// rail with the selected option filled — solid accent on Current, the muted
+// scorch on Fieldwork. One selection language across the app rather than an
+// underline here and a chip there.
+//
+// `role` decides how the strip is announced. A strip that switches which view
+// you are looking at is a tablist; a strip that picks one value of a setting —
+// Appearance, quality — is a radiogroup, and a screen reader says so.
 
 import React, { useCallback } from 'react';
 import { Pressable, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useTheme } from '../theme';
+import { useLook } from '../design/use-look';
 import { haptic } from './haptics';
 import { Row } from './layout';
 import { Txt } from './text';
@@ -28,6 +35,12 @@ export interface SegmentedControlProps<T extends string> {
   testID?: string;
   /** When true, every segment is non-interactive. */
   disabled?: boolean;
+  /**
+   * How the strip is announced. `tab` switches views (the default, and what
+   * every existing caller means); `radio` picks one value of a setting, which
+   * is what the Appearance picker is.
+   */
+  role?: 'tab' | 'radio';
 }
 
 /**
@@ -35,7 +48,7 @@ export interface SegmentedControlProps<T extends string> {
  * stays chrome-dense; the shortfall is made up with vertical `hitSlop` so the
  * *effective* target is a full `layout.minTouch`.
  */
-const SEGMENT_HEIGHT = 32;
+const SEGMENT_HEIGHT = 34;
 
 /**
  * Text-segmented control: `UPDATE RATE  1S [2S] 5S` style. The selected option
@@ -53,19 +66,35 @@ export function SegmentedControl<T extends string>({
   style,
   testID,
   disabled = false,
+  role = 'tab',
 }: SegmentedControlProps<T>) {
   const theme = useTheme();
+  const look = useLook();
   // Split the shortfall evenly above and below so the effective target is
   // centred on the segment. Clamped at 0 in case the constants ever cross over.
   const slop = Math.max(0, Math.round((theme.layout.minTouch - SEGMENT_HEIGHT) / 2));
   const segmentHitSlop = { top: slop, bottom: slop };
+  // Fieldwork's selected chip is the muted scorch with orange ink: a solid
+  // orange chip on a near-black page is a flare, not a selection.
+  const activeFill = look.segmentSoft ? theme.colors.accentSoft : theme.colors.accent;
+  const activeInk = look.segmentSoft ? theme.colors.onAccentSoft : theme.colors.onAccent;
 
   return (
     <View
       testID={testID}
-      accessibilityRole="tablist"
+      accessibilityRole={role === 'radio' ? 'radiogroup' : 'tablist'}
       accessibilityLabel={accessibilityLabel}
-      style={[{ flexDirection: 'row' }, style]}
+      style={[
+        {
+          flexDirection: 'row',
+          padding: 3,
+          borderRadius: look.controlRadius + 4,
+          backgroundColor: theme.colors.surfaceAlt,
+          borderWidth: theme.layout.hairline,
+          borderColor: theme.colors.border,
+        },
+        style,
+      ]}
     >
       {options.map((option) => {
         const selected = option.value === value;
@@ -73,9 +102,23 @@ export function SegmentedControl<T extends string>({
         return (
           <Pressable
             key={option.value}
-            accessibilityRole="tab"
+            accessibilityRole={role === 'radio' ? 'radio' : 'tab'}
             accessibilityLabel={option.label}
-            accessibilityState={{ selected, disabled: optionDisabled }}
+            // A radio is announced by `checked`, a tab by `selected`, and
+            // react-native-web only emits the attribute whose key is present —
+            // passing the other as `undefined` leaves the state off the DOM
+            // node entirely, which is how a checked radio reported nothing.
+            accessibilityState={
+              role === 'radio'
+                ? { checked: selected, disabled: optionDisabled }
+                : { selected, disabled: optionDisabled }
+            }
+            // react-native-web renders `accessibilityState.checked` only for
+            // the roles IT considers checkable, and a View-backed radio is not
+            // one of them — so the attribute never reached the DOM. The `aria-`
+            // prop is passed through verbatim on web and ignored on native,
+            // where `accessibilityState` above is what VoiceOver reads.
+            aria-checked={role === 'radio' ? selected : undefined}
             disabled={optionDisabled}
             hitSlop={segmentHitSlop}
             onPress={() => {
@@ -89,26 +132,19 @@ export function SegmentedControl<T extends string>({
               alignItems: 'center',
               justifyContent: 'center',
               paddingHorizontal: theme.space.xs,
+              borderRadius: look.controlRadius + 1,
+              backgroundColor: selected ? activeFill : 'transparent',
               opacity: optionDisabled ? 0.4 : pressed ? theme.motion.pressOpacity : 1,
             })}
           >
             <Txt
-              variant="label"
+              variant="button"
               numberOfLines={1}
-              color={selected ? theme.colors.accent : theme.colors.textDim}
+              style={{ fontSize: 14 }}
+              color={selected ? activeInk : theme.colors.text}
             >
               {option.label}
             </Txt>
-            {/* The underline is the selection state; the dim track under the
-                rest keeps the strip legible as a single control. */}
-            <View
-              style={{
-                alignSelf: 'stretch',
-                height: theme.layout.ruleEmphasis,
-                marginTop: theme.space.xxs,
-                backgroundColor: selected ? theme.colors.accentGraphic : theme.colors.accentDim,
-              }}
-            />
           </Pressable>
         );
       })}

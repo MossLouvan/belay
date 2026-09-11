@@ -29,7 +29,7 @@ import { recordKeyLabel } from './record';
 import { layoutDockKeys } from './dock-layout';
 import type { RecordPhase } from './record';
 import type { PendingButton } from './viewport';
-import { IconPointer, IconKeyboard, IconDeviceGamepad2 } from '@tabler/icons-react-native';
+import { ModeStrip } from './mode-strip';
 
 /** VoiceOver's stepper verbs on the zoom key — the old −/+ keys, as gestures. */
 const ZOOM_ACTIONS = Object.freeze([
@@ -248,18 +248,12 @@ export function ControlDock({
       }
     >
       {!floating ? <>
-        <View style={{ flexDirection: 'row', borderRadius: 14, padding: 3, backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border }}>
-          {[
-            { label: 'Trackpad', id: 'dock-trackpad', active: !typeOpen, action: () => { if (typeOpen) onToggleType(); onModeChange('trackpad'); }, glyph: '▱' },
-            { label: 'Keyboard', id: 'toggle-type', active: typeOpen, action: onToggleType, glyph: '⌨' },
-            { label: 'Controller', id: 'dock-controller', active: false, action: () => onModeChange('gaming'), glyph: '⊕' },
-          ].map(item => <Pressable key={item.id} testID={item.id} accessibilityRole="button" accessibilityLabel={item.label}
-            accessibilityState={{ selected: item.active }} onPress={wrap(item.action)}
-            style={({ pressed }) => ({ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 48, borderRadius: 11, backgroundColor: item.active ? theme.isDark ? theme.colors.accentSoft : theme.colors.accent : 'transparent', opacity: pressed ? 0.6 : 1 })}>
-            {React.createElement(item.id === 'dock-trackpad' ? IconPointer : item.id === 'toggle-type' ? IconKeyboard : IconDeviceGamepad2, { size: 20, strokeWidth: 1.7, color: item.active ? theme.isDark ? theme.colors.onAccentSoft : theme.colors.onAccent : theme.colors.textDim })}
-            <Txt style={{ fontSize: 12, color: item.active ? theme.isDark ? theme.colors.onAccentSoft : theme.colors.onAccent : theme.colors.text }}>{item.label}</Txt>
-          </Pressable>)}
-        </View>
+        <ModeStrip
+          typeOpen={typeOpen}
+          onTrackpad={wrap(() => { if (typeOpen) onToggleType(); onModeChange('trackpad'); })}
+          onKeyboard={wrap(onToggleType)}
+          onController={wrap(() => onModeChange('gaming'))}
+        />
         {armed !== 'none' ? <Button label={`Next tap: ${armed}-click · Cancel`} variant="subtle" onPress={armed === 'right' ? onToggleRight : onToggleDouble} /> : null}
         <Pressable testID="more-controls" accessibilityRole="button" accessibilityLabel="More controls" onPress={() => setMoreOpen(true)} style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center' }}><Txt variant="caption" tone="dim">More controls</Txt></Pressable>
       </> : null}

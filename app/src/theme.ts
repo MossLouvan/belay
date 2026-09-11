@@ -249,7 +249,7 @@ export const font = Object.freeze({
  * or the page turns into a shouting match (docs/DESIGN.md §4.3).
  */
 export const type = Object.freeze({
-  display: { fontFamily: font.sans, fontSize: 32, lineHeight: 38, fontWeight: '700', letterSpacing: -0.8 },
+  display: { fontFamily: font.sans, fontSize: 30, lineHeight: 36, fontWeight: '800', letterSpacing: -0.9 },
   title: { fontFamily: font.sans, fontSize: 26, lineHeight: 32, fontWeight: '700', letterSpacing: -0.5 },
   heading: { fontFamily: font.sans, fontSize: 19, lineHeight: 24, fontWeight: '800', letterSpacing: -0.3 },
   subheading: { fontFamily: font.sans, fontSize: 16, lineHeight: 21, fontWeight: '700' },
@@ -262,6 +262,14 @@ export const type = Object.freeze({
   micro: { fontFamily: font.sans, fontSize: 11, lineHeight: 15, fontWeight: '400' },
   mono: { fontFamily: font.mono, fontSize: 13, lineHeight: 19, fontVariant: ['tabular-nums'] },
   monoSmall: { fontFamily: font.mono, fontSize: 11, lineHeight: 16, fontVariant: ['tabular-nums'] },
+  // Button and segment labels. Separate from `label` on purpose: `label` is
+  // the quiet 13pt row/section marker and half the app is set in it, while a
+  // button's word has to hold a 44pt slab on its own. Both concept mockups
+  // set every button — Connect, Audio on, Trackpad — at this size and weight.
+  button: { fontFamily: font.sans, fontSize: 15, lineHeight: 20, fontWeight: '600', letterSpacing: -0.1 },
+  // The five-tab bar's word. Never larger: at 12pt the labels start colliding
+  // with each other on a 375pt phone.
+  tab: { fontFamily: font.sans, fontSize: 11, lineHeight: 14, fontWeight: '500' },
 }) satisfies Readonly<Record<string, TextStyle>>;
 
 export type TypeVariant = keyof typeof type;
@@ -391,19 +399,37 @@ const buildTheme = (scheme: ColorScheme, colors: Palette): Theme =>
     elevation: FLAT_ELEVATION,
   });
 
+/**
+ * Fieldwork — the dark appearance. Every value below is sampled from
+ * output/design-concepts-2026-09-11/fieldwork.png rather than invented: the
+ * near-black ground (#191B1C), the card one step up (#222426), the recessed
+ * pad/pill (#232628) and the warm orange the Connect button is actually
+ * painted (#F99657). The muted `accentSoft` (#4A392E) is the selected
+ * segment's fill in the same mockup — orange ink on scorched earth, never a
+ * solid orange chip.
+ */
 export const fieldworkPalette: Palette = Object.freeze({ ...darkPalette,
-  bg: '#1C1E1F', surface: '#262829', surfaceAlt: '#2D3032', sheet: '#262829',
-  border: '#393C3E', borderStrong: '#656A6D', text: '#F2F2EF', textDim: '#B7BABD', textFaint: '#9A9FA2',
-  accent: '#FFA65C', accentGraphic: '#FFA65C', accentPress: '#E99249', onAccent: '#202222',
-  accentDim: '#624A37', accentSoft: '#44372D', onAccentSoft: '#FFBB82', focus: '#FFA65C',
-  heroBg: '#1C1E1F', heroGlow: 'transparent', trackRest: '#4A4F52',
+  bg: '#191B1C', surface: '#222426', surfaceAlt: '#232628', sheet: '#1F2123',
+  border: '#2C2F31', borderStrong: '#494D50', text: '#F2F2EF', textDim: '#A8ACAF', textFaint: '#82878A',
+  accent: '#F99657', accentGraphic: '#F99657', accentPress: '#E0824A', onAccent: '#1A1210',
+  accentDim: '#4A392E', accentSoft: '#4A392E', onAccentSoft: '#F9A96F', focus: '#F99657',
+  heroBg: '#191B1C', heroGlow: 'transparent', trackRest: '#3A3E41',
+  machine: '#101112', skeleton: '#202325',
 });
+
+/**
+ * Current — the light appearance, sampled the same way from current.png: the
+ * cool off-white page (#F5F8FC), near-white cards (#FCFDFE), one recessed
+ * step (#EAEFF4) that does triple duty as the trackpad, the segment track and
+ * the round header button, and the blue the Connect button is painted.
+ */
 export const currentPalette: Palette = Object.freeze({ ...lightPalette,
-  bg: '#F6F8FA', surface: '#FFFFFF', surfaceAlt: '#EAF0F5', sheet: '#FFFFFF',
-  text: '#172129', textDim: '#566476', textFaint: '#647184', border: '#DDE4EC',
+  bg: '#F5F8FC', surface: '#FCFDFE', surfaceAlt: '#EAEFF4', sheet: '#FFFFFF',
+  text: '#101828', textDim: '#5B6676', textFaint: '#8791A1', border: '#E4E9F0', borderStrong: '#C7CEDA',
   accent: '#245CCC', accentGraphic: '#245CCC', accentPress: '#1B49A5',
-  accentSoft: '#E3ECFC', onAccentSoft: '#204FA5', focus: '#245CCC',
-  heroBg: '#F6F8FA', heroGlow: 'transparent',
+  accentSoft: '#E4ECFB', onAccentSoft: '#1F52B8', focus: '#245CCC',
+  heroBg: '#F5F8FC', heroGlow: 'transparent', trackRest: '#D5DCE6',
+  skeleton: '#EAEFF4',
 });
 export const darkTheme: Theme = buildTheme('dark', fieldworkPalette);
 export const lightTheme: Theme = buildTheme('light', currentPalette);
