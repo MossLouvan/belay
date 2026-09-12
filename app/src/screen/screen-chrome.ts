@@ -40,6 +40,42 @@ export interface ImmersiveInputs {
 export const isImmersive = ({ gaming, fullscreen, landscape }: ImmersiveInputs): boolean =>
   gaming || fullscreen || landscape;
 
+export interface StageOffsetInputs {
+  readonly immersive: boolean;
+  /** The machine panel's measured height, px. */
+  readonly boxH: number;
+  /** The letterboxed stage's height, px. */
+  readonly stageH: number;
+  readonly insetTop: number;
+  readonly insetBottom: number;
+}
+
+/**
+ * How far DOWN the stage sits inside the immersive panel, px.
+ *
+ * The panel is top-aligned (stage-view.tsx) because centering it in PORTRAIT
+ * CHROME strands the picture under the header with the tap targets — the
+ * "tap → screen on bottom half" bug. Immersive is the other shape entirely:
+ * the panel is the whole display and the picture is letterboxed to the remote
+ * aspect, so a 16:9 desktop on an upright phone is ~250pt of picture pinned to
+ * y=0 — its top slice behind the status bar and the Dynamic Island, 600pt of
+ * black below it. This centers that short stage inside the SAFE AREA instead,
+ * which is what the rest of the immersive code already assumes (the pad hint
+ * stands down immersive precisely because "immersive centers the stage").
+ *
+ * A stage that already fills the safe area — every landscape one, where the
+ * picture is meant to bleed edge to edge under the notch — offsets by zero and
+ * is left exactly as it was.
+ */
+export const immersiveStageOffset = (
+  { immersive, boxH, stageH, insetTop, insetBottom }: StageOffsetInputs
+): number => {
+  if (!immersive || boxH <= 0 || stageH <= 0) return 0;
+  const safeH = boxH - Math.max(0, insetTop) - Math.max(0, insetBottom);
+  if (stageH >= safeH) return 0;
+  return Math.max(0, insetTop) + (safeH - stageH) / 2;
+};
+
 export interface RotationInputs {
   readonly gaming: boolean;
   readonly landscape: boolean;

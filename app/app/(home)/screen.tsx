@@ -60,7 +60,7 @@ import { HelpSheet } from '../../src/screen/help-sheet';
 import { ImmersiveHud } from '../../src/screen/immersive-hud';
 import { QualitySheet } from '../../src/screen/quality-sheet';
 import type { BwpPreference } from '../../src/screen/bwp-policy';
-import { hintVisible, panelStateShown, typeRowFloats } from '../../src/screen/screen-chrome';
+import { hintVisible, immersiveStageOffset, panelStateShown, typeRowFloats } from '../../src/screen/screen-chrome';
 import { ScreenHeader } from '../../src/screen/screen-header';
 import { MonitorSheet, ScreenMenuSheet } from '../../src/screen/screen-menu-sheet';
 import { StageView } from '../../src/screen/stage-view';
@@ -139,6 +139,17 @@ export default function ScreenTab() {
   const stage = useMemo(() => fitBox(immersive ? box : { w: box.w, h: Math.max(1, box.h - 160) }, aspect), [box, aspect, immersive]);
   const stageRef = useRef<Size>(EMPTY_SIZE);
   stageRef.current = stage;
+
+  // Immersive letterboxing: a short stage (any upright 16:9 desktop) is
+  // centered in the safe area instead of pinned to y=0 behind the status bar.
+  // Zero for every chrome layout and for a stage that already fills the safe
+  // area, so the portrait panel and the edge-to-edge landscape are untouched.
+  const stageOffset = useMemo(
+    () => immersiveStageOffset({
+      immersive, boxH: box.h, stageH: stage.h, insetTop: insets.top, insetBottom: insets.bottom,
+    }),
+    [immersive, box.h, stage.h, insets.top, insets.bottom],
+  );
 
   // Transient toast for one-shot input failures.
   const toast = useTransient<string>(STREAM.toastMs);
@@ -294,6 +305,7 @@ export default function ScreenTab() {
         onBoxLayout={onBoxLayout}
         box={box}
         stage={stage}
+        stageOffset={stageOffset}
         aspect={aspect}
         viewport={viewport}
         stream={stream}

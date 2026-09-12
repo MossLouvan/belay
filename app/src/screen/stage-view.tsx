@@ -31,6 +31,8 @@ export interface StageViewProps {
   /** The panel's measured size, and the stage fitted into it. */
   readonly box: Size;
   readonly stage: Size;
+  /** How far down the immersive stage sits — screen-chrome's immersiveStageOffset. */
+  readonly stageOffset: number;
   readonly aspect: number;
   readonly viewport: Viewport;
   readonly stream: StreamState;
@@ -62,7 +64,7 @@ export interface StageViewProps {
 
 export function StageView(props: StageViewProps) {
   const {
-    onBoxLayout, box, stage, aspect, viewport, stream, room, screenIndex, quality, pingMs, permissions,
+    onBoxLayout, box, stage, stageOffset, aspect, viewport, stream, room, screenIndex, quality, pingMs, permissions,
     mode, padCursor, showHud, showPanelState, gamingEnabled, immersive, fullscreen, landscape,
     connected, hostName, onRetry, onHelp, onToggleFullscreen, children,
   } = props;
@@ -88,8 +90,14 @@ export function StageView(props: StageViewProps) {
   const hasPicture = Boolean(stream.bwp || stream.frameUri);
 
   return (
-    // ALWAYS flex-start (top-aligned) — centering creates black space above
-    // a short stage, which is the "tap → screen on bottom half" bug.
+    // ALWAYS flex-start (top-aligned) — centering the PANEL creates black
+    // space above a short stage, which is the "tap → screen on bottom half"
+    // bug: the chrome layout hangs the Audio/Fullscreen pills and the pad off
+    // `stage.h` measured from the panel's top edge. Immersive has no such
+    // siblings (both are FILL), and there a stage shorter than the safe area
+    // is nudged down by `stageOffset` — the margin below, not a justify — so
+    // a letterboxed portrait picture is centered in view instead of pinned
+    // under the status bar. Landscape's edge-to-edge stage offsets by zero.
     <View
       onLayout={onBoxLayout}
       style={{
@@ -120,6 +128,7 @@ export function StageView(props: StageViewProps) {
         accessibilityLabel="Remote screen. Tap to click, long press or two-finger tap to right-click, pinch to zoom, two fingers to scroll, three fingers to switch desktops or access system controls."
         {...(gamingEnabled ? {} : viewport.handlers)}
         style={{
+          marginTop: stageOffset,
           width: stage.w > 0 ? stage.w : '100%',
           height: stage.h > 0 ? stage.h : undefined,
           aspectRatio: stage.h > 0 ? undefined : aspect,
@@ -189,7 +198,8 @@ export function StageView(props: StageViewProps) {
             bwpPath={stream.bwpPath}
             bwpClient={stream.bwpClient}
             bwpFallback={stream.bwpFallback}
-            topInset={immersive ? insets.top : 0}
+            /* Clear of the notch already once the stage has been nudged down. */
+            topInset={immersive && stageOffset <= 0 ? insets.top : 0}
           />
         ) : null}
 

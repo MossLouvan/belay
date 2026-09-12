@@ -12,6 +12,7 @@ import {
   dockAutoHides,
   headerTitle,
   hintVisible,
+  immersiveStageOffset,
   isImmersive,
   isLandscape,
   normalizedDeviceSize,
@@ -57,6 +58,63 @@ test('only a fresh rotation into landscape clears portrait fullscreen', () => {
   assert.equal(shouldClearFullscreen({ ...base, fullscreen: false }), false, 'nothing to clear');
   assert.equal(shouldClearFullscreen({ ...base, gaming: true }), false, 'gaming keeps the previous Full choice');
   assert.equal(shouldClearFullscreen({ ...base, landscape: false }), false);
+});
+
+test('rotating back upright from a landscape fullscreen leaves the chrome layout', () => {
+  // Landscape IS the fullscreen gesture, so coming back upright must not land
+  // in an immersive portrait the user never chose.
+  const base = { gaming: false, landscape: false, wasLandscape: true, fullscreen: false };
+  assert.equal(shouldClearFullscreen(base), false, 'nothing was toggled: nothing to clear');
+  assert.equal(isImmersive({ gaming: false, fullscreen: false, landscape: false }), false);
+  // And if a Full choice somehow survived the trip sideways (gaming held it),
+  // the portrait it returns to is immersive — which is the state framed below.
+  assert.equal(isImmersive({ gaming: false, fullscreen: true, landscape: false }), true);
+});
+
+test('an immersive stage shorter than the safe area is centered in it, not pinned to the top', () => {
+  // The founder's bug: fullscreen, phone upright, 16:9 desktop — the picture
+  // used to sit at y=0 with its top slice behind the Dynamic Island and 600pt
+  // of black under it.
+  const box = { boxH: 844, stageH: 252, insetTop: 59, insetBottom: 34 };
+  const offset = immersiveStageOffset({ immersive: true, ...box });
+  const safeH = 844 - 59 - 34;
+  assert.equal(offset, 59 + (safeH - 252) / 2);
+  assert.ok(offset >= 59, 'clear of the status bar and the notch');
+  assert.ok(offset + 252 <= 844 - 34, 'and clear of the home indicator');
+});
+
+test('the chrome layout is never offset — the panel stays top-aligned', () => {
+  // Centering the PORTRAIT CHROME panel is the "tap → screen on bottom half"
+  // bug: its pills and pad are positioned off stage.h from the panel's top.
+  assert.equal(immersiveStageOffset({ immersive: false, boxH: 600, stageH: 220, insetTop: 59, insetBottom: 34 }), 0);
+});
+
+test('a stage that already fills the safe area is left edge to edge', () => {
+  // Every landscape one: the picture is meant to bleed under the notch.
+  assert.equal(
+    immersiveStageOffset({ immersive: true, boxH: 390, stageH: 390, insetTop: 0, insetBottom: 21 }),
+    0,
+  );
+  assert.equal(
+    immersiveStageOffset({ immersive: true, boxH: 844, stageH: 900, insetTop: 59, insetBottom: 34 }),
+    0,
+    'a taller-than-safe stage is never pushed further down',
+  );
+});
+
+test('an unmeasured panel or stage offsets by nothing', () => {
+  // The first frame after a rotation, before onLayout has reported the new box.
+  assert.equal(immersiveStageOffset({ immersive: true, boxH: 0, stageH: 0, insetTop: 59, insetBottom: 34 }), 0);
+  assert.equal(immersiveStageOffset({ immersive: true, boxH: 844, stageH: 0, insetTop: 59, insetBottom: 34 }), 0);
+  assert.equal(immersiveStageOffset({ immersive: true, boxH: 0, stageH: 252, insetTop: 59, insetBottom: 34 }), 0);
+});
+
+test('insets are never allowed to pull the stage upward', () => {
+  // A negative inset (a bad measurement) must not become a negative margin
+  // that hides the picture off the top of the display.
+  const offset = immersiveStageOffset({ immersive: true, boxH: 844, stageH: 252, insetTop: -20, insetBottom: -20 });
+  assert.ok(offset >= 0);
+  assert.equal(offset, (844 - 252) / 2);
 });
 
 test('the dock auto-hides only while immersive and idle', () => {
