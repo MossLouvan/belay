@@ -190,3 +190,58 @@ function feedbackFor(parsed: Extract<ParsedAddress, { kind: 'ok' }>): AddressFee
       return { tone: 'dim', text: 'A computer name — works on the same Wi-Fi only' };
   }
 }
+
+/**
+ * Clean up text that arrived from the clipboard before it goes in the field.
+ *
+ * What the Tailscale app actually hands over varies: the admin console copies
+ * a bare `100.x`, the mobile app can carry a trailing newline, the machine
+ * detail view can give a MagicDNS name, and a browser copy is a full
+ * `http://host:port/` URL. Someone who copied a line out of a note can also
+ * bring quotes, a leading `Address:` label, or several lines at once.
+ *
+ * Rather than reject any of that, this reduces it to the shortest thing the
+ * field can show and `parseAddress` accepts: the host, plus `:port` when the
+ * port is not the one Belay assumes. A pairing link is handed back untouched —
+ * `resolveHost` pairs from it directly.
+ *
+ * Total: anything it cannot read comes back trimmed, so the field shows what
+ * was pasted and the live feedback line explains what is wrong with it.
+ */
+export function normalizePastedAddress(raw: string): string {
+  if (typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (looksLikePairLink(trimmed)) return trimmed;
+
+  // A paste that is one thing is taken at its word, whatever shape it is —
+  // someone who copied a bare computer name meant that name.
+  const whole = pretty(parseAddress(stripWrappers(trimmed)));
+  if (whole) return whole;
+
+  // Otherwise the paste is a line or a block with an address somewhere in it,
+  // and picking a word out of prose needs more confidence than "it is a legal
+  // hostname" — "Address", "hello" and "Connected" all are. Only a token that
+  // is unmistakably an address (an IP, or a MagicDNS name) is taken.
+  for (const token of trimmed.split(/\s+/).map(stripWrappers)) {
+    if (!token) continue;
+    const found = pretty(parseAddress(token), (family) => family !== 'name');
+    if (found) return found;
+  }
+  return trimmed;
+}
+
+/** The shortest text the field can show for a parse the caller will accept. */
+function pretty(parsed: ParsedAddress, accepts?: (family: AddressFamily) => boolean): string | null {
+  if (parsed.kind !== 'ok') return null;
+  if (accepts && !accepts(parsed.family)) return null;
+  const defaultPort = parsed.url.startsWith('https://') ? 443 : DEFAULT_PORT;
+  return parsed.port === defaultPort ? parsed.host : `${parsed.host}:${parsed.port}`;
+}
+
+/** Quotes, angle brackets and trailing punctuation a copied line drags along. */
+function stripWrappers(token: string): string {
+  return token
+    .replace(/^[\s"'<([]+/, '')
+    .replace(/[\s"'>)\].,;]+$/, '');
+}

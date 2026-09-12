@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { keyboardOverlap, keyboardShown } from './keyboard.ts';
+import { clearsKeyboard, keyboardInset, keyboardOverlap, keyboardShown } from './keyboard.ts';
 
 const WINDOW_H = 852; // iPhone 15 Pro points, as a realistic stand-in.
 
@@ -48,4 +48,57 @@ test('a keyboard entirely below the view lifts nothing', () => {
 test('overlap never goes negative and shrugs off bad numbers', () => {
   assert.equal(keyboardOverlap(Number.NaN, 506), 0);
   assert.equal(keyboardOverlap(769, Number.POSITIVE_INFINITY), 0);
+});
+
+// --- keyboardInset: the lift a surface holds, safe area absorbed -----------
+
+test('no overlap means no inset — a keyboard below the surface changes nothing', () => {
+  assert.equal(keyboardInset(0), 0);
+  assert.equal(keyboardInset(0, 34), 0);
+});
+
+test('without a safe area the inset is the overlap', () => {
+  assert.equal(keyboardInset(291), 291);
+});
+
+test('the home-indicator inset is absorbed, not stacked — the keyboard covers it', () => {
+  // Composer sits ON the keys, not 34pt above them.
+  assert.equal(keyboardInset(291, 34), 257);
+});
+
+test('a safe area taller than the overlap falls back to zero, never negative', () => {
+  assert.equal(keyboardInset(20, 34), 0);
+});
+
+test('a negative or nonsense safe area is ignored rather than inflating the lift', () => {
+  assert.equal(keyboardInset(291, -50), 291);
+  assert.equal(keyboardInset(291, Number.NaN), 291);
+});
+
+test('a nonsense overlap yields no inset — the safe default is to leave layout alone', () => {
+  assert.equal(keyboardInset(Number.NaN, 34), 0);
+  assert.equal(keyboardInset(-10), 0);
+});
+
+// --- clearsKeyboard: is that control still tappable? -----------------------
+
+test('a control above the keyboard clears it', () => {
+  // Allow / Deny bottom at 500 on a 852pt phone, keyboard top at 506.
+  assert.equal(clearsKeyboard(500, 506), true);
+});
+
+test('a control resting exactly on the keyboard edge still clears it', () => {
+  assert.equal(clearsKeyboard(506, 506), true);
+});
+
+test('a control under the keyboard does not clear it — the Allow/Deny bug', () => {
+  assert.equal(clearsKeyboard(620, 506), false);
+});
+
+test('no keyboard on screen means every control clears', () => {
+  assert.equal(clearsKeyboard(620, Number.POSITIVE_INFINITY), true);
+});
+
+test('an unmeasurable control is reported as blocked, not as fine', () => {
+  assert.equal(clearsKeyboard(Number.NaN, 506), false);
 });

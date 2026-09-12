@@ -16,10 +16,11 @@
 // routes, which is why none of it lives here.
 
 import React, { useCallback, useEffect } from 'react';
-import { Animated, KeyboardAvoidingView, Platform } from 'react-native';
+import { Animated } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useConnection } from '../src/connection';
 import { useTheme } from '../src/theme';
+import { KeyboardAvoider } from '../src/ui';
 import { connectLanding, afterHowItWorks } from '../src/connect/landing';
 import { PairingStages } from '../src/connect/pairing-stages';
 import { TailscaleGuide } from '../src/connect/tailscale-guide';
@@ -129,10 +130,12 @@ export default function Connect() {
   }, [transitionToStage]);
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={{ flex: 1, backgroundColor: theme.colors.bg }}
-    >
+    // The front door has to survive the keyboard it opens with: the address
+    // field autofocuses, so Connect — and on the next step Pair, under six
+    // digit boxes and a paragraph — start life below the keys. The avoider
+    // measures in window coordinates instead of KeyboardAvoidingView's
+    // parent-relative guess, and unlike it does something on Android too.
+    <KeyboardAvoider style={{ backgroundColor: theme.colors.bg }}>
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
         {stage === 'welcome' ? (
           <WelcomeScreen onContinue={onWelcomeContinue} />
@@ -153,6 +156,6 @@ export default function Connect() {
           <PairingStages session={session} check={check} adding={adding} onOpenGuide={onOpenGuide} />
         )}
       </Animated.View>
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 }
