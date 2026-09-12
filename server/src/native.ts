@@ -562,8 +562,10 @@ class NativeHost {
     return this.send({ cmd: 'audiostop' });
   }
 
-  /** Whether the helper is capturing, and with what parameters. */
-  audioStatus(): Promise<{ ok?: boolean; capturing?: boolean; codec?: string }> {
+  /** Whether the helper is capturing, and with what parameters. `stopReason` is
+   *  set when capture died on its own (device pulled, permission revoked) — it
+   *  is the only way to learn WHY a started capture went quiet. */
+  audioStatus(): Promise<{ ok?: boolean; capturing?: boolean; codec?: string; stopReason?: string }> {
     return this.send({ cmd: 'audiostatus' });
   }
 

@@ -3,6 +3,7 @@
 // URL builders for the screen and terminal streams.
 
 import { readBwpCapability } from './screen/bwp-policy.ts';
+import type { AudioProbe } from './stream/audio-capability.ts';
 
 export interface Connection {
   host: string; // e.g. http://100.101.102.103:8787
@@ -767,6 +768,40 @@ export async function fetchDataUri(path: string, signal?: AbortSignal): Promise<
 /**
  * Build a WebSocket URL authenticated with a single-use ticket.
  *
+ * Ask the host whether it can stream its system audio, and why not if it cannot.
+ *
+ * Deliberately NOT routed through `get()`: the answer lives in the HTTP status
+ * as much as in the body. A 404 (no /audio/* routes at all) is how an
+ * out-of-date host says "my software predates this feature" — `get()` would
+ * flatten that into an indistinguishable Error, which is exactly how every
+ * audio fault ended up rendered as one word, "unavailable".
+ *
+ * Never throws: an unreachable host is reported as status 0 and read as
+ * "could not tell", not as "unsupported".
+ */
+export async function probeAudioSupport(signal?: AbortSignal): Promise<AudioProbe> {
+  if (!conn) return { status: 0 };
+  try {
+    const res = await fetchWithTimeout(
+      conn.host + '/audio/status',
+      { headers: authHeaders() },
+      '/audio/status',
+      signal,
+    );
+    if (res.status === 200) return { status: 200 };
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return {
+      status: res.status,
+      ...(typeof body.error === 'string' ? { error: body.error } : {}),
+      ...(typeof body.kind === 'string' ? { kind: body.kind } : {}),
+      ...(typeof body.hint === 'string' ? { hint: body.hint } : {}),
+    };
+  } catch {
+    return { status: 0 };
+  }
+}
+
+/**
  * A WebSocket handshake cannot carry headers, so something has to go in the
  * URL. Previously that was the bearer token, which grants complete control of
  * the machine and ends up written to any proxy or access log that records a
