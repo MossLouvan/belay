@@ -8,6 +8,13 @@
 // separates it from the screen behind. Slide distance is the spec's 8pt
 // translation cap plus fade; motion per §3.5 (standard in, exit out);
 // reduced motion snaps.
+//
+// A sheet with a field in it (Go to folder, New project, the recording name)
+// is the surface the keyboard hides most completely: the slab is pinned to
+// the bottom edge, which is precisely where the keyboard arrives. Nothing
+// here used to move at all. Every sheet is now wrapped in KeyboardAvoider, so
+// the slab rides up on the keyboard's own curve and its buttons stay tappable
+// — one fix for every sheet in the app, present and future.
 
 import React, { useEffect, useRef } from 'react';
 import { Animated, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
@@ -15,6 +22,7 @@ import type { StyleProp, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { easing, useTheme } from '../theme';
 import { IconButton } from './button';
+import { KeyboardAvoider } from './keyboard-avoider';
 import { haptic } from './haptics';
 import { Row } from './layout';
 import { Txt } from './text';
@@ -71,7 +79,7 @@ export function Sheet({
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose} testID={testID}>
-      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+      <KeyboardAvoider safeAreaBottom={insets.bottom} contentStyle={{ justifyContent: 'flex-end' }}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close"
@@ -130,7 +138,7 @@ export function Sheet({
           ) : null}
           {children}
         </Animated.View>
-      </View>
+      </KeyboardAvoider>
     </Modal>
   );
 }

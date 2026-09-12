@@ -14,6 +14,13 @@
 // It also floats the cross-surface "needs you" band over the panel's bottom
 // edge, so an agent blocked on an approval can still reach you inside Terminal
 // or Files.
+//
+// Keyboard: every tool panel gets its avoidance from here, once, rather than
+// each screen bringing its own KeyboardAvoidingView and its own hand-tuned
+// offset. The wrapper sits around the tool's body only — the nav bar below it
+// is allowed to go behind the keyboard, exactly as a system tab bar does —
+// so the tool's own bottom row (the agent composer, the terminal key bar)
+// comes to rest on the keyboard's top edge.
 
 import React, { useCallback } from 'react';
 import { Platform, Pressable, View } from 'react-native';
@@ -21,7 +28,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconChevronLeft } from '@tabler/icons-react-native';
 import { useTheme } from '../theme';
-import { Txt, haptic } from '../ui';
+import { KeyboardAvoider, Txt, haptic } from '../ui';
 import { NeedsYouBanner } from '../agent/needs-you-banner';
 import { AppearanceNav } from './appearance-nav';
 import type { NavTab } from './appearance-nav';
@@ -83,7 +90,7 @@ export function ToolPanel({ children, tab, testID }: ToolPanelProps) {
           zeroed top inset to tool screens so they don't double-pad — the bar
           owns the status-bar clearance, not the children. */}
       <SafeAreaInsetsContext.Provider value={{ ...insets, top: 0 }}>
-        <View style={{ flex: 1, overflow: 'hidden' }}>{children}</View>
+        <KeyboardAvoider style={{ overflow: 'hidden' }}>{children}</KeyboardAvoider>
       </SafeAreaInsetsContext.Provider>
       {/* Approvals must reach you in every tool, not only on the desktop. */}
       <NeedsYouBanner bottom={0} />

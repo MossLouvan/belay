@@ -45,3 +45,36 @@ export function keyboardOverlap(viewBottom: number, keyboardTop: number): number
   if (!Number.isFinite(viewBottom) || !Number.isFinite(keyboardTop)) return 0;
   return Math.max(0, viewBottom - keyboardTop);
 }
+
+/**
+ * The bottom inset a surface should hold while the keyboard is up.
+ *
+ * `overlap` is how far the keyboard reaches into the surface
+ * (`keyboardOverlap`). `safeAreaBottom` is the home-indicator inset the
+ * surface already pads for at rest: while the keyboard covers that strip the
+ * inset is redundant, so it is absorbed rather than stacked — otherwise the
+ * composer floats a visible band above the keys instead of sitting on them.
+ *
+ * Never negative, and never more than the overlap: a surface that pads for a
+ * taller inset than the keyboard covers still falls back to zero, not to a
+ * lift that would push content the wrong way.
+ */
+export function keyboardInset(overlap: number, safeAreaBottom = 0): number {
+  if (!Number.isFinite(overlap) || overlap <= 0) return 0;
+  const absorbed = Number.isFinite(safeAreaBottom) ? Math.max(0, safeAreaBottom) : 0;
+  return Math.max(0, overlap - absorbed);
+}
+
+/**
+ * Does a control whose bottom edge sits at `controlBottom` (window
+ * coordinates) still clear the keyboard's top edge?
+ *
+ * The Agent tab's Allow / Deny pair is the case this exists for: the agent is
+ * blocked until one of them is tapped, so "is it reachable right now" has to
+ * be answerable — by a test, and by the view itself.
+ */
+export function clearsKeyboard(controlBottom: number, keyboardTop: number): boolean {
+  if (!Number.isFinite(controlBottom)) return false;
+  if (!Number.isFinite(keyboardTop)) return true;
+  return controlBottom <= keyboardTop;
+}

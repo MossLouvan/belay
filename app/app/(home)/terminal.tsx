@@ -14,7 +14,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -515,10 +514,10 @@ function TerminalTab() {
   })();
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}
-    >
+    // The panel (src/home/panel.tsx) owns keyboard avoidance for every tool,
+    // so the key bar and the command row ride up on the keyboard's own curve
+    // without this screen owning an offset of its own.
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}>
       {/* Concise header: title plus the one status line below — nothing
           restated, no controls but the sanctioned trailing overflow (§11.1),
           behind which lives the help sheet that writes the key bar down.
@@ -695,6 +694,6 @@ function TerminalTab() {
       </View>
 
       <TerminalHelpSheet visible={showHelp} onClose={() => setShowHelp(false)} />
-    </KeyboardAvoidingView>
+    </View>
   );
 }

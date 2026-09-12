@@ -13,7 +13,7 @@
 
 import React, { useCallback, useRef, useState } from 'react';
 import {
-  FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, TextInput, View,
+  FlatList, Keyboard, Platform, Pressable, TextInput, View,
 } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { router } from 'expo-router';
@@ -164,7 +164,8 @@ export function PtySessionView({ id, title, cwd, attached, resumable, onBack }: 
   })();
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    // The panel (src/home/panel.tsx) owns keyboard avoidance for every tool.
+    <View style={{ flex: 1 }}>
       <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.xs, paddingBottom: theme.space.sm }}>
         <Row justify="space-between" gap="sm">
           <Pressable
@@ -312,6 +313,6 @@ export function PtySessionView({ id, title, cwd, attached, resumable, onBack }: 
           />
         </Row>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }

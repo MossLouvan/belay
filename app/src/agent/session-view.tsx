@@ -8,7 +8,7 @@
 // one-accent rule (§11.5).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useTheme } from '../theme';
 import { router } from 'expo-router';
 import { SwitchComputerLink } from '../devices/switch-link';
@@ -33,8 +33,6 @@ export interface SessionViewProps {
 
 /** Above this the composer stops growing and scrolls instead. */
 const COMPOSER_MAX_HEIGHT = 110;
-/** Height of the tab bar plus header the keyboard must clear. */
-const KEYBOARD_OFFSET = 90;
 
 /**
  * One open session, whichever kind it is.
@@ -193,11 +191,12 @@ function StreamSessionView({ id, onBack }: SessionViewProps) {
   const tone = statusTone(status);
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={{ flex: 1 }}
-      keyboardVerticalOffset={KEYBOARD_OFFSET}
-    >
+    // Keyboard avoidance is the panel's job (src/home/panel.tsx): it wraps
+    // every tool in one KeyboardAvoider measured in window coordinates. The
+    // KeyboardAvoidingView that used to live here needed a flat 90pt fudge to
+    // guess the header and nav bar, and did nothing at all on Android — which
+    // is how the Allow / Deny pair ended up under the keyboard.
+    <View style={{ flex: 1 }}>
       <View style={{ paddingHorizontal: margin, paddingTop: theme.space.xs, paddingBottom: theme.space.sm }}>
         <Row justify="space-between" gap="sm">
           <Pressable
@@ -328,6 +327,18 @@ function StreamSessionView({ id, onBack }: SessionViewProps) {
         {status === 'running' ? <ActivityIndicator color={theme.colors.accent} style={{ alignSelf: 'flex-start' }} /> : null}
       </ScrollView>
 
+      {/* Everything between the feed and the composer — and above all the
+          approval card, whose Allow / Deny is the only thing standing between
+          a blocked agent and the machine. The feed above gives up its height
+          first (flex: 1 against this block's natural height); if even that is
+          not enough — a tall approval on a small phone with the keyboard up —
+          this scrolls rather than pushing its own buttons off the bottom. */}
+      <ScrollView
+        testID="agent-action-stack"
+        style={{ flexGrow: 0, flexShrink: 1 }}
+        contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end' }}
+        keyboardShouldPersistTaps="handled"
+      >
       {grants.length > 0 ? (
         <View style={{ marginHorizontal: margin, marginBottom: theme.space.xs }}>
           <GrantList grants={grants} onRevoke={revokeGrant} />
@@ -379,6 +390,7 @@ function StreamSessionView({ id, onBack }: SessionViewProps) {
           style={{ marginHorizontal: margin, marginBottom: theme.space.xs }}
         />
       ) : null}
+      </ScrollView>
 
       <Rule />
       <View style={{ paddingHorizontal: margin, paddingVertical: theme.space.sm }}>
@@ -460,6 +472,6 @@ function StreamSessionView({ id, onBack }: SessionViewProps) {
           </Row>
         ) : null}
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }

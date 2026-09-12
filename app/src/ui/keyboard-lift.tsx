@@ -18,7 +18,7 @@ import type { RefObject } from 'react';
 import { Animated, Dimensions, Easing, Keyboard, Platform, View } from 'react-native';
 import type { KeyboardEvent } from 'react-native';
 import { useReducedMotion } from './motion';
-import { keyboardOverlap, keyboardShown } from './keyboard';
+import { keyboardInset, keyboardOverlap, keyboardShown } from './keyboard';
 
 // iOS reports the keyboard animation's duration on the event; Android's
 // keyboardDid* events carry 0, so a short honest slide stands in.
@@ -29,6 +29,24 @@ export interface KeyboardLift {
   readonly lift: Animated.Value;
   /** True while a keyboard frame is on screen. */
   readonly shown: boolean;
+}
+
+export interface KeyboardLiftOptions {
+  /**
+   * Which animation driver moves the value. `transform` is the default and
+   * hands the value to the native driver, which keeps a translateY row glued
+   * to the keyboard even under JS load. `layout` drives it in JS, for the one
+   * thing the native driver cannot animate: a padding/height that has to
+   * resize real layout (KeyboardAvoider). Choosing wrong throws at runtime,
+   * which is why it is a named option rather than a boolean.
+   */
+  readonly driver?: 'transform' | 'layout';
+  /**
+   * A bottom safe-area inset the anchored content already pads for. While the
+   * keyboard covers that strip the inset is redundant, so it is absorbed out
+   * of the lift instead of stacking on top of it.
+   */
+  readonly safeAreaBottom?: number;
 }
 
 /**
@@ -63,13 +81,22 @@ export function useKeyboardShown(): boolean {
   return shown;
 }
 
-export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
+export function useKeyboardLift(
+  anchor: RefObject<View | null>,
+  options: KeyboardLiftOptions = {}
+): KeyboardLift {
+  const { driver = 'transform', safeAreaBottom = 0 } = options;
   const lift = useRef(new Animated.Value(0)).current;
   const [shown, setShown] = useState(false);
   const reduced = useReducedMotion();
   // Read by the (long-lived) listeners without resubscribing on toggle.
   const reducedRef = useRef(reduced);
   reducedRef.current = reduced;
+  // Same trick for the inset: it changes with the device's safe area, and a
+  // resubscribe mid-animation would drop the keyboard event in flight.
+  const safeAreaRef = useRef(safeAreaBottom);
+  safeAreaRef.current = safeAreaBottom;
+  const nativeDriver = driver === 'transform' && Platform.OS !== 'web';
 
   useEffect(() => {
     const settle = (overlap: number, event: KeyboardEvent) => {
@@ -89,7 +116,7 @@ export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
         // Close to UIKit's keyboard curve; translateY-only, so the native
         // driver keeps the row glued to the keyboard even under JS load.
         easing: Easing.bezier(0.17, 0.59, 0.4, 0.77),
-        useNativeDriver: Platform.OS !== 'web',
+        useNativeDriver: nativeDriver,
       }).start();
     };
 
@@ -105,7 +132,7 @@ export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
       if (!node?.measureInWindow) {
         // No anchor to measure (web, or unmounted mid-event): the raw height
         // over-lifts at worst, which still beats hiding under the keyboard.
-        settle(end.height, event);
+        settle(keyboardInset(end.height, safeAreaRef.current), event);
         return;
       }
       node.measureInWindow((_x, y, _w, h) => {
@@ -117,12 +144,12 @@ export function useKeyboardLift(anchor: RefObject<View | null>): KeyboardLift {
           settle(0, event);
           return;
         }
-        settle(keyboardOverlap(y + h, end.screenY), event);
+        settle(keyboardInset(keyboardOverlap(y + h, end.screenY), safeAreaRef.current), event);
       });
     };
 
     return subscribeToKeyboardFrames(onFrame);
-  }, [anchor, lift]);
+  }, [anchor, lift, nativeDriver]);
 
   return { lift, shown };
 }
