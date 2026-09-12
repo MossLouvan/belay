@@ -19,10 +19,9 @@ export function DockedControls({ children }: DockedControlsProps) {
   const insets = useSafeAreaInsets();
   return (
     <View style={{ paddingHorizontal: theme.layout.margin }}>
-      <Rule bleed={theme.layout.margin} />
       {/* Additional vertical spacing to prevent bottom text overlap on Android
           and ensure adequate clearance above system navigation/taskbar. */}
-      <View style={{ paddingTop: theme.space.xs, paddingBottom: Math.max(insets.bottom, theme.space.xs) + theme.space.sm }}>{children}</View>
+      <View style={{ paddingTop: theme.space.xs, paddingBottom: 0 }}>{children}</View>
     </View>
   );
 }
@@ -39,9 +38,15 @@ export function FloatingDock({ shown, opacity, onHide, children }: FloatingDockP
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   return (
+    // The legacy `pointerEvents` PROP, deliberately, not `style.pointerEvents`:
+    // on react-native-web the style form is applied on first paint but never
+    // re-applied when it changes on an Animated.View, so once the bar had
+    // auto-hidden ONCE it came back visible but permanently dead to touch —
+    // every control under it fell through to the trackpad surface behind. The
+    // prop warns as deprecated and works.
     <Animated.View
+      pointerEvents={shown ? 'box-none' : 'none'}
       style={{
-        pointerEvents: shown ? 'box-none' : 'none',
         position: 'absolute',
         left: insets.left + theme.space.sm,
         right: insets.right + theme.space.sm,

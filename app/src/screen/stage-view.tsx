@@ -14,13 +14,16 @@ import type { ReactNode } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BelayStreamView } from '../../modules/belay-stream/src';
 import { useTheme } from '../theme';
+import { useLook } from '../design/use-look';
+import { StageActions } from './stage-actions';
 import { RemoteCursors } from './cursors-overlay';
 import type { CursorsState } from './cursors-store';
 import type { QualityPreset, Size } from './model';
 import { PanelState } from './panel-state';
-import { Crosshair, FullscreenGlyph, HUD, StageButton, StreamHud } from './parts';
+import { Crosshair, FILL, FullscreenGlyph, HUD, StageButton, StreamHud } from './parts';
 import { crosshairShown } from './screen-chrome';
 import type { PermissionState, StreamState } from './stream';
+import { padMounted } from './trackpad';
 import { TrackpadSurface } from './trackpad-surface';
 import type { PointerMode, Viewport } from './viewport';
 
@@ -29,6 +32,8 @@ export interface StageViewProps {
   /** The panel's measured size, and the stage fitted into it. */
   readonly box: Size;
   readonly stage: Size;
+  /** How far down the immersive stage sits — screen-chrome's immersiveStageOffset. */
+  readonly stageOffset: number;
   readonly aspect: number;
   readonly viewport: Viewport;
   readonly stream: StreamState;
@@ -51,17 +56,21 @@ export interface StageViewProps {
   readonly onRetry: () => void;
   readonly onHelp: () => void;
   readonly onToggleFullscreen: () => void;
+  readonly audioOn?: boolean;
+  readonly audioLabel?: string;
+  readonly onToggleAudio: () => void;
   /** The immersive HUD overlay, floated over the panel's top edge. */
   readonly children?: ReactNode;
 }
 
 export function StageView(props: StageViewProps) {
   const {
-    onBoxLayout, box, stage, aspect, viewport, stream, room, screenIndex, quality, pingMs, permissions,
+    onBoxLayout, box, stage, stageOffset, aspect, viewport, stream, room, screenIndex, quality, pingMs, permissions,
     mode, padCursor, showHud, showPanelState, gamingEnabled, immersive, fullscreen, landscape,
     connected, hostName, onRetry, onHelp, onToggleFullscreen, children,
   } = props;
   const theme = useTheme();
+  const look = useLook();
   const insets = useSafeAreaInsets();
 
   // The one remaining stage control: Full / Exit, portrait only (Keys moved
@@ -82,13 +91,20 @@ export function StageView(props: StageViewProps) {
   const hasPicture = Boolean(stream.bwp || stream.frameUri);
 
   return (
-    // ALWAYS flex-start (top-aligned) — centering creates black space above
-    // a short stage, which is the "tap → screen on bottom half" bug.
+    // ALWAYS flex-start (top-aligned) — centering the PANEL creates black
+    // space above a short stage, which is the "tap → screen on bottom half"
+    // bug: the chrome layout hangs the Audio/Fullscreen pills and the pad off
+    // `stage.h` measured from the panel's top edge. Immersive has no such
+    // siblings (both are FILL), and there a stage shorter than the safe area
+    // is nudged down by `stageOffset` — the margin below, not a justify — so
+    // a letterboxed portrait picture is centered in view instead of pinned
+    // under the status bar. Landscape's edge-to-edge stage offsets by zero.
     <View
       onLayout={onBoxLayout}
       style={{
         flex: 1,
-        backgroundColor: theme.colors.machine,
+        backgroundColor: immersive ? theme.colors.machine : theme.colors.bg,
+        marginHorizontal: immersive ? 0 : theme.layout.margin,
         alignItems: 'center',
         justifyContent: 'flex-start',
       }}
@@ -96,10 +112,11 @@ export function StageView(props: StageViewProps) {
       {/* The deadspace trackpad: fills the whole panel BEHIND the stage, so
           every touch the letterboxed picture does not claim — the black gap
           between stream and control bar above all — is a laptop trackpad
-          instead of a hole gestures fall through to the navigation. Mounted
-          only while there is a live picture: with the panel-state guidance
-          up there is nothing to point at. */}
-      {!showPanelState && !gamingEnabled ? (
+          instead of a hole gestures fall through to the navigation.
+          Gaming is the only state that takes it away (the controller overlay
+          owns every touch); see padMounted in ./trackpad.ts for why the
+          panel-state guidance no longer does. */}
+      {padMounted({ gaming: gamingEnabled }) ? (
         <TrackpadSurface
           testID="trackpad-surface"
           handlers={viewport.padHandlers}
@@ -113,10 +130,12 @@ export function StageView(props: StageViewProps) {
         accessibilityLabel="Remote screen. Tap to click, long press or two-finger tap to right-click, pinch to zoom, two fingers to scroll, three fingers to switch desktops or access system controls."
         {...(gamingEnabled ? {} : viewport.handlers)}
         style={{
+          marginTop: stageOffset,
           width: stage.w > 0 ? stage.w : '100%',
           height: stage.h > 0 ? stage.h : undefined,
           aspectRatio: stage.h > 0 ? undefined : aspect,
           backgroundColor: theme.colors.machine,
+          borderRadius: immersive ? 0 : look.cardRadius,
           overflow: 'hidden',
         }}
       >
@@ -181,21 +200,42 @@ export function StageView(props: StageViewProps) {
             bwpPath={stream.bwpPath}
             bwpClient={stream.bwpClient}
             bwpFallback={stream.bwpFallback}
-            topInset={immersive ? insets.top : 0}
+            /* Clear of the notch already once the stage has been nudged down. */
+            topInset={immersive && stageOffset <= 0 ? insets.top : 0}
           />
         ) : null}
 
         {/* Portrait: the Full control rides the stage's own top-right
             corner. Landscape shows nothing here — it is already full. */}
-        {!immersive && !permissions.captureBlocked
-          ? stageControls({ top: theme.space.xs, right: theme.space.xs, zIndex: 2 })
-          : null}
       </View>
+      {!immersive ? (
+        <View style={{ position: 'absolute', top: stage.h + 12, left: 0, right: 0 }}>
+          <StageActions
+            audioOn={props.audioOn ?? false}
+            audioLabel={props.audioLabel ?? (props.audioOn ? 'Audio on' : 'Audio off')}
+            onToggleAudio={props.onToggleAudio}
+            onToggleFullscreen={onToggleFullscreen}
+          />
+        </View>
+      ) : null}
 
       {/* No picture: the panel interior becomes the guidance surface —
           state name, the observed cause, one accent action, proof of life.
           It covers the stage, which has nothing to click anyway. */}
       {showPanelState ? (
+        // Portrait keeps the guidance INSIDE the stage rectangle. Left to fill
+        // the whole panel it painted straight over the Audio/Fullscreen pills
+        // and the trackpad — the controls that are still useful while there is
+        // no picture — so the panel state is clipped to the thing it explains.
+        <View
+          pointerEvents="box-none"
+          style={immersive ? FILL : {
+            position: 'absolute', top: 0, left: 0, right: 0,
+            height: stage.h > 0 ? stage.h : undefined,
+            aspectRatio: stage.h > 0 ? undefined : aspect,
+            borderRadius: look.cardRadius, overflow: 'hidden', zIndex: 1,
+          }}
+        >
         <PanelState
           testID="panel-state"
           connected={connected}
@@ -208,6 +248,7 @@ export function StageView(props: StageViewProps) {
           onRetry={onRetry}
           onHelp={onHelp}
         />
+        </View>
       ) : null}
 
       {/* Portrait fullscreen: the Exit control pins to the safe area (not

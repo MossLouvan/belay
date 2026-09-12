@@ -45,13 +45,16 @@ import { aspectOf, isMacHost, readPermissions, useHostFacts, useScreenStream } f
 import { useViewport } from '../../src/screen/viewport';
 import { useRemoteCursors } from '../../src/screen/cursors-store';
 import { KeyBar, NoticeArea } from '../../src/screen/parts';
-import { EdgeRevealStrip } from '../../src/screen/edge-reveal';
+import { ControlsTab, EdgeRevealStrip } from '../../src/screen/edge-reveal';
+import { controlsTabVisible } from '../../src/screen/controls-tab';
 import { useScreenBack } from '../../src/screen/use-screen-back';
 import { PAD_CURSOR_LINGER_MS } from '../../src/screen/trackpad';
 import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
 import { ClipboardSheet } from '../../src/screen/clipboard-sheet';
 import { StreamSettingsSheet } from '../../src/screen/stream-settings-sheet';
 import { HostAudio, type HostAudioStatus } from '../../src/stream/audio-player';
+import { audioDockLabel } from '../../src/stream/audio-capability';
+import { AppearanceNav } from '../../src/home/appearance-nav';
 import { ToolDrawer } from '../../src/home/tool-drawer';
 import { ControlColumn } from '../../src/screen/control-column';
 import { DockedControls, FloatingDock } from '../../src/screen/floating-dock';
@@ -59,7 +62,7 @@ import { HelpSheet } from '../../src/screen/help-sheet';
 import { ImmersiveHud } from '../../src/screen/immersive-hud';
 import { QualitySheet } from '../../src/screen/quality-sheet';
 import type { BwpPreference } from '../../src/screen/bwp-policy';
-import { hintVisible, panelStateShown, typeRowFloats } from '../../src/screen/screen-chrome';
+import { hintVisible, immersiveStageOffset, panelStateShown, typeRowFloats } from '../../src/screen/screen-chrome';
 import { ScreenHeader } from '../../src/screen/screen-header';
 import { MonitorSheet, ScreenMenuSheet } from '../../src/screen/screen-menu-sheet';
 import { StageView } from '../../src/screen/stage-view';
@@ -135,9 +138,20 @@ export default function ScreenTab() {
     () => aspectOf(stream.stats, facts.info, { width: stream.bwpWidth, height: stream.bwpHeight }),
     [facts.info, stream.stats, stream.bwpWidth, stream.bwpHeight],
   );
-  const stage = useMemo(() => fitBox(box, aspect), [box, aspect]);
+  const stage = useMemo(() => fitBox(immersive ? box : { w: box.w, h: Math.max(1, box.h - 160) }, aspect), [box, aspect, immersive]);
   const stageRef = useRef<Size>(EMPTY_SIZE);
   stageRef.current = stage;
+
+  // Immersive letterboxing: a short stage (any upright 16:9 desktop) is
+  // centered in the safe area instead of pinned to y=0 behind the status bar.
+  // Zero for every chrome layout and for a stage that already fills the safe
+  // area, so the portrait panel and the edge-to-edge landscape are untouched.
+  const stageOffset = useMemo(
+    () => immersiveStageOffset({
+      immersive, boxH: box.h, stageH: stage.h, insetTop: insets.top, insetBottom: insets.bottom,
+    }),
+    [immersive, box.h, stage.h, insets.top, insets.bottom],
+  );
 
   // Transient toast for one-shot input failures.
   const toast = useTransient<string>(STREAM.toastMs);
@@ -145,7 +159,7 @@ export default function ScreenTab() {
 
   const tools = useToolsHint();
   const typing = useTypeRow(reportError);
-  const dock = useDockState({ immersive, typeOpen: typing.typeOpen });
+  const dock = useDockState({ immersive, typeOpen: typing.typeOpen, landscape });
   const keys = useKeySender({ isMac, reportError });
 
   // The deadspace pad drives the shared cursor whatever the pointer mode is;
@@ -162,6 +176,8 @@ export default function ScreenTab() {
 
   const viewport = useViewport({
     sizeRef: stageRef,
+    stageW: stage.w,
+    stageH: stage.h,
     mode: dock.mode,
     button: dock.button,
     onButtonUsed: dock.clearButton,
@@ -288,12 +304,12 @@ export default function ScreenTab() {
       ) : null}
       {!immersive && record.sent ? <SentNotice info={record.sent} onOpen={record.openSentSession} /> : null}
       {!immersive ? noticeArea : null}
-      {!immersive ? <Rule /> : null}
 
       <StageView
         onBoxLayout={onBoxLayout}
         box={box}
         stage={stage}
+        stageOffset={stageOffset}
         aspect={aspect}
         viewport={viewport}
         stream={stream}
@@ -315,6 +331,9 @@ export default function ScreenTab() {
         onRetry={recheck}
         onHelp={openHelp}
         onToggleFullscreen={view.toggleFullscreen}
+        audioOn={sheets.audioOn}
+        audioLabel={audioDockLabel(sheets.audioOn, audioStatus.phase, audioStatus.kind)}
+        onToggleAudio={sheets.toggleAudio}
       >
         {/* Input errors still matter while immersive; they float over the top edge. */}
         {immersive && !gaming.enabled ? (
@@ -347,6 +366,13 @@ export default function ScreenTab() {
         <EdgeRevealStrip testID="edge-reveal" bottomInset={insets.bottom} onReveal={dock.dockHide.poke} disabled={dock.dockShown} />
       ) : null}
 
+      {/* ...and the SEEN half of that reveal: a tab on the top-left edge that
+          brings the bar back on one tap. The swipe alone was undiscoverable
+          sideways (src/screen/controls-tab.ts). */}
+      {controlsTabVisible({ immersive, gaming: gaming.enabled, dockShown: dock.dockShown }) ? (
+        <ControlsTab testID="controls-tab" topInset={insets.top} leftInset={insets.left} onReveal={dock.dockHide.poke} />
+      ) : null}
+
       {/* The type-to-PC row, floating on the keyboard's top edge (iOS). */}
       {typing.typeOpen && TYPE_ROW_FLOATS && !gaming.enabled ? (
         <FloatingTypeBar lift={typing.typeBarLift} immersive={immersive}>
@@ -358,6 +384,11 @@ export default function ScreenTab() {
       {gaming.enabled ? <GamingOverlay gaming={gaming} width={view.window.width} height={view.window.height}
         fps={stream.bwpStats?.fps ?? stream.stats.fps} pingMs={facts.pingMs} /> : null}
       <GamingSheet gaming={gaming} />
+      {/* `focused` is load-bearing, not a nicety: a tool panel presents OVER
+          the desktop and brings its own copy of the bar, so without this the
+          app mounts two tablists at once — ambiguous to a screen reader, and
+          to anything looking for `nav-files`. */}
+      {focused && !immersive && !gaming.enabled ? <AppearanceNav /> : null}
 
       {/* Gated on `ready`, not just the flag: a stop that failed leaves
           nothing to send, and a sheet promising to send nothing would lie. */}

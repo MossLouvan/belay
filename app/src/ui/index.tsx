@@ -67,7 +67,9 @@ export type { StatusBadgeProps, StatusBadgeVariant } from './status-badge';
 export { BelugaAvatar } from './beluga-avatar';
 export type { BelugaAvatarProps } from './beluga-avatar';
 
-export { useKeyboardLift } from './keyboard-lift';
-export type { KeyboardLift } from './keyboard-lift';
-export { keyboardOverlap, keyboardShown } from './keyboard';
+export { useKeyboardLift, useKeyboardShown } from './keyboard-lift';
+export type { KeyboardLift, KeyboardLiftOptions } from './keyboard-lift';
+export { KeyboardAvoider } from './keyboard-avoider';
+export type { KeyboardAvoiderProps } from './keyboard-avoider';
+export { clearsKeyboard, keyboardInset, keyboardOverlap, keyboardShown } from './keyboard';
 export type { KeyboardFrame } from './keyboard';

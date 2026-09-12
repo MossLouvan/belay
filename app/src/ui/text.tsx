@@ -39,6 +39,8 @@ const MAX_SCALE: Readonly<Record<TypeVariant, number>> = {
   caption: 1.8,
   numeral: 1.3,
   label: 1.3,
+  button: 1.3,
+  tab: 1.3,
   micro: 1.3,
   mono: 1.5,
   monoSmall: 1.5,

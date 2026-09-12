@@ -35,7 +35,7 @@ function NotConnected() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top + theme.space.md }}>
       <View style={{ paddingHorizontal: margin }}>
-        <Txt variant="title" heading>Agent</Txt>
+        <Txt variant="display" heading>Agent</Txt>
         <ConnectionStatus
           testID="agent-connection"
           phase={phase}
@@ -73,7 +73,7 @@ function NotConnected() {
 /** The panel route: the unchanged tab body inside the shared slide-up chrome. */
 export default function AgentPanel() {
   return (
-    <ToolPanel testID="agent-panel">
+    <ToolPanel tab="agent" testID="agent-panel">
       <AgentTab />
     </ToolPanel>
   );

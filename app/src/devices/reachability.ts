@@ -17,6 +17,15 @@ const LIST_PROBE_TIMEOUT_MS = 3000;
 
 export interface ReachabilityMap {
   readonly byId: Readonly<Record<string, Reachability>>;
+  /**
+   * The address that actually answered for each reachable computer.
+   *
+   * The race already knows this and used to throw it away. Handing it back
+   * means anything else that wants to talk to a machine it is not connected
+   * to — the desktop previews on the list, today — reuses the path this probe
+   * just proved, instead of racing every saved address a second time.
+   */
+  readonly urlById: Readonly<Record<string, string>>;
   readonly refresh: () => void;
 }
 
@@ -29,6 +38,7 @@ export interface ReachabilityMap {
  */
 export function useReachability(devices: readonly SavedDevice[]): ReachabilityMap {
   const [byId, setById] = useState<Readonly<Record<string, Reachability>>>({});
+  const [urlById, setUrlById] = useState<Readonly<Record<string, string>>>({});
   const [nonce, setNonce] = useState(0);
   const mountedRef = useRef(true);
 
@@ -37,7 +47,7 @@ export function useReachability(devices: readonly SavedDevice[]): ReachabilityMa
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
-    if (devices.length === 0) { setById({}); return; }
+    if (devices.length === 0) { setById({}); setUrlById({}); return; }
 
     let live = true;
     setById((prev) => {
@@ -59,6 +69,17 @@ export function useReachability(devices: readonly SavedDevice[]): ReachabilityMa
       );
       if (!live || !mountedRef.current) return;
       setById((prev) => ({ ...prev, [device.id]: winner ? 'online' : 'offline' }));
+      setUrlById((prev) => {
+        // A computer that stopped answering keeps no winning address: handing
+        // out the URL that worked ten minutes ago would send every follow-up
+        // request at a machine this probe just proved is not there.
+        if (!winner) {
+          if (!(device.id in prev)) return prev;
+          const { [device.id]: _gone, ...rest } = prev;
+          return rest;
+        }
+        return prev[device.id] === winner.url ? prev : { ...prev, [device.id]: winner.url };
+      });
     });
 
     void Promise.all(probes);
@@ -67,7 +88,7 @@ export function useReachability(devices: readonly SavedDevice[]): ReachabilityMa
     // an unrelated store write (a lastSeen bump) does not restart every probe.
   }, [devicesKey(devices), nonce]);
 
-  return { byId, refresh };
+  return { byId, urlById, refresh };
 }
 
 /** Stable key describing which computers exist and at what addresses. */

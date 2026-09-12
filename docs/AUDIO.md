@@ -46,7 +46,9 @@ media in the target architecture anyway (PERFORMANCE-PLAN §2).
 | `app/src/stream/webrtc/channels.ts` | New `audio` data channel spec (unreliable, unordered — a retransmit past the playout deadline is wasted) + `audioframe` routing. |
 | `app/src/stream/webrtc/peer-adapter.ts` | `sendBytesOn(channel, bytes)` — the binary path onto a data channel, no JSON wrapper. Tested with the fake peer connection. |
 | `server/src/audio.ts` | Helper-push validation (caps, base64 shape, codec whitelist) and the server-side wire encoder. **Golden-vector test pins the exact bytes on both sides** — `server/test/audio.test.ts` and `audio-frames.test.mjs` carry the same 13-byte vector; change the layout and both fail. |
-| `server/src/audio-routes.ts` | REST `POST /audio/start`, `POST /audio/stop`, `GET /audio/status` + the `/ws/audio` binary relay with refcounted capture lifecycle and shed-on-congestion (`shouldDropAudioFrame`). Always registered by `index.ts`. |
+| `server/src/audio-routes.ts` | REST `POST /audio/start`, `POST /audio/stop`, `GET /audio/status` + the `/ws/audio` binary relay with refcounted capture lifecycle, shed-on-congestion (`shouldDropAudioFrame`) and the stall watchdog. Always registered by `index.ts`. |
+| `server/src/audio-health.ts` | Why a host cannot do audio, as a typed verdict with a fix — the four causes in §2a. Pure; `server/test/audio-health.test.ts`. |
+| `app/src/stream/audio-capability.ts` | The phone's half of the same question: probe result → a sentence plus a fix, and the short dock label. Pure; `audio-capability.test.mjs`. |
 | `server/src/native.ts` | `audiostart`/`audiostop`/`audiostatus` verbs and the `type:'audio'` push subscription (mirrors the webrtc push shape). |
 
 `cd app && npx tsc --noEmit && npm test` and
@@ -76,6 +78,28 @@ plays the tone and exits nonzero if it receives no audible samples.
 Reproduce with: `python3 server/scripts/smoke-audio.py` (prints a
 SOUND CAPTURED / SILENT CAPTURE verdict).
 
+### END-TO-END VERIFIED (macOS, over the real socket)
+
+Not just the helper: the whole host path, on this MacBook Air, against a server
+started from this branch.
+
+```
+$ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8891/audio/status
+{"ok":true,"supported":true,"capturing":false,"codec":"pcm16","listeners":0}
+
+$ node ws-audio-probe.mjs http://127.0.0.1:8891 $TOKEN 8   # POST /ws-ticket -> /ws/audio
+socket open; playing test sound
+control messages: []
+binary frames: 378 bytes: 1455678
+first header: { magic: 'a5', verFlags: 16, seq: 0, ts: 0, codec: 1, len: 3840 }
+frames with nonzero PCM: 64 of 378
+VERDICT: AUDIO DELIVERED OVER /ws/audio
+```
+
+378 frames in 8 s is the 20 ms cadence with no gaps; 64 of them carry the test
+tone. `scripts/smoke-audio.py` agrees at the helper level (`SOUND CAPTURED`,
+198 frames, 57 nonzero, contiguous seqs, timestamp step 960 everywhere).
+
 ### WRITTEN-BUT-NOT-COMPILED (Windows)
 
 `server/native/BelayHostAudio.cs` (+ dispatch in `BelayHost.cs`, added to
@@ -86,6 +110,100 @@ mix-format probe, the event-driven loopback loop, the 48 kHz linear resampler)
 follows the documented recipe, but treat every line as unverified. If
 `build.ps1` fails on it, the fastest rollback is removing `BelayHostAudio.cs`
 from `$src` and the three `case "audio…"` lines — nothing else references it.
+
+Two defects were found by reading it against the WASAPI contract and fixed
+blind. Both are behaviours macOS does not have, so neither could have shown up
+in any macOS test:
+
+* **`audiostart` used to answer before it knew.** It slept a fixed 150 ms and
+  then reported `capturing: true` unless the worker had already failed. COM
+  activation routinely takes longer than that, so a PC that could not capture
+  at all still answered "yes" and then delivered nothing. It now blocks on a
+  `ManualResetEvent` the capture thread signals when it either reaches
+  `IAudioClient.Start()` or throws (5 s ceiling), so the reply is the truth.
+* **An idle render endpoint produces no packets at all** — not silence,
+  *nothing*. ScreenCaptureKit keeps a continuous 20 ms cadence either way, and
+  both the phone's jitter buffer and the host's new stall watchdog treat a
+  multi-second gap as a fault. The loop now owns a `Stopwatch` and pads with
+  real silence frames whenever packets fall behind wall time (capped at 1 s of
+  catch-up), so "nothing is playing on the PC" is no longer indistinguishable
+  from "capture is broken".
+
+---
+
+## 2a. Why a host says it cannot do audio — the four causes
+
+"Audio unavailable" used to be one word covering four unrelated conditions with
+four unrelated fixes. Whenever this feature is debugged again, identify which
+one it is **first**; they are distinguishable in about ten seconds.
+
+| Cause | How to see it | Fix |
+|---|---|---|
+| The host's Belay **server** predates audio | `curl -o /dev/null -w '%{http_code}' http://HOST:8787/audio/status` → **404** while `/screen/info` → 401 | Update Belay on that computer and restart it |
+| The native **helper** has no audio verbs | `/audio/status` → **501**, `kind: "unsupported-helper"` | `npm run build:native` on that computer, restart |
+| The OS **refused permission** | `/audio/status` → **501**, `kind: "permission"` | The pane named in the `hint` (macOS: Screen & System Audio Recording) |
+| No **output device** to tap | `/audio/status` → **501**, `kind: "no-device"` | Plug in / enable a playback endpoint |
+
+The classification is `server/src/audio-health.ts` (pure, and every branch is
+asserted in `server/test/audio-health.test.ts`). It is applied by
+`audio-routes.ts` to `/audio/start`, `/audio/stop`, `/audio/status` and to the
+`{type:"error"}` control message on `/ws/audio`, so all four surfaces speak the
+same `{error, kind, hint, detail}` shape. The phone's half is
+`app/src/stream/audio-capability.ts`: it reads the HTTP status (404 is how an
+out-of-date host answers, and no cooperation from that host is needed), turns it
+into a sentence plus a fix, and refuses to call anything "unsupported" that was
+merely unreachable.
+
+Two further honesty mechanisms:
+
+* **The capability probe runs before the socket.** `connectHostAudio` asks
+  `GET /audio/status` first. A definite "no" is reported once and is terminal —
+  a host's installed software will not change because we retried. Previously a
+  host with no `/ws/audio` route failed at the WebSocket upgrade and reconnected
+  forever behind "System audio connection lost", a transient-sounding message
+  for a permanent, fixable condition.
+* **The stall watchdog.** Both helpers emit a 20 ms frame *continuously*,
+  silence included, so no frame for `AUDIO_STALL_TIMEOUT_MS` (4 s) is never
+  "nothing is playing" — it is a fault. `handleAudioSocket` then asks the helper
+  for its `stopReason` and forwards the real cause. Verified on this Mac by
+  killing the helper mid-stream:
+
+  ```
+  {"type":"error","error":"Audio capture started but no sound is arriving from this computer.",
+   "kind":"capture-stalled",
+   "hint":"Check that the computer is playing to its normal speakers, then toggle host audio off and on."}
+  ```
+
+### What was actually wrong on each of the founder's two hosts (Sept 2026)
+
+**MacBook Air — capture was never the problem; the phone's UI was.** The helper
+captures correctly (evidence above), and `/audio/status` answers 200. But
+`/screen/info` reports `webrtc: false` (BELAY_WEBRTC is not set), and the Stream
+Settings sheet disabled its System Audio control on exactly that flag, over a
+banner reading "High-performance features require WebRTC hardware encoding".
+Audio has not needed BELAY_WEBRTC since commit 7eedba8 ungated the routes; the
+gate was stale and made a fully working machine look incapable. The control is
+no longer tied to `webrtcAvailable` — frame rate, bitrate and codec still are,
+because those genuinely need it.
+
+**Windows PC (DESKTOP-BB4FRER) — the host software is out of date.** Probed
+read-only over Tailscale:
+
+```
+$ curl -o /dev/null -w '%{http_code}' http://100.82.170.69:8787/audio/status   -> 404
+$ curl -o /dev/null -w '%{http_code}' http://100.82.170.69:8787/screen/info    -> 401
+$ curl http://100.82.170.69:8787/health
+{"ok":true,"name":"DESKTOP-BB4FRER",...,"platform":"win32",...}      # note: no "bwp" field
+```
+
+A 404 where `/screen/info` gives 401 means the route does not exist, i.e.
+`registerAudioRoutes` never ran — that server still has audio behind the
+`BELAY_WEBRTC` gate (or predates it entirely). The missing `bwp` key in
+`/health` independently dates that build before `ef1eb99` (2026-09-07). So the
+phone's `/ws/audio` upgrade is rejected at the router and no amount of client
+work can produce sound there. **This is unverifiable from macOS and no claim is
+made that Windows capture works** — `BelayHostAudio.cs` has still never been
+compiled or run anywhere. The runbook below has the one command that settles it.
 
 ---
 
@@ -128,13 +246,32 @@ macOS:
    `play` actions' PCM through expo-av / AVAudioEngine, output silence for
    `conceal`/`wait`. Listen. Measure delay (target: `targetDelayMs` + one frame).
 
-Windows:
-1. On a Win10 1703+ box: `npm run build:native:win` — first prove
-   `BelayHostAudio.cs` **compiles** (see rollback note in §2 if not).
-2. Same smoke sequence over stdio (`audiostart`, play sound, expect nonzero
-   PCM), then steps 3–4 above.
-3. Win11 22H2+: consider per-process loopback so notification dings from other
-   apps can be excluded.
+Windows — **the one command that settles it.** In PowerShell, in the Belay
+repo on the PC, with music playing:
+
+```powershell
+cd server
+git pull
+npm run build:native:win
+node scripts\smoke-audio-win.mjs
+```
+
+Want, in order:
+
+* `Built ...\BelayHost.exe` — proves `BelayHostAudio.cs` **compiles** (it never
+  has, anywhere; see the rollback note in §2 if csc rejects it).
+* `start reply: {"ok":true,"capturing":true,...}` — proves WASAPI loopback
+  initialised. Anything else here is the real error text and names the fault.
+* `VERDICT: SOUND CAPTURED` with a nonzero count — proves actual audio.
+  `frames: N, nonzero: 0` means capture works but the mix was silent: play
+  something on the PC's **default** output device and re-run.
+
+Then `npm start` (the server) so `/audio/status` answers 200 instead of 404, and
+toggle Host audio on the phone. Only then does anything on this feature apply to
+that machine.
+
+Follow-up once that passes: Win11 22H2+ per-process loopback, so notification
+dings from other apps can be excluded.
 
 Not until sound is heard on a phone may anyone claim the feature works.
 

@@ -10,6 +10,7 @@ import type { StyleProp, ViewStyle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Edge } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
+import { useLook } from '../design/use-look';
 import { Label } from './text';
 
 export type SpaceKey = 'none' | 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
@@ -116,15 +117,19 @@ export interface CardProps {
  */
 export function Card({ children, style, padding = 'md', title, trailing, flush = false, testID }: CardProps) {
   const theme = useTheme();
+  const look = useLook();
   return (
     <View
       testID={testID}
       style={[
         {
           backgroundColor: theme.colors.surface,
-          borderWidth: theme.layout.hairline,
+          // The card edge is the appearance's call: Current's signature is the
+          // hairline-bordered white slab, while on Fieldwork's near-black page
+          // a rule reads as a seam and the fill alone does the separating.
+          borderWidth: look.cardBorder ? theme.layout.hairline : 0,
           borderColor: theme.colors.border,
-          borderRadius: theme.radius.lg,
+          borderRadius: look.cardRadius,
           padding: flush ? 0 : theme.space[padding],
         },
         style,

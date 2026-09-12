@@ -13,6 +13,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import type { StyleProp, TextStyle, ViewStyle } from 'react-native';
 import { useTheme } from '../theme';
 import type { Palette } from '../theme';
+import { useLook } from '../design/use-look';
 import { haptic } from './haptics';
 import type { HapticTone } from './haptics';
 
@@ -121,6 +122,7 @@ export function Button({
   style,
 }: ButtonProps) {
   const theme = useTheme();
+  const look = useLook();
   const inactive = disabled || loading;
   const v = variantStyle(variant, theme.colors);
   const s = SIZES[size];
@@ -132,8 +134,11 @@ export function Button({
     onPress();
   }, [inactive, hapticTone, variant, onPress]);
 
+  // `type.button`, not `type.label`: a button's word carries a 44pt slab and
+  // both concept mockups set it at 15/600. `label` stays the quiet 13pt row
+  // marker it is everywhere else.
   const labelStyle: TextStyle = {
-    ...(theme.type.label as TextStyle),
+    ...(theme.type.button as TextStyle),
     color: v.foreground,
   };
 
@@ -159,7 +164,7 @@ export function Button({
                 : v.background,
           borderColor: v.border,
           borderWidth: v.border === 'transparent' ? 0 : theme.layout.hairline,
-          borderRadius: theme.radius.xs,
+          borderRadius: look.controlRadius,
           minHeight: s.minHeight,
           paddingHorizontal: s.paddingHorizontal,
           paddingVertical: theme.space.sm,

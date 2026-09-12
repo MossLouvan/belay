@@ -53,9 +53,10 @@ async function pair(page: Page) {
  * drawer that the dock's TOOLS key slides up over the picture.
  */
 async function openTool(page: Page, id: 'agent' | 'terminal' | 'files' | 'system') {
-  await page.getByTestId('open-tools').click();
-  await expect(page.getByTestId('tool-drawer')).toBeVisible();
-  await page.getByTestId(`tool-${id}`).click();
+  // The five-tab bar is the way between surfaces now; the tool drawer it
+  // replaced is still reachable from More controls but is no longer the route
+  // a user — or this suite — takes.
+  await page.getByTestId(`nav-${id}`).click();
 }
 
 test.describe('Belay', () => {
@@ -125,7 +126,9 @@ test.describe('Belay', () => {
     // The remote surface accepts taps (sends a click to the host).
     await page.getByTestId('screen-surface').click({ position: { x: 100, y: 60 } });
 
-    // Arm right-click (a dock button that latches), then a tap sends it.
+    // Arm right-click, then a tap sends it. The one-shot click arms live in
+    // More controls; the dock itself is the three-mode strip.
+    await page.getByTestId('more-controls').click();
     await page.getByTestId('right-click').click();
     await page.getByTestId('screen-surface').click({ position: { x: 120, y: 70 } });
 

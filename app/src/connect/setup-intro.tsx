@@ -33,7 +33,7 @@ interface WelcomeScreenProps {
 }
 
 /** Mascot width, pt. Generous — this screen is the beluga's stage. */
-const MASCOT_SIZE = 200;
+const MASCOT_SIZE = 40;
 
 /** The one easing the app moves on (theme `easing.standard`), as a worklet. */
 const EASE_STANDARD = Easing.bezier(0.2, 0, 0, 1);
@@ -161,7 +161,7 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
           Control your computer from your phone. No cloud, no middleman.
         </Txt>
         <Txt variant="caption" tone="faint" style={{ textAlign: 'center', fontSize: 12 }}>
-          Tap the beluga.
+          Your devices. Your workspace.
         </Txt>
       </Animated.View>
 

@@ -29,7 +29,8 @@ import { AppState, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { WebView as WebViewType } from 'react-native-webview';
 
-import { wsUrl, UnauthorizedError } from '../api';
+import { probeAudioSupport, wsUrl, UnauthorizedError } from '../api';
+import { audioSupportFrom } from './audio-capability';
 import { AUDIO_FRAME_MS } from './webrtc/audio-frames';
 import { AudioReceiver } from './webrtc/audio-stream';
 import { instructionFor } from './audio-output';
@@ -128,6 +129,9 @@ export function HostAudio({ enabled, connected, onStatus }: HostAudioProps) {
     }
 
     const disconnectAudio = connectHostAudio({
+      // Ask before dialling: a host too old to have /ws/audio must say so once,
+      // not reconnect forever behind "connection lost".
+      probeSupport: async () => audioSupportFrom(await probeAudioSupport()),
       getUrl: () => wsUrl('/ws/audio'),
       createSocket: (url) => new WebSocket(url),
       isUnauthorized: (error) => error instanceof UnauthorizedError,

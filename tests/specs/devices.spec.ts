@@ -17,6 +17,13 @@ async function pair(page: Page) {
 }
 
 async function pairFrom(page: Page) {
+  // The first run walks the welcome and how-it-works cards before the address
+  // form; a returning phone lands straight on it. Both paths end on the form.
+  const welcome = page.getByTestId('welcome-continue');
+  if (await welcome.isVisible().catch(() => false)) {
+    await welcome.click();
+    await page.getByTestId('how-it-works-continue').click();
+  }
   await expect(page.getByTestId('host-input')).toBeVisible();
   await page.getByTestId('host-input').fill(HOST);
   await page.getByTestId('check-host').click();
@@ -79,7 +86,7 @@ test.describe('Computer list', () => {
     await pair(page);
 
     await page.goto('/devices');
-    await expect(page.getByText('My computers')).toBeVisible();
+    await expect(page.getByText('Your computers')).toBeVisible();
 
     const store = await readStore(page, STORE_KEY);
     const device = store.devices[0];
@@ -87,7 +94,7 @@ test.describe('Computer list', () => {
     const row = page.getByTestId(`device-${device.id}`);
     await expect(row).toBeVisible();
     // Probed live by racing its addresses, so this is "reached it just now".
-    await expect(page.getByText(/Mac · (Connected|Ready)/)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/^(Connected|Available)$/)).toBeVisible({ timeout: 15000 });
 
     // Tapping it takes control.
     await row.click();
@@ -109,9 +116,9 @@ test.describe('Computer list', () => {
     }, STORE_KEY);
 
     await page.goto('/');
-    await expect(page.getByText('My computers')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText('Your computers')).toBeVisible({ timeout: 20000 });
     // Says what is wrong rather than retrying silently forever.
-    await expect(page.getByText(/Asleep or off/)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText('Offline').first()).toBeVisible({ timeout: 20000 });
     // And the computer is still saved, so recovering does not mean re-pairing.
     const store = await readStore(page, STORE_KEY);
     expect(store.devices).toHaveLength(1);
@@ -124,16 +131,17 @@ test.describe('Computer list', () => {
     // back here, making this button a door that opened onto itself.
     await pair(page);
     await page.goto('/devices');
-    await page.getByRole('button', { name: 'Add a computer' }).click();
+    await page.getByTestId('show-add-computer').click();
 
     await expect(page.getByTestId('host-input')).toBeVisible();
     // Not pre-filled with the machine already paired — the one address that
     // cannot be the answer when adding another.
     await expect(page.getByTestId('host-input')).toHaveValue('');
 
-    // And the way back is explicit, not just the browser's back gesture.
-    await page.getByTestId('cancel-add').click();
-    await expect(page.getByText(/paired · tap one to take control/)).toBeVisible();
+    // And the way back is explicit, not just the browser's back gesture: the
+    // pairing form lives in a sheet now, and the sheet's Close is that way out.
+    await page.getByTestId('sheet-close').click();
+    await expect(page.getByText('Your computers')).toBeVisible();
   });
 
   test('forgetting a computer clears it and offers to add another', async ({ page }) => {
@@ -143,7 +151,10 @@ test.describe('Computer list', () => {
     const store = await readStore(page, STORE_KEY);
     const device = store.devices[0];
 
-    await page.getByLabel(`Forget ${device.label}`).click();
+    // Forget lives behind the card's chevron now, not one thumb-width from
+    // "open this computer" — so reaching it is two taps on purpose.
+    await page.getByTestId(`device-menu-${device.id}`).click();
+    await page.getByTestId('forget-device').click();
     // Confirmed rather than done on the first tap — un-pairing means walking to
     // the machine for a new code, so it should not be one stray touch away.
     await expect(page.getByText(/This phone will be un-paired/)).toBeVisible();
@@ -152,7 +163,7 @@ test.describe('Computer list', () => {
     // Stays on the list and offers the way forward, rather than bouncing the
     // user to a form they did not ask for.
     await expect(page.getByText('No computers yet')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole('button', { name: 'Add a computer' })).toBeVisible();
+    await expect(page.getByTestId('add-a-computer')).toBeVisible();
 
     const after = await readStore(page, STORE_KEY);
     expect(after.devices).toHaveLength(0);

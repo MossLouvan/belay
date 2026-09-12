@@ -61,7 +61,7 @@ interface Root {
 /** The panel route: the unchanged tab body inside the shared slide-up chrome. */
 export default function FilesPanel() {
   return (
-    <ToolPanel testID="files-panel">
+    <ToolPanel tab="files" testID="files-panel">
       <FilesTab />
     </ToolPanel>
   );
@@ -272,7 +272,7 @@ function FilesTab() {
     <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top + theme.space.md }}>
       <View style={{ paddingHorizontal: margin }}>
         <Row justify="space-between" align="flex-end" gap="sm">
-          <Txt variant="title" heading>
+          <Txt variant="display" heading>
             Files
           </Txt>
           {/* Quiet tracked labels, not accent: this screen's one accented

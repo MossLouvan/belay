@@ -14,12 +14,14 @@
 
 import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useTheme } from '../theme';
 import { Button, IconButton, Input, Label, Row, Rule, TrackLabel, Txt, haptic } from '../ui';
 import {
   EXAMPLE_TAILSCALE_ADDRESS,
   TAILSCALE_PREFIX,
   addressFeedback,
+  normalizePastedAddress,
 } from './address-input';
 import type { FeedbackTone } from './address-input';
 import { TailscaleIpExample } from './tailscale-ip-example';
@@ -124,19 +126,53 @@ export function AddressEntry({
 }: AddressEntryProps) {
   const theme = useTheme();
   const [showWhere, setShowWhere] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
+
+  /** Any edit clears a stale paste failure — the slot is the feedback line. */
+  const onType = useCallback(
+    (next: string) => {
+      setPasteError(null);
+      onChangeText(next);
+    },
+    [onChangeText]
+  );
 
   const startWithPrefix = useCallback(() => {
     haptic('light');
-    onChangeText(TAILSCALE_PREFIX);
-  }, [onChangeText]);
+    onType(TAILSCALE_PREFIX);
+  }, [onType]);
 
+  /**
+   * Paste, the way the owner actually gets here: copy in Tailscale, tap this.
+   *
+   * It used to `await import('expo-clipboard')` and destructure a `default`
+   * export off it. That module has none — it is a namespace of named exports —
+   * so `Clipboard` was `undefined`, every tap threw
+   * `undefined.getStringAsync` into an empty catch, and the button did
+   * nothing at all, silently, on every platform. The namespace import here is
+   * the same shape src/files/clipboard.ts has always used and which works.
+   *
+   * Whatever comes back is then normalised (a full URL, a trailing newline, a
+   * quoted line, a `:8787` already on it), and a genuine failure — an empty
+   * clipboard, a denied browser or iOS paste prompt — says so in the field's
+   * own feedback slot instead of vanishing.
+   */
   const handlePaste = useCallback(async () => {
+    setPasteError(null);
     try {
-      const { default: Clipboard } = await import('expo-clipboard');
       const text = await Clipboard.getStringAsync();
-      if (text) onChangeText(text);
+      const next = normalizePastedAddress(text ?? '');
+      if (!next) {
+        setPasteError('Nothing to paste — copy the address in Tailscale first.');
+        return;
+      }
+      haptic('light');
+      onChangeText(next);
     } catch {
-      // Clipboard unavailable or denied; the field's own paste still works.
+      // The clipboard module is missing from this build, or the OS refused
+      // the read. Either way the field's own long-press paste still works,
+      // and saying so beats a button that looks broken.
+      setPasteError('Could not read the clipboard. Long-press the field and choose Paste.');
     }
   }, [onChangeText]);
 
@@ -157,7 +193,7 @@ export function AddressEntry({
           label="Computer address"
           size="lg"
           value={value}
-          onChangeText={onChangeText}
+          onChangeText={onType}
           placeholder={EXAMPLE_TAILSCALE_ADDRESS}
           mono
           autoFocus={autoFocus}
@@ -183,7 +219,13 @@ export function AddressEntry({
             </IconButton>
           }
         />
-        <FeedbackLine value={value} onStartWithPrefix={startWithPrefix} />
+        {pasteError ? (
+          <View accessibilityLiveRegion="polite">
+            <Txt variant="label" tone="bad" testID="paste-error">{pasteError}</Txt>
+          </View>
+        ) : (
+          <FeedbackLine value={value} onStartWithPrefix={startWithPrefix} />
+        )}
       </View>
 
       <Button

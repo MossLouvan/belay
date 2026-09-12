@@ -22,7 +22,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { getTheme, layout, motion, radius, space } from '../theme';
+import { getTheme, layout, motion, radius, space, useTheme } from '../theme';
 import { Contours } from './contours';
 import { haptic } from './haptics';
 import { Micro, Txt } from './text';
@@ -78,7 +78,13 @@ export function GlassState({
   style,
   testID,
 }: GlassStateProps) {
+  // Text and hairlines draw on the true-dark machine surface in both themes,
+  // so their inks come from the dark palette. The ACTION is the exception: it
+  // is the one saturated mark on the panel and it must be the appearance the
+  // user actually chose — before this, a Retry on Current's light, blue app
+  // came up in Fieldwork's orange, because the dark palette IS Fieldwork.
   const ink = getTheme('dark').colors;
+  const app = useTheme().colors;
 
   return (
     <View testID={testID} style={[styles.fill, style]}>
@@ -122,14 +128,14 @@ export function GlassState({
               borderRadius: radius.xs,
               // Solid fills darken under load (§3.1 `accentPress`); the label
               // still dips via pressOpacity so text feedback stays uniform.
-              backgroundColor: pressed ? ink.accentPress : ink.accent,
+              backgroundColor: pressed ? app.accentPress : app.accent,
               marginTop: space.xxs,
             })}
           >
             {({ pressed }) => (
               <Txt
                 variant="label"
-                color={ink.onAccent}
+                color={app.onAccent}
                 style={{ opacity: pressed ? motion.pressOpacity : 1 }}
               >
                 {action.label}

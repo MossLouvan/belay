@@ -1,172 +1,62 @@
-// "My Computers" — pick which machine to control.
+// "Your computers" — pick which machine to control.
 //
 // This is the screen the whole multi-computer model exists for: open the app,
 // see the Mac and the Windows PC, tap one, and it connects. No addresses, no
 // pairing codes, no walking to the machine.
 //
-// Sweep anatomy (Next Terminal): title, a mono status line, the header rule,
-// then each machine as its own clean bordered Card row — name, one dim status
-// line, a small status dot, a tracked FORGET. The active computer carries the
-// soft accent fill, the reference's sidebar-active treatment. Advisories are
-// subtle bordered cards with a 2pt status edge, never saturated fills.
+// Drawn from the two concept mockups in output/design-concepts-2026-09-11/:
+// masthead, page title, a short stack of computer cards, the Add computer row,
+// and the five-tab bar. Everything that used to live on the page between those
+// — the tailnet look-around, the "connected over" readout, Refresh, the
+// forget-explains-itself caption — moved into the two sheets this screen owns.
+// They are all still one tap away; none of them is the first thing you see.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { router } from 'expo-router';
 
-import {
-  Screen, Row, Heading, Label, Caption, Txt, Button, IconButton, Card,
-  EmptyState, LedgerRow, Rule, Sheet, TrackLabel, haptic, StatusBadge, Micro,
-} from '../src/ui';
+import { Screen, Caption, Txt, Button, Row, Sheet, haptic } from '../src/ui';
 import { useAgentAttention } from '../src/agent/attention-store';
 import { fleetLine } from '../src/agent/fleet-line';
-import type { FleetLine } from '../src/agent/fleet-line';
 import { StatusNotice } from '../src/devices/notice';
 import { useTheme } from '../src/theme';
+import { useLook } from '../src/design/use-look';
 import { useConnection } from '../src/connection';
 import { isReachableFromAnywhere } from '../src/devices/model';
 import type { SavedDevice } from '../src/devices/model';
 import { useReachability } from '../src/devices/reachability';
-import type { Reachability } from '../src/devices/reachability';
 import { useAutoReconnect } from '../src/devices/use-auto-reconnect';
 import { DiscoveredSection } from '../src/devices/discovered-section';
 import { AddComputer } from '../src/devices/add-computer';
-
-/** How a platform is described in the list. */
-function platformLabel(device: SavedDevice): string {
-  if (device.platform === 'darwin') return 'Mac';
-  if (device.platform === 'win32') return 'Windows';
-  return 'Computer';
-}
-
-function statusLabel(state: Reachability | undefined): string | null {
-  if (state === 'online') return 'Online';
-  if (state === 'offline') return 'Offline';
-  return null; // checking state
-}
-
-function statusText(state: Reachability | undefined, isActive: boolean): string {
-  if (state === 'checking' || state === undefined) return 'Checking…';
-  if (state === 'offline') return 'Asleep or off';
-  return isActive ? 'Connected' : 'Ready';
-}
-
-/**
- * One saved computer as a clean bordered card row: status dot, name, one dim
- * status line, a tracked FORGET. The active computer's card takes the soft
- * accent fill — the reference's sidebar-active treatment — and nothing else
- * on the row carries colour beyond the small dot.
- */
-function DeviceCard({
-  device,
-  isActive,
-  connected,
-  state,
-  disabled,
-  agents,
-  onPick,
-  onForget,
-  onOpenAgent,
-}: {
-  device: SavedDevice;
-  isActive: boolean;
-  connected: boolean;
-  state: Reachability | undefined;
-  disabled: boolean;
-  /** Live agent readout for this computer; null renders nothing at all. */
-  agents: FleetLine | null;
-  onPick: () => void;
-  onForget: () => void;
-  onOpenAgent: () => void;
-}) {
-  const theme = useTheme();
-  const subtitle = `${platformLabel(device)} · ${statusText(state, connected)}`;
-
-  return (
-    <Card
-      flush
-      style={{
-        overflow: 'hidden',
-        backgroundColor: isActive ? theme.colors.accentSoft : theme.colors.surface,
-      }}
-    >
-      {/* Pressable row + trailing control as siblings: nesting the FORGET
-          button inside the row's Pressable is invalid HTML on web and double
-          fires on native (same split ListItem uses). */}
-      <Row gap="sm" style={{ paddingLeft: theme.space.md, paddingRight: theme.space.md }}>
-        <Pressable
-          testID={`device-${device.id}`}
-          accessibilityRole="button"
-          accessibilityLabel={`${device.label}, ${subtitle}`}
-          accessibilityHint={`Control ${device.label}`}
-          accessibilityState={{ disabled, selected: isActive }}
-          disabled={disabled}
-          onPress={onPick}
-          style={({ pressed }) => ({
-            flex: 1,
-            minHeight: theme.layout.rowHeight,
-            justifyContent: 'center',
-            paddingVertical: theme.space.sm,
-            opacity: disabled ? 0.45 : pressed ? theme.motion.pressOpacity : 1,
-          })}
-        >
-          <View style={{ flex: 1, gap: 4 }}>
-            <Row gap="xs" align="center">
-              <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>{device.label}</Txt>
-              {statusLabel(state) ? <StatusBadge label={statusLabel(state)!} variant="quiet" /> : null}
-            </Row>
-            <Txt variant="caption" tone="dim" numberOfLines={1}>{subtitle}</Txt>
-          </View>
-        </Pressable>
-        <TrackLabel
-          label="Forget"
-          accessibilityLabel={`Forget ${device.label}`}
-          onPress={onForget}
-        />
-      </Row>
-      {/* The agent readout — what Claude is doing on this computer right now.
-          Its own row under the card, not inside the pick Pressable (nesting
-          would double-fire); a tap lands on that computer's Agent surface
-          directly. Absent entirely when there is nothing to say. */}
-      {agents ? (
-        <Pressable
-          testID={`device-agents-${device.id}`}
-          accessibilityRole="button"
-          accessibilityLabel={`Agent on ${device.label}: ${agents.text.toLowerCase()}`}
-          accessibilityHint="Opens the Agent tab for this computer"
-          onPress={() => {
-            haptic('light');
-            onOpenAgent();
-          }}
-          style={({ pressed }) => ({
-            minHeight: theme.layout.minTouch,
-            justifyContent: 'center',
-            paddingHorizontal: theme.space.md,
-            borderTopWidth: theme.layout.hairline,
-            borderTopColor: theme.colors.border,
-            opacity: pressed ? theme.motion.pressOpacity : 1,
-          })}
-        >
-          <Micro testID={`device-agents-line-${device.id}`} tone={agents.warn ? 'accent' : 'dim'} numberOfLines={1}>
-            {agents.text}
-          </Micro>
-        </Pressable>
-      ) : null}
-    </Card>
-  );
-}
+import { AddComputerRow } from '../src/devices/add-computer-row';
+import { DeviceCard } from '../src/devices/device-card';
+import { DevicesHeader } from '../src/devices/devices-header';
+import { EmptyComputers } from '../src/devices/empty-computers';
+import { ThemeToggle } from '../src/settings/theme-toggle';
+import { AppearanceNav } from '../src/home/appearance-nav';
+import { useDevicePreviews } from '../src/home/use-device-previews';
+import { forgetPreview } from '../src/home/preview-store';
 
 export default function Devices() {
   const theme = useTheme();
+  const look = useLook();
   const { devices, active, addDevice, switchTo, forget, reconnect, phase, activeUrl } = useConnection();
   // The attention store is host-scoped (reset on switch), so its counts
   // describe exactly one computer: the connected one. Every other card gets
   // null and shows no line — no "0 running", no placeholder.
   const { sessions: agentSessions, discovered: agentDiscovered, hooks: agentHooks } = useAgentAttention();
   const agents = phase === 'connected' ? fleetLine(agentSessions, agentDiscovered, agentHooks) : null;
-  const { byId, refresh } = useReachability(devices);
+  const { byId, urlById, refresh } = useReachability(devices);
+  // Desktop thumbnails for the cards. Fetches only for computers this screen
+  // just proved reachable, only while it is on screen, and only when the
+  // picture it holds is missing or a minute old — see src/home/use-device-previews.
+  useDevicePreviews({ devices, byId, urlById });
 
   const [pendingForget, setPendingForget] = useState<SavedDevice | null>(null);
+  /** The computer whose settings sheet is open, if any. */
+  const [details, setDetails] = useState<SavedDevice | null>(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [addingOpen, setAddingOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   /** Bumped by Refresh so the tailnet look-around re-runs with the probes. */
   const [discoveryNonce, setDiscoveryNonce] = useState(0);
@@ -195,6 +85,7 @@ export default function Devices() {
    * the same as a full pairing there.
    */
   const onDiscoveredAdd = useCallback(async (device: SavedDevice) => {
+    setAddingOpen(false);
     await addDevice(device);
     router.replace('/(home)/screen');
   }, [addDevice]);
@@ -222,148 +113,72 @@ export default function Devices() {
     if (!pendingForget) return;
     const id = pendingForget.id;
     setPendingForget(null);
+    // Drop the picture of its desktop in the same breath as the token. A
+    // forgotten computer must not leave a photograph of itself in memory.
+    forgetPreview(id);
     await forget(id);
   }, [pendingForget, forget]);
-
-  const margin = theme.layout.margin;
-
-  if (devices.length === 0) {
-    return (
-      <Screen padding="page">
-        <View style={{ paddingTop: theme.space.md }}>
-          <Row justify="space-between" align="flex-end" gap="sm">
-            <Heading>My computers</Heading>
-            {router.canGoBack() ? (
-              <IconButton
-                accessibilityLabel="Back"
-                variant="plain"
-                onPress={() => router.back()}
-              >
-                <Txt variant="title" tone="dim">{'‹'}</Txt>
-              </IconButton>
-            ) : null}
-          </Row>
-          <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
-          <EmptyState
-            title="No computers yet"
-            message="Run the Belay host agent on your Mac or Windows PC, then type its address below."
-          />
-          <AddComputer heading={false} />
-        </View>
-      </Screen>
-    );
-  }
 
   // Only ever shown when at least one computer cannot survive an address
   // change: LAN addresses are an optimization, not somewhere you can come back
   // to from outside the house.
   const lanOnly = devices.filter((d) => !isReachableFromAnywhere(d));
 
-  return (
-    <Screen scroll padding="page">
-      <View style={{ paddingTop: theme.space.md, gap: theme.space.lg }}>
-        <View>
-          <Row justify="space-between" align="flex-end" gap="sm">
-            <Heading>My computers</Heading>
-            {/* Now that every tab header links here, arriving by push is the
-                normal case — and the swipe-back gesture needs its visible
-                twin (docs/DESIGN.md §11.2). ‹ alone is sanctioned in this
-                corner (§11.1). */}
-            {router.canGoBack() ? (
-              <IconButton
-                testID="devices-back"
-                accessibilityLabel="Back"
-                variant="plain"
-                onPress={() => router.back()}
-              >
-                <Txt variant="title" tone="dim">{'‹'}</Txt>
-              </IconButton>
-            ) : null}
-          </Row>
-          <Label style={{ marginTop: theme.space.xxs, marginBottom: 0 }}>
-            {`${devices.length} paired · tap one to take control`}
-          </Label>
-          <Rule bleed={margin} style={{ marginTop: theme.space.md }} />
+  const sheets = (
+    <>
+      <Sheet visible={optionsOpen} onClose={() => setOptionsOpen(false)} title="Options" testID="appearance-sheet">
+        <View style={{ gap: theme.space.md }}>
+          <View>
+            <Caption style={{ marginBottom: theme.space.sm }}>
+              Current is light and clear. Fieldwork is dark and tactile.
+            </Caption>
+            <ThemeToggle testID="appearance-picker" />
+          </View>
+          {activeUrl && phase === 'connected' ? (
+            <Caption testID="connected-over">{`Connected over ${describeUrl(activeUrl)}.`}</Caption>
+          ) : null}
+          <Button label="Check again" testID="refresh-devices" variant="secondary" fullWidth onPress={() => { refreshAll(); setOptionsOpen(false); }} />
         </View>
+      </Sheet>
 
-        {active && (phase === 'unreachable' || (keepTrying && phase === 'connecting')) ? (
-          keepTrying ? (
-            <StatusNotice
-              testID="reconnect-banner"
-              status="warn"
-              title={`Reconnecting to ${active.label}…`}
-              message={
-                `Belay keeps trying and will connect the moment it wakes${
-                  reconnectAttempts > 0 ? ` · attempt ${reconnectAttempts}` : ''
-                }.`
-              }
-              action={{ label: 'Stop', onPress: () => setKeepTrying(false) }}
-            />
-          ) : (
-            <StatusNotice
-              testID="unreachable-banner"
-              status="bad"
-              title={`Could not reach ${active.label}`}
-              message="It may be asleep, powered off, or on a network this phone cannot see. Belay can keep trying and connect the moment it wakes."
-              action={{ label: 'Keep trying', onPress: () => { haptic('light'); setKeepTrying(true); } }}
-            />
-          )
-        ) : null}
-
-        <View style={{ gap: theme.space.sm }}>
-          {devices.map((device) => (
-            <DeviceCard
-              key={device.id}
-              device={device}
-              isActive={active?.id === device.id}
-              connected={active?.id === device.id && phase === 'connected'}
-              state={byId[device.id]}
-              disabled={switching !== null}
-              agents={active?.id === device.id ? agents : null}
-              onPick={() => void onPick(device)}
-              onForget={() => setPendingForget(device)}
-              onOpenAgent={() => router.navigate('/agent')}
-            />
-          ))}
-        </View>
-
-        {isActiveConnected(phase) && activeUrl ? (
-          <LedgerRow label="Connected over" value={describeUrl(activeUrl)} valueTone="dim" rule={false} />
-        ) : null}
-
-        {/* The connected computer can see the rest of the tailnet, so adding
-            the other machine becomes one tap instead of typing an address. */}
-        <DiscoveredSection
-          saved={devices}
-          connected={isActiveConnected(phase)}
-          viaLabel={active?.label ?? 'your computer'}
-          nonce={discoveryNonce}
-          onAdd={onDiscoveredAdd}
-        />
-
-        {lanOnly.length > 0 ? (
-          <StatusNotice
-            status="warn"
-            title={lanOnly.length === 1
-              ? `${lanOnly[0].label} only works on your home network`
-              : 'Some computers only work on your home network'}
-            message={
-              'Their addresses change, and this phone cannot ask for the new one from ' +
-              'outside. Install Tailscale on both to reach them from anywhere.'
-            }
+      <Sheet visible={addingOpen} onClose={() => setAddingOpen(false)} title="Add computer" testID="add-computer-sheet">
+        <View style={{ gap: theme.space.md }}>
+          <AddComputer heading={false} />
+          {/* The connected computer can see the rest of the tailnet, so adding
+              the other machine becomes one tap instead of typing an address.
+              It belongs in this sheet, not on the list: it is an add path. */}
+          <DiscoveredSection
+            saved={devices}
+            connected={phase === 'connected'}
+            viaLabel={active?.label ?? 'your computer'}
+            nonce={discoveryNonce}
+            onAdd={onDiscoveredAdd}
           />
-        ) : null}
+        </View>
+      </Sheet>
 
-        <AddComputer />
-
-        <Row gap="sm" justify="flex-end">
-          <Button label="Refresh" variant="ghost" onPress={refreshAll} />
-        </Row>
-
-        <Caption>
-          Forgetting a computer un-pairs this phone from it; the host keeps running.
-        </Caption>
-      </View>
+      <Sheet
+        visible={details !== null}
+        onClose={() => setDetails(null)}
+        title={details?.label ?? 'Computer'}
+        testID="device-sheet"
+      >
+        <View style={{ gap: theme.space.md }}>
+          <Caption>
+            {details && activeUrl && active?.id === details.id && phase === 'connected'
+              ? `Connected over ${describeUrl(activeUrl)}.`
+              : 'Belay reaches this computer at whichever of its saved addresses answers first.'}
+          </Caption>
+          <Button
+            label="Forget this computer"
+            accessibilityLabel={details ? `Forget ${details.label}` : 'Forget this computer'}
+            testID="forget-device"
+            variant="secondary"
+            fullWidth
+            onPress={() => { const d = details; setDetails(null); setPendingForget(d); }}
+          />
+        </View>
+      </Sheet>
 
       <Sheet
         visible={pendingForget !== null}
@@ -385,12 +200,91 @@ export default function Devices() {
           </Row>
         </View>
       </Sheet>
-    </Screen>
+    </>
   );
-}
 
-function isActiveConnected(phase: string): boolean {
-  return phase === 'connected';
+  if (devices.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+        <EmptyComputers onAdd={() => setAddingOpen(true)} onOpenOptions={() => setOptionsOpen(true)} />
+        {sheets}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      <Screen scroll padding="page" contentStyle={{ paddingBottom: theme.space.xl }}>
+        <View style={{ gap: theme.space.lg }}>
+          <DevicesHeader onAdd={() => setAddingOpen(true)} onOpenOptions={() => setOptionsOpen(true)} />
+
+          <View style={{ marginBottom: look.titleGap }}>
+            <Txt variant="display" heading>{look.devicesTitle}</Txt>
+            {look.devicesSubtitle ? (
+              <Txt variant="body" tone="dim" style={{ marginTop: 2 }}>{look.devicesSubtitle}</Txt>
+            ) : null}
+          </View>
+
+          {active && (phase === 'unreachable' || (keepTrying && phase === 'connecting')) ? (
+            keepTrying ? (
+              <StatusNotice
+                testID="reconnect-banner"
+                status="warn"
+                title={`Reconnecting to ${active.label}…`}
+                message={
+                  `Belay keeps trying and will connect the moment it wakes${
+                    reconnectAttempts > 0 ? ` · attempt ${reconnectAttempts}` : ''
+                  }.`
+                }
+                action={{ label: 'Stop', onPress: () => setKeepTrying(false) }}
+              />
+            ) : (
+              <StatusNotice
+                testID="unreachable-banner"
+                status="bad"
+                title={`Could not reach ${active.label}`}
+                message="It may be asleep, powered off, or on a network this phone cannot see. Belay can keep trying and connect the moment it wakes."
+                action={{ label: 'Keep trying', onPress: () => { haptic('light'); setKeepTrying(true); } }}
+              />
+            )
+          ) : null}
+
+          <View style={{ gap: theme.space.sm }}>
+            {devices.map((device) => (
+              <DeviceCard
+                key={device.id}
+                device={device}
+                isActive={active?.id === device.id}
+                connected={active?.id === device.id && phase === 'connected'}
+                state={byId[device.id]}
+                disabled={switching !== null}
+                agents={active?.id === device.id ? agents : null}
+                onPick={() => void onPick(device)}
+                onOpenDetails={() => setDetails(device)}
+                onOpenAgent={() => router.navigate('/agent')}
+              />
+            ))}
+            <AddComputerRow onPress={() => setAddingOpen(true)} />
+          </View>
+
+          {lanOnly.length > 0 ? (
+            <StatusNotice
+              status="warn"
+              title={lanOnly.length === 1
+                ? `${lanOnly[0].label} only works on your home network`
+                : 'Some computers only work on your home network'}
+              message={
+                'Their addresses change, and this phone cannot ask for the new one from ' +
+                'outside. Install Tailscale on both to reach them from anywhere.'
+              }
+            />
+          ) : null}
+        </View>
+      </Screen>
+      <AppearanceNav selected="screen" />
+      {sheets}
+    </View>
+  );
 }
 
 /** Human description of which path is in use, without showing a raw URL. */

@@ -2,10 +2,12 @@
 // button and the auto-hide that tucks the floating bar
 // away while immersive. The decisions are pure (screen-chrome.ts).
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Animated } from 'react-native';
 import { useTheme } from '../theme';
 import { useToggleAnimation } from '../ui';
+import { NO_MODE_CHOICES, rememberMode, resolveMode } from './pointer-mode-policy';
+import type { ModeChoices } from './pointer-mode-policy';
 import { dockAutoHides, toggleArmedButton } from './screen-chrome';
 import { useAutoHide } from './useAutoHide';
 import type { AutoHide } from './useAutoHide';
@@ -14,10 +16,14 @@ import type { PendingButton, PointerMode } from './viewport';
 export interface DockStateInputs {
   readonly immersive: boolean;
   readonly typeOpen: boolean;
+  /** Sideways: the pointer mode defaults to the trackpad (pointer-mode-policy.ts). */
+  readonly landscape: boolean;
 }
 
 export interface DockState {
+  /** The mode in force: this orientation's explicit choice, else its default. */
   readonly mode: PointerMode;
+  /** Records a deliberate pick against the orientation it was made in. */
   readonly setMode: (mode: PointerMode) => void;
   /** The armed one-shot button override (right-/double-click). */
   readonly button: PendingButton;
@@ -30,9 +36,18 @@ export interface DockState {
   readonly dockOpacity: Animated.Value;
 }
 
-export function useDockState({ immersive, typeOpen }: DockStateInputs): DockState {
+export function useDockState({ immersive, typeOpen, landscape }: DockStateInputs): DockState {
   const theme = useTheme();
-  const [mode, setMode] = useState<PointerMode>('touch');
+  // What one finger does is remembered PER ORIENTATION, not globally: upright
+  // the phone is a picture you poke (Touch), sideways it is a laptop (Pad).
+  // Rotating therefore lands on the right default without ever overriding a
+  // mode the user actually chose in that grip — see pointer-mode-policy.ts.
+  const [choices, setChoices] = useState<ModeChoices>(NO_MODE_CHOICES);
+  const mode = useMemo(() => resolveMode(choices, landscape), [choices, landscape]);
+  const setMode = useCallback(
+    (next: PointerMode) => setChoices((current) => rememberMode(current, landscape, next)),
+    [landscape],
+  );
   const [button, setButton] = useState<PendingButton>('none');
 
   // While immersive (portrait fullscreen OR landscape) the floating dock

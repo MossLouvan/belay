@@ -1,15 +1,26 @@
-// The portrait header block over the desktop: the leading ‹, the mascot,
-// the host's name, the ⋯ menu, and the one status line under them.
-// Landscape and fullscreen show none of this — the HUD (immersive-hud.tsx)
-// carries the mascot and the connected pill instead.
+// The portrait header over the desktop, drawn two ways.
+//
+// The concept mockups disagree here on purpose and both are honoured:
+//
+//   Current   ‹ Computers · ⋯          a back row with the destination named,
+//             Moss's PC                then the host as a display-size title,
+//             ● Connected              with the link state on its own line.
+//
+//   Fieldwork ‹   Moss's PC   ⋯        one compact centred bar; the link state
+//                 ● Connected          rides under the title inside it.
+//
+// Landscape and fullscreen show none of this — the immersive HUD carries the
+// mascot and the connected pill instead.
 
 import React from 'react';
 import { View } from 'react-native';
+import { IconChevronLeft, IconDots } from '@tabler/icons-react-native';
 import { useTheme } from '../theme';
-import { BelugaAvatar, ConnectionStatus, IconButton, Row, Txt } from '../ui';
+import { useLook } from '../design/use-look';
+import { Row, Txt } from '../ui';
+import { RoundButton } from '../ui/round-button';
+import { StatusLine } from './status-line';
 import type { ConnectPhase } from '../connection';
-import { SwitchComputerLink } from '../devices/switch-link';
-import { DotsGlyph } from './parts';
 import { headerTitle } from './screen-chrome';
 
 export interface ScreenHeaderProps {
@@ -21,65 +32,71 @@ export interface ScreenHeaderProps {
   readonly onOpenMenu: () => void;
 }
 
-export function ScreenHeader({ hostName, linkPhase, mascotLabel, onMascotPress, onBack, onOpenMenu }: ScreenHeaderProps) {
+export function ScreenHeader({ hostName, linkPhase, onBack, onOpenMenu }: ScreenHeaderProps) {
   const theme = useTheme();
-  return (
-    <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
-      <Row justify="space-between" gap="sm">
-        <Row gap="sm" align="center" style={{ flexShrink: 1 }}>
-          {/* ‹ alone is sanctioned in this leading corner (docs/DESIGN.md
-              §11.1) — the same mark the computers list and the agent
-              pages use — and it is the visible twin of the swipe-back
-              this route no longer has. It returns to the computers
-              list, or the pairing flow when nothing is paired. */}
-          <IconButton
-            testID="screen-back"
-            accessibilityLabel="Back to my computers"
-            variant="plain"
-            onPress={onBack}
-          >
-            <Txt variant="title" tone="dim">{'\u2039'}</Txt>
-          </IconButton>
-          {/* The beluga lives here too — the same mascot the welcome hero
-              and the fullscreen HUD carry, so the identity never appears
-              and vanishes between states. Its water is the hero ground,
-              and its tap is the orientation latch (plus the flip). */}
-          <BelugaAvatar
-            testID="screen-beluga-avatar"
-            size={36}
-            backgroundColor={theme.colors.heroBg}
-            accessibilityLabel={mascotLabel}
-            onPress={onMascotPress}
-          />
-          <Txt
-            variant="title"
-            heading
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.6}
-            style={{ flexShrink: 1 }}
-          >
-            {headerTitle(hostName)}
-          </Txt>
+  const look = useLook();
+  const title = headerTitle(hostName);
+
+  const back = (
+    <RoundButton
+      testID="screen-back"
+      accessibilityLabel="Back to my computers"
+      variant="plain"
+      onPress={onBack}
+    >
+      <IconChevronLeft size={24} strokeWidth={2.2} color={theme.colors.text} />
+    </RoundButton>
+  );
+  const menu = (
+    <RoundButton
+      testID="screen-menu"
+      accessibilityLabel="Screen options"
+      variant={look.headerAction === 'add' ? 'filled' : 'outline'}
+      onPress={onOpenMenu}
+    >
+      <IconDots size={20} strokeWidth={2} color={look.headerAction === 'add' ? theme.colors.accent : theme.colors.textDim} />
+    </RoundButton>
+  );
+
+  if (!look.screenTitleLarge) {
+    // Fieldwork: one compact bar, title centred between the two controls.
+    return (
+      <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.xs, paddingBottom: theme.space.sm }}>
+        <Row justify="space-between" align="center" gap="sm">
+          {back}
+          <View style={{ flex: 1, alignItems: 'center', gap: 2 }}>
+            <Txt variant="subheading" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {title}
+            </Txt>
+            <StatusLine testID="screen-connection" phase={linkPhase} />
+          </View>
+          {menu}
         </Row>
-        <IconButton
-          testID="screen-menu"
-          accessibilityLabel="Screen options"
-          variant="plain"
-          onPress={onOpenMenu}
-        >
-          <DotsGlyph color={theme.colors.textDim} />
-        </IconButton>
+      </View>
+    );
+  }
+
+  // Current: named back row, then the host as the page's display title.
+  return (
+    <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.xs, paddingBottom: theme.space.sm }}>
+      <Row justify="space-between" align="center" gap="sm">
+        <Row gap="none" align="center" style={{ flexShrink: 1, marginLeft: -8 }}>
+          {back}
+          <Txt variant="body" numberOfLines={1}>{look.backLabel}</Txt>
+        </Row>
+        {menu}
       </Row>
-      {/* The one status line (§8): the shared link words, with the way
-          out trailing. Stream detail lives on the glass and in the HUD —
-          the header never restates it. */}
-      <ConnectionStatus
-        testID="screen-connection"
-        phase={linkPhase}
-        trailing={<SwitchComputerLink />}
-        style={{ marginTop: theme.space.xxs }}
-      />
+      <Txt
+        variant="display"
+        heading
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+        style={{ marginTop: theme.space.xs }}
+      >
+        {title}
+      </Txt>
+      <StatusLine testID="screen-connection" phase={linkPhase} style={{ marginTop: 2 }} />
     </View>
   );
 }
