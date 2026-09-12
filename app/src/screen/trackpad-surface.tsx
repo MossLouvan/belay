@@ -12,6 +12,12 @@
 // the navigator's native swipe-back cancels touches from outside the responder
 // system, so it is switched off on the desktop route (app/app/_layout.tsx).
 //
+// It is mounted whether or not a picture has arrived. The panel-state guidance
+// is clipped to the stage rectangle it explains, so the well below it is the
+// pad's; a host whose screen-recording permission is off keeps that guidance up
+// for the whole session, and the founder still expects to find a trackpad.
+// `padMounted` / `padRect` in ./trackpad.ts own both decisions.
+//
 // The two appearances advertise the surface differently and the mockups are
 // explicit about it: Current writes "Swipe to move cursor" across the empty
 // well, Fieldwork says nothing and instead gives the pad a faint dot texture
@@ -25,7 +31,7 @@ import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
 import { Txt } from '../ui';
 import { FILL } from './parts';
-import { padGapBelow, showsPadHint } from './trackpad';
+import { padGapBelow, padRect, showsPadHint } from './trackpad';
 import { PadTexture } from './pad-dots';
 
 export interface TrackpadSurfaceProps {
@@ -44,6 +50,7 @@ export function TrackpadSurface({ handlers, boxH, stageH, immersive, testID }: T
   const theme = useTheme();
   const look = useLook();
   const roomy = showsPadHint(padGapBelow(boxH, stageH), immersive);
+  const rect = padRect(boxH, stageH);
 
   return (
     <View
@@ -52,8 +59,8 @@ export function TrackpadSurface({ handlers, boxH, stageH, immersive, testID }: T
       {...handlers}
       style={immersive ? FILL : {
         position: 'absolute',
-        top: stageH + 72,
-        bottom: 8,
+        top: rect.top,
+        bottom: rect.bottom,
         left: 0,
         right: 0,
         borderRadius: look.cardRadius,
