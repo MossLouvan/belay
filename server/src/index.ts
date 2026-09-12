@@ -68,6 +68,7 @@ import { createCursorHub } from './cursor-channel.js';
 import { createInputFloor, denialBody, isLocalActivity } from './input-floor.js';
 import type { FloorDenied } from './input-floor.js';
 import { registerImageRoutes } from './image-routes.js';
+import { registerThumbnailRoutes } from './thumbnail.js';
 import { handleAudioSocket, registerAudioRoutes } from './audio-routes.js';
 import { productEnv } from './env.js';
 import { webrtcEnabled } from './webrtc/flag.js';
@@ -876,6 +877,10 @@ app.post('/devices/revoke', auth, (req, res) => {
   // A revoked device must lose its live screen and terminal too, not just its
   // ability to open new ones.
   if (ok) for (const [ws, tok] of liveSockets) if (tok.startsWith(prefix)) ws.close(4001, 'device revoked');
+  // …and the held still, for the same reason. A picture of the desktop taken
+  // for a device that just lost its token must not be handed to the next
+  // caller out of a cache the revoke did not reach.
+  if (ok) screenThumbnails.forget();
   res.json({ ok });
 });
 
@@ -1019,6 +1024,14 @@ registerHookRoutes(app, auth, {
 });
 registerTranscriptRoutes(app, auth);
 registerImageRoutes(app, auth);
+// One still of the desktop, for the phone's list of computers. Deliberately
+// registered beside the other capture surfaces and behind the same `auth`:
+// a single frame is the same privilege as sixty a second. See thumbnail.ts
+// for the coalescing that keeps it from competing with a live stream.
+const screenThumbnails = registerThumbnailRoutes(app, auth, {
+  capture: (width, quality) => native.capture(width, quality, false),
+  ready: () => native.available() && native.isReady(),
+});
 // Audio routes are always registered: the native helpers support audio capture
 // in the default build (not gated by BELAY_WEBRTC_BUILD), so the REST and WS
 // surface is always available. The phone toggles audio on-demand per session.

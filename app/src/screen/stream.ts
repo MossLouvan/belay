@@ -10,6 +10,7 @@ import { gamingQuality } from '../gamepad/presets';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { checkHost, getConnection, wsUrl, UnauthorizedError } from '../api';
+import { flushStreamFrames, rememberStreamFrame } from '../home/preview-store';
 import { ReattachLink, shouldReattachOnForeground } from '../foreground';
 import { buildConfigMessage, messageOf, QualityPreset, STREAM, VirtualRequest } from './model';
 import { PROBE_INTERVAL_MS, shouldProbeDuringBackoff } from './retry';
@@ -401,6 +402,13 @@ export function useScreenStream(
       c.sourceWidth = frame.sw;
       c.sourceHeight = frame.sh;
       setFrameUri(`data:image/jpeg;base64,${frame.data}`);
+      // The seam the Computers list reads: every decoded frame is offered to
+      // the preview store, which keeps only the newest and publishes one every
+      // few seconds (see src/home/preview-store.ts). Offering is a pointer
+      // write, so this costs nothing at the frame rate — and it means tapping
+      // back lands on a card showing the desktop that was on the glass a
+      // moment ago instead of an empty tile.
+      rememberStreamFrame(getConnection()?.hostId, frame.data);
       // Reset the backoff only once a real frame arrives — not on socket open,
       // which an accept-then-immediately-close host also triggers, pinning the
       // retry at the 1s floor forever. The outage clock stops for the same
@@ -723,6 +731,10 @@ export function useScreenStream(
 
     return () => {
       disposed = true;
+      // Publish the newest held frame immediately, ignoring the sampler: this
+      // teardown IS the user tapping back, and the card should show the frame
+      // that was on the glass, not one from a few seconds earlier.
+      flushStreamFrames(getConnection()?.hostId);
       appStateSub.remove();
       clearTimeout(retryTimer);
       stopProbe();

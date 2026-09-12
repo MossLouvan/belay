@@ -160,6 +160,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       host: winner.url,
       token: device.token,
       hostName: device.label,
+      hostId: device.id,
     };
     setClientConnection(resolved);
     setConn(resolved);
