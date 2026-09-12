@@ -23,6 +23,7 @@ import { PanelState } from './panel-state';
 import { Crosshair, FILL, FullscreenGlyph, HUD, StageButton, StreamHud } from './parts';
 import { crosshairShown } from './screen-chrome';
 import type { PermissionState, StreamState } from './stream';
+import { padMounted } from './trackpad';
 import { TrackpadSurface } from './trackpad-surface';
 import type { PointerMode, Viewport } from './viewport';
 
@@ -111,10 +112,11 @@ export function StageView(props: StageViewProps) {
       {/* The deadspace trackpad: fills the whole panel BEHIND the stage, so
           every touch the letterboxed picture does not claim — the black gap
           between stream and control bar above all — is a laptop trackpad
-          instead of a hole gestures fall through to the navigation. Mounted
-          only while there is a live picture: with the panel-state guidance
-          up there is nothing to point at. */}
-      {!showPanelState && !gamingEnabled ? (
+          instead of a hole gestures fall through to the navigation.
+          Gaming is the only state that takes it away (the controller overlay
+          owns every touch); see padMounted in ./trackpad.ts for why the
+          panel-state guidance no longer does. */}
+      {padMounted({ gaming: gamingEnabled }) ? (
         <TrackpadSurface
           testID="trackpad-surface"
           handlers={viewport.padHandlers}
