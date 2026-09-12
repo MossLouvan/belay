@@ -6,8 +6,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every pull request, whatever it targets. Restricting this to `main` meant a
+  # PR into a preview or integration branch reported no checks at all and read
+  # as green when nothing had run.
   pull_request:
-    branches: [main]
 
 jobs:
   app:
