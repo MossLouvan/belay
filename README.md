@@ -122,6 +122,10 @@ docs/     setup, iOS distribution, architecture
 
 ## Security
 
+> Using it safely is a separate, shorter read: **[docs/SAFETY.md](docs/SAFETY.md)**
+> — what pairing really gives away, rules for the code, agent sessions, and
+> where it is and is not appropriate to install the host.
+
 Pairing a phone gives it **complete control of the computer** — mouse,
 keyboard, a shell, and a read-only view of your home folder. Treat the device
 token like a password to the machine.
