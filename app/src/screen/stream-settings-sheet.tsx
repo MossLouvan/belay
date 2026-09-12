@@ -2,8 +2,10 @@
 //
 // Parsec-class performance settings exposed: frame rate up to 240 Hz (when the
 // host display and hardware support it), bitrate ceiling for ABR control, and
-// audio on/off. These settings require the WebRTC hardware path (BELAY_WEBRTC);
-// the JPEG fallback remains capped at 30 fps for CPU safety.
+// audio on/off. Frame rate, bitrate and codec require the WebRTC hardware path
+// (BELAY_WEBRTC); the JPEG fallback remains capped at 30 fps for CPU safety.
+// System audio does NOT — it has its own transport and its own default-on
+// native capture, so it is never gated on the WebRTC flag here.
 
 import React, { useCallback, useState } from 'react';
 import { ScrollView, View } from 'react-native';
@@ -92,7 +94,8 @@ export function StreamSettingsSheet({
             }}
           >
             <Txt variant="body" tone="warn">
-              High-performance features require WebRTC hardware encoding (BELAY_WEBRTC=1 on host).
+              Frame rate, bitrate and codec need WebRTC hardware encoding (BELAY_WEBRTC=1 on
+              host). System audio below works without it.
             </Txt>
           </View>
         )}
@@ -164,8 +167,17 @@ export function StreamSettingsSheet({
           <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <View style={{ flex: 1 }}>
               <Txt variant="subheading">System Audio</Txt>
+              {/* NOT gated on webrtcAvailable. Host audio rides its own
+                  /ws/audio socket, is compiled into the DEFAULT native helper
+                  on both platforms, and its server routes stopped being gated
+                  behind BELAY_WEBRTC long ago. Greying this out on every host
+                  that did not set that flag is what made working machines
+                  report "audio unavailable". If a host really cannot do audio,
+                  it says so in its own words in the Screen menu's Host audio
+                  row — a specific reason beats a disabled control. */}
               <Caption>
-                Hear the host's audio output on this device. Requires WebRTC (no third-party drivers).
+                Hear the host's audio output on this device. Works on the default host build — no
+                drivers, and no WebRTC required.
               </Caption>
             </View>
             <Button
@@ -173,7 +185,6 @@ export function StreamSettingsSheet({
               label={audioEnabled ? 'On' : 'Off'}
               variant={audioEnabled ? 'primary' : 'secondary'}
               onPress={() => setAudioEnabled(!audioEnabled)}
-              disabled={!webrtcAvailable}
               style={{ minWidth: 80 }}
             />
           </Row>

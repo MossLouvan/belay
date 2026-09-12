@@ -65,10 +65,14 @@ export function ScreenMenuSheet({
         <ListItem
           testID="toggle-audio"
           title="Host audio"
+          // On a failure this is the ONE place the whole reason fits, so it
+          // prints the host's own message and, when it gave one, the fix.
+          // "Could not play audio" is the last resort, not the default.
           subtitle={!audioOn ? 'Off'
             : audioStatus.phase === 'playing' ? 'Playing on this phone'
               : audioStatus.phase === 'connecting' ? 'Connecting…'
-                : audioStatus.phase === 'error' ? audioStatus.message ?? 'Could not play audio'
+                : audioStatus.phase === 'error'
+                  ? [audioStatus.message ?? 'Could not play audio', audioStatus.hint].filter(Boolean).join(' ')
                   : 'Starting…'}
           selected={audioOn}
           accessibilityHint="Plays the computer's system audio through this phone's speaker"

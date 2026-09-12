@@ -39,9 +39,11 @@ export interface ScreenSheets {
 export function useScreenSheets(): ScreenSheets {
   const [flags, setFlags] = useState<Readonly<Record<SheetId, boolean>>>(NONE_OPEN);
   const [showHud, setShowHud] = useState(false);
-  // Host system audio on the phone's speaker. Default OFF: it is opt-in and
-  // rides the BELAY_WEBRTC-gated /ws/audio, so a host without the flag simply
-  // never delivers frames and the toggle is a harmless no-op.
+  // Host system audio on the phone's speaker. Default OFF because it is opt-in,
+  // NOT because it is gated: /ws/audio stopped depending on BELAY_WEBRTC long
+  // ago and capture is in the default native build on both platforms. A host
+  // that genuinely cannot do it says which of the four reasons applies (see
+  // stream/audio-capability.ts) rather than silently delivering nothing.
   const [audioOn, setAudioOn] = useState(false);
   // Stream performance settings (bitrate, FPS ceiling, codec, audio)
   const [streamSettings, setStreamSettings] = useState<StreamSettings>({

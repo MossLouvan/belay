@@ -52,6 +52,7 @@ import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-pa
 import { ClipboardSheet } from '../../src/screen/clipboard-sheet';
 import { StreamSettingsSheet } from '../../src/screen/stream-settings-sheet';
 import { HostAudio, type HostAudioStatus } from '../../src/stream/audio-player';
+import { audioDockLabel } from '../../src/stream/audio-capability';
 import { AppearanceNav } from '../../src/home/appearance-nav';
 import { ToolDrawer } from '../../src/home/tool-drawer';
 import { ControlColumn } from '../../src/screen/control-column';
@@ -316,7 +317,7 @@ export default function ScreenTab() {
         onHelp={openHelp}
         onToggleFullscreen={view.toggleFullscreen}
         audioOn={sheets.audioOn}
-        audioLabel={!sheets.audioOn ? 'Audio off' : audioStatus.phase === 'playing' ? 'Audio on' : audioStatus.phase === 'error' ? 'Audio unavailable' : 'Connecting audio'}
+        audioLabel={audioDockLabel(sheets.audioOn, audioStatus.phase, audioStatus.kind)}
         onToggleAudio={sheets.toggleAudio}
       >
         {/* Input errors still matter while immersive; they float over the top edge. */}
