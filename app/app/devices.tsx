@@ -34,6 +34,8 @@ import { DevicesHeader } from '../src/devices/devices-header';
 import { EmptyComputers } from '../src/devices/empty-computers';
 import { ThemeToggle } from '../src/settings/theme-toggle';
 import { AppearanceNav } from '../src/home/appearance-nav';
+import { useDevicePreviews } from '../src/home/use-device-previews';
+import { forgetPreview } from '../src/home/preview-store';
 
 export default function Devices() {
   const theme = useTheme();
@@ -44,7 +46,11 @@ export default function Devices() {
   // null and shows no line — no "0 running", no placeholder.
   const { sessions: agentSessions, discovered: agentDiscovered, hooks: agentHooks } = useAgentAttention();
   const agents = phase === 'connected' ? fleetLine(agentSessions, agentDiscovered, agentHooks) : null;
-  const { byId, refresh } = useReachability(devices);
+  const { byId, urlById, refresh } = useReachability(devices);
+  // Desktop thumbnails for the cards. Fetches only for computers this screen
+  // just proved reachable, only while it is on screen, and only when the
+  // picture it holds is missing or a minute old — see src/home/use-device-previews.
+  useDevicePreviews({ devices, byId, urlById });
 
   const [pendingForget, setPendingForget] = useState<SavedDevice | null>(null);
   /** The computer whose settings sheet is open, if any. */
@@ -107,6 +113,9 @@ export default function Devices() {
     if (!pendingForget) return;
     const id = pendingForget.id;
     setPendingForget(null);
+    // Drop the picture of its desktop in the same breath as the token. A
+    // forgotten computer must not leave a photograph of itself in memory.
+    forgetPreview(id);
     await forget(id);
   }, [pendingForget, forget]);
 

@@ -9,6 +9,16 @@ export interface Connection {
   host: string; // e.g. http://100.101.102.103:8787
   token: string;
   hostName: string;
+  /**
+   * The saved computer's stable id — the same primary key src/devices uses.
+   *
+   * Carried here so code that only ever sees the resolved connection (the
+   * screen stream, for one) can say WHICH computer it is talking to without
+   * reaching back into the device store. Optional so a caller that has only a
+   * URL and a token is still valid; anything keyed on it skips a connection
+   * that has none rather than guessing.
+   */
+  hostId?: string;
 }
 
 /**
