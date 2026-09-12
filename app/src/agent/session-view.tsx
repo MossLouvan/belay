@@ -335,8 +335,11 @@ function StreamSessionView({ id, onBack }: SessionViewProps) {
           this scrolls rather than pushing its own buttons off the bottom. */}
       <ScrollView
         testID="agent-action-stack"
+        // No flexGrow: with nothing in it this measures zero and takes no
+        // room. flexShrink is what matters — it lets the block give up height
+        // once the feed above has already shrunk to nothing, so the buttons
+        // scroll instead of being pushed past the bottom edge.
         style={{ flexGrow: 0, flexShrink: 1 }}
-        contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end' }}
         keyboardShouldPersistTaps="handled"
       >
       {grants.length > 0 ? (
