@@ -176,6 +176,8 @@ export default function ScreenTab() {
 
   const viewport = useViewport({
     sizeRef: stageRef,
+    stageW: stage.w,
+    stageH: stage.h,
     mode: dock.mode,
     button: dock.button,
     onButtonUsed: dock.clearButton,

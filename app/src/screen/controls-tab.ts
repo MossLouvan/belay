@@ -27,8 +27,14 @@
 /** One touch target tall, wide enough for the word plus its chevron. */
 export const CONTROLS_TAB_SIZE = Object.freeze({ width: 112, height: 44 });
 
-/** Clearance below the immersive HUD's top row (Connected pill / mascot). */
-export const CONTROLS_TAB_TOP_GAP = 56;
+/**
+ * Clearance below the immersive HUD, which is two stacked blocks: the top row
+ * (Connected pill / mascot) and, beneath it, the record strip and notices.
+ * 56 cleared only the first and landed squarely on the second, hiding the
+ * recording indicator behind the tab — and that indicator is a privacy state,
+ * so it is the one thing that must never be covered.
+ */
+export const CONTROLS_TAB_TOP_GAP = 108;
 
 export interface ControlsTabVisibility {
   /** The chrome is floating (landscape, or the portrait Full toggle). */

@@ -110,9 +110,19 @@ test.describe('the deadspace trackpad is present in every state', () => {
       await expect(page.getByTestId('key-Esc')).not.toBeVisible();
 
       // 4. Portrait fullscreen: the stage letterboxes against a tall phone, and
-      //    everything it does not claim is pad.
+      //    everything it does not claim is pad. Probe the band ABOVE the
+      //    picture, not the screen's centre: the immersive stage is centred in
+      //    the safe area now, so the centre is the picture and correctly owns
+      //    its own touches. Same reasoning as the landscape step below.
       await page.getByTestId('stage-fullscreen').click();
-      await expectPad(page, `${tag}/portrait-fullscreen`);
+      const tall = (await page.getByTestId('screen-surface').boundingBox())!;
+      const band = tall.y;
+      test.info().annotations.push({ type: 'fullscreen-letterbox-px', description: String(band) });
+      if (band >= 8) {
+        await expectPad(page, `${tag}/portrait-fullscreen`, { x: PORTRAIT.width / 2, y: band / 2 });
+      } else {
+        await expectPad(page, `${tag}/portrait-fullscreen`);
+      }
       await page.screenshot({ path: `../docs/screenshots/trackpad-${tag}-fullscreen.png` });
       await page.getByTestId('stage-fullscreen').click();
       await expect(page.getByTestId('control-dock')).toBeVisible();

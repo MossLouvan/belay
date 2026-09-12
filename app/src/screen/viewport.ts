@@ -61,6 +61,17 @@ const originOf = (event: GestureResponderEvent): Origin => ({
 export interface ViewportOptions {
   /** Live size of the stage in px. A ref so the responder is built only once. */
   readonly sizeRef: React.MutableRefObject<Size>;
+  /**
+   * The same size as plain values, only so the crosshair repaint below can
+   * depend on it. Reading it through the ref alone meant the effect never
+   * re-ran: a ref's identity never changes, so the crosshair kept whatever
+   * position it was painted at on mount, when the stage was still 0x0. That
+   * was invisible while landscape started in touch mode and nothing was
+   * drawn; once landscape defaults to the pad it paints at the stage's
+   * corner while a tap lands at the middle of the desktop.
+   */
+  readonly stageW: number;
+  readonly stageH: number;
   readonly mode: PointerMode;
   readonly button: PendingButton;
   readonly onButtonUsed: () => void;
@@ -140,7 +151,7 @@ export interface Viewport {
 }
 
 export function useViewport(options: ViewportOptions): Viewport {
-  const { sizeRef, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, onCursor, activeMods, onSwipe, isMac, onPadInput } =
+  const { sizeRef, stageW, stageH, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, onCursor, activeMods, onSwipe, isMac, onPadInput } =
     options;
 
   const translateX = useRef(new Animated.Value(0)).current;
@@ -846,9 +857,11 @@ export function useViewport(options: ViewportOptions): Viewport {
   const padHandlers = useMemo(() => buildResponder(true), [buildResponder]);
 
   // Keep the crosshair pinned when the stage resizes or the zoom changes.
+  // The sizes are listed explicitly: `paintCursor` closes over a ref, so its
+  // identity alone would never announce a resize.
   useEffect(() => {
     paintCursor();
-  }, [paintCursor, zoom]);
+  }, [paintCursor, zoom, stageW, stageH]);
 
   useEffect(
     () => () => {
