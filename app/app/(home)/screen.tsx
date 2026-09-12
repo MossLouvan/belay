@@ -45,7 +45,8 @@ import { aspectOf, isMacHost, readPermissions, useHostFacts, useScreenStream } f
 import { useViewport } from '../../src/screen/viewport';
 import { useRemoteCursors } from '../../src/screen/cursors-store';
 import { KeyBar, NoticeArea } from '../../src/screen/parts';
-import { EdgeRevealStrip } from '../../src/screen/edge-reveal';
+import { ControlsTab, EdgeRevealStrip } from '../../src/screen/edge-reveal';
+import { controlsTabVisible } from '../../src/screen/controls-tab';
 import { useScreenBack } from '../../src/screen/use-screen-back';
 import { PAD_CURSOR_LINGER_MS } from '../../src/screen/trackpad';
 import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
@@ -157,7 +158,7 @@ export default function ScreenTab() {
 
   const tools = useToolsHint();
   const typing = useTypeRow(reportError);
-  const dock = useDockState({ immersive, typeOpen: typing.typeOpen });
+  const dock = useDockState({ immersive, typeOpen: typing.typeOpen, landscape });
   const keys = useKeySender({ isMac, reportError });
 
   // The deadspace pad drives the shared cursor whatever the pointer mode is;
@@ -360,6 +361,13 @@ export default function ScreenTab() {
           disabled via pointerEvents when not needed. */}
       {immersive && !gaming.enabled ? (
         <EdgeRevealStrip testID="edge-reveal" bottomInset={insets.bottom} onReveal={dock.dockHide.poke} disabled={dock.dockShown} />
+      ) : null}
+
+      {/* ...and the SEEN half of that reveal: a tab on the top-left edge that
+          brings the bar back on one tap. The swipe alone was undiscoverable
+          sideways (src/screen/controls-tab.ts). */}
+      {controlsTabVisible({ immersive, gaming: gaming.enabled, dockShown: dock.dockShown }) ? (
+        <ControlsTab testID="controls-tab" topInset={insets.top} leftInset={insets.left} onReveal={dock.dockHide.poke} />
       ) : null}
 
       {/* The type-to-PC row, floating on the keyboard's top edge (iOS). */}

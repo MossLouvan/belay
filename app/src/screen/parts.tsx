@@ -607,6 +607,7 @@ export function Crosshair({ x, y, color }: { x: Animated.Value; y: Animated.Valu
   const arm: ViewStyle = { position: 'absolute', backgroundColor: color, borderRadius: 1 };
   return (
     <Animated.View
+      testID="crosshair"
       style={{ pointerEvents: 'none',
         position: 'absolute',
         top: -11,
