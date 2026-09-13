@@ -413,7 +413,14 @@ export const fieldworkPalette: Palette = Object.freeze({ ...darkPalette,
   border: '#2C2F31', borderStrong: '#494D50', text: '#F2F2EF', textDim: '#A8ACAF', textFaint: '#82878A',
   accent: '#F99657', accentGraphic: '#F99657', accentPress: '#E0824A', onAccent: '#1A1210',
   accentDim: '#4A392E', accentSoft: '#4A392E', onAccentSoft: '#F9A96F', focus: '#F99657',
-  heroBg: '#191B1C', heroGlow: 'transparent', trackRest: '#3A3E41',
+  heroBg: '#191B1C',
+  // The welcome halo. This was 'transparent' in both custom palettes, which
+  // left the hero's two glow rings — and the tested geometry that positions
+  // them — drawing literally nothing, while the screen's own comment promised
+  // "a soft blue halo". Restored at an alpha low enough to read as ambient
+  // light on the near-black ground rather than a porthole around the mark.
+  heroGlow: 'rgba(249, 150, 87, 0.07)',
+  trackRest: '#3A3E41',
   machine: '#101112', skeleton: '#202325',
 });
 
@@ -428,7 +435,12 @@ export const currentPalette: Palette = Object.freeze({ ...lightPalette,
   text: '#101828', textDim: '#5B6676', textFaint: '#8791A1', border: '#E4E9F0', borderStrong: '#C7CEDA',
   accent: '#245CCC', accentGraphic: '#245CCC', accentPress: '#1B49A5',
   accentSoft: '#E4ECFB', onAccentSoft: '#1F52B8', focus: '#245CCC',
-  heroBg: '#F5F8FC', heroGlow: 'transparent', trackRest: '#D5DCE6',
+  heroBg: '#F5F8FC',
+  // See the Fieldwork note: the halo was switched off in both palettes and the
+  // hero drew nothing behind the mark. Lower alpha here — ambient light shows
+  // more readily on paper than on ink.
+  heroGlow: 'rgba(36, 92, 204, 0.055)',
+  trackRest: '#D5DCE6',
   skeleton: '#EAEFF4',
 });
 export const darkTheme: Theme = buildTheme('dark', fieldworkPalette);

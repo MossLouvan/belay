@@ -15,7 +15,8 @@ import { useRouter } from 'expo-router';
 import { api } from '../api';
 import { humanMessage } from '../errors';
 import type { AgentSessionMeta } from '../api';
-import { getTheme, useTheme } from '../theme';
+import { useTheme } from '../theme';
+import { machineInk } from '../ui/machine-ink';
 import { Button, Caption, Column, Dot, Input, ListItem, Micro, Row, Sheet, TrackLabel, Txt } from '../ui';
 import { HUD } from './parts';
 import { autoStopMessage, stripText } from './record';
@@ -42,7 +43,7 @@ export function RecordStrip({ status, onStop, onReview, floating = false }: Reco
   // The status red, not the accent: recording is a warning state, and §11.5
   // lets safety-relevant marks outrank the one-accent rule. On the fullscreen
   // scrim the dark theme's red keeps contrast over any frame.
-  const alert = floating ? getTheme('dark').colors.bad : theme.colors.bad;
+  const alert = floating ? machineInk(theme.scheme).bad : theme.colors.bad;
   const ink = floating ? HUD.ink : theme.colors.text;
   const inks = floating
     ? { restLabel: HUD.ink, activeLabel: ink, restTrack: HUD.hairline, activeTrack: HUD.ink }
@@ -116,7 +117,7 @@ export interface SentNoticeProps {
  */
 export function SentNotice({ info, onOpen, floating = false }: SentNoticeProps) {
   const theme = useTheme();
-  const good = floating ? getTheme('dark').colors.good : theme.colors.good;
+  const good = floating ? machineInk(theme.scheme).good : theme.colors.good;
   const ink = floating ? HUD.ink : theme.colors.text;
   const inks = floating
     ? { restLabel: HUD.ink, activeLabel: ink, restTrack: HUD.hairline, activeTrack: HUD.ink }

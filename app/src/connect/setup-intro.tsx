@@ -40,7 +40,7 @@ interface WelcomeScreenProps {
 // It used to ask for 40 here and the component silently capped it at 40 too,
 // so the app's first frame showed the mark at the one size it does not work
 // at. `MIN_MARK_SIZE` is the floor; the hero sits comfortably above it.
-const MASCOT_SIZE = Math.max(112, MIN_MARK_SIZE);
+const MASCOT_SIZE = Math.max(176, MIN_MARK_SIZE);
 
 // The welcome headline is a brand lockup, not body copy: it is deliberately
 // one step above `display` because it is the only thing on the app's first

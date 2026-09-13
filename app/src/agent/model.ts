@@ -375,6 +375,32 @@ export function groupDiscovered(list: readonly DiscoveredSession[]): DiscoveredG
   return groups;
 }
 
+/** What a discovered session with nothing readable is called in the list. */
+export const UNTITLED_SESSION = 'Untitled session';
+
+/**
+ * A session's first user message, cleaned up enough to be a row title.
+ *
+ * The host sends this verbatim, and Claude Code wraps some of its own traffic
+ * in XML-ish markers — a real row in the list read
+ * `<local-command-caveat>Caveat: Th…`, which is machinery, not something the
+ * user typed. Tags are stripped rather than escaped (the point is the prose
+ * inside them), whitespace and newlines collapse to single spaces so a
+ * multi-line prompt does not blow the row height, and anything left empty
+ * falls back to the honest label instead of an empty row.
+ *
+ * Pure and total: never throws, never returns an empty string.
+ */
+export function sessionPreviewLabel(preview: string | undefined | null): string {
+  if (typeof preview !== 'string') return UNTITLED_SESSION;
+  const cleaned = preview
+    // Drop XML-ish wrapper tags, keeping whatever prose sat inside them.
+    .replace(/<\/?[a-zA-Z][\w-]*(?:\s[^<>]*)?>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length > 0 ? cleaned : UNTITLED_SESSION;
+}
+
 /** Puts a transcript into a composer: appended with a space, never glued on. */
 export function appendTranscript(current: string, text: string): string {
   const clip = text.trim();

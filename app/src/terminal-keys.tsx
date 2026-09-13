@@ -101,8 +101,13 @@ export function KeyCap({ id, label, onPress, active, wide, accessibilityLabel }:
 export interface KeyBarProps {
   onSend: (data: string) => void;
   onClear: () => void;
-  /** Arrows drive local history when the host has no TTY to interpret them. */
-  onHistory: (direction: -1 | 1) => void;
+  /**
+   * Arrows drive local history when the host has no TTY to interpret them.
+   * Optional because `ptyMode` sends arrows raw and never calls this — a pty
+   * caller used to be forced to hand over an empty function to satisfy the
+   * type, which is a no-op handler kept alive purely by a prop signature.
+   */
+  onHistory?: (direction: -1 | 1) => void;
   /**
    * An unmodified Tab is the screen's, not the shell's: with text in the input
    * it runs the completion dance, with none it falls back to a raw `\t`. A
@@ -155,7 +160,7 @@ export function KeyBar({ onSend, onClear, onHistory, onTab, ptyMode, onFontCycle
         return;
       }
       const isArrow = key.id === 'Up' || key.id === 'Down';
-      if (isArrow && !ptyMode) {
+      if (isArrow && !ptyMode && onHistory) {
         onHistory(key.id === 'Up' ? -1 : 1);
         return;
       }

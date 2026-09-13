@@ -11,7 +11,8 @@
 import React, { useMemo, useRef } from 'react';
 import { PanResponder, Pressable, View } from 'react-native';
 import { useLook } from '../design/use-look';
-import { getTheme, useTheme } from '../theme';
+import { useTheme } from '../theme';
+import { machineInk } from '../ui/machine-ink';
 import { Micro, haptic } from '../ui';
 import { isRevealSwipe, REVEAL_EDGE_PX } from './autohide';
 import { controlsTabFrame } from './controls-tab';
@@ -130,7 +131,7 @@ export function ControlsTab({ onReveal, topInset, leftInset, testID }: ControlsT
         opacity: pressed ? 0.7 : 1,
       })}
     >
-      <ChevronGlyph direction="up" color={getTheme('dark').colors.accent} />
+      <ChevronGlyph direction="up" color={machineInk(theme.scheme).accent} />
       <Micro style={{ color: HUD.ink }}>Controls</Micro>
     </Pressable>
   );

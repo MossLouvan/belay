@@ -61,7 +61,12 @@ export function DeviceCard({
 
   const identity = (
     <View style={{ flex: 1, gap: theme.space.xxs }}>
-      <Txt variant="subheading" numberOfLines={1}>{device.label}</Txt>
+      {/* Two lines, not one. A computer's name is the one thing on this card
+          the user identifies it by, and Fieldwork's wide preview tile leaves
+          it about 210pt — enough to cut "Mosss-MacBook-Air.local" into
+          "Mosss-MacBook-Ai…" mid-word. Wrapping costs a few points of card
+          height only when a name is long; truncating costs the name. */}
+      <Txt variant="subheading" numberOfLines={2}>{device.label}</Txt>
       <Row gap="xs" align="center">
         <View style={{ width: DOT, height: DOT, borderRadius: DOT / 2, backgroundColor: dotColor }} />
         <Txt variant="body" tone="dim" numberOfLines={1}>{status.word}</Txt>

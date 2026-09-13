@@ -12,6 +12,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView } from 'react-native';
 import { useTheme } from '../theme';
 import { Caption, IconButton, Row, TrackLabel, Txt } from '../ui';
+import { crumbSeparatorBefore } from '../files-format';
 import type { Crumb } from '../files-format';
 import { copyText } from './clipboard';
 
@@ -97,7 +98,7 @@ export function PathBar({
         {crumbs.length === 0 ? <Caption>—</Caption> : null}
         {crumbs.map((crumb, index) => (
           <Row key={crumb.path} gap="none">
-            {index > 0 ? (
+            {crumbSeparatorBefore(crumbs, index) ? (
               <Txt variant="monoSmall" tone="faint">/</Txt>
             ) : null}
             <Pressable

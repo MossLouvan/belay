@@ -20,7 +20,8 @@
 import type { ScreenMode } from './dock-modes';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { font, getTheme, useTheme } from '../theme';
+import { font, useTheme } from '../theme';
+import { machineInk } from '../ui/machine-ink';
 import { Row, TrackLabel, Txt, Sheet, Button } from '../ui';
 import { HUD } from './parts';
 import { ModeSwitch } from './mode-switch';
@@ -70,7 +71,7 @@ function DockKey({
   // Machine-tuned inks for the scrim: the light palette's dim/accent text is
   // built for paper and fails AA on the near-black HUD, and the resting track
   // drops to the HUD hairline so it stays a quiet mark over live video.
-  const ink = getTheme('dark').colors;
+  const ink = machineInk(theme.scheme);
   const inks = floating
     ? { restLabel: HUD.ink, activeLabel: ink.accent, restTrack: HUD.hairline, activeTrack: ink.accentGraphic }
     : undefined;
@@ -218,9 +219,9 @@ export function ControlDock({
   const zoomInks = floating
     ? {
         restLabel: HUD.ink,
-        activeLabel: getTheme('dark').colors.accent,
+        activeLabel: machineInk(theme.scheme).accent,
         restTrack: HUD.hairline,
-        activeTrack: getTheme('dark').colors.accentGraphic,
+        activeTrack: machineInk(theme.scheme).accentGraphic,
       }
     : undefined;
   const wrap = (action: () => void) => () => {

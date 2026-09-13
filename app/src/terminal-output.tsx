@@ -10,7 +10,8 @@
 import React, { useCallback } from 'react';
 import { FlatList, Platform, StyleSheet, Text, View } from 'react-native';
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
-import { getTheme, useTheme } from './theme';
+import { useTheme } from './theme';
+import { machineInk } from './ui/machine-ink';
 import { Button, GlassState } from './ui';
 import type { GlassStateProps } from './ui';
 import type { TermLine } from './terminal-ansi';
@@ -84,9 +85,11 @@ export function TerminalOutput({
   );
 
   // The cursor is a steady block in the graphic accent — the "streaming
-  // cursor" role (theme.ts) — never a blink. It draws from the dark palette
-  // because it sits on the machine glass in both themes.
-  const cursorColor = getTheme('dark').colors.accentGraphic;
+  // cursor" role (theme.ts) — never a blink. It draws from the MACHINE ink, a
+  // dark palette (the panel is near-black in both appearances) whose accent
+  // still follows the appearance: this used to be pinned to `getTheme('dark')`
+  // and so blinked orange in the blue app.
+  const cursorColor = machineInk(theme.scheme).accentGraphic;
 
   const renderItem = useCallback(
     ({ item, index }: { item: TermLine; index: number }) => (

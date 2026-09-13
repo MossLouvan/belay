@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 
 import {
   categoryOf,
+  crumbSeparatorBefore,
   crumbsFor,
   defaultDescending,
   extensionOf,
@@ -209,4 +210,28 @@ test('the messages a host refusal produces are recognised as denials', () => {
   assert.equal(isDenied('path is outside the allowed roots'), true, 'the host allow-list refusal, verbatim');
   assert.equal(isDenied('EACCES: permission denied'), true);
   assert.equal(isDenied('path does not exist'), false, 'a typo is not a refusal');
+});
+
+test('the POSIX root crumb is its own separator — never "/ / Users"', () => {
+  const crumbs = crumbsFor('/Users/mosslouvan');
+  assert.deepEqual(crumbs.map((c) => c.label), ['/', 'Users', 'mosslouvan']);
+  assert.equal(crumbSeparatorBefore(crumbs, 0), false, 'nothing precedes the first crumb');
+  assert.equal(crumbSeparatorBefore(crumbs, 1), false, 'the root crumb already IS a slash');
+  assert.equal(crumbSeparatorBefore(crumbs, 2), true, 'two names need a slash between them');
+});
+
+test('a Windows path separates every pair — it has no separator crumb', () => {
+  const crumbs = crumbsFor('C:\\Users\\moss');
+  assert.equal(crumbSeparatorBefore(crumbs, 0), false);
+  for (let i = 1; i < crumbs.length; i += 1) {
+    assert.equal(crumbSeparatorBefore(crumbs, i), true, `crumb ${i}`);
+  }
+});
+
+test('crumbSeparatorBefore is total — out of range is simply false', () => {
+  const crumbs = crumbsFor('/Users');
+  for (const index of [-1, crumbs.length, crumbs.length + 5, Number.NaN]) {
+    assert.equal(crumbSeparatorBefore(crumbs, index), false, String(index));
+  }
+  assert.equal(crumbSeparatorBefore([], 1), false);
 });

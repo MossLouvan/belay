@@ -9,19 +9,28 @@
 // segment tappable. Every segment clears the 44pt HIG target on both axes.
 //
 // The options themselves (labels, VoiceOver words, teaching hints) are data
-// in ./dock-modes.ts; this file only draws them. `BoxedToggle` is the same
-// visual language for a lone on/off key (KEYS), so the dock's primary row
-// speaks one dialect: box = big control, fill = engaged.
+// in ./dock-modes.ts; this file only draws them.
 //
-// Floating (the fullscreen HUD scrim) swaps to the dark palette's inks the
-// same way DockKey does — the light theme's dim text and paper borders are
-// tuned for paper and fail on the near-black scrim.
+// Two ink sets, for two different grounds:
+//
+//   * FLOATING, over the fullscreen HUD scrim: the dark palette's inks and the
+//     SOLID accent, always. Those are tuned to read over an arbitrary video
+//     frame, which is why they ignore the appearance — `look.segmentSoft` is a
+//     rule about a selected chip on the PAGE, and a muted scorch fill
+//     disappears against a bright desktop.
+//   * On the page (the More controls sheet): the same selection treatment as
+//     the portrait mode strip (src/screen/mode-strip.tsx), so one app does not
+//     answer "how is a selected segment drawn?" two ways on two surfaces.
+//     Current fills solid accent; Fieldwork uses the muted scorch with orange
+//     ink.
 
 import type { ScreenMode } from './dock-modes';
 import React from 'react';
 import { Pressable, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { getTheme, useTheme } from '../theme';
+import { useTheme } from '../theme';
+import { machineInk } from '../ui/machine-ink';
+import { useLook } from '../design/use-look';
 import { Txt, haptic } from '../ui';
 import { HUD } from './parts';
 import { POINTER_MODE_OPTIONS } from './dock-modes';
@@ -36,8 +45,9 @@ interface BoxedInks {
 
 function useBoxedInks(floating: boolean): BoxedInks {
   const theme = useTheme();
+  const look = useLook();
   if (floating) {
-    const dark = getTheme('dark').colors;
+    const dark = machineInk(theme.scheme);
     return {
       border: HUD.hairline,
       restLabel: HUD.ink,
@@ -48,8 +58,8 @@ function useBoxedInks(floating: boolean): BoxedInks {
   return {
     border: theme.colors.borderStrong,
     restLabel: theme.colors.text,
-    fill: theme.colors.accent,
-    onFill: theme.colors.onAccent,
+    fill: look.segmentSoft ? theme.colors.accentSoft : theme.colors.accent,
+    onFill: look.segmentSoft ? theme.colors.onAccentSoft : theme.colors.onAccent,
   };
 }
 
@@ -123,66 +133,5 @@ export function ModeSwitch({ mode, onModeChange, floating = false, testID, style
         );
       })}
     </View>
-  );
-}
-
-export interface BoxedToggleProps {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  accessibilityLabel: string;
-  accessibilityHint?: string;
-  floating?: boolean;
-  testID?: string;
-  style?: StyleProp<ViewStyle>;
-}
-
-/**
- * A lone boxed toggle in the switch's visual language — the KEYS key rides
- * next to the mode strip at the same height, filled while its bar is up.
- */
-export function BoxedToggle({
-  label,
-  active,
-  onPress,
-  accessibilityLabel,
-  accessibilityHint,
-  floating = false,
-  testID,
-  style,
-}: BoxedToggleProps) {
-  const theme = useTheme();
-  const inks = useBoxedInks(floating);
-
-  return (
-    <Pressable
-      testID={testID}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityHint={accessibilityHint}
-      accessibilityState={{ selected: active }}
-      onPress={() => {
-        haptic('selection');
-        onPress();
-      }}
-      style={[
-        {
-          minHeight: theme.layout.minTouch,
-          minWidth: theme.layout.minTouch,
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingHorizontal: theme.space.xs,
-          borderWidth: theme.layout.hairline,
-          borderColor: inks.border,
-          borderRadius: theme.radius.xs,
-          backgroundColor: active ? inks.fill : 'transparent',
-        },
-        style,
-      ]}
-    >
-      <Txt variant="label" numberOfLines={1} color={active ? inks.onFill : inks.restLabel}>
-        {label}
-      </Txt>
-    </Pressable>
   );
 }

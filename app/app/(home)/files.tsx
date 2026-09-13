@@ -303,7 +303,11 @@ function FilesTab() {
             before the need arises, proving the listing's age and implying
             pull-to-refresh — not in a footer nobody scrolls to (§11.2). */}
         <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
-          <Label numberOfLines={1} style={{ marginBottom: 0, flexShrink: 1 }}>
+          {/* Two lines. Four facts (items, folders, hidden, freshness) share
+              this line with the switch-computer link, and on a 390pt phone a
+              folder with hidden items cut it to "49 items · 29 folders · 55
+              hidd…" — dropping the receipt the line exists to give. */}
+          <Label numberOfLines={2} style={{ marginBottom: 0, flexShrink: 1 }}>
             {[
               `${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`,
               // The count line owns the honesty: while dotfiles are filtered

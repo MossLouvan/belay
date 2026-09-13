@@ -19,7 +19,7 @@ import {
 } from '../ui';
 import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
-import { ago, groupDiscovered, projectName, statusLabel } from './model';
+import { ago, groupDiscovered, projectName, sessionPreviewLabel, statusLabel } from './model';
 import { isLive, kindLabel, ptyStateLabel, runningCount, sessionKind } from './session-kind';
 import { askSummary, countdown } from './attention';
 import { decideHook, dismissHookNotice, getAttention, refreshAttention, refreshDiscovered, refreshHooks, useAgentAttention } from './attention-store';
@@ -366,7 +366,7 @@ export function SessionList({
                     key={d.claudeSessionId}
                     testID={`agent-resume-${d.claudeSessionId}`}
                     accessibilityRole="button"
-                    accessibilityLabel={`${d.live ? 'Watch' : 'Open'} ${d.preview || 'untitled session'}`}
+                    accessibilityLabel={`${d.live ? 'Watch' : 'Open'} ${sessionPreviewLabel(d.preview)}`}
                     onPress={() => {
                       haptic('light');
                       onWatch(d);
@@ -381,7 +381,7 @@ export function SessionList({
                   >
                     <Row justify="space-between" gap="sm">
                       <Txt variant="body" numberOfLines={1} style={{ flex: 1 }}>
-                        {d.preview || 'untitled session'}
+                        {sessionPreviewLabel(d.preview)}
                       </Txt>
                       {/* A terminal is writing to it right now — the accent's
                           one job on this list besides the primary. */}

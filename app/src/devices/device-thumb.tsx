@@ -51,7 +51,8 @@ export function DeviceThumb({ device, dim = false }: DeviceThumbProps) {
   const preview = useDevicePreview(device.id);
   const Glyph = isLaptop(device) ? IconDeviceLaptop : IconDeviceDesktop;
   const wide = look.deviceThumbWide;
-  const radius = wide ? 8 : 10;
+  // 8pt in Fieldwork, 10pt in Current — which is exactly `controlRadius`.
+  const radius = look.controlRadius;
 
   return (
     <View

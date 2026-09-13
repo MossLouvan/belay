@@ -16,13 +16,14 @@
 // guarantees they all say it the same way.
 //
 // Everything draws ON the true-dark machine surface in both themes, so inks
-// come from the dark palette via `getTheme('dark')`, never `useTheme()` — the
+// come from the MACHINE ink (ui/machine-ink.ts), never `useTheme()` — the
 // light palette is tuned for paper and fails WCAG AA on near-black.
 
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { getTheme, layout, motion, radius, space, useTheme } from '../theme';
+import { layout, motion, radius, space, useTheme } from '../theme';
+import { machineInk } from './machine-ink';
 import { Contours } from './contours';
 import { haptic } from './haptics';
 import { Micro, Txt } from './text';
@@ -83,8 +84,9 @@ export function GlassState({
   // is the one saturated mark on the panel and it must be the appearance the
   // user actually chose — before this, a Retry on Current's light, blue app
   // came up in Fieldwork's orange, because the dark palette IS Fieldwork.
-  const ink = getTheme('dark').colors;
-  const app = useTheme().colors;
+  const theme = useTheme();
+  const ink = machineInk(theme.scheme);
+  const app = theme.colors;
 
   return (
     <View testID={testID} style={[styles.fill, style]}>

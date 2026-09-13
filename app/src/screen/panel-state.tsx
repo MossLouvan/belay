@@ -14,7 +14,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { getTheme } from '../theme';
+import { useColorScheme } from '../theme';
+import { machineInk } from '../ui/machine-ink';
 import { GlassState, Micro } from '../ui';
 import { retryPhrase } from './retry';
 import type { Phase } from './stream';
@@ -110,7 +111,7 @@ export function panelCopyFor(
  * node tests hold it to its word.
  */
 function OutageClock({ sinceMs }: { sinceMs: number | null }) {
-  const ink = getTheme('dark').colors;
+  const ink = machineInk(useColorScheme());
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {

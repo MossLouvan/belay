@@ -173,6 +173,23 @@ export function crumbsFor(path: string): readonly Crumb[] {
   return crumbs;
 }
 
+/**
+ * Whether a separator should be drawn BEFORE the crumb at `index`.
+ *
+ * The POSIX root crumb is labelled "/" — it is already a separator — so
+ * unconditionally printing one between every pair of crumbs rendered the home
+ * folder as `/ / Users / mosslouvan`. A separator belongs between two NAMES,
+ * never after a crumb that is itself a separator.
+ *
+ * Pure and total: an out-of-range index is simply false.
+ */
+export function crumbSeparatorBefore(crumbs: readonly Crumb[], index: number): boolean {
+  if (!Number.isInteger(index) || index <= 0 || index >= crumbs.length) return false;
+  const previous = crumbs[index - 1]?.label;
+  if (previous === undefined) return false;
+  return previous !== '/' && previous !== '\\';
+}
+
 export const parentOf = (path: string): string | null => {
   const crumbs = crumbsFor(path);
   return crumbs.length >= 2 ? crumbs[crumbs.length - 2].path : null;

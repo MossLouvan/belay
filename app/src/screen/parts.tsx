@@ -19,7 +19,8 @@ import type {
   StyleProp,
   ViewStyle,
 } from 'react-native';
-import { getTheme, useTheme } from '../theme';
+import { useTheme } from '../theme';
+import { machineInk } from '../ui/machine-ink';
 import type { Theme } from '../theme';
 import { Banner, Column, Micro, Row, Txt, haptic, useReducedMotion } from '../ui';
 import { KEYS, labelFor } from './model';
@@ -204,7 +205,7 @@ export function StageButton({ glyph, label, onPress, accessibilityLabel, active 
       ]}
     >
       {glyph}
-      <Micro style={{ color: active ? getTheme('dark').colors.accent : HUD.ink }}>{label}</Micro>
+      <Micro style={{ color: active ? machineInk(theme.scheme).accent : HUD.ink }}>{label}</Micro>
     </Pressable>
   );
 }

@@ -113,8 +113,8 @@ export function PtySessionView({ id, title, cwd, attached, resumable, onBack }: 
   // Tab belongs to the session, not to this screen: the real CLI is on the far
   // end and does its own completion, so there is no dance to run here.
   const rawTab = useCallback(() => send('\t'), [send]);
-  // Arrows go raw for the same reason; there is no local history to recall.
-  const noHistory = useCallback(() => {}, []);
+  // Arrows go raw for the same reason; there is no local history to recall,
+  // so KeyBar simply gets no `onHistory` (it never calls one in ptyMode).
 
   const live = state.link === 'open' && state.ready;
   const blank = term.lines.length <= 1 && (term.lines[0]?.chars.length ?? 0) === 0;
@@ -244,7 +244,6 @@ export function PtySessionView({ id, title, cwd, attached, resumable, onBack }: 
         <KeyBar
           onSend={send}
           onClear={clear}
-          onHistory={noHistory}
           onTab={rawTab}
           ptyMode
           onFontCycle={() => setFontKey((k) => NEXT_FONT[k])}

@@ -8,7 +8,8 @@
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Micro } from '../ui';
+import { Micro, Txt } from '../ui';
+import { chartHasShape } from './chart-shape';
 
 export interface ActivityChartProps {
   /** Percentages 0..100, oldest first. Right-aligned if shorter than capacity. */
@@ -26,6 +27,9 @@ const DEFAULT_HEIGHT = 128;
 const DEFAULT_CAPACITY = 48;
 const CAP_HEIGHT = 2; // the bright "line" on top of each column
 const GRIDLINES = [0.25, 0.5, 0.75];
+/** The legend's colour swatch — glyph geometry, not spacing. */
+const LEGEND_W = 10;
+const LEGEND_H = 3;
 
 export function ActivityChart({
   values,
@@ -41,6 +45,28 @@ export function ActivityChart({
   const pad = capacity - window.length;
   const accent = theme.colors.accentGraphic;
   const latest = current ?? (window.length ? window[window.length - 1] : 0);
+  const plottable = chartHasShape(values);
+
+  // One or two samples against a 48-slot window and three gridlines is not a
+  // chart with barely any data in it — it is 46 empty slots, a ruled grid and
+  // a sliver at the right edge, which reads as a chart that failed to load.
+  // Say what is actually happening instead, in the same box, so the panel does
+  // not jump when the shape arrives.
+  if (!plottable) {
+    return (
+      <View accessibilityRole="text" accessibilityLabel={`${label} history: still measuring`}>
+        <View style={{ height, alignItems: 'center', justifyContent: 'center', gap: theme.space.xxs }}>
+          <Txt variant="body" tone="dim">Measuring…</Txt>
+          <Micro tone="faint">The graph fills in as samples arrive.</Micro>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.xs, marginTop: theme.space.sm }}>
+          <View style={{ width: LEGEND_W, height: LEGEND_H, borderRadius: LEGEND_H / 2, backgroundColor: accent }} />
+          <Micro tone="dim">{label}</Micro>
+          <Micro tone="faint">{`${Math.round(latest)}%`}</Micro>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View accessibilityRole="image" accessibilityLabel={accessibilityLabel ?? `${label} history`}>
@@ -80,7 +106,7 @@ export function ActivityChart({
       </View>
       {/* Legend */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.xs, marginTop: theme.space.sm }}>
-        <View style={{ width: 10, height: 3, borderRadius: 1.5, backgroundColor: accent }} />
+        <View style={{ width: LEGEND_W, height: LEGEND_H, borderRadius: LEGEND_H / 2, backgroundColor: accent }} />
         <Micro tone="dim">{label}</Micro>
         <Micro tone="faint">{`${Math.round(latest)}%`}</Micro>
       </View>
