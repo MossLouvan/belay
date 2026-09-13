@@ -15,8 +15,6 @@ import { haptic } from './haptics';
 /** Drawn diameter. The touch target is topped up to 44pt with hitSlop. */
 export const ROUND_BUTTON_SIZE = 36;
 
-const HIT = Object.freeze({ top: 6, bottom: 6, left: 6, right: 6 });
-
 export type RoundButtonVariant = 'filled' | 'outline' | 'plain';
 
 export interface RoundButtonProps {
@@ -49,7 +47,7 @@ export function RoundButton({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={handlePress}
-      hitSlop={HIT}
+      hitSlop={theme.layout.hitSlop}
       style={({ pressed }) => [
         {
           width: ROUND_BUTTON_SIZE,

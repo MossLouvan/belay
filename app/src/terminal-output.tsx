@@ -8,10 +8,10 @@
 // page's text colours, which are tuned for paper.
 
 import React, { useCallback } from 'react';
-import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Platform, StyleSheet, Text, View } from 'react-native';
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { getTheme, useTheme } from './theme';
-import { GlassState, Txt } from './ui';
+import { Button, GlassState } from './ui';
 import type { GlassStateProps } from './ui';
 import type { TermLine } from './terminal-ansi';
 import { TermRow } from './terminal-row';
@@ -162,28 +162,19 @@ export function TerminalOutput({
         </View>
       ) : null}
 
+      {/* The real primary Button, floated over the glass — it used to be a
+          hand-built Pressable re-deriving the accent fill, the radius and the
+          44pt target that the primitive already owns. `hapticTone={null}`
+          keeps the control silent, as it always was. */}
       {!following ? (
-        <Pressable
+        <Button
           testID="term-follow"
-          accessibilityRole="button"
           accessibilityLabel="Jump to the latest output"
+          label="↓ Latest"
           onPress={onFollow}
-          style={({ pressed }) => ({
-            position: 'absolute',
-            right: theme.space.sm,
-            bottom: theme.space.sm,
-            paddingHorizontal: theme.space.md,
-            minHeight: theme.layout.minTouch,
-            justifyContent: 'center',
-            borderRadius: theme.radius.xs,
-            backgroundColor: theme.colors.accent,
-            opacity: pressed ? theme.motion.pressOpacity : 1,
-          })}
-        >
-          <Txt variant="label" color={theme.colors.onAccent}>
-            ↓ Latest
-          </Txt>
-        </Pressable>
+          hapticTone={null}
+          style={{ position: 'absolute', right: theme.space.sm, bottom: theme.space.sm }}
+        />
       ) : null}
     </View>
   );

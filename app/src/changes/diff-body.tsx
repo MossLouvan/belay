@@ -18,8 +18,6 @@ import type { DiffLine } from './diff-format';
 /** Diff lines rendered per page. */
 const DIFF_PAGE = 800;
 
-const FONT_SIZE = 12.5;
-
 interface RenderLine extends DiffLine {
   /** A section-header pseudo-line carrying the file's path. */
   readonly header?: boolean;
@@ -49,7 +47,11 @@ export function DiffBody({ diff, truncated, bleed }: DiffBodyProps) {
   }, [diff]);
 
   const shown = lines.slice(0, limit);
-  const lineHeight = Math.round(FONT_SIZE * 1.5);
+  // Diff rows are the dense machine voice; a file header steps up to the
+  // larger mono so it separates without bold (bold mono is banned, §12).
+  const lineStyle = theme.type.monoSmall;
+  const headerStyle = theme.type.mono;
+  const lineHeight = lineStyle.lineHeight;
 
   const inkFor = (line: RenderLine): string => {
     if (line.kind === 'add') return theme.colors.good;
@@ -63,20 +65,22 @@ export function DiffBody({ diff, truncated, bleed }: DiffBodyProps) {
       <MachinePanel bleed={bleed}>
         <ScrollView horizontal showsHorizontalScrollIndicator style={{ padding: theme.space.sm }}>
           <View>
-            {shown.map((line, index) => (
+            {/* Raw <Text>, not <Txt>: these rows are the machine's own
+                output, set at a fixed size that must not reflow with Dynamic
+                Type or the columns stop lining up. Only the style is sourced
+                from the scale. */}
+            {shown.map((row, index) => (
               <Text
                 key={index}
                 selectable
                 allowFontScaling={false}
                 style={{
-                  fontFamily: theme.font.mono,
-                  fontSize: FONT_SIZE,
-                  lineHeight,
-                  color: inkFor(line),
-                  ...(line.header ? { marginTop: index === 0 ? 0 : lineHeight, fontWeight: '700' as const } : {}),
+                  ...(row.header ? headerStyle : lineStyle),
+                  color: inkFor(row),
+                  ...(row.header ? { marginTop: index === 0 ? 0 : lineHeight } : {}),
                 }}
               >
-                {line.header ? `── ${line.text}` : line.text || ' '}
+                {row.header ? `── ${row.text}` : row.text || ' '}
               </Text>
             ))}
           </View>

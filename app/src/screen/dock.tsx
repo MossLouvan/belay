@@ -166,7 +166,7 @@ export interface ControlDockProps {
   onOpenAgent?: () => void;
   /** Opens the Screen options sheet. Rendered only while floating — in
    *  portrait the header's ⋯ button already owns that job, but the fullscreen
-   *  HUD lost its way in when the mascot's tap became the orientation latch. */
+   *  HUD lost its way in when the orientation latch moved into the HUD. */
   onOpenMenu?: () => void;
   /** Leaves the desktop for the computers list. Rendered only while
    *  floating — in portrait the header's leading ‹ owns that job — and it

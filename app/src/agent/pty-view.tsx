@@ -13,13 +13,13 @@
 
 import React, { useCallback, useRef, useState } from 'react';
 import {
-  FlatList, Keyboard, Platform, Pressable, TextInput, View,
+  FlatList, Keyboard, Platform, Pressable, View,
 } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { router } from 'expo-router';
 import { useTheme } from '../theme';
 import { SwitchComputerLink } from '../devices/switch-link';
-import { Button, Dot, IconButton, Label, Micro, Row, Rule, TrackLabel, Txt } from '../ui';
+import { Button, Composer, Dot, Label, Micro, Row, Rule, TrackLabel, Txt } from '../ui';
 import type { GlassStateProps } from '../ui';
 import { useKeyboardShown } from '../ui/keyboard-lift';
 import { ANSI_RAMPS } from '../terminal-ansi';
@@ -250,68 +250,47 @@ export function PtySessionView({ id, title, cwd, attached, resumable, onBack }: 
           onFontCycle={() => setFontKey((k) => NEXT_FONT[k])}
           fontLabel={FONT_NAMES[fontKey]}
         />
-        <Row gap="sm" style={{ paddingHorizontal: theme.layout.margin }}>
-          <Txt variant="mono" tone="dim" style={{ fontSize: 16 }}>›</Txt>
-          <View style={{ flex: 1, justifyContent: 'center' }}>
-            <TextInput
-              testID="agent-pty-input"
-              value={input}
-              onChangeText={setInput}
-              placeholder={live ? 'Type into the session…' : 'Not attached'}
-              placeholderTextColor={theme.colors.textFaint}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="off"
-              spellCheck={false}
-              returnKeyType="send"
-              submitBehavior="submit"
-              onSubmitEditing={typeInput}
-              accessibilityLabel="Session input"
-              maxFontSizeMultiplier={1.4}
-              style={{
-                backgroundColor: theme.colors.surface,
-                borderRadius: theme.radius.xs,
-                borderWidth: theme.layout.hairline,
-                borderColor: theme.colors.border,
-                color: theme.colors.text,
-                fontFamily: theme.font.mono,
-                paddingLeft: theme.space.md,
-                paddingRight: keyboardUp ? theme.layout.minTouch : theme.space.md,
-                minHeight: theme.layout.minTouch,
-                fontSize: 14,
-              }}
-            />
-            {/* The keyboard is a state and needs a visible exit (§11.2);
-                return TYPEs the line and deliberately keeps focus. */}
-            {keyboardUp ? (
-              <View style={{ position: 'absolute', right: 0, top: 0, bottom: 0, justifyContent: 'center' }}>
-                <IconButton
-                  testID="agent-pty-hide-keyboard"
-                  accessibilityLabel="Hide the keyboard"
-                  variant="plain"
-                  onPress={() => Keyboard.dismiss()}
-                >
-                  <Txt variant="label" tone="dim">⌄</Txt>
-                </IconButton>
-              </View>
-            ) : null}
-          </View>
-          <Button
-            testID="agent-pty-type"
-            label="Type"
-            onPress={typeInput}
-            size="sm"
-            accessibilityHint="Sends the text to the session without pressing return"
-          />
-          <Button
-            testID="agent-pty-run"
-            label="Run"
-            variant="secondary"
-            onPress={runInput}
-            size="sm"
-            accessibilityHint="Sends the text and presses return; with the field empty, just presses return"
-          />
-        </Row>
+        <Composer
+          testID="agent-pty-input"
+          style={{ paddingHorizontal: theme.layout.margin }}
+          prompt="›"
+          mono
+          value={input}
+          onChangeText={setInput}
+          placeholder={live ? 'Type into the session…' : 'Not attached'}
+          accessibilityLabel="Session input"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          spellCheck={false}
+          returnKeyType="send"
+          submitBehavior="submit"
+          onSubmitEditing={typeInput}
+          /* The keyboard is a state and needs a visible exit (§11.2);
+             return TYPEs the line and deliberately keeps focus. */
+          dismiss={{
+            visible: keyboardUp,
+            glyph: '⌄',
+            onPress: () => Keyboard.dismiss(),
+            accessibilityLabel: 'Hide the keyboard',
+            testID: 'agent-pty-hide-keyboard',
+          }}
+          actions={[
+            {
+              testID: 'agent-pty-type',
+              label: 'Type',
+              onPress: typeInput,
+              accessibilityHint: 'Sends the text to the session without pressing return',
+            },
+            {
+              testID: 'agent-pty-run',
+              label: 'Run',
+              variant: 'secondary',
+              onPress: runInput,
+              accessibilityHint: 'Sends the text and presses return; with the field empty, just presses return',
+            },
+          ]}
+        />
       </View>
     </View>
   );

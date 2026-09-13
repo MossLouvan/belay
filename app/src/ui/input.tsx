@@ -11,7 +11,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Platform, TextInput, View } from 'react-native';
-import type { KeyboardTypeOptions, ReturnKeyTypeOptions, StyleProp, ViewStyle } from 'react-native';
+import type { KeyboardTypeOptions, ReturnKeyTypeOptions, StyleProp, TextStyle, ViewStyle } from 'react-native';
 import { easing, useTheme } from '../theme';
 import { useReducedMotion } from './motion';
 import { Label, Txt } from './text';
@@ -23,14 +23,23 @@ interface InputMetrics {
   readonly minHeight: number;
   readonly paddingHorizontal: number;
   readonly paddingVertical: number;
-  readonly fontSize: number;
-  readonly lineHeight: number;
+  /** The type step the entered text is set in. */
+  readonly variant: 'body' | 'title';
 }
 
-/** `md` is every form field; `lg` is the one hero field a screen is about. */
+/**
+ * `md` is every form field; `lg` is the one hero field a screen is about.
+ *
+ * The box metrics stay literal — a field's slot height is its own tuning, not
+ * a spacing step — but the TYPE comes off `theme.type`. `md` was hand-set at
+ * 15/20, which is `body` (15/21) to within a point of leading. `lg` was 22/28;
+ * the scale's nearest hero step is `title` (26/32), and there is deliberately
+ * no 22pt variant — a hero field speaking one step louder than the screen's
+ * own title would need a new token, not an inline override.
+ */
 const INPUT_METRICS: Readonly<Record<'md' | 'lg', InputMetrics>> = {
-  md: { minHeight: 44, paddingHorizontal: 12, paddingVertical: 14, fontSize: 15, lineHeight: 20 },
-  lg: { minHeight: 60, paddingHorizontal: 16, paddingVertical: 16, fontSize: 22, lineHeight: 28 },
+  md: { minHeight: 44, paddingHorizontal: 12, paddingVertical: 14, variant: 'body' },
+  lg: { minHeight: 60, paddingHorizontal: 16, paddingVertical: 16, variant: 'title' },
 };
 
 export interface InputProps {
@@ -122,6 +131,7 @@ export function Input({
 
   const invalid = Boolean(error);
   const metrics = size === 'lg' ? INPUT_METRICS.lg : INPUT_METRICS.md;
+  const entry = theme.type[metrics.variant];
   // Focus swaps the hairline to `focus`; the rope carries the emphasis weight.
   // Error keeps its 2pt promotion — a fault is structural, not a caret state.
   const borderColor = invalid ? theme.colors.bad : focused ? theme.colors.focus : theme.colors.border;
@@ -173,11 +183,10 @@ export function Input({
           accessibilityState={{ disabled: !editable }}
           style={{
             flex: 1,
+            ...(entry as TextStyle),
             color: theme.colors.text,
-            fontSize: metrics.fontSize,
-            lineHeight: metrics.lineHeight,
             paddingVertical: multiline ? 0 : metrics.paddingVertical,
-            fontFamily: mono ? theme.font.mono : undefined,
+            ...(mono ? { fontFamily: theme.font.mono } : null),
           }}
         />
         {trailing ? <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{trailing}</View> : null}

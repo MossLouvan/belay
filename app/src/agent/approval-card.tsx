@@ -13,10 +13,10 @@
 // label is the contract, and tapping it grants that and nothing wider.
 
 import React, { useState, useSyncExternalStore } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import type { TextStyle } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import type { PendingApproval } from '../api';
 import { useTheme } from '../theme';
+import { useLook } from '../design/use-look';
 import { Button, Micro, Row, TrackLabel, Txt, haptic } from '../ui';
 import { DiffBody } from '../changes/diff-body';
 import { editDiff, writeDiff } from '../changes/diff-format';
@@ -38,7 +38,12 @@ const GEN = { editDiff, writeDiff };
  */
 function HoldAllowButton({ onAllow, testID }: { onAllow: () => void; testID: string }) {
   const theme = useTheme();
+  const look = useLook();
   const [held, setHeld] = useState(false);
+  // Stays a Pressable — Button has no hold gesture — but reads the exact
+  // tokens Button reads, so the two never drift apart: the same accent fill,
+  // the same `controlRadius`, the same press feedback, the same minimum
+  // target. Only the press-and-hold behaviour differs.
   return (
     <Pressable
       testID={testID}
@@ -51,17 +56,19 @@ function HoldAllowButton({ onAllow, testID }: { onAllow: () => void; testID: str
       onLongPress={() => { haptic('warning'); onAllow(); }}
       style={{
         flex: 1,
-        minHeight: 44,
+        minHeight: theme.layout.minTouch,
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: theme.radius.xs,
-        backgroundColor: theme.colors.accent,
-        opacity: held ? theme.motion.pressOpacity : 1,
+        borderRadius: look.controlRadius,
+        // Solid fills darken under load rather than ghosting — the same rule
+        // Button's primary variant follows (REVAMP-SPEC §5.10).
+        backgroundColor: held ? theme.colors.accentPress : theme.colors.accent,
+        opacity: 1,
       }}
     >
-      <Text allowFontScaling={false} style={{ ...(theme.type.label as TextStyle), color: theme.colors.onAccent }}>
+      <Txt variant="label" color={theme.colors.onAccent}>
         {held ? 'KEEP HOLDING…' : 'HOLD TO ALLOW'}
-      </Text>
+      </Txt>
     </Pressable>
   );
 }

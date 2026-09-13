@@ -5,7 +5,6 @@
 
 import type { Size } from './model';
 import type { RecordPhase } from './record';
-import type { StreamSettings } from './stream-settings-sheet';
 import type { PendingButton, PointerMode } from './viewport';
 
 export interface WindowMetrics {
@@ -168,6 +167,3 @@ export const crosshairShown = ({ gaming, mode, padCursor, hasPicture }: Crosshai
  */
 export const typeRowFloats = (os: string): boolean => os === 'ios';
 
-/** The Performance settings row's subtitle: "60 Hz • Auto • H264". */
-export const performanceSummary = (settings: StreamSettings): string =>
-  `${settings.fps} Hz • ${settings.bitrateMbps === 0 ? 'Auto' : `${settings.bitrateMbps} Mbps`} • ${settings.codec.toUpperCase()}`;

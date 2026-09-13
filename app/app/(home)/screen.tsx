@@ -51,7 +51,6 @@ import { useScreenBack } from '../../src/screen/use-screen-back';
 import { PAD_CURSOR_LINGER_MS } from '../../src/screen/trackpad';
 import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
 import { ClipboardSheet } from '../../src/screen/clipboard-sheet';
-import { StreamSettingsSheet } from '../../src/screen/stream-settings-sheet';
 import { HostAudio, type HostAudioStatus } from '../../src/stream/audio-player';
 import { audioDockLabel } from '../../src/stream/audio-capability';
 import { AppearanceNav } from '../../src/home/appearance-nav';
@@ -70,7 +69,7 @@ import { FloatingTypeBar, TypeRow } from '../../src/screen/type-row';
 import { useDockState } from '../../src/screen/use-dock-state';
 import { useImmersive } from '../../src/screen/use-immersive';
 import { useKeySender } from '../../src/screen/use-key-sender';
-import { useMascotLatch } from '../../src/screen/use-mascot-latch';
+import { useOrientationLatch } from '../../src/screen/use-orientation-latch';
 import { useMonitorChoice } from '../../src/screen/use-monitor-choice';
 import { useRecordControls } from '../../src/screen/use-record-controls';
 import { useScreenSheets } from '../../src/screen/use-screen-sheets';
@@ -90,8 +89,8 @@ export default function ScreenTab() {
   const reducedMotion = useReducedMotion();
   const focused = useIsFocused();
   const active = Boolean(connection) && focused;
-  const mascot = useMascotLatch();
-  const gaming = useGaming(active, `${connection?.host ?? ''}|${connection?.token ?? ''}`, mascot.keepUpright);
+  const orientation = useOrientationLatch();
+  const gaming = useGaming(active, `${connection?.host ?? ''}|${connection?.token ?? ''}`, orientation.keepUpright);
 
   const view = useImmersive(gaming.enabled, gaming.exitCount);
   const { immersive, fullscreen, landscape } = view;
@@ -289,8 +288,6 @@ export default function ScreenTab() {
         <ScreenHeader
           hostName={connection?.hostName}
           linkPhase={linkPhase}
-          mascotLabel={mascot.mascotLabel}
-          onMascotPress={mascot.onMascotPress}
           onBack={goBack}
           onOpenMenu={openMenu}
         />
@@ -338,8 +335,10 @@ export default function ScreenTab() {
         {/* Input errors still matter while immersive; they float over the top edge. */}
         {immersive && !gaming.enabled ? (
           <ImmersiveHud
-            mascotLabel={mascot.mascotLabel}
-            onMascotPress={mascot.onMascotPress}
+            linkPhase={linkPhase}
+            orientationLabel={orientation.label}
+            orientationPinned={orientation.pinned}
+            onToggleOrientation={orientation.onToggle}
             recordingStatus={record.recording.status}
             onStopRecording={record.stopRecording}
             onReviewRecording={record.openRecordSheet}
@@ -381,8 +380,7 @@ export default function ScreenTab() {
         </FloatingTypeBar>
       ) : null}
 
-      {gaming.enabled ? <GamingOverlay gaming={gaming} width={view.window.width} height={view.window.height}
-        fps={stream.bwpStats?.fps ?? stream.stats.fps} pingMs={facts.pingMs} /> : null}
+      {gaming.enabled ? <GamingOverlay gaming={gaming} width={view.window.width} height={view.window.height} /> : null}
       <GamingSheet gaming={gaming} />
       {/* `focused` is load-bearing, not a nicety: a tool panel presents OVER
           the desktop and brings its own copy of the bar, so without this the
@@ -404,26 +402,6 @@ export default function ScreenTab() {
 
       <ClipboardSheet visible={sheets.isOpen('clipboard')} onClose={sheets.closer('clipboard')} />
 
-      <StreamSettingsSheet
-        visible={sheets.isOpen('streamSettings')}
-        onClose={sheets.closer('streamSettings')}
-        settings={sheets.streamSettings}
-        onApply={(settings) => {
-          sheets.applyStreamSettings(settings);
-          // Wire to WebRTC ABR: send control message to update encoder bitrate ceiling
-          // Control channel message: {"t":"bitrate","bps":settings.bitrateMbps*1_000_000}
-          // If bitrateMbps === 0 (Auto), congestion.ts decides with no ceiling
-          // On JPEG fallback: bitrate maps indirectly via quality/width presets
-          if (connection && settings.bitrateMbps > 0) {
-            const bps = settings.bitrateMbps * 1_000_000;
-            // TODO: Send via WebRTC control channel when session is WebRTC-backed
-            // For now this state is read by quality presets and HUD
-            console.log(`[stream-settings] bitrate ceiling: ${bps} bps (${settings.bitrateMbps} Mbps)`);
-          }
-        }}
-        webrtcAvailable={facts.info?.webrtc === true}
-      />
-
       {/* The tool drawer: the four former tabs, named and explained, each
           opening as a slide-up panel over this desktop. */}
       <ToolDrawer visible={tools.showTools} onClose={tools.closeTools} waitingCount={tools.waitingCount} />
@@ -432,12 +410,10 @@ export default function ScreenTab() {
         visible={sheets.isOpen('menu')}
         onClose={sheets.closer('menu')}
         quality={presets.quality}
-        streamSettings={sheets.streamSettings}
         showHud={sheets.showHud}
         audioOn={sheets.audioOn}
         audioStatus={audioStatus}
         onOpenQuality={sheets.fromMenu('quality')}
-        onOpenStreamSettings={sheets.fromMenu('streamSettings')}
         onToggleHud={sheets.toggleHud}
         onToggleAudio={sheets.toggleAudio}
         onOpenHelp={sheets.fromMenu('help')}

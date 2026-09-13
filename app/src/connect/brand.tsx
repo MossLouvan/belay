@@ -9,6 +9,21 @@ import { Animated, View } from 'react-native';
 import { useTheme } from '../theme';
 import { Txt, useEntrance } from '../ui';
 
+/**
+ * Brand lockup sizes — the ONE sanctioned exception to the type scale
+ * (docs/DESIGN.md §4.3). The BELAY wordmark is a logo, not running text: the
+ * splash paints it as the hero mark and the connect screen as the masthead,
+ * and both are deliberately larger than `display`. They live here, named and
+ * together, so the two call sites cannot drift apart silently — and so a
+ * grep for a bare `fontSize` on the connect flow finds nothing.
+ */
+export const BRAND_LOCKUP = Object.freeze({
+  /** rope-splash's hero wordmark, bottom-right over the rope. */
+  splash: Object.freeze({ fontSize: 48, lineHeight: 52, letterSpacing: -1.5 }),
+  /** The connect screen's centred masthead. */
+  masthead: Object.freeze({ fontSize: 36, lineHeight: 40, letterSpacing: -1 }),
+});
+
 /** The link mark: a filled square joined to an outlined one. */
 export function LogoMark({ size = 20 }: { size?: number }) {
   const theme = useTheme();
@@ -42,13 +57,7 @@ export function Brand() {
       <LogoMark size={16} />
       <Txt
         variant="display"
-        style={{
-          fontSize: 36,
-          lineHeight: 40,
-          textTransform: 'none',
-          letterSpacing: -1,
-          color: theme.colors.accentGraphic,
-        }}
+        style={{ ...BRAND_LOCKUP.masthead, color: theme.colors.accentGraphic }}
       >
         Belay
       </Txt>

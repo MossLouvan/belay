@@ -38,8 +38,10 @@ export function AddComputerRow({ onPress, testID = 'show-add-computer' }: AddCom
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: centred ? 'center' : 'flex-start',
-        gap: centred ? 20 : 14,
-        paddingHorizontal: centred ? 20 : 12,
+        // Fieldwork's centred drawing uses the page gutter for both the gap
+        // and the inset; Current's row sits on the spacing scale.
+        gap: centred ? theme.layout.margin : theme.space.sm,
+        paddingHorizontal: centred ? theme.layout.margin : theme.space.sm,
         minHeight: centred ? 96 : 64,
         opacity: pressed ? theme.motion.pressOpacity : 1,
       })}
@@ -49,7 +51,7 @@ export function AddComputerRow({ onPress, testID = 'show-add-computer' }: AddCom
       ) : (
         <View
           style={{
-            width: 40, height: 40, borderRadius: 10,
+            width: 40, height: 40, borderRadius: theme.radius.xs,
             backgroundColor: theme.colors.surfaceAlt,
             alignItems: 'center', justifyContent: 'center',
           }}

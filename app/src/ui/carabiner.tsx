@@ -26,10 +26,15 @@ export interface CarabinerProps {
 }
 
 /**
- * Polished climbing carabiner with metallic silver appearance.
- * D-shaped offset body with sharp specular highlights, visible screw-gate,
- * and proper spine mass. Enhanced for photo-real metal rendering with
- * catch-lights and edge reflections.
+ * The D-shaped clip: an offset body with a heavier spine, the gate bar the
+ * rope clips over, and the screw-gate lock.
+ *
+ * Drawn flat, in `ink` alone. It used to carry a drop shadow and four white
+ * specular "catch-lights" at fixed alphas — which made the mark read as
+ * polished metal on the dark Fieldwork page and as a smear of invisible
+ * white-on-white on Current. The Ledger system is flat (`theme.elevation` is
+ * pinned to zero shadows), so those layers are gone: the same drawing now
+ * reads correctly on both grounds, in whatever colour it is handed.
  */
 export function Carabiner({ size = 40, color, strokeWidth = 3 }: CarabinerProps) {
   const theme = useTheme();
@@ -46,22 +51,6 @@ export function Carabiner({ size = 40, color, strokeWidth = 3 }: CarabinerProps)
       importantForAccessibility="no-hide-descendants"
       pointerEvents="none"
     >
-      {/* Deep shadow for lift */}
-      <View
-        style={{
-          position: 'absolute',
-          top: 2,
-          left: 1,
-          right: -1,
-          bottom: -2,
-          borderWidth: strokeWidth,
-          borderColor: 'rgba(0, 0, 0, 0.3)',
-          borderTopLeftRadius: width * 0.55,
-          borderBottomLeftRadius: width * 0.55,
-          borderTopRightRadius: width * 0.32,
-          borderBottomRightRadius: width * 0.32,
-        }}
-      />
       {/* Spine (left side) — thicker stroke for mass */}
       <View
         style={{
@@ -94,42 +83,6 @@ export function Carabiner({ size = 40, color, strokeWidth = 3 }: CarabinerProps)
           borderBottomRightRadius: width * 0.32,
         }}
       />
-      {/* Sharp specular highlight along spine edge (polished metal catch-light) */}
-      <View
-        style={{
-          position: 'absolute',
-          top: strokeWidth + 2,
-          left: strokeWidth + 1.5,
-          width: 1.5,
-          height: height * 0.7,
-          backgroundColor: 'rgba(255, 255, 255, 0.85)',
-          borderRadius: 0.75,
-        }}
-      />
-      {/* Secondary spine specular */}
-      <View
-        style={{
-          position: 'absolute',
-          top: strokeWidth + 8,
-          left: strokeWidth * 0.5,
-          width: 1,
-          height: height * 0.4,
-          backgroundColor: 'rgba(255, 255, 255, 0.4)',
-          borderRadius: 0.5,
-        }}
-      />
-      {/* Gate side specular highlight */}
-      <View
-        style={{
-          position: 'absolute',
-          top: strokeWidth + 4,
-          right: strokeWidth + 1,
-          width: 1.5,
-          height: height * 0.5,
-          backgroundColor: 'rgba(255, 255, 255, 0.75)',
-          borderRadius: 0.75,
-        }}
-      />
       {/* Gate bar — heavier bar at the top where rope clips in */}
       <View
         style={{
@@ -143,19 +96,6 @@ export function Carabiner({ size = 40, color, strokeWidth = 3 }: CarabinerProps)
           transform: [{ rotate: '-8deg' }],
         }}
       />
-      {/* Sharp gate bar highlight (tube edge catch-light) */}
-      <View
-        style={{
-          position: 'absolute',
-          top: height * 0.18 + gateWeight * 0.15,
-          right: width * 0.12,
-          width: width * 0.16,
-          height: 1.5,
-          backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          borderRadius: 0.75,
-          transform: [{ rotate: '-8deg' }],
-        }}
-      />
       {/* Screw-gate detail - small circular lock */}
       <View
         style={{
@@ -165,9 +105,11 @@ export function Carabiner({ size = 40, color, strokeWidth = 3 }: CarabinerProps)
           width: strokeWidth * 1.2,
           height: strokeWidth * 1.2,
           borderRadius: strokeWidth * 0.6,
+          // The lock reads against the page, not against a white rim: `bg` is
+          // the ground it is actually drawn on in both appearances.
           backgroundColor: ink,
           borderWidth: 0.5,
-          borderColor: 'rgba(255, 255, 255, 0.3)',
+          borderColor: theme.colors.bg,
         }}
       />
     </View>

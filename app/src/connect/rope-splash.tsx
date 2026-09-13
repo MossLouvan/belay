@@ -23,6 +23,7 @@ import { Txt, Micro, useReducedMotion } from '../ui';
 import { Carabiner } from '../ui/carabiner';
 import { RopeStrand } from '../ui/rope-strand';
 import { SPRING_CONFIGS } from '../ui/motion';
+import { BRAND_LOCKUP } from './brand';
 
 interface RopeSplashProps {
   /** Whether to play the animation. Set false for reduced motion instant display. */
@@ -210,22 +211,13 @@ export function RopeSplash({ animated = true }: RopeSplashProps) {
       >
         <Txt
           variant="display"
-          style={{
-            fontSize: 48,
-            lineHeight: 52,
-            letterSpacing: -1.5,
-            color: theme.colors.text,
-          }}
+          style={{ ...BRAND_LOCKUP.splash, color: theme.colors.text }}
         >
           BELAY
         </Txt>
-        <Micro
-          tone="dim"
-          style={{
-            letterSpacing: 2,
-            fontSize: 10,
-          }}
-        >
+        {/* The tagline is not part of the lockup exception: it is set on the
+            11pt `micro` floor, tracked wide. Nothing in the app goes under it. */}
+        <Micro tone="dim" style={{ letterSpacing: 2 }}>
           HOLD THE LINE
         </Micro>
       </Animated.View>

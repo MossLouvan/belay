@@ -12,6 +12,7 @@ import React from 'react';
 import { View } from 'react-native';
 import type { ViewStyle } from 'react-native';
 
+import { useTheme } from '../theme';
 import { Micro } from '../ui';
 import { TAG_HEIGHT, inkOn, placeTag, toPixels, visibleCursors } from './cursors';
 import type { CursorSurface } from './cursors-store';
@@ -19,6 +20,9 @@ import type { RemoteCursor } from './cursors';
 
 /** Arrow footprint. Small enough to point precisely, big enough to find. */
 const ARROW = 16;
+
+/** The "can click" dot inside the arrow head. Icon geometry, not spacing. */
+const ACTING_DOT = 6;
 
 /**
  * A pointer, drawn as two rotated bars meeting at the hotspot.
@@ -28,6 +32,7 @@ const ARROW = 16;
  * the very backgrounds pastels look best on.
  */
 function Arrow({ color, solid }: { color: string; solid: boolean }) {
+  const theme = useTheme();
   const arm = (rotate: string, length: number): ViewStyle => ({
     position: 'absolute',
     top: 0,
@@ -42,7 +47,9 @@ function Arrow({ color, solid }: { color: string; solid: boolean }) {
     ...arm(rotate, length),
     left: ARROW / 2 - 2.5,
     width: 5,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    // The scrim role, not a raw black: `overlay` is the token for "darken
+    // whatever is underneath", and it is tuned per appearance.
+    backgroundColor: theme.colors.overlay,
   });
   return (
     <View style={{ width: ARROW, height: ARROW }} pointerEvents="none">
@@ -56,10 +63,10 @@ function Arrow({ color, solid }: { color: string; solid: boolean }) {
         style={{
           position: 'absolute',
           top: ARROW * 0.42,
-          left: ARROW / 2 - 3,
-          width: 6,
-          height: 6,
-          borderRadius: 3,
+          left: ARROW / 2 - ACTING_DOT / 2,
+          width: ACTING_DOT,
+          height: ACTING_DOT,
+          borderRadius: ACTING_DOT / 2,
           borderWidth: solid ? 0 : 1.5,
           borderColor: color,
           backgroundColor: solid ? color : 'transparent',
@@ -70,6 +77,7 @@ function Arrow({ color, solid }: { color: string; solid: boolean }) {
 }
 
 function Tag({ cursor, left, top }: { cursor: RemoteCursor; left: number; top: number }) {
+  const theme = useTheme();
   return (
     <View
       pointerEvents="none"
@@ -78,7 +86,7 @@ function Tag({ cursor, left, top }: { cursor: RemoteCursor; left: number; top: n
         left,
         top,
         height: TAG_HEIGHT,
-        paddingHorizontal: 6,
+        paddingHorizontal: theme.space.xs,
         justifyContent: 'center',
         backgroundColor: cursor.color,
         // Square corners are the system (docs/DESIGN.md); 2pt is the standard

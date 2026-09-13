@@ -19,7 +19,7 @@
 // quieter alternative for anyone standing at the computer.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, View } from 'react-native';
+import { AppState, View } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 import Animated, {
   Easing,
@@ -147,6 +147,10 @@ async function checkBounded(url: string): Promise<HostCheck> {
   }
 }
 
+/** The climb dot's diameter. Half of it is the radius that makes it round —
+ *  a circle is geometry, not a token, so the two are tied together here. */
+const STEP_DOT = 6;
+
 /** One row of climb dots — where you are on the rope, at a glance. */
 function StepDots({ step }: { step: GuideStep }) {
   const theme = useTheme();
@@ -160,9 +164,9 @@ function StepDots({ step }: { step: GuideStep }) {
         <View
           key={s}
           style={{
-            width: 6,
-            height: 6,
-            borderRadius: 3,
+            width: STEP_DOT,
+            height: STEP_DOT,
+            borderRadius: STEP_DOT / 2,
             backgroundColor: i <= active ? theme.colors.accentGraphic : theme.colors.trackRest,
           }}
         />
@@ -342,15 +346,14 @@ export function TailscaleGuide({
         <View style={{ gap: theme.space.sm }}>
           {copy.ordinal ? <Label style={{ marginBottom: 0 }}>{copy.ordinal}</Label> : null}
           <Txt
-            variant="title"
+            variant="display"
             adjustsFontSizeToFit
             minimumFontScale={0.7}
             numberOfLines={2}
-            style={{ fontSize: 32, lineHeight: 36, textTransform: 'none' }}
           >
             {copy.title}
           </Txt>
-          <Txt variant="body" tone="dim" style={{ fontSize: 15, lineHeight: 22 }}>
+          <Txt variant="body" tone="dim">
             {copy.body}
           </Txt>
         </View>
@@ -474,22 +477,13 @@ export function TailscaleGuide({
       {/* Footer: where you are on the rope, and the way back down. */}
       <View style={{ marginTop: 'auto', gap: theme.space.md, paddingTop: theme.space.xl }}>
         <StepDots step={step} />
-        <Pressable
+        <Button
+          label={step !== 'intro' ? '← Back' : host ? 'Not now' : "Skip — I'm on the same Wi-Fi"}
+          variant="ghost"
           onPress={retreat}
-          accessibilityRole="button"
+          fullWidth
           accessibilityLabel={step === 'intro' ? 'Close Tailscale setup' : 'Go back a step'}
-          hitSlop={8}
-          style={({ pressed }) => ({
-            paddingVertical: theme.space.sm,
-            minHeight: 44,
-            justifyContent: 'center',
-            opacity: pressed ? theme.motion.pressOpacity : 1,
-          })}
-        >
-          <Txt variant="body" tone="dim" style={{ textAlign: 'center', fontSize: 15 }}>
-            {step !== 'intro' ? '← Back' : host ? 'Not now' : "Skip — I'm on the same Wi-Fi"}
-          </Txt>
-        </Pressable>
+        />
       </View>
     </View>
   );

@@ -18,11 +18,12 @@
 // starts clean instead of doubling up.
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Linking, Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { api, uploadImageBase64 } from '../api';
+import { humanMessage } from '../errors';
 import { useTheme } from '../theme';
-import { Column, Dot, ListItem, Sheet, haptic } from '../ui';
+import { Column, Dot, ListItem, Micro, Sheet, haptic } from '../ui';
 import { CAMERA_DENIED_MESSAGE, failureMessageFor, parseImagesSent, planUpload } from './photos';
 import type { PictureSource } from './photos';
 
@@ -70,7 +71,7 @@ export function usePhotoSend(
             onSent?.(1);
             return true;
           } catch (e: unknown) {
-            onError(failureMessageFor('screen', e instanceof Error ? e.message : String(e)));
+            onError(failureMessageFor('screen', humanMessage(e)));
             return false;
           } finally {
             setBusy(false);
@@ -116,13 +117,13 @@ export function usePhotoSend(
           return true;
         } catch (e: unknown) {
           void api.imagesDiscard().catch(() => undefined);
-          onError(failureMessageFor(source, e instanceof Error ? e.message : String(e)));
+          onError(failureMessageFor(source, humanMessage(e)));
           return false;
         } finally {
           setBusy(false);
         }
       } catch (e: unknown) {
-        onError(failureMessageFor(source, e instanceof Error ? e.message : String(e)));
+        onError(failureMessageFor(source, humanMessage(e)));
         return false;
       } finally {
         inFlight.current = false;
@@ -199,9 +200,7 @@ export function PhotoButton({ onPick, busy, disabled, size = 48, testID }: Photo
             <View style={{ width: glyph * 0.2, height: glyph * 0.2, borderRadius: glyph * 0.1, borderWidth: 2, borderColor: ink }} />
           </View>
         </View>
-        <Text allowFontScaling={false} accessibilityElementsHidden style={{ ...theme.type.micro, color: ink }}>
-          photo
-        </Text>
+        <Micro style={{ color: ink }}>photo</Micro>
         {busy ? (
           <View style={{ position: 'absolute', bottom: 2, right: 2 }}>
             <Dot status="accent" size={5} pulse />

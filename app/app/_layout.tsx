@@ -15,6 +15,7 @@ import { ConnectionProvider, useConnection } from '../src/connection';
 import { useTheme } from '../src/theme';
 import { restoreThemeMode } from '../src/settings/theme-mode';
 import { RopeSplash } from '../src/connect/rope-splash';
+import { ErrorBoundary } from '../src/ui/error-boundary';
 import {
   AgentLink, parseAgentLink, planAgentLink, sessionKnown, settlePendingOpen,
 } from '../src/agent/deep-link';
@@ -225,8 +226,12 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <StatusBar style={theme.isDark ? 'light' : 'dark'} />
         <ConnectionProvider>
-          {ready ? <Routes forced={bootTimedOut} /> : <Boot />}
-          <AgentLinkHandler />
+          {/* Inside the provider, so "Try again" remounts the routes without
+              dropping the connection the user already established. */}
+          <ErrorBoundary scheme={theme.scheme}>
+            {ready ? <Routes forced={bootTimedOut} /> : <Boot />}
+            <AgentLinkHandler />
+          </ErrorBoundary>
         </ConnectionProvider>
       </SafeAreaProvider>
     </View>

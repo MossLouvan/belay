@@ -4,7 +4,7 @@
 import React, { useCallback } from 'react';
 import { StyleProp, ViewStyle } from 'react-native';
 import { SegmentOption, SegmentedControl } from '../ui';
-import { ThemeMode, useThemeMode, useTheme } from '../theme';
+import { ThemeMode, useTheme } from '../theme';
 import { persistThemeMode } from './theme-mode';
 
 const OPTIONS: readonly SegmentOption<ThemeMode>[] = [
@@ -17,9 +17,14 @@ export interface ThemeToggleProps {
   testID?: string;
 }
 
-/** Three-way appearance control, wired to the persisted theme mode. */
+/**
+ * The two-appearance control, wired to the persisted theme mode.
+ *
+ * `value` is derived from the RESOLVED theme rather than the stored mode, so
+ * the selected segment always matches what the user is looking at — including
+ * when the stored mode is 'system' and the OS is the one choosing.
+ */
 export function ThemeToggle({ style, testID }: ThemeToggleProps) {
-  const mode = useThemeMode();
   const theme = useTheme();
 
   const onChange = useCallback((next: ThemeMode) => {

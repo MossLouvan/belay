@@ -17,6 +17,14 @@ import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
 import { haptic } from './haptics';
 import { Row } from './layout';
+import {
+  SEGMENT_HEIGHT,
+  SEGMENT_LABEL_SIZE,
+  SEGMENT_TRACK_INSET,
+  segmentChipRadius,
+  segmentHitSlop,
+  segmentTrackRadius,
+} from './segment-metrics';
 import { Txt } from './text';
 
 export interface SegmentOption<T extends string> {
@@ -44,13 +52,6 @@ export interface SegmentedControlProps<T extends string> {
 }
 
 /**
- * Visual height of one text tab. Shorter than the 44pt minimum so the strip
- * stays chrome-dense; the shortfall is made up with vertical `hitSlop` so the
- * *effective* target is a full `layout.minTouch`.
- */
-const SEGMENT_HEIGHT = 34;
-
-/**
  * Text-segmented control: `UPDATE RATE  1S [2S] 5S` style. The selected option
  * gets the accent label plus the 2pt underline; unselected options sit on the
  * accentDim track so the strip reads as one control, not scattered words.
@@ -70,10 +71,9 @@ export function SegmentedControl<T extends string>({
 }: SegmentedControlProps<T>) {
   const theme = useTheme();
   const look = useLook();
-  // Split the shortfall evenly above and below so the effective target is
-  // centred on the segment. Clamped at 0 in case the constants ever cross over.
-  const slop = Math.max(0, Math.round((theme.layout.minTouch - SEGMENT_HEIGHT) / 2));
-  const segmentHitSlop = { top: slop, bottom: slop };
+  // The shortfall against the 44pt minimum, split evenly above and below so
+  // the effective target stays centred on the segment (see segment-metrics).
+  const slop = segmentHitSlop(theme.layout.minTouch, SEGMENT_HEIGHT);
   // Fieldwork's selected chip is the muted scorch with orange ink: a solid
   // orange chip on a near-black page is a flare, not a selection.
   const activeFill = look.segmentSoft ? theme.colors.accentSoft : theme.colors.accent;
@@ -87,8 +87,8 @@ export function SegmentedControl<T extends string>({
       style={[
         {
           flexDirection: 'row',
-          padding: 3,
-          borderRadius: look.controlRadius + 4,
+          padding: SEGMENT_TRACK_INSET,
+          borderRadius: segmentTrackRadius(look.controlRadius),
           backgroundColor: theme.colors.surfaceAlt,
           borderWidth: theme.layout.hairline,
           borderColor: theme.colors.border,
@@ -120,7 +120,7 @@ export function SegmentedControl<T extends string>({
             // where `accessibilityState` above is what VoiceOver reads.
             aria-checked={role === 'radio' ? selected : undefined}
             disabled={optionDisabled}
-            hitSlop={segmentHitSlop}
+            hitSlop={slop}
             onPress={() => {
               if (selected || optionDisabled) return;
               haptic('selection');
@@ -132,7 +132,7 @@ export function SegmentedControl<T extends string>({
               alignItems: 'center',
               justifyContent: 'center',
               paddingHorizontal: theme.space.xs,
-              borderRadius: look.controlRadius + 1,
+              borderRadius: segmentChipRadius(look.controlRadius),
               backgroundColor: selected ? activeFill : 'transparent',
               opacity: optionDisabled ? 0.4 : pressed ? theme.motion.pressOpacity : 1,
             })}
@@ -140,7 +140,7 @@ export function SegmentedControl<T extends string>({
             <Txt
               variant="button"
               numberOfLines={1}
-              style={{ fontSize: 14 }}
+              style={{ fontSize: SEGMENT_LABEL_SIZE }}
               color={selected ? activeInk : theme.colors.text}
             >
               {option.label}

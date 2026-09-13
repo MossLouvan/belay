@@ -1,5 +1,5 @@
-// Unit tests for the mascot's orientation latch — the pure toggle and the
-// spoken contract on the avatar.
+// Unit tests for the immersive HUD's orientation latch — the pure toggle and
+// the spoken contract on the control.
 //
 //   cd app && node --test src/screen/orientation-lock.test.mjs
 //
@@ -12,25 +12,10 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_ORIENTATION_LOCK,
-  MASCOT_TAP_BURST_GAP_MS,
-  mascotAccessibilityLabel,
-  mascotTapLatches,
   nextOrientationLock,
+  orientationLatchLabel,
+  orientationLatchPinned,
 } from './orientation-lock.ts';
-
-test('the first tap of a burst latches; the rapid taps that spin the beluga up do not', () => {
-  const gap = MASCOT_TAP_BURST_GAP_MS;
-  assert.equal(mascotTapLatches(null, 1_000), true, 'the very first tap always latches');
-  assert.equal(mascotTapLatches(1_000, 1_000 + gap - 1), false, 'a quick follow-up is spin, not a toggle');
-  assert.equal(mascotTapLatches(1_000, 1_000 + gap), true, 'a pause ends the burst');
-  assert.equal(mascotTapLatches(1_000, 5_000), true);
-});
-
-test('a sustained burst never flaps the latch, however long it runs', () => {
-  const taps = Array.from({ length: 40 }, (_, i) => 1_000 + i * 150);
-  const latched = taps.filter((at, i) => mascotTapLatches(i === 0 ? null : taps[i - 1], at));
-  assert.deepEqual(latched, [1_000], 'exactly one latch for the whole burst');
-});
 
 test('the app starts free — rotation belongs to the device', () => {
   assert.equal(DEFAULT_ORIENTATION_LOCK, 'free');
@@ -47,16 +32,25 @@ test('two taps land back where they started', () => {
 });
 
 test('the label names the NEXT action, not the current state', () => {
-  // Free: the tap will pin the view upright.
-  assert.match(mascotAccessibilityLabel('free'), /keep the view upright/);
-  // Pinned: the tap will free rotation again.
-  assert.match(mascotAccessibilityLabel('portrait'), /rotate again/);
+  assert.match(orientationLatchLabel('free'), /keep the view upright/i);
+  assert.match(orientationLatchLabel('portrait'), /rotate/i);
 });
 
-test('both labels name the mascot and its flip', () => {
+test('neither label promises an animation the app no longer has', () => {
   for (const state of ['free', 'portrait']) {
-    const label = mascotAccessibilityLabel(state);
-    assert.match(label, /Belay mascot/, state);
-    assert.match(label, /flip/, state);
+    const label = orientationLatchLabel(state);
+    assert.doesNotMatch(label, /flip/i, state);
+    assert.doesNotMatch(label, /mascot/i, state);
   }
+});
+
+test('pinned is true only while the view is held upright', () => {
+  assert.equal(orientationLatchPinned('portrait'), true);
+  assert.equal(orientationLatchPinned('free'), false);
+});
+
+test('every tap counts — there is no burst guard left to swallow one', async () => {
+  const mod = await import('./orientation-lock.ts');
+  assert.equal('mascotTapLatches' in mod, false);
+  assert.equal('MASCOT_TAP_BURST_GAP_MS' in mod, false);
 });

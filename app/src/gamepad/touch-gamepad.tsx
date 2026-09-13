@@ -4,7 +4,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import Animated, { runOnJS, useAnimatedStyle, useFrameCallback, useSharedValue } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
 import { useTheme } from '../theme';
-import { TrackLabel, haptic } from '../ui';
+import { Txt, haptic } from '../ui';
 import { BUTTONS, NEUTRAL } from './codec';
 import type { GamepadState } from './codec';
 import { gamepadLayout, stickVector } from './layout';
@@ -61,7 +61,14 @@ function TouchControl({ rect, state, labels }: { readonly rect: ControlRect; rea
       accessibilityActions={stick ? [{ name: 'increment', label: 'Right' }, { name: 'decrement', label: 'Left' }] : undefined}
       onAccessibilityAction={event => accessibilityPulse(event.nativeEvent.actionName === 'decrement' ? -1 : 1)}
       style={[{ position: 'absolute', left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: theme.colors.bg, borderWidth: theme.layout.hairline, borderRadius: theme.radius.xs, justifyContent: 'center', opacity: stick ? STICK_OPACITY : 1 }, style]}>
-      <View style={stick ? { position: 'absolute', top: 0, width: '100%' } : undefined} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"><TrackLabel label={label} onPress={() => { }} align="center" hapticTone={null} /></View>
+      {/* The cap's word is inert text: the whole pad surface is the gesture
+          target and the label is a11y-hidden because the parent announces it.
+          It used to be a TrackLabel with a no-op press handler, which painted
+          the rope affordance under text nothing can press — exactly what
+          ui/track-label.tsx says never to do. */}
+      <View style={stick ? { position: 'absolute', top: 0, width: '100%' } : undefined} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <Txt variant="label" align="center" tone="dim" numberOfLines={1} style={{ minHeight: theme.layout.minTouch, textAlignVertical: 'center' }}>{label}</Txt>
+      </View>
       {stick ? <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: theme.layout.minTouch + (rect.h - theme.layout.minTouch - theme.space.xs) / 2, alignSelf: 'center', width: theme.space.xs, height: theme.space.xs, backgroundColor: theme.colors.accentGraphic }, marker]} /> : null}
     </Animated.View>
   </GestureDetector>;

@@ -58,7 +58,7 @@ export function TailscaleStep({ hostName, detail, onRetry, onOpenTailscale, busy
       {/* Minimal warning notice — typography-first, clean */}
       <View style={{ gap: theme.space.sm }}>
         <Txt variant="label" tone="warn">No answer over Tailscale</Txt>
-        <Txt variant="body" tone="dim" style={{ fontSize: 15, lineHeight: 22 }}>
+        <Txt variant="body" tone="dim">
           {hostName} answered on its regular address, but its Tailscale address did not.
           Turn on Tailscale on this phone to connect with no pairing code — at home or anywhere else.
         </Txt>

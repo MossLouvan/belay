@@ -18,6 +18,14 @@ import { IconDeviceGamepad2, IconKeyboard, IconPointer } from '@tabler/icons-rea
 import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
 import { Txt } from '../ui';
+import {
+  SEGMENT_HEIGHT,
+  SEGMENT_LABEL_SIZE,
+  SEGMENT_TRACK_INSET,
+  segmentChipRadius,
+  segmentHitSlop,
+  segmentTrackRadius,
+} from '../ui/segment-metrics';
 
 type ModeId = 'dock-trackpad' | 'toggle-type' | 'dock-controller';
 
@@ -45,6 +53,10 @@ export function ModeStrip({ typeOpen, onTrackpad, onKeyboard, onController }: Mo
   const theme = useTheme();
   const look = useLook();
 
+  // A 34pt segment is under the 44pt minimum; vertical slop tops the
+  // effective target up without growing the strip (see segment-metrics).
+  const slop = segmentHitSlop(theme.layout.minTouch, SEGMENT_HEIGHT);
+
   const activeFill = look.segmentSoft ? theme.colors.accentSoft : theme.colors.accent;
   const activeInk = look.segmentSoft ? theme.colors.onAccentSoft : theme.colors.onAccent;
   const actions: Readonly<Record<ModeId, () => void>> = {
@@ -59,8 +71,8 @@ export function ModeStrip({ typeOpen, onTrackpad, onKeyboard, onController }: Mo
       accessibilityRole="tablist"
       style={{
         flexDirection: 'row',
-        borderRadius: look.controlRadius + 4,
-        padding: 3,
+        borderRadius: segmentTrackRadius(look.controlRadius),
+        padding: SEGMENT_TRACK_INSET,
         backgroundColor: theme.colors.surfaceAlt,
         borderWidth: theme.layout.hairline,
         borderColor: theme.colors.border,
@@ -78,20 +90,21 @@ export function ModeStrip({ typeOpen, onTrackpad, onKeyboard, onController }: Mo
             accessibilityLabel={LABELS[id]}
             accessibilityState={{ selected: active }}
             onPress={actions[id]}
+            hitSlop={slop}
             style={({ pressed }) => ({
               flex: 1,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 7,
-              minHeight: 34,
-              borderRadius: look.controlRadius + 1,
+              gap: theme.space.xs,
+              minHeight: SEGMENT_HEIGHT,
+              borderRadius: segmentChipRadius(look.controlRadius),
               backgroundColor: active ? activeFill : 'transparent',
               opacity: pressed ? theme.motion.pressOpacity : 1,
             })}
           >
             <Glyph size={18} strokeWidth={2} color={ink} />
-            <Txt variant="button" numberOfLines={1} style={{ fontSize: 14, color: active ? activeInk : theme.colors.text }}>
+            <Txt variant="button" numberOfLines={1} style={{ fontSize: SEGMENT_LABEL_SIZE, color: active ? activeInk : theme.colors.text }}>
               {LABELS[id]}
             </Txt>
           </Pressable>

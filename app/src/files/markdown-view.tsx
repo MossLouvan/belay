@@ -9,16 +9,20 @@ import React, { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import type { TextStyle } from 'react-native';
 import { useTheme } from '../theme';
+import type { TypeVariant } from '../theme';
+import { Txt } from '../ui';
 import { parseMarkdown } from './markdown';
 import type { InlineSpan, MdBlock } from './markdown';
 
-/** Heading sizes by level; anything deeper than h4 reads as bold body text. */
-const HEADING_SIZES: readonly number[] = [24, 20, 17, 15];
+/**
+ * Heading levels, mapped onto the app's type scale rather than a private set
+ * of sizes. h1–h4 stay four distinct steps (26 / 19 / 16 / 15 with their own
+ * weights and tracking); anything deeper reads as strong body text.
+ */
+const HEADING_VARIANTS: readonly TypeVariant[] = ['title', 'heading', 'subheading', 'bodyStrong'];
 
-const BODY_SIZE = 15;
-const CODE_SIZE = 12.5;
-const LINE_RATIO = 1.5;
-const QUOTE_BAR_WIDTH = 2;
+/** The bullet/number gutter. One step of the spacing scale. */
+const MARKER_COLUMN = 24;
 
 interface Palette {
   readonly theme: ReturnType<typeof useTheme>;
@@ -26,18 +30,24 @@ interface Palette {
 
 function SpanText({ spans, base }: { spans: readonly InlineSpan[]; base: TextStyle } & Record<never, never>) {
   const theme = useTheme();
+  // Raw <Text>, not <Txt>: this node exists to host per-span child <Text>
+  // runs (bold / italic / inline code / link), which <Txt> cannot express.
+  // Its style still comes from the scale, via the `base` the caller builds.
   return (
     <Text selectable style={base}>
       {spans.map((span, index) => (
         <Text
           key={index}
           style={[
-            span.bold ? { fontWeight: '700' } : null,
+            span.bold ? { fontWeight: theme.type.bodyStrong.fontWeight as TextStyle['fontWeight'] } : null,
             span.italic ? { fontStyle: 'italic' } : null,
             span.code
               ? {
                   fontFamily: theme.font.mono,
-                  fontSize: (base.fontSize ?? BODY_SIZE) - 2,
+                  // Inline code must track the line it sits in — a heading's
+                  // `code` span is heading-sized — so this stays relative to
+                  // the host size rather than pinning a scale step.
+                  fontSize: (base.fontSize ?? theme.type.body.fontSize) - 2,
                   color: theme.colors.textDim,
                   backgroundColor: theme.colors.surfaceAlt,
                 }
@@ -53,22 +63,16 @@ function SpanText({ spans, base }: { spans: readonly InlineSpan[]; base: TextSty
 }
 
 function Block({ block, theme }: { block: MdBlock } & Palette) {
-  const body: TextStyle = {
-    fontSize: BODY_SIZE,
-    lineHeight: Math.round(BODY_SIZE * LINE_RATIO),
-    color: theme.colors.text,
-  };
+  const body: TextStyle = { ...(theme.type.body as TextStyle), color: theme.colors.text };
 
   switch (block.kind) {
     case 'heading': {
-      const fontSize = HEADING_SIZES[Math.min(block.level, HEADING_SIZES.length) - 1];
+      const variant = HEADING_VARIANTS[Math.min(block.level, HEADING_VARIANTS.length) - 1];
       return (
         <SpanText
           spans={block.spans}
           base={{
-            fontSize,
-            lineHeight: Math.round(fontSize * 1.3),
-            fontWeight: '700',
+            ...(theme.type[variant] as TextStyle),
             color: theme.colors.text,
             marginTop: block.level <= 2 ? theme.space.sm : theme.space.xs,
           }}
@@ -90,7 +94,10 @@ function Block({ block, theme }: { block: MdBlock } & Palette) {
           }}
           contentContainerStyle={{ padding: theme.space.sm }}
         >
-          <Text selectable style={{ fontFamily: theme.font.mono, fontSize: CODE_SIZE, lineHeight: Math.round(CODE_SIZE * LINE_RATIO), color: theme.colors.onMachine }}>
+          {/* Raw <Text>, not <Txt>: a fenced block is the machine's voice,
+              rendered verbatim on the machine surface, and its style comes
+              straight off the mono step of the scale. */}
+          <Text selectable style={{ ...(theme.type.mono as TextStyle), color: theme.colors.onMachine }}>
             {block.text.length > 0 ? block.text : ' '}
           </Text>
         </ScrollView>
@@ -99,7 +106,7 @@ function Block({ block, theme }: { block: MdBlock } & Palette) {
       return (
         <View
           style={{
-            borderLeftWidth: QUOTE_BAR_WIDTH,
+            borderLeftWidth: theme.layout.ruleEmphasis,
             borderLeftColor: theme.colors.borderStrong,
             paddingLeft: theme.space.sm,
           }}
@@ -110,9 +117,9 @@ function Block({ block, theme }: { block: MdBlock } & Palette) {
     case 'item':
       return (
         <View style={{ flexDirection: 'row', paddingLeft: theme.space.md * block.depth }}>
-          <Text style={[body, { color: theme.colors.textDim, minWidth: 22 }]}>
+          <Txt variant="body" tone="dim" style={{ minWidth: MARKER_COLUMN }}>
             {block.ordered ? block.marker : '•'}
-          </Text>
+          </Txt>
           <View style={{ flex: 1 }}>
             <SpanText spans={block.spans} base={body} />
           </View>

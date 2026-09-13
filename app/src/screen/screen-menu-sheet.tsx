@@ -6,20 +6,16 @@ import { Column, ListItem, Sheet } from '../ui';
 import { monitorLabel } from './monitors';
 import type { MonitorChoice } from './monitors';
 import type { QualityPreset } from './model';
-import { performanceSummary } from './screen-chrome';
-import type { StreamSettings } from './stream-settings-sheet';
 import type { HostAudioStatus } from '../stream/audio-player';
 
 export interface ScreenMenuSheetProps {
   readonly visible: boolean;
   readonly onClose: () => void;
   readonly quality: QualityPreset;
-  readonly streamSettings: StreamSettings;
   readonly showHud: boolean;
   readonly audioOn: boolean;
   readonly audioStatus: HostAudioStatus;
   readonly onOpenQuality: () => void;
-  readonly onOpenStreamSettings: () => void;
   readonly onToggleHud: () => void;
   readonly onToggleAudio: () => void;
   readonly onOpenHelp: () => void;
@@ -29,12 +25,10 @@ export function ScreenMenuSheet({
   visible,
   onClose,
   quality,
-  streamSettings,
   showHud,
   audioOn,
   audioStatus,
   onOpenQuality,
-  onOpenStreamSettings,
   onToggleHud,
   onToggleAudio,
   onOpenHelp,
@@ -47,12 +41,6 @@ export function ScreenMenuSheet({
           title="Stream quality"
           subtitle={quality.label}
           onPress={onOpenQuality}
-        />
-        <ListItem
-          testID="stream-settings"
-          title="Performance settings"
-          subtitle={performanceSummary(streamSettings)}
-          onPress={onOpenStreamSettings}
         />
         <ListItem
           testID="toggle-hud"

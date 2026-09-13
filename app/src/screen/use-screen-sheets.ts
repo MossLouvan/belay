@@ -4,14 +4,12 @@
 // it points at, so none ever stack.
 
 import { useCallback, useMemo, useState } from 'react';
-import type { StreamSettings } from './stream-settings-sheet';
 
-export type SheetId = 'menu' | 'quality' | 'streamSettings' | 'help' | 'monitor' | 'clipboard';
+export type SheetId = 'menu' | 'quality' | 'help' | 'monitor' | 'clipboard';
 
 const NONE_OPEN: Readonly<Record<SheetId, boolean>> = Object.freeze({
   menu: false,
   quality: false,
-  streamSettings: false,
   help: false,
   monitor: false,
   clipboard: false,
@@ -32,8 +30,6 @@ export interface ScreenSheets {
   /** Host system audio on the phone's speaker. */
   readonly audioOn: boolean;
   readonly toggleAudio: () => void;
-  readonly streamSettings: StreamSettings;
-  readonly applyStreamSettings: (settings: StreamSettings) => void;
 }
 
 export function useScreenSheets(): ScreenSheets {
@@ -45,19 +41,12 @@ export function useScreenSheets(): ScreenSheets {
   // that genuinely cannot do it says which of the four reasons applies (see
   // stream/audio-capability.ts) rather than silently delivering nothing.
   const [audioOn, setAudioOn] = useState(false);
-  // Stream performance settings (bitrate, FPS ceiling, codec, audio)
-  const [streamSettings, setStreamSettings] = useState<StreamSettings>({
-    fps: 60,
-    bitrateMbps: 0, // Auto
-    audioEnabled: false,
-    codec: 'h264',
-  });
 
   const isOpen = useCallback((id: SheetId) => flags[id], [flags]);
   const open = useCallback((id: SheetId) => setFlags((f) => ({ ...f, [id]: true })), []);
   const close = useCallback((id: SheetId) => setFlags((f) => ({ ...f, [id]: false })), []);
   const handlers = useMemo(() => {
-    const ids: readonly SheetId[] = ['menu', 'quality', 'streamSettings', 'help', 'monitor', 'clipboard'];
+    const ids: readonly SheetId[] = ['menu', 'quality', 'help', 'monitor', 'clipboard'];
     const build = (make: (id: SheetId) => () => void): Readonly<Record<SheetId, () => void>> =>
       Object.fromEntries(ids.map((id) => [id, make(id)])) as Record<SheetId, () => void>;
     return {
@@ -72,10 +61,6 @@ export function useScreenSheets(): ScreenSheets {
 
   const toggleHud = useCallback(() => setShowHud((v) => !v), []);
   const toggleAudio = useCallback(() => setAudioOn((v) => !v), []);
-  const applyStreamSettings = useCallback((settings: StreamSettings) => {
-    setStreamSettings(settings);
-    setAudioOn(settings.audioEnabled);
-  }, []);
 
   return {
     isOpen,
@@ -88,7 +73,5 @@ export function useScreenSheets(): ScreenSheets {
     toggleHud,
     audioOn,
     toggleAudio,
-    streamSettings,
-    applyStreamSettings,
   };
 }

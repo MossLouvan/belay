@@ -9,7 +9,7 @@
 // back — never bold, colour is the only hierarchy (docs/DESIGN.md §12).
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text } from 'react-native';
+import { Pressable, ScrollView } from 'react-native';
 import { useTheme } from '../theme';
 import { Caption, IconButton, Row, TrackLabel, Txt } from '../ui';
 import type { Crumb } from '../files-format';
@@ -27,12 +27,11 @@ interface ArrowProps {
 }
 
 function Arrow({ glyph, label, disabled, onPress, testID }: ArrowProps) {
-  const theme = useTheme();
   return (
     <IconButton testID={testID} accessibilityLabel={label} disabled={disabled} onPress={onPress} variant="plain">
-      <Text allowFontScaling={false} style={{ color: theme.colors.text, fontSize: 16, fontFamily: theme.font.mono }}>
-        {glyph}
-      </Text>
+      {/* The nav glyphs are chrome, not part of the machine-voice trail, so
+          they take the 16pt UI step rather than the mono face. */}
+      <Txt variant="subheading">{glyph}</Txt>
     </IconButton>
   );
 }
@@ -99,9 +98,7 @@ export function PathBar({
         {crumbs.map((crumb, index) => (
           <Row key={crumb.path} gap="none">
             {index > 0 ? (
-              <Text allowFontScaling={false} style={{ color: theme.colors.textFaint, fontSize: 13, fontFamily: theme.font.mono }}>
-                /
-              </Text>
+              <Txt variant="monoSmall" tone="faint">/</Txt>
             ) : null}
             <Pressable
               testID={`crumb-${index}`}
@@ -110,7 +107,7 @@ export function PathBar({
               onPress={() => onNavigate(crumb.path)}
               hitSlop={theme.layout.hitSlop}
               style={({ pressed }) => ({
-                paddingHorizontal: theme.space.xxs + 2,
+                paddingHorizontal: theme.space.xxs,
                 paddingVertical: theme.space.xs,
                 opacity: pressed ? theme.motion.pressOpacity : 1,
               })}

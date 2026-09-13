@@ -1,89 +1,96 @@
 // The beluga — Belay's mark, drawn once, quietly.
 //
-// This replaced an animated cutout mascot that bobbed, span and flipped. The
-// founder's brief for the replacement was exact: clean and discreet, not AI
-// slop. So it is one closed silhouette in one flat colour — no gradient, no
-// glow, no drop shadow, no highlight, no smile, no bubbles — sized to read at
-// 26–28pt beside the wordmark without competing with it. `textDim` on purpose:
-// at full `text` weight the mark outshouts the word it sits next to.
+// WHERE THIS BELONGS. Exactly one place: the first-run welcome hero, drawn
+// large. It used to sit at 26pt beside the wordmark on the computers list, at
+// 40pt in the tool drawer and at 48pt over the stream, and at those sizes it
+// was not a beluga — it was a small grey fish. The melon (the domed forehead
+// that is the animal's only unmistakable feature) needs real diameter before
+// it reads as a bulge rather than a bump, and under about 64pt it simply does
+// not survive. So the mark is now a hero illustration with a floor, the
+// wordmark carries the chrome, and `MIN_MARK_SIZE` is enforced rather than
+// documented-and-ignored — the previous version silently CAPPED size at 40,
+// which is why even the welcome screen got the fish.
 //
-// The drawing is a beluga in profile facing right: the melon (the rounded
-// forehead belugas are known for) leads, the back slopes back to a narrow
-// peduncle, a small flipper breaks the belly line so it does not read as a
-// fish, and the tail fluke is the notched V at the left. The eye is knocked
-// out in the host background rather than painted, so the mark needs no second
-// colour and stays correct on any surface it lands on.
+// WHAT IT IS. One closed silhouette in one flat colour — no gradient, no glow,
+// no drop shadow, no highlight, no smile, no bubbles, and no press handler:
+// every tap target this ever carried was a no-op, one of them advertising an
+// animation that had been deleted. It is a picture, and it says so by being
+// hidden from assistive technology; the words around it carry the meaning.
+//
+// THE DRAWING. A beluga in profile facing right. Four things separate it from
+// a fish at a glance, and all four are load-bearing:
+//   1. the MELON — a domed forehead that is both the highest point of the
+//      animal and its leading mass, so the head reads blunt, never pointed;
+//   2. NO DORSAL FIN — the back is one unbroken curve, the single clearest
+//      "this is a whale" cue in a silhouette;
+//   3. the FLUKE — short, blunt-lobed and swept back off a narrow peduncle,
+//      so it cannot be mistaken for a fish's tall caudal fin;
+//   4. the FLIPPER — a short rounded paddle set high and forward behind the
+//      head, not a pointed fin halfway down the belly.
+// The eye is knocked out in the host background rather than painted, so the
+// mark needs no second colour and stays correct on any surface it lands on.
 
 import React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { useTheme } from '../theme';
-import { haptic } from './haptics';
+
+/** The drawing's aspect box. Every coordinate below lives in it. */
+const VIEW_W = 64;
+const VIEW_H = 40;
 
 /**
- * The silhouette, in a 64×40 box: one closed path for the body, one for the
- * pectoral flipper, and the eye knocked out of both.
- *
- * The proportions are the whole trick. A stout body barely twice as long as it
- * is deep, a melon that is the highest point of the animal, no dorsal fin at
- * all, and a fluke small enough and swept far enough back that it cannot be
- * mistaken for a caudal fin — those four are what separate a beluga from a
- * fish at 26pt, where no amount of detail survives.
+ * The smallest width at which the silhouette still reads as a beluga rather
+ * than a generic small fish. Below this the melon flattens into the skull line
+ * and the fluke and flipper merge into the body, and what is left is a blob.
+ * Enforced, not suggested: a caller asking for less gets this.
  */
-const BODY =
-  'M18 17C24 12.4 32 9.6 40 8C48 6.4 57 8.6 61 14.6C63 18 62.4 22.6 58.4 25.4'
-  + 'C54 28.4 46 30.4 38 30.6C30 30.8 23 28.6 18 24.6'
-  + 'C15.4 25.6 12 26.6 8 27.8C6 28.4 5.2 28.6 4.6 28.8'
-  + 'C7.4 26.6 10 24.2 12.2 22.2'
-  + 'C10 20.8 7.4 19.2 4.6 17.4C5.2 17.4 6 17.6 8 18C12 18.8 15.4 18.4 18 17Z';
+export const MIN_MARK_SIZE = 64;
 
-/** The pectoral flipper: a short paddle, not a fin. */
-const FLIPPER = 'M40 29C38.6 32.6 35.6 35 32 35.6C32.8 32.2 35.4 29.6 38 28.6Z';
+/** The body: melon, unbroken back, narrow peduncle, short blunt fluke. */
+const BODY =
+  'M62 18.4C62 11.4 56.6 5.6 49 5.6C43.4 5.6 38.6 8.8 36.4 13.4'
+  + 'C29.6 14.4 22.4 16.8 16.8 19.6C13.6 17.6 9.6 15.8 6 14.8'
+  + 'C7.4 17 9.2 19.2 10.8 20.8C9.2 22.6 7.4 24.8 6 27'
+  + 'C9.6 26 13.6 24.2 16.8 22.2C22.4 27.2 30 30.8 38 31.6'
+  + 'C46.6 32.4 55.4 29.2 59.6 24.6C61.2 22.8 62 20.8 62 18.4Z';
+
+/** The pectoral flipper: a short rounded paddle, not a fin. */
+const FLIPPER =
+  'M46.4 29.2C46.2 33 43.4 36 39.6 36.8C38.4 37 37.8 36.4 38.2 35.2'
+  + 'C39.2 32 42 29.6 45 28.4Z';
+
+const EYE = Object.freeze({ cx: 53.5, cy: 16.4, r: 2 });
 
 export interface BelugaAvatarProps {
-  /** Drawn width in points. Capped at 40 — this is a mark, not an illustration. */
+  /** Drawn width in points. Raised to {@link MIN_MARK_SIZE} if smaller. */
   size: number;
-  onPress?: () => void;
   /** Colour knocked out of the eye. Defaults to the page ground. */
   backgroundColor?: string;
-  accessibilityLabel?: string;
+  /** Ink for the silhouette. Defaults to the quiet `textDim` role. */
+  color?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
 
-export function BelugaAvatar({
-  size, onPress, backgroundColor, accessibilityLabel = 'Belay', style, testID,
-}: BelugaAvatarProps) {
+export function BelugaAvatar({ size, backgroundColor, color, style, testID }: BelugaAvatarProps) {
   const theme = useTheme();
-  const width = Math.min(size, 40);
-  const mark = (
-    <Svg width={width} height={(width * 40) / 64} viewBox="0 0 64 40">
-      <Path fill={theme.colors.textDim} d={BODY} />
-      <Path fill={theme.colors.textDim} d={FLIPPER} />
-      <Circle cx="52" cy="15" r="1.7" fill={backgroundColor ?? theme.colors.bg} />
-    </Svg>
-  );
+  const width = Math.max(size, MIN_MARK_SIZE);
+  const ink = color ?? theme.colors.textDim;
 
-  if (!onPress) {
-    return (
-      <View testID={testID} style={style} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        {mark}
-      </View>
-    );
-  }
   return (
-    <Pressable
+    <View
       testID={testID}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      onPress={() => { haptic('light'); onPress(); }}
-      style={({ pressed }) => [
-        { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 },
-        style,
-      ]}
+      style={style}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
     >
-      {mark}
-    </Pressable>
+      <Svg width={width} height={(width * VIEW_H) / VIEW_W} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}>
+        <Path fill={ink} d={BODY} />
+        <Path fill={ink} d={FLIPPER} />
+        <Circle cx={EYE.cx} cy={EYE.cy} r={EYE.r} fill={backgroundColor ?? theme.colors.bg} />
+      </Svg>
+    </View>
   );
 }

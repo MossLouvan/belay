@@ -9,11 +9,11 @@
 // drawer; the list itself comes from the pure model in tools.ts.
 
 import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { font, useTheme } from '../theme';
-import { BelugaAvatar, Caption, Divider, Label, Sheet, Txt, haptic } from '../ui';
-import { TOOLS, toolBadge } from './tools';
+import { useTheme } from '../theme';
+import { Caption, ConnectionStatus, Micro, Sheet, Txt, haptic } from '../ui';
+import { TOOLS, toolBadge, toolRows } from './tools';
 import type { ToolSpec } from './tools';
 import { ToolGlyph } from './tool-glyphs';
 import { useConnection } from '../connection';
@@ -33,12 +33,9 @@ function CountChip({ count }: { count: number }) {
         justifyContent: 'center',
       }}
     >
-      <Text
-        allowFontScaling={false}
-        style={{ color: theme.colors.onAccent, fontFamily: font.mono, fontSize: 10 }}
-      >
+      <Micro style={{ color: theme.colors.onAccent, fontFamily: theme.font.mono }}>
         {String(count)}
-      </Text>
+      </Micro>
     </View>
   );
 }
@@ -102,84 +99,54 @@ export interface ToolDrawerProps {
 export function ToolDrawer({ visible, onClose, waitingCount }: ToolDrawerProps) {
   const theme = useTheme();
   const router = useRouter();
-  const { connection } = useConnection();
+  const { phase } = useConnection();
 
   const open = (tool: ToolSpec) => {
     onClose();
     router.navigate(tool.route);
   };
 
-  // For latency, we would need to get ping info. For now, just show "Connected" without latency
-  // In a full implementation, this would come from connection.pingMs or similar
-  const latencyText = connection ? 'Connected' : 'Not connected';
-
   return (
     <Sheet visible={visible} onClose={onClose} testID="tool-drawer">
       <View style={{ paddingBottom: theme.space.md }}>
-        {/* Beluga + Belay header: cohesive identity with stream HUD */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, marginBottom: theme.space.xs }}>
-          <BelugaAvatar
-            testID="drawer-beluga-avatar"
-            size={40}
-            accessibilityLabel="Belay mascot — tap to play animation"
-            onPress={() => {}} // Animation-only, no navigation
-          />
-          <Txt variant="title" style={{ fontSize: 24 }}>Belay</Txt>
-        </View>
-
-        {/* Connected status pill */}
-        <View
-          style={{
-            alignSelf: 'flex-start',
-            paddingHorizontal: theme.space.sm,
-            paddingVertical: theme.space.xxs,
-            borderRadius: theme.radius.xs,
-            backgroundColor: theme.colors.surfaceAlt,
-            marginBottom: theme.space.sm,
-          }}
+        {/* The wordmark, as on the computers list. The mark that used to sit
+            beside it was a 40pt silhouette with a dead press handler and an
+            accessibility label promising an animation that did not exist. */}
+        <Txt
+          heading
+          style={{ ...theme.type.display, fontSize: 24, lineHeight: 29, letterSpacing: -0.9 }}
         >
-          <Label tone="dim">{latencyText}</Label>
-        </View>
+          belay
+        </Txt>
 
-        {/* Thin blue rope accent */}
-        <View
-          style={{
-            height: 2,
-            backgroundColor: theme.colors.accentGraphic,
-            borderRadius: 1,
-            marginBottom: theme.space.md,
-          }}
+        {/* The app-wide link, in the app-wide words. The line here used to read
+            "Connected" whenever a connection OBJECT existed, which is true
+            while a link is still negotiating and still true after it drops. */}
+        <ConnectionStatus
+          testID="drawer-connection"
+          phase={phase}
+          style={{ marginTop: theme.space.xs, marginBottom: theme.space.md }}
         />
 
-        {/* 2x2 grid of tools */}
+        {/* Every tool, two to a row — derived from TOOLS rather than two
+            hardcoded slices that would silently drop a fifth tool. */}
         <View style={{ gap: theme.space.sm }}>
-          {/* First row: Host and Terminal */}
-          <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
-            {TOOLS.slice(0, 2).map((tool) => (
-              <ToolCard
-                key={tool.id}
-                tool={tool}
-                badge={toolBadge(tool.id, waitingCount)}
-                onPress={() => open(tool)}
-              />
-            ))}
-          </View>
-          {/* Second row: Files and Agent (System is now 4th, so we show Files and Agent) */}
-          <View style={{ flexDirection: 'row', gap: theme.space.sm }}>
-            {TOOLS.slice(2, 4).map((tool) => (
-              <ToolCard
-                key={tool.id}
-                tool={tool}
-                badge={toolBadge(tool.id, waitingCount)}
-                onPress={() => open(tool)}
-              />
-            ))}
-          </View>
+          {toolRows(TOOLS).map((row) => (
+            <View key={row.map((t) => t.id).join('-')} style={{ flexDirection: 'row', gap: theme.space.sm }}>
+              {row.map((tool) => (
+                <ToolCard
+                  key={tool.id}
+                  tool={tool}
+                  badge={toolBadge(tool.id, waitingCount)}
+                  onPress={() => open(tool)}
+                />
+              ))}
+              {/* An odd final row keeps its card at half width rather than
+                  stretching it across the sheet. */}
+              {row.length === 1 ? <View style={{ flex: 1 }} /> : null}
+            </View>
+          ))}
         </View>
-
-        <Caption style={{ marginTop: theme.space.md, textAlign: 'center' }}>
-          Tap a tool to launch
-        </Caption>
       </View>
     </Sheet>
   );

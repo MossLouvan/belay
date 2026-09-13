@@ -80,11 +80,12 @@ export async function saveStore(store: DeviceStore): Promise<void> {
   try {
     const blob = useKeychain ? await stashTokens(store) : store;
     await AsyncStorage.setItem(STORE_KEY, JSON.stringify(blob));
-  } catch (e: unknown) {
-    // Surfaced rather than swallowed: if this fails the user will silently be
-    // asked to pair again next launch, and they deserve to know why.
-    console.warn('[devices] could not save the computer list:', messageOf(e));
-    throw e;
+  } catch {
+    // Rethrown rather than swallowed — the caller decides what the user sees,
+    // and every caller does surface it. The console.warn that used to sit here
+    // added nothing a user or a crash report could use, and it ran on every
+    // failed save (the list is persisted on every mutation).
+    throw new Error('could not save the computer list');
   }
 }
 
@@ -170,8 +171,4 @@ async function clearLegacy(): Promise<void> {
   } catch {
     // Harmless if it fails — loadStore prefers the v1 key from now on.
   }
-}
-
-function messageOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }

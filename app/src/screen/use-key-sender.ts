@@ -5,9 +5,18 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { api } from '../api';
+import { failureLine } from '../errors';
 import { haptic } from '../ui';
-import { keyFor, KEYS, messageOf, modsFor } from './model';
+import { keyFor, KEYS, modsFor } from './model';
 import type { KeySpec } from './model';
+
+/**
+ * What to call a key in an error a person reads. `id` is a testID suffix —
+ * "cmd-shift-4" — and it used to be what the failure toast printed; `action`
+ * is the sentence the key already carries for screen readers, and `label` is
+ * what is printed on the cap.
+ */
+const keyName = (spec: KeySpec): string => spec.action ?? spec.label ?? spec.id;
 import { activeMods, IDLE_MODS, modNamesForHost, releaseLatched, tapMod } from './mods';
 import type { ModsState, StickyMod } from './mods';
 import { SWIPE_ACTION_ID } from './swipe';
@@ -61,7 +70,7 @@ export function useKeySender({ isMac, reportError }: KeySenderInputs): KeySender
       if (!spec) return;
       api
         .key(keyFor(spec, isMac), modsFor(spec, isMac))
-        .catch((e: unknown) => reportError(`Desktop switch failed — ${messageOf(e)}`));
+        .catch((e: unknown) => reportError(failureLine('Could not switch desktop', e)));
     },
     [isMac, reportError]
   );
@@ -78,7 +87,7 @@ export function useKeySender({ isMac, reportError }: KeySenderInputs): KeySender
       // trip instead of queueing sends a slow link cannot keep up with.
       return api
         .key(keyFor(spec, isMac), chord)
-        .catch((e: unknown) => reportError(`Key ${spec.id} failed — ${messageOf(e)}`));
+        .catch((e: unknown) => reportError(failureLine(`${keyName(spec)} did not reach the computer`, e)));
     },
     [isMac, reportError]
   );
@@ -92,7 +101,7 @@ export function useKeySender({ isMac, reportError }: KeySenderInputs): KeySender
     (spec: KeySpec) =>
       api
         .key(keyFor(spec, isMac), [...heldModsRef.current])
-        .catch((e: unknown) => reportError(`Key ${spec.id} failed — ${messageOf(e)}`)),
+        .catch((e: unknown) => reportError(failureLine(`${keyName(spec)} did not reach the computer`, e))),
     [isMac, reportError]
   );
 

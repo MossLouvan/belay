@@ -1,12 +1,18 @@
-// The mascot's orientation latch — pure model, no expo imports.
+// The immersive HUD's orientation latch — pure model, no expo imports.
 //
-// Tapping the beluga does two things at once: plays its flip (the avatar's
-// own delight) and turns the view upright. "Upright" is a LATCH, not a
-// one-shot rotate: the device may already be portrait, and rotating sideways
-// is normally the fullscreen gesture, so the tap pins the app to portrait
-// until the next tap lets it swing free again. Two states, one toggle —
-// modelled here so the decision (and the words the screen reader hears for
-// each state) can be unit-tested without a device.
+// Landscape IS fullscreen on this screen, so "put me back upright" needs a
+// control of its own; rotating the phone would just re-enter fullscreen.
+// "Upright" is a LATCH, not a one-shot rotate: the tap pins the app to
+// portrait until the next tap lets it swing free again. Two states, one
+// toggle — modelled here so the decision (and the words the screen reader
+// hears for each state) can be unit-tested without a device.
+//
+// This used to be the beluga mascot: tapping it spun the drawing AND toggled
+// the latch, which is why the label promised a flip and why a burst guard
+// swallowed rapid taps. The animated mascot was retired long ago, so the
+// promise was false and the guard only made a deliberate second tap do
+// nothing. Both are gone; the control is now a labelled button and every tap
+// counts.
 //
 // The expo-screen-orientation side effect lives in ./orientation-native.ts;
 // this module stays importable by the node test runner.
@@ -18,39 +24,24 @@ export type OrientationLockState = 'free' | 'portrait';
 export const DEFAULT_ORIENTATION_LOCK: OrientationLockState = 'free';
 
 /**
- * The mascot tap's latch decision: free pins upright, pinned frees. Pure —
- * returns the next state, never mutates anything.
+ * The latch decision: free pins upright, pinned frees. Pure — returns the
+ * next state, never mutates anything.
  */
 export function nextOrientationLock(state: OrientationLockState): OrientationLockState {
   return state === 'portrait' ? 'free' : 'portrait';
 }
 
 /**
- * What the screen reader announces on the mascot. Names the flip (always)
- * and what the tap will do NEXT — the accessibility contract is the action,
- * not the current state.
+ * What the screen reader announces on the control. Names what the tap will do
+ * NEXT — the accessibility contract is the action, not the current state.
  */
-export function mascotAccessibilityLabel(state: OrientationLockState): string {
+export function orientationLatchLabel(state: OrientationLockState): string {
   return state === 'portrait'
-    ? 'Belay mascot — tap to flip and let the view rotate again'
-    : 'Belay mascot — tap to flip and keep the view upright';
+    ? 'Let the view rotate with the phone again'
+    : 'Keep the view upright';
 }
 
-/**
- * Taps closer together than this are one burst — the mascot being spun up
- * for fun, not the latch being toggled. Longer than a single flip's wind-up
- * feels, shorter than a deliberate "no, put it back" second tap.
- */
-export const MASCOT_TAP_BURST_GAP_MS = 700;
-
-/**
- * Whether a mascot tap at `now` should toggle the latch. The beluga spins
- * faster the more you tap, so only the FIRST tap of a burst latches — the
- * rest just add momentum. Any later tap arriving within the burst gap of
- * the previous one (whether or not that one latched) is part of the burst.
- * Pure: the caller keeps `previousTapAt` (null before the first tap).
- */
-export function mascotTapLatches(previousTapAt: number | null, now: number): boolean {
-  if (previousTapAt === null) return true;
-  return now - previousTapAt >= MASCOT_TAP_BURST_GAP_MS;
+/** The visible state of the control: pinned upright, or free to rotate. */
+export function orientationLatchPinned(state: OrientationLockState): boolean {
+  return state === 'portrait';
 }

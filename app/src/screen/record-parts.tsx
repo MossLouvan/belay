@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { api } from '../api';
+import { humanMessage } from '../errors';
 import type { AgentSessionMeta } from '../api';
 import { getTheme, useTheme } from '../theme';
 import { Button, Caption, Column, Dot, Input, ListItem, Micro, Row, Sheet, TrackLabel, Txt } from '../ui';
@@ -195,7 +196,7 @@ export function RecordSheet({ visible, onClose, status, busy, onSend, onDiscard,
         setSelected((prev) => prev ?? list[0]?.id ?? null);
       })
       .catch((e: unknown) => {
-        if (!disposed) setError(e instanceof Error ? e.message : String(e));
+        if (!disposed) setError(humanMessage(e, 'could not load your agent sessions'));
       });
     return () => {
       disposed = true;
@@ -213,7 +214,7 @@ export function RecordSheet({ visible, onClose, status, busy, onSend, onDiscard,
         onClose();
         onSent({ sessionId: selected, title: target?.title ?? 'the session', frames: result.frames || frames });
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => setError(humanMessage(e, 'the recording could not be sent')));
   }, [selected, sessions, note, frames, onSend, onClose, onSent]);
 
   const discard = useCallback(() => {

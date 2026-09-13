@@ -12,7 +12,7 @@ import { ActivityIndicator, Keyboard, Pressable, ScrollView, TextInput, View } f
 import { useTheme } from '../theme';
 import { router } from 'expo-router';
 import { SwitchComputerLink } from '../devices/switch-link';
-import { Banner, Button, Caption, Dot, IconButton, Label, Micro, Row, Rule, TrackLabel, Txt } from '../ui';
+import { Banner, Button, Caption, Composer, Dot, Label, Micro, Row, Rule, TrackLabel, Txt } from '../ui';
 import { ApprovalCard } from './approval-card';
 import { EventRow } from './feed';
 import { buildFeed } from './feed-model';
@@ -397,65 +397,48 @@ function StreamSessionView({ id, onBack }: SessionViewProps) {
 
       <Rule />
       <View style={{ paddingHorizontal: margin, paddingVertical: theme.space.sm }}>
-        <Row gap="sm" align="flex-end">
-          <MicButton testID="agent-mic" state={voice.state} onStart={beginTalk} onStop={voice.stop} disabled={link !== 'open'} />
-          <PhotoButton testID="agent-photos" onPick={sendPhotos} busy={photos.busy} disabled={link !== 'open'} />
-          <View style={{ flex: 1 }}>
-            <TextInput
-              ref={composerRef}
-              testID="agent-input"
-              value={input}
-              onChangeText={setInput}
-              onFocus={() => setComposing(true)}
-              onBlur={() => setComposing(false)}
-              placeholder={listening ? 'Listening…' : link === 'open' ? 'Tell Claude what to do…' : 'Not connected'}
-              placeholderTextColor={listening ? theme.colors.accent : theme.colors.textFaint}
-              multiline
-              accessibilityLabel="Prompt for Claude"
-              maxFontSizeMultiplier={1.4}
-              style={{
-                maxHeight: COMPOSER_MAX_HEIGHT,
-                minHeight: theme.layout.minTouch,
-                backgroundColor: theme.colors.surface,
-                borderRadius: theme.radius.xs,
-                borderWidth: listening ? theme.layout.ruleEmphasis : theme.layout.hairline,
-                borderColor: listening ? theme.colors.focus : theme.colors.border,
-                color: theme.colors.text,
-                paddingHorizontal: theme.space.sm,
-                paddingRight: composer.showDismiss ? theme.layout.minTouch : theme.space.sm,
-                paddingVertical: theme.space.sm,
-                fontSize: 15,
-                lineHeight: 20,
-              }}
-            />
-            {/* The visible keyboard exit (§11.2), the TYPE row's trailing ×
-                worn by this field. Return inserts a newline here and Send is
-                disabled while Claude runs or the field is empty — precisely
-                the moments the keyboard must still have a way out. Focus
-                alone decides it (composerControls), never sendability. */}
-            {composer.showDismiss ? (
-              <IconButton
-                testID="agent-kb-dismiss"
-                accessibilityLabel="Hide the keyboard"
-                variant="plain"
-                onPress={() => Keyboard.dismiss()}
-                style={{ position: 'absolute', top: 0, right: 0 }}
-              >
-                <Txt variant="label" tone="dim">×</Txt>
-              </IconButton>
-            ) : null}
-          </View>
-          <Button
-            testID="agent-send"
-            label={composer.sendLabel}
-            size="sm"
-            onPress={send}
-            disabled={!composer.canSend}
-            hapticTone="medium"
-            accessibilityLabel={composer.sendLabel === 'Queue' ? 'Queue the prompt for after this turn' : 'Send the prompt'}
-            accessibilityHint={composer.sendLabel === 'Queue' ? 'Sends automatically when the current turn ends' : undefined}
-          />
-        </Row>
+        <Composer
+          testID="agent-input"
+          inputRef={composerRef}
+          value={input}
+          onChangeText={setInput}
+          onFocus={() => setComposing(true)}
+          onBlur={() => setComposing(false)}
+          placeholder={listening ? 'Listening…' : link === 'open' ? 'Tell Claude what to do…' : 'Not connected'}
+          accessibilityLabel="Prompt for Claude"
+          multiline
+          maxHeight={COMPOSER_MAX_HEIGHT}
+          emphasis={listening}
+          leading={
+            <>
+              <MicButton testID="agent-mic" state={voice.state} onStart={beginTalk} onStop={voice.stop} disabled={link !== 'open'} />
+              <PhotoButton testID="agent-photos" onPick={sendPhotos} busy={photos.busy} disabled={link !== 'open'} />
+            </>
+          }
+          /* The visible keyboard exit (§11.2), the TYPE row's trailing ×
+             worn by this field. Return inserts a newline here and Send is
+             disabled while Claude runs or the field is empty — precisely
+             the moments the keyboard must still have a way out. Focus
+             alone decides it (composerControls), never sendability. */
+          dismiss={{
+            visible: composer.showDismiss,
+            glyph: '×',
+            onPress: () => Keyboard.dismiss(),
+            accessibilityLabel: 'Hide the keyboard',
+            testID: 'agent-kb-dismiss',
+          }}
+          actions={[
+            {
+              testID: 'agent-send',
+              label: composer.sendLabel,
+              onPress: send,
+              disabled: !composer.canSend,
+              hapticTone: 'medium',
+              accessibilityLabel: composer.sendLabel === 'Queue' ? 'Queue the prompt for after this turn' : 'Send the prompt',
+              accessibilityHint: composer.sendLabel === 'Queue' ? 'Sends automatically when the current turn ends' : undefined,
+            },
+          ]}
+        />
         {/* The two levers while Claude works, named for what they do: Queue
             waits its turn, Interrupt halts the turn so this message steers
             now. Distinct actions on distinct controls — never a mode switch. */}

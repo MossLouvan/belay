@@ -10,7 +10,9 @@
 //                 ● Connected          rides under the title inside it.
 //
 // Landscape and fullscreen show none of this — the immersive HUD carries the
-// mascot and the connected pill instead.
+// link state and the orientation latch instead. This header took a
+// `mascotLabel`/`onMascotPress` pair for a mascot it never rendered; the props
+// are gone rather than left as a control the caller believes exists.
 
 import React from 'react';
 import { View } from 'react-native';
@@ -26,8 +28,6 @@ import { headerTitle } from './screen-chrome';
 export interface ScreenHeaderProps {
   readonly hostName: string | undefined;
   readonly linkPhase: ConnectPhase;
-  readonly mascotLabel: string;
-  readonly onMascotPress: () => void;
   readonly onBack: () => void;
   readonly onOpenMenu: () => void;
 }

@@ -2,10 +2,12 @@
 // the connect flow on a fresh install.
 //
 // The welcome is the app's first frame, so it earns the one hero moment the
-// motion doctrine allows: the beluga mascot swims in its idle loop inside a
-// soft blue halo (tap it and it does a flip), "Welcome to Belay" sits below in
-// a calm sentence-case voice — deliberately not the 900-weight uppercase
-// display, premium here means quiet — and a single accent button leads on.
+// motion doctrine allows: the beluga mark fades up inside a soft blue halo,
+// "Welcome to Belay" sits below in a calm sentence-case voice — deliberately
+// not the 900-weight uppercase display, premium here means quiet — and a
+// single accent button leads on. The mark is a picture and nothing more: it
+// carried a press handler that did nothing, on a promise of a flip animation
+// the app had already deleted.
 // The page ground is the `heroBg` token, the ocean-tinted sibling of `bg`, so
 // the white-beluga-in-blue-water video and the blue-rope brand share one
 // palette instead of the mascot floating on a neutral page.
@@ -15,7 +17,7 @@
 // renders everything in place with no animation.
 
 import React, { useEffect } from 'react';
-import { View, Pressable } from 'react-native';
+import { View } from 'react-native';
 import type { TextStyle } from 'react-native';
 import Animated, {
   Easing,
@@ -26,14 +28,26 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
 import { BelugaAvatar, Button, Txt, useReducedMotion } from '../ui';
+import { MIN_MARK_SIZE } from '../ui/beluga-avatar';
 import { HERO_ENTRANCE, haloLayers } from './welcome-hero';
 
 interface WelcomeScreenProps {
   onContinue: () => void;
 }
 
-/** Mascot width, pt. Generous — this screen is the beluga's stage. */
-const MASCOT_SIZE = 40;
+// Mark width, pt. This screen IS the beluga's stage, and the drawing needs
+// real diameter before the melon reads as a melon (see ui/beluga-avatar.tsx).
+// It used to ask for 40 here and the component silently capped it at 40 too,
+// so the app's first frame showed the mark at the one size it does not work
+// at. `MIN_MARK_SIZE` is the floor; the hero sits comfortably above it.
+const MASCOT_SIZE = Math.max(112, MIN_MARK_SIZE);
+
+// The welcome headline is a brand lockup, not body copy: it is deliberately
+// one step above `display` because it is the only thing on the app's first
+// frame. Named rather than left as bare literals so it is obvious this is the
+// sanctioned exception to the type scale and not another hand-tune.
+const HERO_HEADLINE_SIZE = 34;
+const HERO_HEADLINE_LINE_HEIGHT = 40;
 
 /** The one easing the app moves on (theme `easing.standard`), as a worklet. */
 const EASE_STANDARD = Easing.bezier(0.2, 0, 0, 1);
@@ -62,13 +76,9 @@ function useHeroEntrance(delayMs: number, reduced: boolean) {
   }));
 }
 
-// BelugaAvatar is only pressable when given a handler; the flip itself is the
-// whole payoff here, so the handler has nothing left to do.
-const NOOP = (): void => undefined;
-
 /**
- * Welcome screen — the beluga hero. Mascot swimming in a blue halo (tap for a
- * flip), "Welcome to Belay", one line of what the app is, one way forward.
+ * Welcome screen — the beluga hero. The mark in a blue halo, "Welcome to
+ * Belay", one line of what the app is, one way forward.
  */
 export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
   const theme = useTheme();
@@ -81,15 +91,15 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
   const halo = haloLayers(MASCOT_SIZE);
   const stageSize = halo[0]?.diameter ?? MASCOT_SIZE;
 
-  // Sentence-case hero type: the display slot without the shouting — weight
-  // 700 instead of 900, no uppercase. Shared between the two headline spans so
-  // "Belay" differs from the rest by colour alone.
+  // Sentence-case hero type: the `display` slot without the shouting — weight
+  // 700 instead of 800, no uppercase, one step larger because this is the
+  // app's first frame. Everything but those three deltas comes from the scale,
+  // and both headline spans share it so "Belay" differs by colour alone.
   const headlineType: TextStyle = {
-    fontFamily: theme.font.sans,
-    fontSize: 34,
-    lineHeight: 40,
+    ...theme.type.display,
+    fontSize: HERO_HEADLINE_SIZE,
+    lineHeight: HERO_HEADLINE_LINE_HEIGHT,
     fontWeight: '700',
-    letterSpacing: -0.8,
     textAlign: 'center',
   };
 
@@ -135,14 +145,10 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
           />
         ))}
 
-        {/* The cutout floats straight on the glow — no ring, no porthole.
-            The beluga's own rope collar is the only outline it needs. */}
-        <BelugaAvatar
-          size={MASCOT_SIZE}
-          onPress={NOOP}
-          accessibilityLabel="Belay's beluga mascot"
-          testID="welcome-beluga"
-        />
+        {/* The mark floats straight on the glow — no ring, no porthole. It is
+            decoration, so it stays out of the accessibility tree entirely and
+            the headline below does the talking. */}
+        <BelugaAvatar size={MASCOT_SIZE} testID="welcome-beluga" />
       </Animated.View>
 
       {/* Headline + one line of what this is. */}
@@ -156,11 +162,11 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
         <Txt
           variant="body"
           tone="dim"
-          style={{ textAlign: 'center', maxWidth: 300, fontSize: 16, lineHeight: 24 }}
+          style={{ textAlign: 'center', maxWidth: 300 }}
         >
           Control your computer from your phone. No cloud, no middleman.
         </Txt>
-        <Txt variant="caption" tone="faint" style={{ textAlign: 'center', fontSize: 12 }}>
+        <Txt variant="micro" tone="faint" style={{ textAlign: 'center' }}>
           Your devices. Your workspace.
         </Txt>
       </Animated.View>
@@ -228,18 +234,10 @@ export function HowItWorksScreen({ onContinue, onBack }: HowItWorksScreenProps) 
     >
       {/* Section headline */}
       <View style={{ gap: theme.space.sm }}>
-        <Txt
-          variant="title"
-          style={{
-            fontSize: 32,
-            lineHeight: 36,
-            textTransform: 'none',
-            color: theme.colors.text,
-          }}
-        >
+        <Txt variant="display" heading style={{ textTransform: 'none' }}>
           how it works
         </Txt>
-        <Txt variant="caption" tone="dim" style={{ fontSize: 15, lineHeight: 22 }}>
+        <Txt variant="body" tone="dim">
           Direct connection between your devices. Nothing routes through anyone else.
         </Txt>
       </View>
@@ -259,35 +257,15 @@ export function HowItWorksScreen({ onContinue, onBack }: HowItWorksScreenProps) 
             <Txt
               variant="label"
               tone="accent"
-              style={{
-                width: 40,
-                marginTop: 2,
-              }}
+              style={{ width: theme.space.xl, marginTop: 2 }}
             >
               {step.label}
             </Txt>
 
             {/* Content */}
             <View style={{ flex: 1, gap: theme.space.xxs }}>
-              <Txt
-                variant="bodyStrong"
-                style={{
-                  fontSize: 16,
-                  lineHeight: 22,
-                }}
-              >
-                {step.title}
-              </Txt>
-              <Txt
-                variant="caption"
-                tone="dim"
-                style={{
-                  fontSize: 14,
-                  lineHeight: 20,
-                }}
-              >
-                {step.detail}
-              </Txt>
+              <Txt variant="bodyStrong">{step.title}</Txt>
+              <Txt variant="caption" tone="dim">{step.detail}</Txt>
             </View>
           </View>
         ))}
@@ -303,29 +281,14 @@ export function HowItWorksScreen({ onContinue, onBack }: HowItWorksScreenProps) 
           testID="how-it-works-continue"
         />
         {onBack ? (
-          <Pressable
+          <Button
+            label="← Back"
+            variant="ghost"
             onPress={onBack}
-            accessibilityRole="button"
+            fullWidth
             accessibilityLabel="Go back"
-            hitSlop={8}
-            style={({ pressed }) => ({
-              paddingVertical: theme.space.sm,
-              minHeight: 44,
-              justifyContent: 'center',
-              opacity: pressed ? theme.motion.pressOpacity : 1,
-            })}
-          >
-            <Txt
-              variant="body"
-              tone="dim"
-              style={{
-                textAlign: 'center',
-                fontSize: 15,
-              }}
-            >
-              ← Back
-            </Txt>
-          </Pressable>
+            testID="how-it-works-back"
+          />
         ) : null}
       </View>
     </View>

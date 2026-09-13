@@ -1,5 +1,12 @@
-// The computers list's masthead: the wordmark, the beluga mark, and the round
-// controls in the trailing corner.
+// The computers list's masthead: the wordmark and the round controls in the
+// trailing corner.
+//
+// The wordmark stands alone. A beluga mark used to sit beside it at 26pt and
+// it did not survive the size: with no room for the melon — the domed forehead
+// that is the animal's only unmistakable feature — the silhouette collapsed
+// into a generic small fish, which is a worse answer than no mark at all. The
+// mark still exists, but only where it is drawn large enough to be itself (the
+// first-run welcome hero); up here the word does the work.
 //
 // Both mockups draw one round 36pt button up there — a filled `+` in Current,
 // an outlined `⋯` in Fieldwork — and they mean different things, so both are
@@ -10,7 +17,7 @@
 
 import React from 'react';
 import { IconDots, IconPlus } from '@tabler/icons-react-native';
-import { BelugaAvatar, Row, Txt } from '../ui';
+import { Row, Txt } from '../ui';
 import { RoundButton } from '../ui/round-button';
 import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
@@ -27,10 +34,12 @@ export function DevicesHeader({ onAdd, onOpenOptions }: DevicesHeaderProps) {
 
   return (
     <Row justify="space-between" align="center">
-      <Row gap="xs" align="center">
-        <Txt style={{ ...theme.type.display, fontSize: 24, lineHeight: 29, letterSpacing: -0.9 }}>belay</Txt>
-        <BelugaAvatar size={26} />
-      </Row>
+      <Txt
+        heading
+        style={{ ...theme.type.display, fontSize: 24, lineHeight: 29, letterSpacing: -0.9 }}
+      >
+        belay
+      </Txt>
       <Row gap="xs" align="center">
         <RoundButton
           testID="choose-appearance"

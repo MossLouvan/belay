@@ -17,7 +17,6 @@ import {
   isLandscape,
   normalizedDeviceSize,
   panelStateShown,
-  performanceSummary,
   recordKeyAction,
   shouldClearFullscreen,
   toggleArmedButton,
@@ -176,9 +175,4 @@ test('only iOS floats the type row', () => {
   assert.equal(typeRowFloats('ios'), true);
   assert.equal(typeRowFloats('android'), false);
   assert.equal(typeRowFloats('web'), false);
-});
-
-test('the performance summary names the ceiling or Auto', () => {
-  assert.equal(performanceSummary({ fps: 60, bitrateMbps: 0, audioEnabled: false, codec: 'h264' }), '60 Hz • Auto • H264');
-  assert.equal(performanceSummary({ fps: 120, bitrateMbps: 8, audioEnabled: true, codec: 'hevc' }), '120 Hz • 8 Mbps • HEVC');
 });

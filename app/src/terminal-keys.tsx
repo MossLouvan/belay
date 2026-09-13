@@ -6,9 +6,9 @@
 // route — a helper there would render as an extra tab.
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Animated, Keyboard, Pressable, ScrollView, Text, View } from 'react-native';
+import { Animated, Keyboard, Pressable, ScrollView, View } from 'react-native';
 import { easing, useTheme } from './theme';
-import { haptic, useReducedMotion } from './ui';
+import { Txt, haptic, useReducedMotion } from './ui';
 import { LAUNCH_KEYS, LETTER_KEYS, PRIMARY_KEYS, SYMBOL_KEYS, encodeKey } from './terminal-keymap';
 import type { KeyDef } from './terminal-keymap';
 
@@ -91,16 +91,9 @@ export function KeyCap({ id, label, onPress, active, wide, accessibilityLabel }:
         backgroundColor: background,
       }}
     >
-      <Text
-        allowFontScaling={false}
-        style={{
-          color: active || pressed ? theme.colors.onAccentSoft : theme.colors.text,
-          fontFamily: theme.font.mono,
-          fontSize: 13,
-        }}
-      >
+      <Txt variant="mono" color={active || pressed ? theme.colors.onAccentSoft : theme.colors.text}>
         {label}
-      </Text>
+      </Txt>
     </AnimatedPressable>
   );
 }

@@ -19,7 +19,7 @@
 //     bar is hidden (`controlsTabVisible`), and its box is small enough that a
 //     pad drag starting anywhere but that corner is untouched.
 //  3. It must clear the immersive HUD's own top row (the Connected pill and the
-//     mascot), which already owns the very top band — hence the top offset
+//     orientation latch), which already owns the very top band — hence the offset
 //     rather than a flush corner.
 //
 // Pure module: no React, no react-native.
@@ -29,7 +29,7 @@ export const CONTROLS_TAB_SIZE = Object.freeze({ width: 112, height: 44 });
 
 /**
  * Clearance below the immersive HUD, which is two stacked blocks: the top row
- * (Connected pill / mascot) and, beneath it, the record strip and notices.
+ * (link pill / orientation latch) and, beneath it, the record strip and notices.
  * 56 cleared only the first and landed squarely on the second, hiding the
  * recording indicator behind the tab — and that indicator is a privacy state,
  * so it is the one thing that must never be covered.

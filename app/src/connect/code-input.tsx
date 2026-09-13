@@ -193,7 +193,9 @@ export function CodeInput({
             color: 'transparent',
             backgroundColor: 'transparent',
             textAlign: 'center',
-            fontSize: 24,
+            // Invisible, but it still sizes the caret and the selection, so it
+            // tracks the visible digit's variant rather than a number of its own.
+            fontSize: theme.type.title.fontSize,
           },
           NO_WEB_OUTLINE,
         ]}

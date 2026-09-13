@@ -71,8 +71,11 @@ export function HostAudio({ enabled, connected, onStatus }: HostAudioProps) {
   const activeRef = useRef(active);
   activeRef.current = active;
 
+  // No console here. An audio fault already has a home the user can see — the
+  // Screen menu's Host audio row prints the host's own reason and its fix —
+  // and a flapping audio link would otherwise spam a Release console on every
+  // retry with a line only a developer could read.
   const report = (status: HostAudioStatus): void => {
-    if (status.phase === 'error') console.warn('[audio]', status.message);
     statusRef.current?.(status);
   };
 

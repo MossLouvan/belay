@@ -5,9 +5,9 @@
 // are the ledger's 1.5pt outline — never filled blobs (docs/DESIGN.md §11.1).
 
 import React from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import type { ViewStyle } from 'react-native';
-import { font } from '../theme';
+import { Txt } from '../ui';
 import type { ToolId } from './tools';
 
 /** The one stroke weight every glyph is drawn with — a thin outline. */
@@ -42,9 +42,11 @@ function AgentGlyph({ color }: GlyphProps) {
 function TerminalGlyph({ color }: GlyphProps) {
   return (
     <View style={[GLYPH_BOX, { borderRadius: 2, borderWidth: STROKE, borderColor: color }]}>
-      <Text allowFontScaling={false} style={{ color, fontFamily: font.mono, fontSize: 10, marginTop: -1 }}>
+      {/* marginTop is optical centring of the prompt inside the 24pt glyph
+          box — icon geometry, not layout spacing. */}
+      <Txt variant="monoSmall" color={color} style={{ marginTop: -1 }}>
         {'>_'}
-      </Text>
+      </Txt>
     </View>
   );
 }
@@ -56,6 +58,8 @@ function FilesGlyph({ color }: GlyphProps) {
       <View
         style={{
           position: 'absolute',
+          // Optical alignment of the folder tab inside the glyph box; sub-4pt
+          // icon geometry, deliberately off the spacing scale.
           top: 3.5,
           left: 2,
           width: 9,
@@ -94,6 +98,8 @@ function SystemGlyph({ color }: GlyphProps) {
     borderRadius: 1,
   });
   return (
+    // gap is the optical seam between three 5pt bars inside the glyph box —
+    // icon geometry, not layout spacing.
     <View style={[GLYPH_BOX, { flexDirection: 'row', alignItems: 'flex-end', gap: 2.5 }]}>
       <View style={bar(8)} />
       <View style={bar(16)} />

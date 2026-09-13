@@ -99,7 +99,7 @@ export function GamingSheet({ gaming }: { readonly gaming: GamingState }) {
     </ScrollView>
   </Sheet>;
 }
-export function GamingOverlay({ gaming, width, height, fps, pingMs }: { readonly gaming: GamingState; readonly width: number; readonly height: number; readonly fps: number; readonly pingMs: number | null }) {
+export function GamingOverlay({ gaming, width, height }: { readonly gaming: GamingState; readonly width: number; readonly height: number }) {
   const theme = useTheme(); const insets = useSafeAreaInsets();
   const w = width - insets.left - insets.right, h = height - insets.top - insets.bottom;
   const touchPreset = gaming.keymap ? gaming.preset : 'generic';
@@ -118,10 +118,15 @@ export function GamingOverlay({ gaming, width, height, fps, pingMs }: { readonly
       <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${gaming.exitProgress * 100}%`, backgroundColor: theme.colors.accentGraphic, opacity: 0.35 }} />
       <Txt variant="label">{exiting ? 'Hold…' : 'Exit'}</Txt>
     </Pressable>
-    <View pointerEvents="none" style={{ position: 'absolute', bottom: theme.layout.minTouch + theme.space.md, alignSelf: 'center', maxWidth: w / 3, backgroundColor: theme.colors.bg, padding: theme.space.xs, borderRadius: theme.radius.xs }}>
+    {/* What the player needs to know mid-game is WHICH controller is driving —
+        Auto switches between the phone and a Bluetooth pad on its own, and a
+        pad that drops out mid-fight has to be visible. The transport name and
+        the fps/RTT readout that used to sit under it were a permanent debug
+        overlay: engineer vocabulary, no way to turn it off, and nothing a
+        player can act on. Stream stats live in the Connection HUD, which is
+        opt-in from the Screen menu. */}
+    <View pointerEvents="none" style={{ position: 'absolute', bottom: theme.layout.minTouch + theme.space.md, alignSelf: 'center', maxWidth: w / 3, backgroundColor: theme.colors.bg, paddingHorizontal: theme.space.xs, paddingVertical: theme.space.xxs, borderRadius: theme.radius.xs }}>
       <Txt variant="label">{gaming.usingPhysical ? 'Bluetooth controller' : 'Phone controller'}</Txt>
-      <Txt variant="label">{gaming.backend}</Txt>
-      <Txt variant="label">{Math.round(fps)} fps · {pingMs === null ? '—' : Math.round(pingMs)} ms RTT</Txt>
     </View>
   </View>;
 }

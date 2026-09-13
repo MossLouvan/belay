@@ -23,6 +23,9 @@ import type { FleetLine } from '../agent/fleet-line';
 import type { SavedDevice } from './model';
 import type { Reachability } from './reachability';
 
+/** The status disc, matching StatusLine's. Radius is half of it — geometry. */
+const DOT = 8;
+
 export interface DeviceCardProps {
   readonly device: SavedDevice;
   readonly isActive: boolean;
@@ -57,10 +60,10 @@ export function DeviceCard({
   ) : null;
 
   const identity = (
-    <View style={{ flex: 1, gap: 3 }}>
+    <View style={{ flex: 1, gap: theme.space.xxs }}>
       <Txt variant="subheading" numberOfLines={1}>{device.label}</Txt>
       <Row gap="xs" align="center">
-        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor }} />
+        <View style={{ width: DOT, height: DOT, borderRadius: DOT / 2, backgroundColor: dotColor }} />
         <Txt variant="body" tone="dim" numberOfLines={1}>{status.word}</Txt>
       </Row>
     </View>
@@ -77,13 +80,13 @@ export function DeviceCard({
         overflow: 'hidden',
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm, padding: theme.space.sm }}>
         <DeviceThumb device={device} dim={!status.actionable} />
         {/* The pick target and Connect are SIBLINGS, never nested: a button
             inside a button is invalid HTML on web and double-fires on native.
             Fieldwork stacks them in the card's right column, Current runs
             Connect full-width beneath the whole row. */}
-        <View style={{ flex: 1, gap: 10 }}>
+        <View style={{ flex: 1, gap: theme.space.sm }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Pressable
               testID={`device-${device.id}`}
@@ -127,7 +130,7 @@ export function DeviceCard({
         </View>
       </View>
       {look.connectInline || !connect ? null : (
-        <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>{connect}</View>
+        <View style={{ paddingHorizontal: theme.space.sm, paddingBottom: theme.space.sm }}>{connect}</View>
       )}
       {/* What Claude is doing on this computer right now — its own row under
           the card, never inside the pick Pressable. Absent when there is
@@ -142,7 +145,7 @@ export function DeviceCard({
           style={({ pressed }) => ({
             minHeight: theme.layout.minTouch,
             justifyContent: 'center',
-            paddingHorizontal: 14,
+            paddingHorizontal: theme.space.sm,
             borderTopWidth: theme.layout.hairline,
             borderTopColor: theme.colors.border,
             opacity: pressed ? theme.motion.pressOpacity : 1,

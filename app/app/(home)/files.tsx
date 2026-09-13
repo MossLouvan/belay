@@ -440,10 +440,19 @@ function FilesTab() {
                   style={{ paddingHorizontal: theme.space.md }}
                 />
               ) : (
+                // A genuinely empty folder. The message used to restate the
+                // title and stop there, leaving no way out of a dead end —
+                // say what "empty" actually covers here, and hand back the
+                // one move that gets you somewhere.
                 <EmptyState
                   testID="files-empty"
                   title="This folder is empty"
-                  message="There is nothing here to open."
+                  message={
+                    hiddenN > 0
+                      ? `Nothing is saved here except ${hiddenN} hidden item${hiddenN === 1 ? '' : 's'}.`
+                      : 'Nothing is saved here — not even hidden items.'
+                  }
+                  action={parent ? { label: 'Go up a folder', onPress: () => openDir(parent) } : undefined}
                   style={{ paddingHorizontal: theme.space.md }}
                 />
               )

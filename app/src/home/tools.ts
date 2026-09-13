@@ -61,3 +61,21 @@ export const TOOLS: readonly ToolSpec[] = [
 export function toolBadge(id: ToolId, waitingCount: number): number | null {
   return id === 'agent' && waitingCount > 0 ? waitingCount : null;
 }
+
+/**
+ * The drawer's grid, two cards to a row.
+ *
+ * The drawer used to render `TOOLS.slice(0, 2)` and `TOOLS.slice(2, 4)`, which
+ * happened to be right for exactly four tools and would have silently dropped
+ * the fifth. Chunking the real list instead means the grid cannot fall out of
+ * step with the model, and an odd tool count degrades to a half-width last row
+ * rather than a missing tool.
+ *
+ * Pure and total: never mutates `tools`, and returns no empty rows.
+ */
+export function toolRows(tools: readonly ToolSpec[], perRow = 2): readonly (readonly ToolSpec[])[] {
+  if (perRow < 1) throw new Error(`toolRows: perRow must be at least 1, received ${perRow}`);
+  const rows: ToolSpec[][] = [];
+  for (let i = 0; i < tools.length; i += perRow) rows.push(tools.slice(i, i + perRow));
+  return rows;
+}

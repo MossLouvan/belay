@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TOOLS, toolBadge } from './tools.ts';
+import { TOOLS, toolBadge, toolRows } from './tools.ts';
 
 test('the drawer lists exactly the four moved tabs, agent first', () => {
   assert.deepEqual(
@@ -39,4 +39,31 @@ test('only the agent carries a count, and only when someone is waiting', () => {
   assert.equal(toolBadge('terminal', 3), null);
   assert.equal(toolBadge('files', 1), null);
   assert.equal(toolBadge('system', 1), null);
+});
+
+test('toolRows chunks the real list two to a row', () => {
+  const rows = toolRows(TOOLS);
+  assert.equal(rows.length, Math.ceil(TOOLS.length / 2));
+  assert.deepEqual(rows.flat().map((t) => t.id), TOOLS.map((t) => t.id));
+  rows.forEach((row) => assert.ok(row.length >= 1 && row.length <= 2));
+});
+
+test('toolRows keeps an odd tool in a row of its own rather than dropping it', () => {
+  const five = [...TOOLS, { id: 'agent', title: 'x', description: 'y', route: '/agent' }];
+  const rows = toolRows(five);
+  assert.equal(rows.length, 3);
+  assert.equal(rows[2].length, 1);
+  assert.equal(rows.flat().length, five.length);
+});
+
+test('toolRows never mutates the list it is given', () => {
+  const before = TOOLS.map((t) => t.id);
+  toolRows(TOOLS);
+  assert.deepEqual(TOOLS.map((t) => t.id), before);
+});
+
+test('toolRows honours a different row width and rejects a nonsense one', () => {
+  assert.equal(toolRows(TOOLS, 4).length, 1);
+  assert.equal(toolRows(TOOLS, 1).length, TOOLS.length);
+  assert.throws(() => toolRows(TOOLS, 0), /at least 1/);
 });

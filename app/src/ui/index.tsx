@@ -40,6 +40,9 @@ export type { ConnectionPhase, ConnectionView, SurfaceExtras, SurfacePhase, Surf
 export { Input, TextField } from './input';
 export type { InputProps } from './input';
 
+export { Composer } from './composer';
+export type { ComposerProps, ComposerAction, ComposerDismiss } from './composer';
+
 export { SegmentedControl, ListItem } from './controls';
 export type { SegmentOption, SegmentedControlProps, ListItemProps } from './controls';
 
@@ -54,12 +57,10 @@ export { Carabiner } from './carabiner';
 export type { CarabinerProps } from './carabiner';
 export { RopeStrand } from './rope-strand';
 export type { RopeStrandProps } from './rope-strand';
-export { NotificationCarabiner, useNotificationCarabiner } from './notification-carabiner';
-export type { NotificationCarabinerProps } from './notification-carabiner';
 export type { PressAnimation, EntranceStyle } from './motion';
 
-export { GlassPanel, PillCTA } from './glass';
-export type { GlassPanelProps, PillCTAProps } from './glass';
+export { GlassPanel } from './glass';
+export type { GlassPanelProps } from './glass';
 
 export { StatusBadge, TransitionRing } from './status-badge';
 export type { StatusBadgeProps, StatusBadgeVariant } from './status-badge';
@@ -69,6 +70,8 @@ export type { BelugaAvatarProps } from './beluga-avatar';
 
 export { useKeyboardLift, useKeyboardShown } from './keyboard-lift';
 export type { KeyboardLift, KeyboardLiftOptions } from './keyboard-lift';
+export { ErrorBoundary } from './error-boundary';
+export type { ErrorBoundaryProps } from './error-boundary';
 export { KeyboardAvoider } from './keyboard-avoider';
 export type { KeyboardAvoiderProps } from './keyboard-avoider';
 export { clearsKeyboard, keyboardInset, keyboardOverlap, keyboardShown } from './keyboard';

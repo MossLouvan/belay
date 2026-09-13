@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getConnection, TimeoutError } from '../api';
+import { failureLine } from '../errors';
 import { IDLE_RECORDING, RECORD_POLL_MS, parseRecordingStatus } from './record';
 import type { RecordingStatus } from './record';
 
@@ -102,7 +103,7 @@ export function useRecording(active: boolean, onError: (message: string) => void
       try {
         setStatus(await call(path, body));
       } catch (e: unknown) {
-        onError(`${label} — ${e instanceof Error ? e.message : String(e)}`);
+        onError(failureLine(label, e));
       } finally {
         setBusy(false);
       }

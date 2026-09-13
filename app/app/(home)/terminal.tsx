@@ -17,14 +17,13 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
 import { wsUrl } from '../../src/api';
-import { Banner, Button, IconButton, Row, Rule, Txt, StatusBadge } from '../../src/ui';
+import { Banner, Button, Composer, IconButton, Row, Rule, Txt, StatusBadge } from '../../src/ui';
 import type { GlassStateProps } from '../../src/ui';
 import { useKeyboardShown } from '../../src/ui/keyboard-lift';
 import { useTheme } from '../../src/theme';
@@ -623,74 +622,51 @@ function TerminalTab() {
           </Txt>
         ) : null}
 
-        <Row gap="sm" style={{ paddingHorizontal: theme.layout.margin }}>
-          {/* The continuation prompt stays, in quiet ink — the accent on this
-              screen belongs to TYPE alone: it is the field's default action,
-              and RUN stands beside it in ink (docs/DESIGN.md §10). */}
-          <Txt variant="mono" tone="dim" style={{ fontSize: 16 }}>›</Txt>
-          <View style={{ flex: 1, justifyContent: 'center' }}>
-            <TextInput
-              testID="term-input"
-              value={input}
-              onChangeText={onChangeInput}
-              placeholder={live ? 'Type into the shell…' : 'Not connected'}
-              placeholderTextColor={theme.colors.textFaint}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="off"
-              spellCheck={false}
-              returnKeyType="send"
-              submitBehavior="submit"
-              onSubmitEditing={typeInput}
-              accessibilityLabel="Shell input"
-              maxFontSizeMultiplier={1.4}
-              style={{
-                backgroundColor: theme.colors.surface,
-                borderRadius: theme.radius.xs,
-                borderWidth: theme.layout.hairline,
-                borderColor: theme.colors.border,
-                color: theme.colors.text,
-                fontFamily: theme.font.mono,
-                paddingLeft: theme.space.md,
-                // Clears the trailing dismiss so long input scrolls under the
-                // field's edge, not under the glyph.
-                paddingRight: keyboardUp ? theme.layout.minTouch : theme.space.md,
-                minHeight: theme.layout.minTouch,
-                fontSize: 14,
-              }}
-            />
-            {/* The field's own way out of the keyboard, in the trailing spot
-                the Screen tab's TYPE row uses. Return can't do it — it TYPEs
-                the line and deliberately keeps focus for the next one. */}
-            {keyboardUp ? (
-              <View style={{ position: 'absolute', right: 0, top: 0, bottom: 0, justifyContent: 'center' }}>
-                <IconButton
-                  testID="term-hide-keyboard"
-                  accessibilityLabel="Hide the keyboard"
-                  variant="plain"
-                  onPress={() => Keyboard.dismiss()}
-                >
-                  <Txt variant="label" tone="dim">⌄</Txt>
-                </IconButton>
-              </View>
-            ) : null}
-          </View>
-          <Button
-            testID="term-type"
-            label="Type"
-            onPress={typeInput}
-            size="sm"
-            accessibilityHint="Sends the text to the shell without pressing return"
-          />
-          <Button
-            testID="term-run"
-            label="Run"
-            variant="secondary"
-            onPress={runInput}
-            size="sm"
-            accessibilityHint="Sends the text and presses return; with the field empty, just presses return"
-          />
-        </Row>
+        {/* The continuation prompt stays, in quiet ink — the accent on this
+            screen belongs to TYPE alone: it is the field's default action,
+            and RUN stands beside it in ink (docs/DESIGN.md §10). */}
+        <Composer
+          testID="term-input"
+          style={{ paddingHorizontal: theme.layout.margin }}
+          prompt="›"
+          mono
+          value={input}
+          onChangeText={onChangeInput}
+          placeholder={live ? 'Type into the shell…' : 'Not connected'}
+          accessibilityLabel="Shell input"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          spellCheck={false}
+          returnKeyType="send"
+          submitBehavior="submit"
+          onSubmitEditing={typeInput}
+          /* The field's own way out of the keyboard, in the trailing spot
+             the Screen tab's TYPE row uses. Return can't do it — it TYPEs
+             the line and deliberately keeps focus for the next one. */
+          dismiss={{
+            visible: keyboardUp,
+            glyph: '⌄',
+            onPress: () => Keyboard.dismiss(),
+            accessibilityLabel: 'Hide the keyboard',
+            testID: 'term-hide-keyboard',
+          }}
+          actions={[
+            {
+              testID: 'term-type',
+              label: 'Type',
+              onPress: typeInput,
+              accessibilityHint: 'Sends the text to the shell without pressing return',
+            },
+            {
+              testID: 'term-run',
+              label: 'Run',
+              variant: 'secondary',
+              onPress: runInput,
+              accessibilityHint: 'Sends the text and presses return; with the field empty, just presses return',
+            },
+          ]}
+        />
       </View>
 
       <TerminalHelpSheet visible={showHelp} onClose={() => setShowHelp(false)} />

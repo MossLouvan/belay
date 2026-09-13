@@ -15,6 +15,10 @@ import { Row, Txt } from '../ui';
 import { describeSurface } from '../ui/connection-view';
 import type { ConnectionPhase, SurfacePhase } from '../ui/connection-view';
 
+/** The status disc. 8pt is the spacing scale's `xs`, and the same disc the
+ *  computers list draws — the radius is half of it, geometry, not a token. */
+const DOT = 8;
+
 export interface StatusLineProps {
   readonly phase: ConnectionPhase;
   readonly surface?: SurfacePhase;
@@ -36,9 +40,9 @@ export function StatusLine({ phase, surface, detail, paired, style, testID }: St
       <View
         accessibilityElementsHidden
         style={{
-          width: 9,
-          height: 9,
-          borderRadius: 4.5,
+          width: DOT,
+          height: DOT,
+          borderRadius: DOT / 2,
           backgroundColor: view.ring ? 'transparent' : tint,
           borderWidth: view.ring ? 2 : 0,
           borderColor: tint,

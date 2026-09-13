@@ -20,6 +20,7 @@ import Animated, {
   withDelay,
   type SharedValue,
 } from 'react-native-reanimated';
+import { useTheme } from '../theme';
 import { useReducedMotion } from './motion';
 
 export interface RopeStrandProps {
@@ -60,6 +61,7 @@ export function CurvedRopeStrand({
   circleCenter: { x: number; y: number };
   shouldAnimate: boolean;
 }) {
+  const theme = useTheme();
   // Data packets traveling along the curved arc - SUBTLE
   const packet1 = useSharedValue(0);
   const packet2 = useSharedValue(0);
@@ -154,6 +156,12 @@ export function CurvedRopeStrand({
     };
   });
 
+  // The braid highlight, themed rather than hardcoded white: `onAccent` is
+  // the ink role guaranteed to read ON the accent the rope is painted in, so
+  // the twist stays visible in both appearances instead of vanishing into a
+  // pale strand. Opacity carries the two-step stagger.
+  const braidInk = theme.colors.onAccent;
+
   // Calculate dashes along the arc with proper rotation
   const dashCount = 14;
   const dashWidth = width * 0.4;
@@ -162,19 +170,9 @@ export function CurvedRopeStrand({
 
   return (
     <View style={[{ position: 'relative' }, animatedStyle]} pointerEvents="none">
-      {/* Shadow layer */}
-      <View
-        style={{
-          position: 'absolute',
-          left: circleCenter.x - circleRadius,
-          top: circleCenter.y - circleRadius * 2 + 2,
-          width: circleRadius * 2,
-          height: circleRadius * 2,
-          borderRadius: circleRadius,
-          borderWidth: width,
-          borderColor: 'rgba(0, 0, 0, 0.2)',
-        }}
-      />
+      {/* No shadow layer: the Ledger system is flat (`theme.elevation` is
+          pinned to zero shadows), and the raw black it used to be drawn in
+          read as a smudge under the rope on the light Current page. */}
       {/* Main rope body */}
       <View
         style={{
@@ -218,7 +216,8 @@ export function CurvedRopeStrand({
               width: dashWidth,
               height: dashHeight,
               borderRadius: dashWidth / 2,
-              backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
+              backgroundColor: braidInk,
+              opacity: dashOpacity,
               transform: [{ rotate: `${rotateDeg}deg` }],
             }}
           />
@@ -295,8 +294,12 @@ export function RopeStrand({
   circleCenter,
   enableFlow = true,
 }: RopeStrandProps) {
+  const theme = useTheme();
   const reducedMotion = useReducedMotion();
   const shouldAnimate = enableFlow && !reducedMotion;
+  // See CurvedRopeStrand: the braid highlight is the ink that reads on the
+  // accent, not a hardcoded white.
+  const braidInk = theme.colors.onAccent;
   const heightStyle = currentHeight != null ? { height: currentHeight } : null;
 
   if (curved && circleRadius && circleCenter) {
@@ -390,20 +393,7 @@ export function RopeStrand({
 
   return (
     <View style={{ position: 'relative', alignItems: 'center' }} pointerEvents="none">
-      {/* Shadow for depth */}
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            left: 1,
-            width: width,
-            borderRadius: width / 2,
-            backgroundColor: 'rgba(0, 0, 0, 0.15)',
-          },
-          heightStyle,
-          animatedStyle,
-        ]}
-      />
+      {/* No shadow layer — the system is flat; see CurvedRopeStrand. */}
       {/* Main rope body */}
       <Animated.View
         style={[
@@ -454,7 +444,8 @@ export function RopeStrand({
                 width: width * 0.4,
                 height: dashHeight,
                 borderRadius: width * 0.2,
-                backgroundColor: `rgba(255, 255, 255, ${dashOpacity})`,
+                backgroundColor: braidInk,
+                opacity: dashOpacity,
                 transform: [{ rotate: `${tiltAngle}deg` }],
               },
               animatedStyle,
