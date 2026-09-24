@@ -8,12 +8,13 @@
 import React from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { IconButton, Label, ListItem, Rule, Txt } from '../ui';
+import { Button, IconButton, Label, ListItem, Rule, Txt, haptic } from '../ui';
 import { StatusNotice } from '../devices/notice';
 import type { Diagnosis } from './diagnose';
 import { AddressEntry } from './address-entry';
 import type { DiscoveredShortcut } from './address-entry';
 import { isTailscaleAddress, prettyHost } from './host-input';
+import { openTailscale } from './tailscale-card';
 
 export interface HostStepProps {
   value: string;
@@ -106,6 +107,17 @@ export function HostStep({
 
       {error ? (
         <StatusNotice testID="error" title={error.title} message={error.message} status="bad" />
+      ) : null}
+      {/* A 100.x address that does not answer almost always means Tailscale is
+          off on this phone, so the fix is one tap away rather than a re-read
+          of the address. */}
+      {error && isTailscaleAddress(value) ? (
+        <Button
+          label="Open Tailscale"
+          onPress={() => { haptic('light'); void openTailscale(); }}
+          fullWidth
+          testID="open-tailscale"
+        />
       ) : null}
 
       <RecentHosts recent={recent} onPick={onPickRecent} onForget={onForgetRecent} />

@@ -7,9 +7,9 @@
 // Tailscale on this phone is not, and the button goes straight there.
 
 import React, { useCallback, useState } from 'react';
-import { Linking, View } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
 import { useTheme } from '../theme';
-import { TAILSCALE_APP_URL, TAILSCALE_STORE_URL } from './tailnet';
+import { TAILSCALE_APP_URL, tailscaleStoreUrl } from './tailnet';
 import { Button, Micro, Rule, Txt, haptic } from '../ui';
 
 interface TailscaleStepProps {
@@ -26,19 +26,22 @@ interface TailscaleStepProps {
 }
 
 /**
- * Open the Tailscale app, falling back to the App Store when it is not
+ * Open the Tailscale app, falling back to its store listing when it is not
  * installed.
  *
- * `canOpenURL` is the documented check, but on iOS it answers false for any
- * scheme not in `LSApplicationQueriesSchemes`, so a false there does not mean
- * the app is missing. Attempting the open and treating a throw as "absent" is
- * the reliable order.
+ * The app registers the bare `tailscale` scheme (the macOS bundle declares it
+ * and tailscale/tailscale#14679 confirms the iOS app opens on it). On iOS
+ * `canOpenURL` answers honestly because the scheme is listed under
+ * LSApplicationQueriesSchemes; Android would need a <queries> entry for that,
+ * so there the attempt itself is the check and a throw means "absent".
  */
 export async function openTailscale(): Promise<void> {
+  const store = tailscaleStoreUrl(Platform.OS);
   try {
-    await Linking.openURL(TAILSCALE_APP_URL);
+    const installed = Platform.OS === 'ios' ? await Linking.canOpenURL(TAILSCALE_APP_URL) : true;
+    await Linking.openURL(installed ? TAILSCALE_APP_URL : store);
   } catch {
-    await Linking.openURL(TAILSCALE_STORE_URL).catch(() => undefined);
+    await Linking.openURL(store).catch(() => undefined);
   }
 }
 

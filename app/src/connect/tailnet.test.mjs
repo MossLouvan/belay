@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   TAILNET_PROBE_ATTEMPTS,
   TAILSCALE_APP_URL,
+  TAILSCALE_PLAY_URL,
   TAILSCALE_STORE_URL,
+  tailscaleStoreUrl,
   planTailnetUpgrade,
   readTailnetProbe,
   tailnetUrlFrom,
@@ -125,4 +127,12 @@ test('reachable but still wanting a code falls back to the digits', () => {
 test('the Tailscale links are the app scheme and the store page', () => {
   assert.equal(TAILSCALE_APP_URL, 'tailscale://');
   assert.match(TAILSCALE_STORE_URL, /^https:\/\/apps\.apple\.com\//);
+});
+
+// ---- tailscaleStoreUrl ----------------------------------------------------
+
+test('sends Android to the Play listing and everyone else to the App Store', () => {
+  assert.equal(tailscaleStoreUrl('android'), TAILSCALE_PLAY_URL);
+  assert.equal(tailscaleStoreUrl('ios'), TAILSCALE_STORE_URL);
+  assert.equal(tailscaleStoreUrl('web'), TAILSCALE_STORE_URL);
 });

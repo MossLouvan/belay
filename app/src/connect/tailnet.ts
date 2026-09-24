@@ -24,6 +24,11 @@ import type { HostCheck } from '../api';
 export const TAILSCALE_APP_URL = 'tailscale://';
 /** Where to send someone who does not have it yet. */
 export const TAILSCALE_STORE_URL = 'https://apps.apple.com/app/tailscale/id1470499037';
+export const TAILSCALE_PLAY_URL = 'https://play.google.com/store/apps/details?id=com.tailscale.ipn';
+
+/** The store listing for this platform, for when the app is not installed. */
+export const tailscaleStoreUrl = (os: string): string =>
+  os === 'android' ? TAILSCALE_PLAY_URL : TAILSCALE_STORE_URL;
 
 /**
  * Address kinds that carry tailnet identity.

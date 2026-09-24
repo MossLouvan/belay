@@ -20,6 +20,9 @@
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         },
+        "LSApplicationQueriesSchemes": [
+          "tailscale"
+        ],
         "NSCameraUsageDescription": "Belay uses the camera to scan the pairing code shown on your computer, and to take a photo to send to Claude.",
         "NSMicrophoneUsageDescription": "Belay listens while you hold the talk button so your words can be dictated into the prompt. Audio never leaves your iPhone.",
         "NSSpeechRecognitionUsageDescription": "Belay turns your speech into text on this iPhone while you hold the talk button. Audio never leaves the device.",
