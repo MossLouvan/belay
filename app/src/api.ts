@@ -390,6 +390,17 @@ export interface ScreenInfo {
  * whether one is up right now. A host with the flag off answers 403, which
  * `virtualDisplayStatus` maps to all-false — the option simply does not appear.
  */
+export interface AutostartStatus {
+  readonly supported: boolean;
+  readonly installed: boolean;
+}
+
+export interface AutostartReply {
+  readonly ok: boolean;
+  readonly installed: boolean;
+  readonly restarting?: boolean;
+}
+
 export interface VirtualDisplayStatus {
   enabled: boolean;
   available: boolean;
@@ -610,6 +621,11 @@ export const api = {
   discoverHosts: () => get<DiscoverHostsReply>('/discover/hosts'),
   /** Rename this computer on the host, so every phone sees the new name. */
   setLabel: (label: string) => post<{ ok: boolean; label: string }>('/label', { label }),
+  /** Start-at-login on the host (its scripts/autostart-*). Older hosts 404 the GET. */
+  autostartStatus: () => get<AutostartStatus>('/autostart'),
+  autostartEnable: () => post<AutostartReply>('/autostart/enable', {}),
+  /** `restarting` means the host was launched by autostart and stops itself after answering. */
+  autostartDisable: () => post<AutostartReply>('/autostart/disable', {}),
   /**
    * Revoke a paired device. The host only ever sends a truncated token, so the
    * ellipsis it appends has to come back off before the prefix can match. An

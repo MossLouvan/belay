@@ -21,6 +21,7 @@ import { Redirect, Stack } from 'expo-router';
 import { useConnection } from '../../src/connection';
 import { useTheme } from '../../src/theme';
 import { useAgentAttention, resetAttention } from '../../src/agent/attention-store';
+import { AutostartPrompt } from '../../src/devices/autostart-prompt';
 
 /** Whatever route arrives first (a deep link straight to a tool panel
  *  included), the desktop is always the screen underneath it. The anchor
@@ -62,7 +63,8 @@ export default function HomeLayout() {
   }
 
   return (
-    <Stack
+    <>
+      <Stack
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: theme.colors.bg },
@@ -87,6 +89,9 @@ export default function HomeLayout() {
           }}
         />
       ))}
-    </Stack>
+      </Stack>
+      {/* One-time "start at login?" offer after a first pairing. */}
+      <AutostartPrompt />
+    </>
   );
 }

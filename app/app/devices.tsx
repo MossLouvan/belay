@@ -29,6 +29,7 @@ import { useAutoReconnect } from '../src/devices/use-auto-reconnect';
 import { DiscoveredSection } from '../src/devices/discovered-section';
 import { AddComputer } from '../src/devices/add-computer';
 import { AddComputerRow } from '../src/devices/add-computer-row';
+import { AutostartRow } from '../src/devices/autostart-toggle';
 import { DeviceCard } from '../src/devices/device-card';
 import { DevicesHeader } from '../src/devices/devices-header';
 import { EmptyComputers } from '../src/devices/empty-computers';
@@ -169,6 +170,9 @@ export default function Devices() {
               ? `Connected over ${describeUrl(activeUrl)}.`
               : 'Belay reaches this computer at whichever of its saved addresses answers first.'}
           </Caption>
+          {details && active?.id === details.id && phase === 'connected' ? (
+            <AutostartRow key={details.id} />
+          ) : null}
           <Button
             label="Forget this computer"
             accessibilityLabel={details ? `Forget ${details.label}` : 'Forget this computer'}

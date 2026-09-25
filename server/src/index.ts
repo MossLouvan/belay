@@ -70,6 +70,7 @@ import type { FloorDenied } from './input-floor.js';
 import { registerImageRoutes } from './image-routes.js';
 import { registerThumbnailRoutes } from './thumbnail.js';
 import { handleAudioSocket, registerAudioRoutes } from './audio-routes.js';
+import { autostartBannerLine, registerAutostartRoutes } from './autostart.js';
 import { productEnv } from './env.js';
 import { webrtcEnabled } from './webrtc/flag.js';
 import {
@@ -1036,6 +1037,8 @@ const screenThumbnails = registerThumbnailRoutes(app, auth, {
 // in the default build (not gated by BELAY_WEBRTC_BUILD), so the REST and WS
 // surface is always available. The phone toggles audio on-demand per session.
 registerAudioRoutes(app, auth);
+// Start-at-login, toggled from the phone. Runs scripts/autostart-*.
+registerAutostartRoutes(app, auth);
 
 // ---- server + websockets -------------------------------------------------
 
@@ -1852,7 +1855,8 @@ server.listen(PORT, () => {
   // the file defaults to process.cwd(), so a start from another folder without
   // BELAY_STATE_FILE is a fresh, unpaired host with a new id.
   console.log(`  State     : ${stateFilePath()}`);
-  console.log('');
+  // Async because it asks launchctl / Task Scheduler; printed as soon as it answers.
+  void autostartBannerLine().then((line) => { console.log(`  Autostart : ${line}`); console.log(''); });
 
   // Raise the tray icon. Belay runs hidden and starts at logon, so without this
   // there is nothing on screen saying it is running at all. It turns green while
