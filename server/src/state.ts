@@ -1,13 +1,14 @@
 // Persistent host state: identity, config, and the device token(s) a paired
 // phone uses. Stored as belay-state.json (gitignored).
 //
-// This file holds long-lived bearer tokens that grant complete control of the
-// machine — screen capture, keystroke injection and a shell. It is therefore
-// written 0600 and written atomically: a torn write used to be silently
+// This file holds the hashes of long-lived bearer tokens that grant complete
+// control of the machine — screen capture, keystroke injection and a shell.
+// Only hashes, so reading the file impersonates nobody; still, it is written
+// 0600 and written atomically: a torn write used to be silently
 // recoverable as "no devices paired", which unpairs every phone you own with
 // no log line explaining why.
 
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync, chmodSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
@@ -41,17 +42,39 @@ export function stateFilePath(): string { return STATE_FILE; }
 /** Owner read/write only — these are credentials, not config. */
 const STATE_FILE_MODE = 0o600;
 
-/** Current on-disk schema version, so future migrations have something to key on. */
-const SCHEMA_VERSION = 1;
+/**
+ * Current on-disk schema version. v2 stores `tokenHash` (SHA-256 of the
+ * token) where v1 stored the token itself; a v1 file is rehashed on load and
+ * rewritten on the next save, so nobody has to pair again.
+ */
+const SCHEMA_VERSION = 2;
 
 export type HostPlatform = 'darwin' | 'win32' | 'other';
 
+/**
+ * A paired device as kept in memory and on disk. Only the hash of its token
+ * is stored: the file used to hold the raw bearer tokens, so anyone who could
+ * read it — a backup, a sync folder, one paired phone via the file browser —
+ * could impersonate every other paired device.
+ */
 export interface Device {
-  readonly token: string;
+  /** SHA-256 of the bearer token, hex. Doubles as the device's stable id. */
+  readonly tokenHash: string;
   readonly name: string;
   readonly createdAt: number;
   readonly lastSeen: number;
 }
+
+/** A freshly paired device, carrying the raw token — the only time it exists. */
+export interface PairedDevice extends Device {
+  readonly token: string;
+}
+
+export function hashToken(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+const TOKEN_HASH = /^[0-9a-f]{64}$/;
 
 /**
  * A device as exposed over the API: the token is truncated to a display prefix.
@@ -102,13 +125,35 @@ const TOKEN_PREFIX_LENGTH = 8;
  * threw from inside the auth middleware — making *every* authenticated request
  * fail with a 500, permanently, with no clue as to why.
  */
-function isValidDevice(value: unknown): value is Device {
+function isValidDevice(value: unknown): value is Device | (Omit<Device, 'tokenHash'> & { token: string }) {
   if (typeof value !== 'object' || value === null) return false;
   const d = value as Record<string, unknown>;
-  return typeof d.token === 'string' && d.token.length > 0
+  const credential = (typeof d.tokenHash === 'string' && TOKEN_HASH.test(d.tokenHash))
+    || (typeof d.token === 'string' && d.token.length > 0);
+  return credential
     && typeof d.name === 'string'
     && typeof d.createdAt === 'number' && Number.isFinite(d.createdAt)
     && typeof d.lastSeen === 'number' && Number.isFinite(d.lastSeen);
+}
+
+/**
+ * A v1 entry carries the raw token; hash it in place. The result is exactly
+ * what a v2 pairing would have written, so the phone's token keeps working.
+ */
+function hashLegacyDevice(d: Device | (Omit<Device, 'tokenHash'> & { token: string })): Device {
+  if ('tokenHash' in d && typeof d.tokenHash === 'string') {
+    const { token: _dropped, ...rest } = d as Device & { token?: string };
+    return rest;
+  }
+  const { token, ...rest } = d as Omit<Device, 'tokenHash'> & { token: string };
+  return { ...rest, tokenHash: hashToken(token) };
+}
+
+/** Whether any persisted device still carries a raw token (a v1 file). */
+function hasPlaintextTokens(raw: unknown): boolean {
+  const devices = (raw as { devices?: unknown })?.devices;
+  return Array.isArray(devices)
+    && devices.some((d) => typeof (d as { token?: unknown })?.token === 'string');
 }
 
 /** Coerce whatever is on disk into a valid state, reporting what was dropped. */
@@ -118,7 +163,7 @@ function migrate(raw: unknown): Persisted {
   const r = raw as Record<string, unknown>;
 
   const devices = Array.isArray(r.devices) ? r.devices : [];
-  const valid = devices.filter(isValidDevice);
+  const valid = devices.filter(isValidDevice).map(hashLegacyDevice);
   if (valid.length !== devices.length) {
     console.warn(
       `[state] dropped ${devices.length - valid.length} malformed device entr` +
@@ -165,7 +210,9 @@ export function loadState(): void {
     // persist immediately. Otherwise the mint is lost on exit and the host's
     // identity changes every restart, so every paired phone sees a mismatch and
     // marks the computer unreachable. Saving also promotes legacy -> STATE_FILE.
-    if (!hadHostId || source === LEGACY_STATE_FILE) save();
+    // A v1 file (raw tokens) is saved for the same reason: the rewrite is what
+    // gets the plaintext off the disk.
+    if (!hadHostId || source === LEGACY_STATE_FILE || hasPlaintextTokens(parsed)) save();
   } catch (e: unknown) {
     // Loud, because the consequence is every paired phone appearing unpaired.
     console.error(
@@ -239,25 +286,28 @@ function newToken(): string {
   return randomBytes(32).toString('hex');
 }
 
-export function addDevice(name: string): Device {
+export function addDevice(name: string): PairedDevice {
   const now = Date.now();
+  const token = newToken();
   const device: Device = {
-    token: newToken(),
+    tokenHash: hashToken(token),
     name: name || 'iPhone',
     createdAt: now,
     lastSeen: now,
   };
   state = { ...state, devices: [...state.devices, device] };
   save();
-  return device;
+  return { ...device, token };
 }
 
-// Constant-time comparison so a token cannot be recovered by timing the check.
+// Constant-time comparison of hashes so a token cannot be recovered by timing
+// the check. Every hash is the same length, so the length check is only a
+// guard against a malformed entry.
 export function findDevice(token: string): Device | undefined {
   if (!token) return undefined;
-  const candidate = Buffer.from(token);
+  const candidate = Buffer.from(hashToken(token));
   for (const d of state.devices) {
-    const known = Buffer.from(d.token);
+    const known = Buffer.from(d.tokenHash);
     if (known.length === candidate.length && timingSafeEqual(known, candidate)) {
       return d;
     }
@@ -276,14 +326,17 @@ export function touchDevice(device: Device): void {
   const at = Date.now();
   state = {
     ...state,
-    devices: state.devices.map((d) => (d.token === device.token ? { ...d, lastSeen: at } : d)),
+    devices: state.devices.map((d) => (d.tokenHash === device.tokenHash ? { ...d, lastSeen: at } : d)),
   };
 }
 
-/** Devices with tokens reduced to a display prefix — safe to send to a client. */
+/**
+ * Devices with a display prefix of the token *hash* — safe to send to a
+ * client: nothing derived from the hash authenticates.
+ */
 export function listDevices(): readonly DeviceSummary[] {
   return state.devices.map((d) => ({
-    tokenPrefix: d.token.slice(0, TOKEN_PREFIX_LENGTH),
+    tokenPrefix: d.tokenHash.slice(0, TOKEN_PREFIX_LENGTH),
     name: d.name,
     createdAt: d.createdAt,
     lastSeen: d.lastSeen,
@@ -297,7 +350,7 @@ export function deviceCount(): number {
 
 export function revokeDevice(tokenPrefix: string): boolean {
   const before = state.devices.length;
-  const devices = state.devices.filter((d) => !d.token.startsWith(tokenPrefix));
+  const devices = state.devices.filter((d) => !d.tokenHash.startsWith(tokenPrefix));
   if (devices.length === before) return false;
   state = { ...state, devices };
   // true only if the removal is durable; a failed write means the token could

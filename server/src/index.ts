@@ -207,11 +207,15 @@ app.use(express.json({ limit: '2mb' }));
 
 interface AuthedRequest extends Request { device?: Device; }
 
-function auth(req: AuthedRequest, res: Response, next: NextFunction) {
-  // Header only. A token in a query string lands in access logs, proxy logs
-  // and browser history; the app has always sent the header.
+// Header only. A token in a query string lands in access logs, proxy logs
+// and browser history; the app has always sent the header.
+function bearerToken(req: Request): string {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  return header.startsWith('Bearer ') ? header.slice(7) : '';
+}
+
+function auth(req: AuthedRequest, res: Response, next: NextFunction) {
+  const token = bearerToken(req);
   const device = findDevice(token);
   if (!device) { res.status(401).json({ error: 'unauthorized' }); return; }
   touchDevice(device);
@@ -392,7 +396,9 @@ app.get('/addresses', auth, (_req, res) => {
  * machine to whoever read the log.
  */
 app.post('/ws-ticket', auth, (req: AuthedRequest, res) => {
-  const issued = tickets.issue(req.device!.token);
+  // The ticket is redeemed back into the raw token, which only the request
+  // carries: the state file keeps just its hash.
+  const issued = tickets.issue(bearerToken(req));
   res.json(issued);
 });
 
@@ -705,7 +711,7 @@ async function withFloor(
 ): Promise<boolean> {
   const device = req.device!;
   lastRemoteInputAt = Date.now();
-  const decision = floor.request(cursors.idOf(device.token), device.name);
+  const decision = floor.request(cursors.idOf(device.tokenHash), device.name);
   if (!decision.ok) {
     res.status(409).json(denialBody(decision as FloorDenied));
     return false;
@@ -753,11 +759,11 @@ app.post('/input/move', auth, async (req: AuthedRequest, res) => {
     const screen = screenIndexOf(req.body?.screen);
     const window = windowIdOf(req.body?.window);
     const device = req.device!;
-    cursors.join(device.token, device.name);
-    cursors.move(device.token, req.body?.x, req.body?.y, { screen, window });
+    cursors.join(device.tokenHash, device.name);
+    cursors.move(device.tokenHash, req.body?.x, req.body?.y, { screen, window });
 
     lastRemoteInputAt = Date.now();
-    const decision = floor.request(cursors.idOf(device.token), device.name);
+    const decision = floor.request(cursors.idOf(device.tokenHash), device.name);
     if (!decision.ok) {
       const why = denialBody(decision as FloorDenied);
       res.json({ ok: true, virtual: true, reason: why.reason, holderName: why.holderName });
@@ -1136,7 +1142,7 @@ server.on('upgrade', (req, socket, head) => {
     // on a ws crashes the process under Node's default policy (handleAgent was
     // the one handler missing it).
     const track = (ws: WebSocket) => {
-      liveSockets.set(ws, device.token);
+      liveSockets.set(ws, device.tokenHash);
       armHeartbeat(ws);
       ws.on('error', () => { /* 'close' follows and cleans up */ });
       ws.on('close', () => liveSockets.delete(ws));
@@ -1202,11 +1208,11 @@ server.on('upgrade', (req, socket, head) => {
     // Everyone's virtual cursor, both directions — cursor-channel.ts.
     wss.handleUpgrade(req, socket, head, (ws) => {
       track(ws);
-      cursorHub.handle(ws as never, device.token, device.name);
+      cursorHub.handle(ws as never, device.tokenHash, device.name);
       // Whoever leaves cannot keep the desktop: drop the floor with the socket
       // rather than making the room wait out the lease.
       ws.on('close', () => {
-        floor.release(cursors.idOf(device.token));
+        floor.release(cursors.idOf(device.tokenHash));
         cursorHub.poke();
       });
     });

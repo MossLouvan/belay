@@ -18,7 +18,7 @@ process.env.BELAY_STATE_FILE = stateFile;
 const {
   loadState, addDevice, findDevice, touchDevice, listDevices, deviceCount,
   revokeDevice, revokeAll, setHostName, getHostName, getHostId, getLabel, setLabel,
-  getPlatform,
+  getPlatform, hashToken,
 } = await import('../src/state.js');
 
 after(() => rmSync(dir, { recursive: true, force: true }));
@@ -61,13 +61,38 @@ test('tokens are 256 bits of hex and unique per device', () => {
   assert.notEqual(a.token, b.token);
 });
 
-test('listDevices truncates tokens and does not return whole ones', () => {
+test('listDevices exposes a prefix of the token hash, never the token', () => {
   const device = addDevice('iPhone');
   const summaries = listDevices();
   assert.equal(summaries.length, 1);
-  assert.equal(summaries[0].tokenPrefix, device.token.slice(0, 8));
-  // The full token must not appear anywhere in the serialised summary.
-  assert.ok(!JSON.stringify(summaries).includes(device.token));
+  assert.equal(summaries[0].tokenPrefix, device.tokenHash.slice(0, 8));
+  // Neither the token nor a prefix of it appears in the serialised summary.
+  assert.ok(!JSON.stringify(summaries).includes(device.token.slice(0, 8)));
+});
+
+test('the state file holds only token hashes', () => {
+  const device = addDevice('iPhone');
+  const onDisk = readFileSync(stateFile, 'utf8');
+  assert.ok(!onDisk.includes(device.token), 'raw token must never be written');
+  assert.ok(onDisk.includes(device.tokenHash));
+  assert.equal(JSON.parse(onDisk).version, 2);
+});
+
+test('a v1 file with raw tokens is rehashed on load and nobody has to re-pair', () => {
+  const token = 'c'.repeat(64);
+  writeFileSync(stateFile, JSON.stringify({
+    version: 1, hostId: 'fixed-id', hostName: 'h', label: 'h',
+    devices: [{ token, name: 'old-phone', createdAt: 1, lastSeen: 1 }],
+  }));
+  loadState();
+  assert.equal(findDevice(token)?.name, 'old-phone', 'the phone\'s existing token still authenticates');
+  // Rewritten immediately, hashed, so the plaintext is gone from disk.
+  const onDisk = readFileSync(stateFile, 'utf8');
+  assert.ok(!onDisk.includes(token));
+  assert.equal(JSON.parse(onDisk).devices[0].tokenHash, hashToken(token));
+  assert.equal(JSON.parse(onDisk).devices[0].token, undefined);
+  loadState();
+  assert.ok(findDevice(token), 'and survives a second load');
 });
 
 test('touchDevice does not mutate the device it is given', () => {
@@ -80,7 +105,7 @@ test('touchDevice does not mutate the device it is given', () => {
 test('revokeDevice removes only the matching device', () => {
   const a = addDevice('phone-a');
   addDevice('phone-b');
-  assert.equal(revokeDevice(a.token.slice(0, 8)), true);
+  assert.equal(revokeDevice(a.tokenHash.slice(0, 8)), true);
   assert.equal(deviceCount(), 1);
   assert.equal(findDevice(a.token), undefined, 'revoked token no longer authenticates');
 });

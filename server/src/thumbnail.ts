@@ -88,7 +88,7 @@ export interface ThumbnailDeps {
 
 /** Only the field this module reads off an authenticated request. */
 interface MaybeAuthed extends Request {
-  device?: { token?: string };
+  device?: { tokenHash?: string };
 }
 
 export type BudgetDecision =
@@ -264,7 +264,7 @@ export function registerThumbnailRoutes(app: Express, auth: RequestHandler, deps
   const budget = new RequestBudget({ limit: deps.burst, windowMs: deps.windowMs, now: deps.now });
 
   app.get('/screen/thumbnail', auth, async (req: MaybeAuthed, res: Response) => {
-    const key = req.device?.token || req.ip || 'unknown';
+    const key = req.device?.tokenHash || req.ip || 'unknown';
     const decision = budget.check(key);
     if (!decision.allowed) {
       res.set('Retry-After', String(decision.retryAfterSec));

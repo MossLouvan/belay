@@ -67,7 +67,10 @@ test('loopback is recognised in every shape node reports it', () => {
 test('the local-console handle authenticates on the attach route only', () => {
   const device = localConsoleDevice(LOCAL_CONSOLE_TOKEN, '/ws/agent-attach');
   assert.ok(device);
-  assert.equal(device.token, LOCAL_CONSOLE_TOKEN);
+  // The handle never travels on the device object — only its hash, as for a
+  // paired phone.
+  assert.match(device.tokenHash, /^[0-9a-f]{64}$/);
+  assert.notEqual(device.tokenHash, LOCAL_CONSOLE_TOKEN);
 });
 
 test('the local-console handle is refused on every other websocket route', () => {

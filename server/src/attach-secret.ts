@@ -23,7 +23,7 @@
 // a loopback POST and gets back an ordinary single-use WebSocket ticket — the
 // same 30-second ticket the phone uses — which is what the upgrade carries.
 
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -90,12 +90,15 @@ export const LOCAL_CONSOLE_TOKEN = randomBytes(32).toString('hex');
 /** The name shown wherever a connected client is named. */
 export const LOCAL_CONSOLE_NAME = 'this computer';
 
+/** Same shape as a paired `Device`: the hash is its id on live sockets. */
 export interface LocalConsoleDevice {
-  readonly token: string;
+  readonly tokenHash: string;
   readonly name: string;
   readonly createdAt: number;
   readonly lastSeen: number;
 }
+
+const LOCAL_CONSOLE_TOKEN_HASH = createHash('sha256').update(LOCAL_CONSOLE_TOKEN).digest('hex');
 
 /**
  * The pseudo-device a redeemed local-console ticket authenticates as, or
@@ -111,5 +114,5 @@ export function localConsoleDevice(token: string, pathname: string): LocalConsol
   if (!token || token.length !== LOCAL_CONSOLE_TOKEN.length) return undefined;
   if (!timingSafeEqual(Buffer.from(token), Buffer.from(LOCAL_CONSOLE_TOKEN))) return undefined;
   const at = Date.now();
-  return { token: LOCAL_CONSOLE_TOKEN, name: LOCAL_CONSOLE_NAME, createdAt: at, lastSeen: at };
+  return { tokenHash: LOCAL_CONSOLE_TOKEN_HASH, name: LOCAL_CONSOLE_NAME, createdAt: at, lastSeen: at };
 }

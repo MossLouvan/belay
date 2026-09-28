@@ -53,7 +53,7 @@ async function harness(over: { ready?: boolean } = {}): Promise<Harness> {
     const header = String(req.headers.authorization || '');
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
     if (token === TOKEN || token === OTHER_TOKEN) {
-      (req as express.Request & { device?: { token: string } }).device = { token };
+      (req as express.Request & { device?: { tokenHash: string } }).device = { tokenHash: token };
       next();
       return;
     }
