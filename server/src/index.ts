@@ -262,13 +262,16 @@ app.get('/health', async (req, res) => {
     // Live, not sampled at boot. Reporting a boot-time constant told the phone
     // that capture worked while every call was failing against a dead helper.
     native: native.isReady(),
-    nativeBuilt,
     paired: deviceCount() > 0,
     // Whether this host can stream H.264 over UDP (the streamer binary is
     // present). The phone makes BWP its default only when this is true, and
     // never asks a host that says false — so a Mac host is never left waiting
     // for an offer it cannot make.
     bwp: bwpAvailable(),
+    // Every identity field is read by the phone BEFORE it has a token: `id`
+    // and `label` to save the computer, `addresses` to retry over the tailnet
+    // address for code-less pairing, `platform` for the desktop client's key
+    // map. Anything not read pre-pairing (`nativeBuilt`) lives on /me.
     ...identity(),
   });
 });
