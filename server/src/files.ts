@@ -117,17 +117,36 @@ const DENIED_DIRS: readonly string[] = [
   process.cwd(),
   ...[
     '.ssh', '.aws', '.gnupg', '.claude', '.claude.json', '.azure', '.kube', '.docker', '.config',
-    '.gitconfig', '.npmrc', '.netrc', '.bash_history', '.zsh_history', '.python_history',
-    'AppData/Local/Google/Chrome/User Data', 'AppData/Roaming/Mozilla',
-    'Library/Keychains', 'Library/Application Support/Google/Chrome',
+    '.gitconfig', '.git-credentials', '.npmrc', '.netrc', '.bash_history', '.zsh_history', '.python_history',
+    // ~/.belay holds the attach and hook secrets (0600, but a file API is a
+    // file API).
+    '.belay', '.mozilla', '.pki',
+    // Browser profiles: cookies and saved logins are session tokens for
+    // every site the owner is signed in to.
+    'AppData/Local/Google/Chrome/User Data', 'AppData/Local/Microsoft/Edge/User Data',
+    'AppData/Local/BraveSoftware', 'AppData/Local/Chromium', 'AppData/Roaming/Mozilla',
+    'Library/Keychains', 'Library/Cookies', 'Library/Safari', 'Library/Containers/com.apple.Safari',
+    'Library/Application Support/Google/Chrome', 'Library/Application Support/Microsoft Edge',
+    'Library/Application Support/Firefox', 'Library/Application Support/BraveSoftware',
+    'Library/Application Support/Chromium',
   ].map((d) => join(HOME, d)),
 ].map((p) => {
   try { return realpathSync.native(p); } catch { return resolve(p); }
 });
 
-// Both spellings: pre-rename installs still have `tether-*.json` on disk,
-// holding the very same live tokens, and those files never became less secret.
-const DENIED_FILE = /^(?:belay|tether)-(state|agent)\.json$/i;
+/**
+ * File names denied wherever they sit, because they are secrets by
+ * convention rather than by location:
+ *
+ *   - `belay-*.json` / `tether-*.json` state — both spellings, since a
+ *     pre-rename install still has the old file on disk holding live tokens;
+ *   - `.env` and every `.env.*` variant (`.env.example` too: erring towards
+ *     "denied" is the safe direction for a deny-list);
+ *   - `*-secret`, the naming ~/.belay uses for its own credentials;
+ *   - browser cookie / login stores by their well-known names, so a profile
+ *     copied somewhere unexpected is still refused.
+ */
+const DENIED_FILE = /^(?:(?:belay|tether)-(?:state|agent)\.json|\.env(?:\..*)?|.*-secret|\.git-credentials|\.netrc|\.npmrc|cookies|login data|logins\.json|key[34]\.db|cookies\.sqlite|signons\.sqlite)$/i;
 
 export function isDenied(realTarget: string, denied: readonly string[] = DENIED_DIRS): boolean {
   const target = resolve(realTarget);

@@ -31,6 +31,38 @@ test('credential folders under home are denied, case-insensitively', () => {
   assert.equal(isDenied(join(HOME, '.SSH', 'id_rsa')), true);
 });
 
+test('secret files are denied by name wherever they sit, case-insensitively', () => {
+  const inProject = (name: string) => join(HOME, 'Documents', 'project', name);
+  for (const f of ['.env', '.env.local', '.ENV.production', '.git-credentials', '.netrc', '.npmrc', 'attach-secret', 'hook-secret']) {
+    assert.equal(isDenied(inProject(f)), true, f);
+  }
+  assert.equal(isDenied(join(HOME, '.belay', 'attach-secret')), true);
+  assert.equal(isDenied(join(HOME, '.belay', 'hook-secret')), true);
+  assert.equal(isDenied(join(HOME, '.aws', 'credentials')), true);
+  assert.equal(isDenied(join(HOME, '.git-credentials')), true);
+});
+
+test('browser cookie and login stores are denied on every platform layout', () => {
+  const stores = [
+    ['Library', 'Application Support', 'Google', 'Chrome', 'Default', 'Cookies'],
+    ['Library', 'Application Support', 'Google', 'Chrome', 'Default', 'Login Data'],
+    ['Library', 'Application Support', 'Microsoft Edge', 'Default', 'Cookies'],
+    ['Library', 'Application Support', 'Firefox', 'Profiles', 'abc.default', 'logins.json'],
+    ['Library', 'Cookies', 'Cookies.binarycookies'],
+    ['Library', 'Safari', 'History.db'],
+    ['Library', 'Keychains', 'login.keychain-db'],
+    ['AppData', 'Local', 'Google', 'Chrome', 'User Data', 'Default', 'Login Data'],
+    ['AppData', 'Local', 'Microsoft', 'Edge', 'User Data', 'Default', 'Cookies'],
+    ['AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles', 'x', 'key4.db'],
+    ['.mozilla', 'firefox', 'x', 'cookies.sqlite'],
+  ];
+  for (const parts of stores) assert.equal(isDenied(join(HOME, ...parts)), true, parts.join('/'));
+  // A copied profile in an ordinary folder is still refused by file name.
+  for (const f of ['Cookies', 'login data', 'logins.json', 'key4.db', 'cookies.sqlite']) {
+    assert.equal(isDenied(join(HOME, 'Desktop', 'backup', f)), true, f);
+  }
+});
+
 test('ordinary project paths are not denied', () => {
   assert.equal(isDenied(join(HOME, 'Documents', 'project', 'README.md')), false);
   assert.equal(isDenied(join(HOME, 'Desktop')), false);
