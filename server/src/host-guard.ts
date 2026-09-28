@@ -53,3 +53,30 @@ export function isTrustedOrigin(origin: string | undefined): boolean {
   if (OPAQUE_ORIGINS.has(origin.trim().toLowerCase())) return true;
   try { return isTrustedHost(new URL(origin).host); } catch { return false; }
 }
+
+export interface PairRefusal { readonly status: 400 | 403; readonly error: string; }
+
+/**
+ * Why a /pair request must be refused before it is allowed to count as a
+ * failed attempt, or null when it may proceed.
+ *
+ * Every failed /pair burns the client's attempt budget and, past a threshold,
+ * the pairing code itself. A cross-site `text/plain` POST from any web page —
+ * no CORS preflight for that content type — used to land here as a failure,
+ * so a page could lock 127.0.0.1 out of pairing and invalidate the code on
+ * screen. Two things give such a request away: a browser `Origin` that is
+ * not the local web build (the native app sends none, the desktop client's
+ * is opaque), and a body that is not JSON.
+ */
+export function pairRefusal(
+  headers: { origin?: string; 'content-type'?: string },
+  allowedOrigins: readonly string[],
+): PairRefusal | null {
+  const origin = headers.origin?.trim();
+  if (origin && !OPAQUE_ORIGINS.has(origin.toLowerCase()) && !allowedOrigins.includes(origin)) {
+    return { status: 403, error: 'origin not allowed' };
+  }
+  const type = (headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  if (type !== 'application/json') return { status: 400, error: 'expected application/json' };
+  return null;
+}

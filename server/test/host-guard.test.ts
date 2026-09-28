@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isTrustedHost, isTrustedOrigin } from '../src/host-guard.js';
+import { isTrustedHost, isTrustedOrigin, pairRefusal } from '../src/host-guard.js';
 
 test('IP literals, localhost and .local names are trusted, with or without a port', () => {
   for (const h of ['192.168.1.20:8787', '100.101.102.103', 'localhost:8787', '127.0.0.1', '[::1]:8787',
@@ -56,4 +56,35 @@ test('a real web origin is still checked against the host allow-list', () => {
   assert.equal(isTrustedOrigin('http://evil.example'), false);
   assert.equal(isTrustedOrigin('http://192.168.1.35:8787'), true);
   assert.equal(isTrustedOrigin('not a url'), false);
+});
+
+const ALLOWED = ['http://localhost:8081', 'http://127.0.0.1:8081'];
+
+test('/pair from the real clients is allowed through', () => {
+  // The iOS app: no Origin, JSON body.
+  assert.equal(pairRefusal({ 'content-type': 'application/json' }, ALLOWED), null);
+  // The Electron desktop client: opaque origin from file://, JSON body.
+  assert.equal(pairRefusal({ origin: 'file://', 'content-type': 'application/json' }, ALLOWED), null);
+  assert.equal(pairRefusal({ origin: 'null', 'content-type': 'application/json; charset=utf-8' }, ALLOWED), null);
+  // The local web build, which is on the CORS list.
+  assert.equal(pairRefusal({ origin: 'http://localhost:8081', 'content-type': 'application/json' }, ALLOWED), null);
+});
+
+test('/pair from any other web origin is refused with 403 before it can count as a failure', () => {
+  assert.deepEqual(
+    pairRefusal({ origin: 'https://evil.example', 'content-type': 'application/json' }, ALLOWED),
+    { status: 403, error: 'origin not allowed' },
+  );
+  // An IP-literal origin passes the Host check but is still not the web build.
+  assert.equal(pairRefusal({ origin: 'http://192.168.0.35:8787', 'content-type': 'application/json' }, ALLOWED)?.status, 403);
+});
+
+test('/pair with a non-JSON body is refused with 400', () => {
+  // The cross-site text/plain POST that needs no CORS preflight.
+  assert.deepEqual(
+    pairRefusal({ origin: 'https://evil.example', 'content-type': 'text/plain' }, ALLOWED)?.status, 403,
+  );
+  assert.equal(pairRefusal({ 'content-type': 'text/plain' }, ALLOWED)?.status, 400);
+  assert.equal(pairRefusal({ 'content-type': 'application/x-www-form-urlencoded' }, ALLOWED)?.status, 400);
+  assert.equal(pairRefusal({}, ALLOWED)?.status, 400);
 });

@@ -25,7 +25,7 @@ import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
 import { BwpSession, bwpAvailable } from './bwp-stream.js';
 import { createTicketStore } from './tickets.js';
-import { isTrustedHost, isTrustedOrigin } from './host-guard.js';
+import { isTrustedHost, isTrustedOrigin, pairRefusal } from './host-guard.js';
 import { messageOf } from './errors.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
 import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-params.js';
@@ -287,6 +287,11 @@ function cleanDeviceName(raw: unknown): string {
 
 app.post('/pair', async (req, res) => {
   const clientId = req.ip ?? 'unknown';
+
+  // Before anything is counted: a web page must not be able to spend this
+  // client's attempt budget or burn the code on screen. See pairRefusal.
+  const refusal = pairRefusal(req.headers, allowedOrigins());
+  if (refusal) { res.status(refusal.status).json({ error: refusal.error }); return; }
 
   const decision = pairGuard.check(clientId);
   if (!decision.allowed) {
