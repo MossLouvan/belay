@@ -4,7 +4,8 @@
 
 import qrcode from 'qrcode-terminal';
 
-import { localAddresses, isTailscaleAddress, isCgnatAddress } from './addresses.js';
+import { localAddresses, isTailscaleAddress, isCgnatAddress, schemeFor } from './addresses.js';
+import { displayFingerprint } from './tls-cert.js';
 import { emitPairingCode, PairingHostInfo } from './pairing-display.js';
 
 export interface BannerInfo {
@@ -17,6 +18,8 @@ export interface BannerInfo {
   readonly hostId: string;
   readonly label: string;
   readonly platform: string;
+  /** Certificate fingerprint (tls-cert.ts): printed so a typed pairing can be checked by eye. */
+  readonly fingerprint?: string;
 }
 
 // The concrete terminal sinks: a real QR renderer and console.log. `small:
@@ -77,7 +80,8 @@ const MACOS_PERMISSION_LINES: readonly string[] = [
 
 export function printBanner(info: BannerInfo): void {
   const found = localAddresses();
-  const ips = found.map((a) => a.address);
+  const urlOf = (a: { address: string; interfaceName: string }) =>
+    `${schemeFor(isTailscaleAddress(a.address, a.interfaceName) ? 'tailscale' : 'lan')}://${a.address}:${info.port}`;
   const lines: string[] = [
     '',
     `  Belay host agent running on your ${hostKindLabel()}`,
@@ -85,9 +89,10 @@ export function printBanner(info: BannerInfo): void {
     `  Host name : ${info.hostName}`,
     `  Port      : ${info.port}`,
     `  Native    : ${info.nativeReady ? 'ready (screen + input)' : `NOT BUILT — ${buildNativeHint()}`}`,
+    ...(info.fingerprint ? [`  Cert      : ${displayFingerprint(info.fingerprint)}`] : []),
     '',
     '  Reachable at:',
-    ...ips.map((ip) => `    http://${ip}:${info.port}`),
+    ...found.map((a) => `    ${urlOf(a)}`),
   ];
 
   const onTailscale = found.some((a) => isTailscaleAddress(a.address, a.interfaceName));

@@ -7,7 +7,12 @@
 //
 // Format:
 //
-//   belay://pair?v=1&id=<uuid>&n=<label>&p=<platform>&c=<code>&a=<url>&a=<url>
+//   belay://pair?v=1&id=<uuid>&n=<label>&p=<platform>&c=<code>&f=<sha256>&a=<url>&a=<url>
+//
+// `f` is the SHA-256 fingerprint of the host's TLS certificate (tls-cert.ts),
+// lowercase hex. It rides in the QR because the QR is the one channel that is
+// read off the host's own screen: a phone that learns the fingerprint here
+// can refuse every other certificate before it has said a word to anyone.
 //
 // Every address the host knows is included as a repeated `a` parameter, so the
 // phone can save all of them and race them later — the same reason /health
@@ -32,6 +37,8 @@ export interface PairLinkInput {
   readonly platform: string;
   readonly code: string;
   readonly addresses: readonly HostAddress[];
+  /** Certificate fingerprint, lowercase hex. Omitted only by tests of older shapes. */
+  readonly fingerprint?: string;
 }
 
 /**
@@ -50,6 +57,7 @@ export function buildPairLink(input: PairLinkInput): string {
   params.set('n', input.label);
   params.set('p', input.platform);
   params.set('c', input.code);
+  if (input.fingerprint) params.set('f', input.fingerprint);
   // URLSearchParams.append keeps repeats, which is how several addresses ride
   // along without inventing a separator that could appear inside a URL.
   for (const address of input.addresses) params.append('a', address.url);
@@ -62,6 +70,8 @@ export interface ParsedPairLink {
   readonly platform: string;
   readonly code: string;
   readonly addresses: readonly string[];
+  /** Absent from links printed by a host older than TLS. */
+  readonly fingerprint?: string;
 }
 
 /**
@@ -97,13 +107,21 @@ export function parsePairLink(raw: string): ParsedPairLink | null {
   // A link without an id, a code, or somewhere to send them is not usable.
   if (!hostId || !isSixDigitCode(code) || addresses.length === 0) return null;
 
+  const fingerprint = normalizeFingerprint(params.get('f'));
   return {
     hostId,
     label: params.get('n') || 'My computer',
     platform: params.get('p') || 'other',
     code,
     addresses,
+    ...(fingerprint ? { fingerprint } : {}),
   };
+}
+
+/** A SHA-256 fingerprint in any spelling (colons, spaces, case) → 64 lowercase hex, or null. */
+export function normalizeFingerprint(value: string | null | undefined): string | null {
+  const hex = String(value ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+  return hex.length === 64 ? hex : null;
 }
 
 function isSixDigitCode(value: string): boolean {

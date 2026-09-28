@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildPairLink, parsePairLink, PAIR_LINK_VERSION } from '../src/pair-link.js';
+import { buildPairLink, parsePairLink, normalizeFingerprint, PAIR_LINK_VERSION } from '../src/pair-link.js';
 import { HostAddress } from '../src/addresses.js';
 
 const addresses: HostAddress[] = [
@@ -130,4 +130,27 @@ test('surrounding whitespace from a scan is tolerated', () => {
 test('a host with no addresses produces a link that will not parse', () => {
   // Better to refuse than to hand the phone a code it has nowhere to send.
   assert.equal(parsePairLink(buildPairLink({ ...input, addresses: [] })), null);
+});
+
+const FINGERPRINT = '0123456789abcdef'.repeat(4);
+
+test('the certificate fingerprint rides in the link and comes back normalised', () => {
+  const link = buildPairLink({ ...input, fingerprint: FINGERPRINT });
+  assert.ok(link.includes(`f=${FINGERPRINT}`));
+  assert.equal(parsePairLink(link)?.fingerprint, FINGERPRINT);
+});
+
+test('a link from a host older than TLS parses with no fingerprint', () => {
+  assert.equal(parsePairLink(buildPairLink(input))?.fingerprint, undefined);
+});
+
+test('a malformed fingerprint is dropped rather than pinned', () => {
+  const link = buildPairLink(input) + '&f=not-a-hash';
+  assert.equal(parsePairLink(link)?.fingerprint, undefined);
+});
+
+test('normalizeFingerprint accepts colons, spaces and case', () => {
+  const spaced = FINGERPRINT.toUpperCase().match(/.{1,2}/g)!.join(':');
+  assert.equal(normalizeFingerprint(spaced), FINGERPRINT);
+  assert.equal(normalizeFingerprint('abc'), null);
 });

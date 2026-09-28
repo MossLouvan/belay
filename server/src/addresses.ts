@@ -120,6 +120,16 @@ export function localAddresses(): readonly LocalAddress[] {
 
 
 /**
+ * LAN is served over TLS with the host's pinned certificate; a tailnet
+ * address stays plain because WireGuard already encrypts it end to end and
+ * phones paired before the certificate existed can only reach the host that
+ * way (see transport.ts).
+ */
+export function schemeFor(kind: AddressKind): 'http' | 'https' {
+  return kind === 'lan' ? 'https' : 'http';
+}
+
+/**
  * Build the advertised address list.
  *
  * `extra` carries addresses this module cannot discover by looking at network
@@ -132,12 +142,10 @@ export function buildAddresses(
   extra: readonly HostAddress[] = [],
   found: readonly LocalAddress[] = localAddresses(),
 ): readonly HostAddress[] {
-  const discovered: HostAddress[] = found.map((entry) => ({
-    kind: isTailscaleAddress(entry.address, entry.interfaceName)
-      ? ('tailscale' as const)
-      : ('lan' as const),
-    url: `http://${entry.address}:${port}`,
-  }));
+  const discovered: HostAddress[] = found.map((entry) => {
+    const kind = isTailscaleAddress(entry.address, entry.interfaceName) ? ('tailscale' as const) : ('lan' as const);
+    return { kind, url: `${schemeFor(kind)}://${entry.address}:${port}` };
+  });
 
   const byUrl = new Map<string, HostAddress>();
   // `extra` is applied last so an explicitly reported address overrides an

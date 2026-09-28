@@ -67,7 +67,7 @@ test('a private address on a tunnel is still not Tailscale', () => {
 
 test('buildAddresses classifies LAN and tailscale IPs', () => {
   const addresses = buildAddresses(8787, [], [on('192.168.1.5', 'en0'), on('100.101.102.103', 'utun3')]);
-  const lan = addresses.find((a) => a.url === 'http://192.168.1.5:8787');
+  const lan = addresses.find((a) => a.url === 'https://192.168.1.5:8787');
   const ts = addresses.find((a) => a.url === 'http://100.101.102.103:8787');
 
   assert.equal(lan?.kind, 'lan');
@@ -76,7 +76,7 @@ test('buildAddresses classifies LAN and tailscale IPs', () => {
 
 test('buildAddresses uses the port it is given', () => {
   const addresses = buildAddresses(9000, [], [on('192.168.1.5', 'en0')]);
-  assert.equal(addresses[0].url, 'http://192.168.1.5:9000');
+  assert.equal(addresses[0].url, 'https://192.168.1.5:9000');
 });
 
 test('buildAddresses merges extra addresses and lets them win on conflict', () => {

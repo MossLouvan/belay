@@ -63,6 +63,14 @@ export interface Device {
   readonly name: string;
   readonly createdAt: number;
   readonly lastSeen: number;
+  /**
+   * Public handle the client names itself by when it asks for a proof of the
+   * host's identity (device-proof.ts), and the HMAC key for that proof. Both
+   * are minted at pairing; a device paired before they existed has neither
+   * and can only be reached over links that are private anyway (transport.ts).
+   */
+  readonly id?: string;
+  readonly secret?: string;
 }
 
 /** A freshly paired device, carrying the raw token — the only time it exists. */
@@ -133,7 +141,9 @@ function isValidDevice(value: unknown): value is Device | (Omit<Device, 'tokenHa
   return credential
     && typeof d.name === 'string'
     && typeof d.createdAt === 'number' && Number.isFinite(d.createdAt)
-    && typeof d.lastSeen === 'number' && Number.isFinite(d.lastSeen);
+    && typeof d.lastSeen === 'number' && Number.isFinite(d.lastSeen)
+    && (d.id === undefined || typeof d.id === 'string')
+    && (d.secret === undefined || typeof d.secret === 'string');
 }
 
 /**
@@ -294,6 +304,8 @@ export function addDevice(name: string): PairedDevice {
     name: name || 'iPhone',
     createdAt: now,
     lastSeen: now,
+    id: randomBytes(8).toString('hex'),
+    secret: newToken(),
   };
   state = { ...state, devices: [...state.devices, device] };
   save();
@@ -313,6 +325,12 @@ export function findDevice(token: string): Device | undefined {
     }
   }
   return undefined;
+}
+
+/** The device that named itself `id` in a proof request; never by token. */
+export function findDeviceById(id: string): Device | undefined {
+  if (!id) return undefined;
+  return state.devices.find((d) => d.id === id);
 }
 
 /**

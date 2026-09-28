@@ -8,15 +8,22 @@ import { createGamepadHub } from './gamepad-channel.js';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { createServer } from 'node:http';
+import type { IncomingMessage } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import type { Duplex } from 'node:stream';
 import { createReadStream } from 'node:fs';
+import { dirname } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { hostname } from 'node:os';
 import { URL } from 'node:url';
 
 import {
-  loadState, addDevice, findDevice, touchDevice, setHostName, getHostName, listDevices,
+  loadState, addDevice, findDevice, findDeviceById, touchDevice, setHostName, getHostName, listDevices,
   revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, stateFilePath, Device,
 } from './state.js';
+import { ensureTlsIdentity } from './tls-cert.js';
+import { createPolyglotServer, transportAllowed, PLAINTEXT_REFUSED, PLAINTEXT_REFUSED_STATUS } from './transport.js';
+import { isValidNonce, proveDevice } from './device-proof.js';
 import { wantsPairingReset } from './reset-pairing.js';
 import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
@@ -196,8 +203,16 @@ if (nativeBuilt) {
   console.warn(`[native] helper not built — screen/input disabled. To fix, ${buildNativeHint()}`);
 }
 
+// The certificate every LAN client pins (tls-cert.ts). Minted beside the
+// state file on first run; its fingerprint rides in the pairing QR and /pair.
+const tls = ensureTlsIdentity(dirname(stateFilePath()));
+
 const app = express();
 app.use((req, res, next) => {
+  // Cleartext is only for links that are private anyway (transport.ts). A
+  // plain request from the LAN is answered, not ignored: the app reads `code`
+  // and tells the user to update and pair again rather than showing "offline".
+  if (!transportAllowed(req.socket)) { res.status(PLAINTEXT_REFUSED_STATUS).json(PLAINTEXT_REFUSED); return; }
   if (!isTrustedHost(req.headers.host)) { res.status(421).json({ error: 'unrecognized host' }); return; }
   next();
 });
@@ -248,6 +263,19 @@ function identity() {
     addresses,
     /** False when only LAN addresses exist, i.e. unreachable once you leave. */
     reachableFromAnywhere: hasStableAddress(addresses),
+    /** SHA-256 of the host certificate. Public; clients pin what pairing gave them, not this. */
+    fingerprint: tls.fingerprint,
+  };
+}
+
+/** What /pair hands a new device: its token, plus what it needs to verify this host later. */
+function pairReply(device: Device) {
+  return {
+    token: device.token,
+    name: getHostName(),
+    deviceId: device.id,
+    secret: device.secret,
+    fingerprint: tls.fingerprint,
   };
 }
 
@@ -329,7 +357,7 @@ app.post('/pair', async (req, res) => {
       pairGuard.recordSuccess(clientId);
       const device = addDevice(cleanDeviceName(deviceName));
       console.log(`[pairing] paired ${device.name} via tailnet identity (${tailnet.peer?.node || clientId})`);
-      res.json({ token: device.token, name: getHostName(), via: 'tailnet' });
+      res.json({ ...pairReply(device), via: 'tailnet' });
       return;
     }
     if (couldBeTailnet(req.socket.remoteAddress) && tailnetPairingEnabled()) {
@@ -366,9 +394,24 @@ app.post('/pair', async (req, res) => {
   pairGuard.recordSuccess(clientId);
   pairGuard.resetCodeBudget();
   const device = addDevice(cleanDeviceName(deviceName));
-  const body = { token: device.token, name: getHostName() };
+  const body = pairReply(device);
   pairReplay.remember(codeStr, clientId, body);
   res.json(body);
+});
+
+// Prove this host is the one `deviceId` paired with, before the client sends
+// its token (device-proof.ts). Unauthenticated by design — the answer IS the
+// authentication, in the other direction. A device from before secrets were
+// issued gets 404 and the client decides what that means for the link it is on.
+app.post('/challenge', (req, res) => {
+  const { deviceId, nonce } = req.body || {};
+  if (typeof deviceId !== 'string' || !isValidNonce(nonce)) {
+    res.status(400).json({ error: 'deviceId and a hex nonce of 16–32 bytes are required' });
+    return;
+  }
+  const device = findDeviceById(deviceId);
+  if (!device?.secret) { res.status(404).json({ error: 'unknown device' }); return; }
+  res.json({ proof: proveDevice(device.secret, nonce), id: getHostId() });
 });
 
 // ---- authed routes -------------------------------------------------------
@@ -1057,7 +1100,12 @@ registerAutostartRoutes(app, auth);
 
 // ---- server + websockets -------------------------------------------------
 
-const server = createServer(app);
+// One port, two protocols (transport.ts): TLS for the LAN, plain for loopback
+// and tailnet peers. `server` is the sniffing listener; the two HTTP servers
+// behind it never listen themselves but do get every upgrade.
+const plainServer = createServer(app);
+const secureServer = createHttpsServer({ key: tls.key, cert: tls.cert }, app);
+const server = createPolyglotServer(plainServer, secureServer);
 /**
  * A ceiling on any single frame a client can send.
  *
@@ -1111,7 +1159,12 @@ heartbeat.unref?.();
 const WS_ROUTES = new Set(['/ws/screen', '/ws/window', '/ws/terminal', '/ws/agent', '/ws/agent-attach', '/ws/attention', '/ws/transcript', '/ws/cursors', '/ws/audio', '/ws/gamepad']);
 if (webrtcEnabled()) { WS_ROUTES.add('/ws/webrtc'); }
 
-server.on('upgrade', (req, socket, head) => {
+const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+  // Same transport rule as every HTTP route: no cleartext on the LAN.
+  if (!transportAllowed(req.socket)) {
+    socket.write(`HTTP/1.1 ${PLAINTEXT_REFUSED_STATUS} Upgrade Required\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(PLAINTEXT_REFUSED)}`);
+    socket.destroy(); return;
+  }
   // Parse first, guarded: a malformed request target (e.g. "///") makes
   // `new URL` throw ERR_INVALID_URL. Before this guard the throw escaped the
   // handler and the socket was never destroyed — an unauthenticated file-
@@ -1240,7 +1293,9 @@ server.on('upgrade', (req, socket, head) => {
     console.error('[upgrade] failed:', messageOf(e));
     try { socket.destroy(); } catch { /* already gone */ }
   }
-});
+};
+plainServer.on('upgrade', onUpgrade);
+secureServer.on('upgrade', onUpgrade);
 
 /**
  * WebRTC signaling relay (opt-in, BELAY_WEBRTC). Bridges this authenticated
@@ -1873,6 +1928,7 @@ server.listen(PORT, bind.hosts[0], () => {
     hostId: getHostId(),
     label: getLabel(),
     platform: getPlatform(),
+    fingerprint: tls.fingerprint,
   });
   console.log(`  Agent     : ${agentBannerLine()}`);
   console.log(`  Attach    : ${attachBannerLine()}`);
@@ -1909,7 +1965,7 @@ setInterval(() => {
     // Reprint the QR *and* the code together. Printing only a text line would
     // leave the boot QR above still encoding the dead code — the stale-QR bug.
     reprintPairingCode(
-      { hostId: getHostId(), label: getLabel(), platform: getPlatform(), port: PORT },
+      { hostId: getHostId(), label: getLabel(), platform: getPlatform(), port: PORT, fingerprint: tls.fingerprint },
       c.code,
       c.expiresInSec,
     );

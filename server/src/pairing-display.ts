@@ -24,6 +24,8 @@ export interface PairingHostInfo {
   readonly label: string;
   readonly platform: string;
   readonly port: number;
+  /** The host certificate's SHA-256, so a scan pins it (pair-link.ts). */
+  readonly fingerprint?: string;
 }
 
 /** Output sinks, injected so tests can capture what would reach the terminal. */
@@ -53,6 +55,7 @@ export function pairingQrLink(
     platform: info.platform,
     code,
     addresses,
+    fingerprint: info.fingerprint,
   });
 }
 
