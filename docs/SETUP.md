@@ -46,8 +46,10 @@ works on macOS and Windows. If you prefer to be explicit there is also
   Port      : 8787
   Native    : ready (screen + input)
 
+  Cert      : 773D0AD8 AA87241A 264CD024 C2A779E1 07DB2697 C4C3C6DC 3E22FE34 B9333AE7
+
   Reachable at:
-    http://192.168.1.20:8787
+    https://192.168.1.20:8787
     http://100.101.102.103:8787   (Tailscale)
 
   macOS permissions (required for the Screen tab):
@@ -149,8 +151,10 @@ npm start
   Port      : 8787
   Native    : ready (screen + input)
 
+  Cert      : 773D0AD8 AA87241A 264CD024 C2A779E1 07DB2697 C4C3C6DC 3E22FE34 B9333AE7
+
   Reachable at:
-    http://192.168.1.20:8787
+    https://192.168.1.20:8787
     http://100.101.102.103:8787   (Tailscale)
 
   Pairing code: 481920   (expires in 300s)
@@ -180,9 +184,36 @@ npm install
 npx expo start
 ```
 
-Scan the QR code with the iPhone Camera app. The app opens in Expo Go. Enter the
-host address and the pairing code. Done — the token is saved, you won't pair
-again.
+Scan the QR code with the iPhone Camera app. The app opens in Expo Go. Then
+scan the pairing QR the host printed (or type its address and the code). Done —
+the token is saved, you won't pair again.
+
+### How the connection is secured
+
+On your home network the host speaks **HTTPS** with a certificate it minted on
+first run (`belay-tls-cert.pem` / `belay-tls-key.pem`, next to
+`belay-state.json`, owner-only). The certificate's SHA-256 fingerprint is the
+`Cert` line in the banner and is embedded in the pairing QR, so a phone or
+desktop client that scanned it will only ever talk to that exact certificate.
+Plain `http://` is accepted only from the host itself and from Tailscale
+addresses (100.64.0.0/10), where WireGuard already encrypts everything; a
+plain request from anywhere else is answered with `426` and a message saying
+to pair again.
+
+If you **type** the address instead of scanning, the app reads the certificate
+the host presents and shows its fingerprint above the code field — compare it
+with the `Cert` line on the host before entering the code. A different
+fingerprint means something else is answering at that address.
+
+Every pairing also issues the client a secret. Before the app sends its token
+to any address, it challenges the host with a random nonce and checks the
+HMAC-SHA256 answer, so a stranger on another network holding the same
+`192.168.x` address cannot collect the token by echoing `/health`.
+
+**Already paired before this change?** Phones and desktops paired earlier have
+no fingerprint and no secret. They keep working over Tailscale, and on the
+LAN the app shows *"Pair again to secure this connection"* with a button to
+scan the QR. Re-pairing takes ten seconds and replaces the old entry.
 
 ## 4. Reaching your host from anywhere
 

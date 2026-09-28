@@ -1,9 +1,54 @@
-# Transport security and why the app allows cleartext
+# Transport security
 
-Short version: Belay talks plain HTTP to a host you own, over a network you
-control. The iOS and Android defaults assume you are calling a public web API,
-and would silently block that. This document records the exception, why it is
-there, and what would let us remove it.
+Short version: on the LAN the host speaks HTTPS with a self-signed certificate
+whose fingerprint the clients pin at pairing; plain HTTP survives only for
+loopback and Tailscale, which are private already. The app still carries the
+ATS exception described below because of that plain-HTTP-over-Tailscale path.
+
+## What ships now
+
+- **Host certificate.** `server/src/tls-cert.ts` mints an EC P-256 key and a
+  ten-year self-signed certificate on first run, beside the state file, both
+  0600. One port serves TLS and plain HTTP (`server/src/transport.ts` sniffs
+  the first byte), so nothing about ports or pair links changed.
+- **Plaintext policy.** A plain request is accepted only from loopback or a
+  100.64.0.0/10 address. Anything else gets `426 {"code":"plaintext-refused"}`
+  with a message that says to update the app and pair again. The same rule
+  covers WebSocket upgrades.
+- **Pinning.** The certificate's SHA-256 rides in the pairing QR (`f=`), in
+  the `/pair` reply and in `/health`, and is printed as the `Cert` banner line.
+  The phone pins it natively (`app/modules/belay-stream/ios/BelayPinModule.swift`:
+  a server-trust challenge handler added to React's `RCTHTTPRequestHandler`
+  for fetch/Image/XHR, SocketRocket's `SR_SSLPinnedCertificates` for
+  WebSocket, and react-native-webview's `customCertificatesForHost` for the
+  PDF viewer). The desktop pins through Electron's
+  `session.setCertificateVerifyProc` (`desktop/src/pins.js`). A pinned host
+  presenting any other certificate is refused; unpinned hosts get the
+  system's normal verdict.
+- **Typed addresses.** A scanned QR carries the fingerprint. A typed https
+  address does not, so both clients read the certificate the host presents,
+  pin it, and show the fingerprint for the user to compare with the banner —
+  trust on first use, verified by eye, then pinned for good.
+- **Host identity proof.** The host id in `/health` is public, so matching it
+  proves nothing. Pairing also issues a per-device secret
+  (`server/src/device-proof.ts`); before the token is sent to any address the
+  client POSTs a random nonce to `/challenge` and verifies
+  `HMAC-SHA256(secret, "belay-host-proof:v1:" + nonce)`. A host that reports
+  no id, a different id, or the wrong proof is refused. This is what makes
+  plain-HTTP-over-Tailscale safe against an address that has been reused.
+- **BWP media (H.264 over UDP).** Already ChaCha20-Poly1305 per packet, keyed
+  from a per-session key that travels only over the (now encrypted) screen
+  WebSocket. Nothing changed there.
+
+## Migration
+
+Devices paired before this shipped have no fingerprint and no secret. Over
+Tailscale they keep working; on the LAN the host refuses their plaintext and
+the app shows "Pair again to secure this connection" with a scan button.
+The certificate is persistent, so re-pairing is a one-time step per device;
+deleting `belay-tls-*.pem` mints a new certificate and un-pins every device.
+
+## Why the ATS exception is still there
 
 ## The problem
 
@@ -74,31 +119,21 @@ apps that connect to user-specified hosts; if this ever goes to the App Store,
 that is the justification to give at review. It stands alone precisely because
 adding the narrower key would switch it off.
 
-## Is cleartext actually acceptable here?
+## Is cleartext acceptable over Tailscale?
 
-Over **Tailscale, yes.** WireGuard already provides encryption and mutual
-authentication end to end. HTTPS inside that tunnel would be encrypting an
-encrypted channel.
+Yes. WireGuard already provides encryption and mutual authentication end to
+end, and the host-identity proof above closes the one gap a reused address
+could open. HTTPS inside that tunnel would be encrypting an encrypted channel,
+and requiring it would break every phone paired before the certificate
+existed. That is the whole reason `NSAllowsArbitraryLoads` stays: ATS has no
+way to say "cleartext only to 100.64.0.0/10", and `NSExceptionDomains` keys
+on names, not address ranges.
 
-Over **plain LAN, it is a real weakness** and is documented as such: anyone
-passively on the same Wi-Fi can capture the bearer token and gain complete
-control of the machine — screen, keystrokes, shell. That is why the README says
-to use Tailscale rather than treating LAN as the destination.
-
-## Why not just add TLS?
-
-Self-signed certificates are the obvious idea and they do not work here:
-
-- React Native's `fetch` cannot pin a self-signed certificate without ejecting
-  from Expo Go, so the app would lose its zero-setup development path.
-- A publicly-trusted certificate needs a domain name and a challenge the host
-  can answer, which a machine on a home LAN behind CGNAT generally cannot.
-
-So the choice is between a VPN that provides transport security (Tailscale) and
-app-layer encryption implemented ourselves. The architecture review picked the
-first, which is also why cleartext-over-tailnet is a deliberate position and not
-an oversight.
+The self-signed certificate is pinned natively rather than through `fetch`,
+which is why it works in a standalone build but **not in Expo Go**: Expo Go
+does not contain the module, so there the app keeps every pin in JS, cannot
+enforce it, and the system refuses the self-signed certificate. Use a dev
+client or TestFlight build to test the LAN path; Tailscale works in Expo Go.
 
 If Belay ever moves to a relay-based transport where the network is untrusted,
-this becomes app-layer end-to-end encryption instead, and this exception should
-be revisited at that point.
+this becomes app-layer end-to-end encryption instead.

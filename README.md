@@ -152,8 +152,14 @@ token like a password to the machine.
   symlinks before checking, and additionally refuses the Belay install
   directory (whose state file holds the device tokens) and credential folders
   such as `~/.ssh`, `~/.aws` and `~/.claude`.
-- Transport is plain HTTP: use it over Tailscale or a network you trust. On an
-  open network anyone on the segment could read the token off the wire.
+- On the LAN the host serves HTTPS with a self-signed certificate it mints on
+  first run; the phone and desktop pin its SHA-256 fingerprint (delivered in
+  the pairing QR and shown in the banner) and refuse any other certificate.
+  Plain HTTP is accepted only from loopback and Tailscale peers, which are
+  already encrypted, and refused with a clear error elsewhere. Before a client
+  sends its token it also challenges the host to prove a per-device secret
+  issued at pairing (HMAC-SHA256), so an impostor at a reused address gets
+  nothing. See docs/TRANSPORT-SECURITY.md.
 - `belay-state.json` (device tokens) is written owner-only and gitignored.
   A host that paired back when the product was called Tether keeps its
   pairings: the old `tether-state.json` is read once, carried forward on the
