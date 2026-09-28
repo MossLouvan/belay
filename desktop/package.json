@@ -12,6 +12,6 @@
     "sync-tokens": "node scripts/sync-tokens.mjs"
   },
   "devDependencies": {
-    "electron": "^33.2.0"
+    "electron": "^44.4.5"
   }
 }
