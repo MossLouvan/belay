@@ -62,6 +62,13 @@ code anyway, set `BELAY_TAILNET_PAIR=0`.
 - **Revoke immediately when a device leaves your hands.** Revoking closes that
   device's live screen and terminal sockets on the spot, not at the next
   reconnect.
+- **Every paired device can revoke every other one, on purpose.** There is no
+  "owner" device: the phone you pair first is often the one you later lose, and
+  an owner rule would lock you out of revoking it from the new phone. So the
+  list is flat, and a device that should not be on it is a device you revoke
+  now (or clear all with `--reset-pairing`), not one you wait on. Tokens are
+  stored only as hashes and never expire on their own; the paired list shows
+  when each device was last seen.
 - If you think a code or token leaked and you are not sure which device is
   which, clear them all: start the host with `--reset-pairing`. That drops
   every paired device but keeps the computer's identity, so your phone just
