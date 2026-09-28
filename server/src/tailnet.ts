@@ -61,19 +61,67 @@ export function couldBeTailnet(ip: string | undefined): boolean {
 export interface Whois {
   readonly login: string;
   readonly node: string;
+  /** Stable Tailscale user id (`UserProfile.ID`), '' when the CLI omits it. */
+  readonly userId: string;
+  /** True for an ACL-tagged node: it belongs to no person at all. */
+  readonly tagged: boolean;
 }
 
 /**
- * Pull login + node name out of `tailscale whois --json` output. Exported for
- * tests; the shape has been stable but every field is treated as optional.
+ * The login Tailscale reports for every ACL-tagged node. It is not a person:
+ * every tagged node on the tailnet shares it, and so does a tagged node shared
+ * in from someone else's tailnet. Never an identity to pair on.
+ */
+const TAGGED_LOGIN = 'tagged-devices';
+
+function idString(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Pull login, user id, node name and tags out of `tailscale whois --json`.
+ * Exported for tests; the shape has been stable but every field is treated as
+ * optional.
  */
 export function parseWhois(json: string): Whois | null {
   try {
-    const j = JSON.parse(json) as { UserProfile?: { LoginName?: unknown }; Node?: { Name?: unknown } };
+    const j = JSON.parse(json) as {
+      UserProfile?: { LoginName?: unknown; ID?: unknown };
+      Node?: { Name?: unknown; Tags?: unknown };
+    };
     const login = j?.UserProfile?.LoginName;
     const node = j?.Node?.Name;
     if (typeof login !== 'string' || !login) return null;
-    return { login, node: typeof node === 'string' ? node : '' };
+    const tags = j?.Node?.Tags;
+    return {
+      login,
+      node: typeof node === 'string' ? node : '',
+      userId: idString(j?.UserProfile?.ID),
+      tagged: login.toLowerCase() === TAGGED_LOGIN || (Array.isArray(tags) && tags.length > 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface SelfIdentity {
+  readonly login: string;
+  readonly userId: string;
+}
+
+/** The account this host is signed in as, from `tailscale status --json`. */
+export function parseSelf(json: string): SelfIdentity | null {
+  try {
+    const j = JSON.parse(json) as {
+      Self?: { UserID?: unknown };
+      User?: Record<string, { LoginName?: unknown }>;
+    };
+    const userId = idString(j?.Self?.UserID);
+    if (!userId) return null;
+    const login = j?.User?.[userId]?.LoginName;
+    if (typeof login !== 'string' || !login) return null;
+    return { login, userId };
   } catch {
     return null;
   }
@@ -81,18 +129,25 @@ export function parseWhois(json: string): Whois | null {
 
 /** The login this host is signed in as, from `tailscale status --json`. */
 export function parseSelfLogin(json: string): string | null {
-  try {
-    const j = JSON.parse(json) as {
-      Self?: { UserID?: unknown };
-      User?: Record<string, { LoginName?: unknown }>;
-    };
-    const id = j?.Self?.UserID;
-    if (id === undefined || id === null) return null;
-    const login = j?.User?.[String(id)]?.LoginName;
-    return typeof login === 'string' && login ? login : null;
-  } catch {
-    return null;
-  }
+  return parseSelf(json)?.login ?? null;
+}
+
+/**
+ * Whether `peer` is one of the owner's own devices — the pure decision behind
+ * tailnetTrusted, exported for tests.
+ *
+ * Tagged nodes are refused outright: their login is the shared placeholder
+ * `tagged-devices`, so comparing logins would let *any* tagged node — in this
+ * tailnet or shared in from another — pair without a code. A host that is
+ * itself tagged reports the same placeholder and is refused the same way.
+ * When both sides report a user id it decides, because an id cannot collide
+ * the way a login string can; the login is the fallback for an older CLI.
+ */
+export function samePerson(self: SelfIdentity, peer: Whois): boolean {
+  if (peer.tagged || !peer.login || !self.login) return false;
+  if (self.login.toLowerCase() === TAGGED_LOGIN) return false;
+  if (self.userId && peer.userId) return self.userId === peer.userId;
+  return peer.login.toLowerCase() === self.login.toLowerCase();
 }
 
 function run(args: string[]): Promise<string> {
@@ -104,15 +159,15 @@ function run(args: string[]): Promise<string> {
   });
 }
 
-let selfCache: { login: string | null; at: number } | null = null;
+let selfCache: { self: SelfIdentity | null; at: number } | null = null;
 
-async function selfLogin(): Promise<string | null> {
+async function selfIdentity(): Promise<SelfIdentity | null> {
   const now = Date.now();
-  if (selfCache && now - selfCache.at < SELF_CACHE_MS) return selfCache.login;
-  let login: string | null = null;
-  try { login = parseSelfLogin(await run(['status', '--json'])); } catch { login = null; }
-  selfCache = { login, at: now };
-  return login;
+  if (selfCache && now - selfCache.at < SELF_CACHE_MS) return selfCache.self;
+  let self: SelfIdentity | null = null;
+  try { self = parseSelf(await run(['status', '--json'])); } catch { self = null; }
+  selfCache = { self, at: now };
+  return self;
 }
 
 export async function whois(ip: string): Promise<Whois | null> {
@@ -143,7 +198,7 @@ export function tailnetPairingEnabled(): boolean {
  */
 export async function tailnetTrusted(ip: string | undefined): Promise<{ trusted: boolean; peer?: Whois }> {
   if (!tailnetPairingEnabled() || !couldBeTailnet(ip)) return { trusted: false };
-  const [self, peer] = await Promise.all([selfLogin(), whois(normalizeIp(ip))]);
+  const [self, peer] = await Promise.all([selfIdentity(), whois(normalizeIp(ip))]);
   if (!self || !peer) return { trusted: false };
-  return { trusted: peer.login.toLowerCase() === self.toLowerCase(), peer };
+  return { trusted: samePerson(self, peer), peer };
 }
