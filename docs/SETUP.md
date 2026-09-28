@@ -321,6 +321,7 @@ regardless.
 | Variable | Default | Purpose |
 |---|---|---|
 | `BELAY_PORT` | `8787` | Port to listen on |
+| `BELAY_BIND` | `all` | Interfaces to listen on. `all` binds every interface (needed for the phone to pair over Wi-Fi). `tailnet` binds only the Tailscale address plus `127.0.0.1`, so nothing on the local network can reach the port (falls back to `127.0.0.1` only, with a warning, when Tailscale is not up). Or a comma-separated list of addresses, e.g. `127.0.0.1,192.168.1.20`. The `Bind :` line in the startup banner shows what took effect |
 | `BELAY_ALLOWED_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Browser origins allowed by CORS (the local web build) |
 | `BELAY_HOSTS` | *(empty)* | Extra hostnames accepted in the `Host` header, comma-separated. IP literals, `localhost` and `*.local` are always accepted; anything else is refused to defeat DNS rebinding. Add your Tailscale MagicDNS name here if you connect by name |
 | `BELAY_LOCAL_PRIORITY` | `0` | `1` freezes remote input for 3 s whenever the host's own mouse or keyboard is used ("someone is using this computer directly"). Off by default so you can sit at the PC and drive it from the phone at the same time |

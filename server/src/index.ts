@@ -26,6 +26,7 @@ import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
 import { BwpSession, bwpAvailable } from './bwp-stream.js';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin, pairRefusal } from './host-guard.js';
+import { configuredBind, bindBannerLine } from './bind.js';
 import { messageOf } from './errors.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
 import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-params.js';
@@ -1849,7 +1850,19 @@ server.on('error', (e: NodeJS.ErrnoException) => {
  */
 let listening = false;
 
-server.listen(PORT, () => {
+// BELAY_BIND. One http.Server can bind one address, so `tailnet` (loopback +
+// the Tailscale address) and an explicit list get one extra server per
+// additional address, each handing its upgrades to the single handler above.
+const bind = configuredBind();
+if (bind.warning) console.warn(`[server] BELAY_BIND=${bind.setting}: ${bind.warning}`);
+for (const host of bind.hosts.slice(1)) {
+  const extra = createServer(app);
+  extra.on('upgrade', (req, socket, head) => server.emit('upgrade', req, socket, head));
+  extra.on('error', (e: NodeJS.ErrnoException) => console.error(`[server] failed to bind ${host}:${PORT}: ${e.message}`));
+  extra.listen(PORT, host);
+}
+
+server.listen(PORT, bind.hosts[0], () => {
   listening = true;
   printBanner({
     hostName: getHostName(),
@@ -1869,6 +1882,7 @@ server.listen(PORT, () => {
   // the file defaults to process.cwd(), so a start from another folder without
   // BELAY_STATE_FILE is a fresh, unpaired host with a new id.
   console.log(`  State     : ${stateFilePath()}`);
+  console.log(`  Bind      : ${bindBannerLine(bind)}`);
   // Async because it asks launchctl / Task Scheduler; printed as soon as it answers.
   void autostartBannerLine().then((line) => { console.log(`  Autostart : ${line}`); console.log(''); });
 
