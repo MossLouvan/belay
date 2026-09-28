@@ -16,7 +16,7 @@
 // WebSocket, which is unprivileged network access and keeps the streaming path
 // out of the main process, where a slow frame would block window management.
 
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -156,9 +156,11 @@ app.whenReady().then(() => {
   const userData = app.getPath('userData');
   // The rename moved the userData directory; pick up the session the
   // pre-rename build saved so pairing survives the update (see session.js).
-  migrateLegacySession(userData, join(app.getPath('appData'), 'tether-desktop'));
+  migrateLegacySession(userData, join(app.getPath('appData'), 'tether-desktop'), safeStorage);
 
-  ipcMain.handle('session:read', () => readSession(userData));
+  // safeStorage is main-process only: the renderer gets the decrypted
+  // session through these same channels and never touches the vault.
+  ipcMain.handle('session:read', () => readSession(userData, safeStorage));
   ipcMain.handle('session:write', (_event, session) => {
     writeSession(userData, {
       host: String(session?.host ?? ''),
@@ -166,7 +168,7 @@ app.whenReady().then(() => {
       label: String(session?.label ?? ''),
       platform: String(session?.platform ?? ''),
       keymap: keymapModeOf(session?.keymap),
-    });
+    }, safeStorage);
     return true;
   });
   ipcMain.handle('session:clear', () => {
