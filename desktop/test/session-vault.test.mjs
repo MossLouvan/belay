@@ -24,7 +24,7 @@ function fakeVault({ available = true, failDecrypt = false } = {}) {
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'belay-vault-'));
 const onDisk = (dir) => JSON.parse(readFileSync(sessionPath(dir), 'utf8'));
-const SESSION = { host: 'http://192.168.1.20:8787', token: 'secret-token', label: 'PC', platform: 'darwin', keymap: 'verbatim' };
+const SESSION = { host: 'http://192.168.1.20:8787', token: 'secret-token', label: 'PC', platform: 'darwin', keymap: 'verbatim', fingerprint: '', deviceId: '', secret: '' };
 
 test('a written token is sealed on disk and reads back in the clear', () => {
   const dir = tmp();
@@ -83,4 +83,15 @@ test('re-saving a sealed session with a new token drops the stale ciphertext', (
   writeSession(dir, { ...SESSION, token: 'other', tokenEnc: 'stale' }, fakeVault({ available: false }));
   assert.equal(onDisk(dir).tokenEnc, undefined);
   assert.equal(readSession(dir).token, 'other');
+});
+
+test('the host-proof secret is sealed like the token and reads back in the clear', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'belay-vault-'));
+  const paired = { ...SESSION, fingerprint: 'ab'.repeat(32), deviceId: 'dev1', secret: 'proof-secret' };
+  writeSession(dir, paired, fakeVault());
+  const onDisk = JSON.parse(readFileSync(sessionPath(dir), 'utf8'));
+  assert.equal(onDisk.secret, '', 'the secret must not sit in plaintext');
+  assert.ok(onDisk.secretEnc, 'sealed under secretEnc');
+  assert.equal(onDisk.fingerprint, 'ab'.repeat(32), 'the fingerprint is public and stays readable');
+  assert.deepEqual(readSession(dir, fakeVault()), paired);
 });

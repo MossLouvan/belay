@@ -24,4 +24,11 @@ contextBridge.exposeInMainWorld('belay', {
   setTitle: (title) => ipcRenderer.invoke('window:title', title),
   /** The remote window is gone; close this one. */
   closeSelf: () => ipcRenderer.invoke('window:close'),
+  /**
+   * The SHA-256 of the certificate an https origin presents, read without
+   * trusting it — for a typed pairing, where no QR carried the fingerprint.
+   */
+  probeFingerprint: (origin) => ipcRenderer.invoke('tls:probe', origin),
+  /** Trust exactly this certificate for that origin from now on (src/pins.js). */
+  pinFingerprint: (origin, fingerprint) => ipcRenderer.invoke('tls:pin', { origin, fingerprint }),
 });

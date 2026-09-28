@@ -9,10 +9,11 @@ import { displaysOf, preferredDisplay } from '../src/displays.js';
 import { windowsOf, windowLabel } from '../src/windows.js';
 import { legendText, modifierMap } from '../src/modmap.js';
 import { EXAMPLE_TAILSCALE_ADDRESS, addressFeedback } from '../src/address-feedback.js';
+import { displayFingerprint, freshNonce, normalizeFingerprint, plaintextOk, proofMatches } from '../src/proof.js';
 import { attachBeluga } from './beluga.js';
 
 const $ = (id) => document.getElementById(id);
-const state = { host: '', token: '', label: '', platform: '', keymap: 'remap' };
+const state = { host: '', token: '', label: '', platform: '', keymap: 'remap', fingerprint: '', deviceId: '', secret: '' };
 const clientIsMac = /mac/i.test(navigator.platform || '');
 
 function showError(message) {
@@ -46,16 +47,65 @@ async function call(path, { method = 'GET', body, token } = {}) {
   return payload ?? {};
 }
 
+/**
+ * Before any request carries the token: is this the computer we paired with?
+ *
+ * The host id in /health is public, so a stranger holding the same address
+ * could echo it. A host that issued a secret at pairing must answer a fresh
+ * challenge with the right HMAC (src/proof.js). A pairing from before secrets
+ * existed can only be used where the link is private without TLS — Tailscale
+ * or this machine — and must otherwise be redone.
+ */
+async function verifyHost() {
+  if (state.deviceId && state.secret) {
+    const nonce = freshNonce(crypto);
+    const reply = await call('/challenge', { method: 'POST', body: { deviceId: state.deviceId, nonce } })
+      .catch(() => null);
+    if (!(await proofMatches(state.secret, nonce, reply?.proof, crypto))) {
+      throw new Error('Something answered at that address but could not prove it is the computer this client paired with. Nothing was sent to it.');
+    }
+    return;
+  }
+  if (/^https:/i.test(state.host) || plaintextOk(state.host)) return;
+  throw new Error('That computer now encrypts connections on this network, and this pairing is from before it did. Pair again with a fresh code.');
+}
+
+/**
+ * Trust on first use for a typed https address: read the certificate the
+ * host presents, pin it, and show its fingerprint so the user can compare it
+ * with the Cert line in the host's window. A pasted pairing link carries the
+ * fingerprint itself and needs no comparing.
+ */
+async function pinTypedOrigin(origin, fromLink) {
+  if (!/^https:/i.test(origin)) return '';
+  const fingerprint = fromLink || await window.belay.probeFingerprint(origin);
+  await window.belay.pinFingerprint(origin, fingerprint);
+  $('cert').hidden = false;
+  $('cert-value').textContent = displayFingerprint(fingerprint);
+  $('cert-hint').textContent = fromLink
+    ? 'From the pairing link — this is the certificate the host printed.'
+    : 'Check this matches the Cert line in the Belay window on that computer. If it differs, something else is answering at this address.';
+  return fingerprint;
+}
+
 async function pair() {
   showError('');
-  const origin = hostOrigin($('host').value);
-  if (!origin) return showError('That does not look like an address. Try 192.168.1.20:8787');
+  const link = parsePairLink($('host').value);
+  if (link?.fingerprint) state.fingerprint = link.fingerprint;
+  const origin = link ? await firstReachable(link.addresses) : hostOrigin($('host').value);
+  if (!origin) return showError(link ? 'None of that computer\'s addresses answered from here.' : 'That does not look like an address. Try 192.168.1.20:8787');
 
   state.host = origin;
+  let fingerprint = '';
+  try {
+    fingerprint = await pinTypedOrigin(origin, link?.fingerprint ?? '');
+  } catch (e) {
+    return showError(`Could not read that computer's certificate (${e.message}). Check it is running the Belay host on this network.`);
+  }
   // Over Tailscale the host pairs on the peer's identity; a code is neither
   // needed nor checked, so an empty one is the normal case, not an error.
   const tailnet = isTailscaleOrigin(origin);
-  const code = tailnet ? '' : $('code').value.trim();
+  const code = link ? link.code : (tailnet ? '' : $('code').value.trim());
   if (!tailnet && !code) return showError('Type the pairing code shown on that computer, or use its Tailscale address to skip it.');
   setBusy(true, tailnet ? 'pairing over Tailscale…' : 'pairing…');
   try {
@@ -68,6 +118,15 @@ async function pair() {
     state.token = String(result.token || '');
     state.label = String(result.name || origin);
     if (!state.token) throw new Error('the host did not return a token');
+    // The host names its certificate in the reply; it must be the one that
+    // was pinned for this pairing, or the pairing went somewhere else.
+    const reported = normalizeFingerprint(result.fingerprint) || '';
+    if (fingerprint && reported && reported !== fingerprint) {
+      throw new Error('the computer\'s certificate does not match the one shown here');
+    }
+    state.fingerprint = fingerprint || reported;
+    state.deviceId = String(result.deviceId || '');
+    state.secret = String(result.secret || '');
     await refreshPlatform();
     await window.belay.saveSession(state);
     await showPaired();
@@ -299,6 +358,13 @@ window.belay.readSession().then(async (saved) => {
   if (!saved?.host || !saved?.token) return;
   Object.assign(state, saved);
   try {
+    await verifyHost();
+  } catch (e) {
+    $('host').value = saved.host;
+    showError(e.message);
+    return;
+  }
+  try {
     await call('/me', { token: state.token });
     await showPaired();
   } catch {
@@ -306,3 +372,40 @@ window.belay.readSession().then(async (saved) => {
     showError('That pairing is no longer valid on the host. Pair again with a fresh code.');
   }
 });
+
+/**
+ * A pasted `belay://pair?…` link (the QR's contents), or null. Mirrors
+ * server/src/pair-link.ts: id, code and at least one http(s) address are
+ * required; the certificate fingerprint rides in `f`.
+ */
+function parsePairLink(text) {
+  let url;
+  try { url = new URL(String(text ?? '').trim()); } catch { return null; }
+  if (url.protocol !== 'belay:' && url.protocol !== 'tether:') return null;
+  if (url.hostname !== 'pair' && url.pathname.replace(/\//g, '') !== 'pair') return null;
+  const p = url.searchParams;
+  const addresses = p.getAll('a').filter((a) => /^https?:\/\//i.test(a));
+  const code = p.get('c') ?? '';
+  if (p.get('v') !== '1' || !p.get('id') || !/^\d{6}$/.test(code) || addresses.length === 0) return null;
+  return { code, addresses, fingerprint: normalizeFingerprint(p.get('f')) ?? '' };
+}
+
+/** The first of a link's addresses whose /health answers from here, or null. */
+async function firstReachable(addresses) {
+  const probes = addresses.map(async (origin) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+      // /health over https needs the pin in place before the probe.
+      if (/^https:/i.test(origin) && state.fingerprint) await window.belay.pinFingerprint(origin, state.fingerprint);
+      const res = await fetch(`${origin}/health`, { signal: controller.signal });
+      return res.ok ? origin : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+  const results = await Promise.all(probes);
+  return results.find(Boolean) ?? null;
+}

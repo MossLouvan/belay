@@ -29,7 +29,7 @@
 
     <section id="pair" class="stack">
       <p class="subheading">Type the address from your Tailscale app</p>
-      <p class="caption">The 100.x number Tailscale shows next to that computer.</p>
+      <p class="caption">The 100.x number Tailscale shows next to that computer, its address on this network, or the pairing link from its QR code.</p>
 
       <div class="field">
         <label class="label" for="host">Computer address</label>
@@ -41,6 +41,12 @@
         <label class="label" for="code">Pairing code shown on that computer</label>
         <input id="code" class="input mono" placeholder="123456" inputmode="numeric" autocomplete="off" maxlength="8" />
         <div class="caption" id="code-hint">Leave blank when connecting over Tailscale.</div>
+      </div>
+
+      <div class="field" id="cert" hidden>
+        <span class="label">Certificate</span>
+        <div class="mono" id="cert-value"></div>
+        <div class="caption" id="cert-hint"></div>
       </div>
 
       <button class="button primary lg full" id="connect" type="button">Connect</button>

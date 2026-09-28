@@ -9,15 +9,19 @@ import { join } from 'node:path';
 import { hostOrigin, socketOrigin, DEFAULT_PORT } from '../src/url.js';
 import { readSession, writeSession, clearSession, keymapModeOf, migrateLegacySession, sessionPath } from '../src/session.js';
 
-const EMPTY = { host: '', token: '', label: '', platform: '', keymap: 'remap' };
+const EMPTY = { host: '', token: '', label: '', platform: '', keymap: 'remap', fingerprint: '', deviceId: '', secret: '' };
 
 test('a bare address gets a scheme and the host default port', () => {
-  assert.equal(hostOrigin('192.168.1.20'), `http://192.168.1.20:${DEFAULT_PORT}`);
-  assert.equal(hostOrigin('  mac.local  '), `http://mac.local:${DEFAULT_PORT}`);
+  // The host serves the LAN over TLS; plain HTTP only where the link is private.
+  assert.equal(hostOrigin('192.168.1.20'), `https://192.168.1.20:${DEFAULT_PORT}`);
+  assert.equal(hostOrigin('  mac.local  '), `https://mac.local:${DEFAULT_PORT}`);
+  assert.equal(hostOrigin('100.101.2.3'), `http://100.101.2.3:${DEFAULT_PORT}`);
+  assert.equal(hostOrigin('localhost'), `http://localhost:${DEFAULT_PORT}`);
 });
 
 test('an explicit port or scheme is kept', () => {
-  assert.equal(hostOrigin('192.168.1.20:9000'), 'http://192.168.1.20:9000');
+  assert.equal(hostOrigin('192.168.1.20:9000'), 'https://192.168.1.20:9000');
+  assert.equal(hostOrigin('http://192.168.1.20:9000'), 'http://192.168.1.20:9000');
   assert.equal(hostOrigin('http://100.101.2.3:8787/'), 'http://100.101.2.3:8787');
   // A user who put the agent behind TLS must not be downgraded or re-ported.
   assert.equal(hostOrigin('https://belay.example.com'), 'https://belay.example.com');
@@ -46,6 +50,7 @@ test('a session round-trips and is written owner-only', () => {
     label: 'Moss-PC',
     platform: 'win32',
     keymap: 'verbatim',
+    fingerprint: '', deviceId: '', secret: '',
   });
   // Advisory on Windows, enforced on POSIX — asserted only where it means
   // something, so the suite does not fail for a platform difference.
@@ -80,10 +85,10 @@ test('keymapModeOf resolves junk to the default, never passes it through', () =>
 
 test('clearing a session leaves nothing usable behind', () => {
   const dir = mkdtempSync(join(tmpdir(), 'belay-desktop-'));
-  writeSession(dir, { host: 'http://h:8787', token: 'secret', label: 'x' });
+  writeSession(dir, { host: 'http://h:8787', token: 'tok-value', label: 'x' });
   clearSession(dir);
   assert.deepEqual(readSession(dir), EMPTY);
-  assert.ok(!readFileSync(sessionPath(dir), 'utf8').includes('secret'));
+  assert.ok(!readFileSync(sessionPath(dir), 'utf8').includes('tok-value'));
 });
 
 // ---- legacy userData migration (rename Tether → Belay) --------------

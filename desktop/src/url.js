@@ -10,11 +10,12 @@ export const DEFAULT_PORT = 8787;
 /**
  * Normalize a typed address into an origin, or null when it cannot be one.
  *
- * A bare host gets http:// and the default port, because that is what the host
- * agent serves; anything already carrying a scheme keeps it, so a user who put
- * the agent behind https is not overridden. Returns null rather than throwing:
- * the caller's job is to show "that doesn't look like an address", not to
- * handle an exception.
+ * A bare host gets the default port and a scheme chosen by where it is: the
+ * host serves the LAN over TLS and plain HTTP only over Tailscale and
+ * loopback (server/src/transport.ts), so a 100.x address gets http:// and
+ * anything else https://. An address already carrying a scheme keeps it.
+ * Returns null rather than throwing: the caller's job is to show "that
+ * doesn't look like an address", not to handle an exception.
  */
 export function hostOrigin(input) {
   // No trailing-slash trimming: `origin` discards the path anyway, and
@@ -22,16 +23,27 @@ export function hostOrigin(input) {
   // which then parsed as a machine literally named http.
   const raw = String(input ?? '').trim();
   if (!raw) return null;
-  const withScheme = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+  const typedScheme = /^https?:\/\//i.test(raw);
   let url;
   try {
-    url = new URL(withScheme);
+    url = new URL(typedScheme ? raw : `http://${raw}`);
   } catch {
     return null;
   }
   if (!url.hostname) return null;
-  if (!url.port && !/^https:/i.test(withScheme)) url.port = String(DEFAULT_PORT);
+  if (!typedScheme) {
+    if (!url.port) url.port = String(DEFAULT_PORT);
+    if (!isTailscaleOrigin(url.origin) && !isLoopbackOrigin(url.origin)) url.protocol = 'https:';
+  } else if (!url.port && !/^https:/i.test(raw)) {
+    url.port = String(DEFAULT_PORT);
+  }
   return url.origin;
+}
+
+function isLoopbackOrigin(origin) {
+  let hostname;
+  try { hostname = new URL(origin).hostname; } catch { return false; }
+  return hostname === 'localhost' || hostname === '[::1]' || hostname.startsWith('127.');
 }
 
 /** The ws:// or wss:// origin matching an http(s) one. */

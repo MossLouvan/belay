@@ -20,7 +20,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /** Shape persisted to disk. Anything else in the file is ignored on read. */
-const EMPTY = { host: '', token: '', label: '', platform: '', keymap: 'remap' };
+const EMPTY = { host: '', token: '', label: '', platform: '', keymap: 'remap', fingerprint: '', deviceId: '', secret: '' };
 
 /**
  * The keyboard modifier mode (see src/modmap.js). Two values only, and any
@@ -47,30 +47,35 @@ function canSeal(vault) {
   return false;
 }
 
-/** The token fields to persist: `tokenEnc` when it can be sealed, else plaintext `token`. */
-function sealToken(token, vault) {
-  if (!token || !canSeal(vault)) return { token };
+/**
+ * The fields to persist for one credential: `<name>Enc` when it can be
+ * sealed, else the plaintext under `name`. The token and the host-proof
+ * secret (src/proof.js) are both credentials and get the same treatment.
+ */
+function seal(name, value, vault) {
+  if (!value || !canSeal(vault)) return { [name]: value };
   try {
-    return { token: '', tokenEnc: vault.encryptString(token).toString('base64') };
+    return { [name]: '', [`${name}Enc`]: vault.encryptString(value).toString('base64') };
   } catch (error) {
-    console.warn('[belay] safeStorage encrypt failed; storing the token unencrypted:', error);
-    return { token };
+    console.warn(`[belay] safeStorage encrypt failed; storing the ${name} unencrypted:`, error);
+    return { [name]: value };
   }
 }
 
-/** The plaintext token from a parsed file, or '' when it cannot be opened. */
-function openToken(parsed, vault) {
-  if (typeof parsed.tokenEnc === 'string' && parsed.tokenEnc) {
+/** The plaintext credential from a parsed file, or '' when it cannot be opened. */
+function open(name, parsed, vault) {
+  const sealed = parsed[`${name}Enc`];
+  if (typeof sealed === 'string' && sealed) {
     try {
-      return vault.decryptString(Buffer.from(parsed.tokenEnc, 'base64'));
+      return vault.decryptString(Buffer.from(sealed, 'base64'));
     } catch (error) {
-      // A token sealed by another OS account or a lost keychain entry cannot
+      // A value sealed by another OS account or a lost keychain entry cannot
       // be recovered; the pairing screen is the only way forward.
-      console.warn('[belay] could not decrypt the saved device token:', error);
+      console.warn(`[belay] could not decrypt the saved device ${name}:`, error);
       return '';
     }
   }
-  return typeof parsed.token === 'string' ? parsed.token : '';
+  return typeof parsed[name] === 'string' ? parsed[name] : '';
 }
 
 /**
@@ -130,14 +135,22 @@ function parseSession(userDataDir, vault) {
     }
     const session = {
       host: typeof parsed.host === 'string' ? parsed.host : '',
-      token: openToken(parsed, vault),
+      token: open('token', parsed, vault),
       label: typeof parsed.label === 'string' ? parsed.label : '',
+      // What a host that proves its identity issued at pairing (src/proof.js):
+      // the certificate fingerprint pinned for it, and the challenge handle
+      // plus secret. Empty for a pairing made before the host had them.
+      fingerprint: typeof parsed.fingerprint === 'string' ? parsed.fingerprint : '',
+      deviceId: typeof parsed.deviceId === 'string' ? parsed.deviceId : '',
+      secret: open('secret', parsed, vault),
       // The host's platform, remembered so a display window knows which
       // modifier map to build before the host has answered anything.
       platform: typeof parsed.platform === 'string' ? parsed.platform : '',
       keymap: keymapModeOf(parsed.keymap),
     };
-    return { session, plaintext: typeof parsed.token === 'string' && parsed.token !== '' };
+    const plaintext = (typeof parsed.token === 'string' && parsed.token !== '')
+      || (typeof parsed.secret === 'string' && parsed.secret !== '');
+    return { session, plaintext };
   } catch {
     return { session: { ...EMPTY }, plaintext: false };
   }
@@ -153,8 +166,8 @@ function parseSession(userDataDir, vault) {
  */
 export function writeSession(userDataDir, session, vault) {
   const file = sessionPath(userDataDir);
-  const { tokenEnc: _stale, ...fields } = { ...EMPTY, ...session };
-  const record = { ...fields, ...sealToken(fields.token, vault) };
+  const { tokenEnc: _stale, secretEnc: _staleSecret, ...fields } = { ...EMPTY, ...session };
+  const record = { ...fields, ...seal('token', fields.token, vault), ...seal('secret', fields.secret, vault) };
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(record, null, 2), { mode: 0o600 });
   try { chmodSync(file, 0o600); } catch { /* best effort; see above */ }

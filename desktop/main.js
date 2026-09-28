@@ -16,7 +16,7 @@
 // WebSocket, which is unprivileged network access and keeps the streaming path
 // out of the main process, where a slow frame would block window management.
 
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, safeStorage, screen, session, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -24,6 +24,13 @@ import { clearSession, keymapModeOf, migrateLegacySession, readSession, writeSes
 import { fitWindow } from './src/displays.js';
 import { cascadeOffset, initialSize, windowLabel } from './src/windows.js';
 import { GROUND } from './src/ground.js';
+import { createPinStore, probeFingerprint } from './src/pins.js';
+
+// The certificate pins Chromium consults for every TLS connection the
+// renderer makes (src/pins.js). Loaded from the saved session at startup and
+// updated by pairing; a pinned host that presents any other certificate is
+// refused before a byte of the token leaves this machine.
+const pins = createPinStore();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Keep the controller's 4 ms hidden-window timer running. Unlike disabling
@@ -154,6 +161,17 @@ function createSeamlessWindow(session, remote, index = 0) {
 
 app.whenReady().then(() => {
   const userData = app.getPath('userData');
+
+  session.defaultSession.setCertificateVerifyProc((request, callback) => callback(pins.decide(request)));
+  const saved = readSession(userData, safeStorage);
+  if (saved.host && saved.fingerprint) pins.pin(saved.host, saved.fingerprint);
+
+  ipcMain.handle('tls:probe', (_event, origin) => probeFingerprint(String(origin ?? '')));
+  ipcMain.handle('tls:pin', (_event, { origin, fingerprint }) => {
+    if (!/^[0-9a-f]{64}$/i.test(String(fingerprint ?? ''))) throw new Error('not a SHA-256 fingerprint');
+    pins.pin(String(origin), String(fingerprint));
+    return true;
+  });
   // The rename moved the userData directory; pick up the session the
   // pre-rename build saved so pairing survives the update (see session.js).
   migrateLegacySession(userData, join(app.getPath('appData'), 'tether-desktop'), safeStorage);
@@ -161,13 +179,16 @@ app.whenReady().then(() => {
   // safeStorage is main-process only: the renderer gets the decrypted
   // session through these same channels and never touches the vault.
   ipcMain.handle('session:read', () => readSession(userData, safeStorage));
-  ipcMain.handle('session:write', (_event, session) => {
+  ipcMain.handle('session:write', (_event, saved) => {
     writeSession(userData, {
-      host: String(session?.host ?? ''),
-      token: String(session?.token ?? ''),
-      label: String(session?.label ?? ''),
-      platform: String(session?.platform ?? ''),
-      keymap: keymapModeOf(session?.keymap),
+      host: String(saved?.host ?? ''),
+      token: String(saved?.token ?? ''),
+      label: String(saved?.label ?? ''),
+      platform: String(saved?.platform ?? ''),
+      keymap: keymapModeOf(saved?.keymap),
+      fingerprint: String(saved?.fingerprint ?? ''),
+      deviceId: String(saved?.deviceId ?? ''),
+      secret: String(saved?.secret ?? ''),
     }, safeStorage);
     return true;
   });
@@ -178,6 +199,7 @@ app.whenReady().then(() => {
     // with.
     for (const win of [...displayWindows]) win.close();
     clearSession(userData);
+    pins.clear();
     return true;
   });
   ipcMain.handle('display:open', (_event, { session, display }) => {
