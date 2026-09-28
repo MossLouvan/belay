@@ -11,6 +11,7 @@ import { View } from 'react-native';
 import { useTheme } from '../theme';
 import { Badge, Button, Caption, GlassPanel, StatusBadge, Label, Row, Txt } from '../ui';
 import { StatusNotice } from '../devices/notice';
+import { displayFingerprint } from './pair-link';
 import { CodeInput } from './code-input';
 import type { Diagnosis } from './diagnose';
 import { prettyHost } from './host-input';
@@ -23,6 +24,13 @@ export interface HostSummary {
   /** `false` means the capture/input helper is not built on the host. */
   readonly native: boolean;
   readonly paired: boolean;
+  /**
+   * The TLS certificate this address presented, for a typed https address.
+   * A scanned QR carries the fingerprint and needs no comparing; a typed one
+   * is shown so the user can check it against the `Cert` line on the host's
+   * screen before entering the code (trust on first use, verified by eye).
+   */
+  readonly fingerprint?: string;
 }
 
 export interface PairStepProps {
@@ -85,6 +93,14 @@ export function PairStep({
           </Txt>
           <Badge label={host.native ? 'Screen + input' : 'Terminal only'} status={host.native ? 'good' : 'warn'} />
         </Row>
+        {host.fingerprint ? (
+          <View testID="cert-fingerprint" style={{ gap: theme.space.xxs }}>
+            <Txt variant="monoSmall" tone="faint">{displayFingerprint(host.fingerprint)}</Txt>
+            <Caption>
+              {`Check these match the Cert line in the Belay window on ${host.name} before pairing. If they differ, something else is answering at this address.`}
+            </Caption>
+          </View>
+        ) : null}
       </View>
 
       {/* Code entry section */}

@@ -150,6 +150,12 @@ export interface HostCheck {
    * older than the flag, which are asked anyway — see screen/bwp-policy.ts.
    */
   bwp?: boolean;
+  /**
+   * The host refused plain HTTP on this network (its 426 `plaintext-refused`).
+   * Distinct from "unreachable": the computer is right there, the pairing on
+   * this phone simply predates its certificate. The fix is to pair again.
+   */
+  plaintextRefused?: boolean;
 }
 
 /**
@@ -160,7 +166,11 @@ export interface HostCheck {
 export async function checkHost(host: string, signal?: AbortSignal): Promise<HostCheck> {
   try {
     const res = await fetchWithTimeout(host + '/health', { method: 'GET' }, '/health', signal);
-    if (!res.ok) return { ok: false, error: `host returned ${res.status}` };
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      if (body.code === 'plaintext-refused') return { ok: false, error: body.error ?? 'plain HTTP refused', plaintextRefused: true };
+      return { ok: false, error: `host returned ${res.status}` };
+    }
     const j = await res.json();
     return {
       ok: true,
@@ -209,6 +219,10 @@ export interface PairResult {
   readonly host: string;
   readonly token: string;
   readonly hostName: string;
+  /** Issued by hosts that prove their identity; absent from older ones. See devices/verify-host.ts. */
+  readonly deviceId?: string;
+  readonly secret?: string;
+  readonly fingerprint?: string;
 }
 
 /**
@@ -230,7 +244,37 @@ export async function pair(host: string, code: string, deviceName: string): Prom
   );
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((j as { error?: string }).error || 'pairing failed');
-  return { host, token: j.token, hostName: j.name || 'PC' };
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+  return {
+    host,
+    token: j.token,
+    hostName: j.name || 'PC',
+    deviceId: str(j.deviceId),
+    secret: str(j.secret),
+    fingerprint: str(j.fingerprint),
+  };
+}
+
+/**
+ * Ask the host at `url` to prove it holds this device's pairing secret.
+ *
+ * Unauthenticated on purpose — it runs BEFORE the token is trusted to this
+ * address. Resolves the host's proof, or null for any failure; the caller
+ * (devices/verify-host.ts) treats null as an impostor, never as a pass.
+ */
+export async function challengeHost(url: string, deviceId: string, nonce: string): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(
+      url + '/challenge',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, nonce }) },
+      '/challenge',
+    );
+    if (!res.ok) return null;
+    const j = (await res.json()) as { proof?: unknown };
+    return typeof j.proof === 'string' ? j.proof : null;
+  } catch {
+    return null;
+  }
 }
 
 function authHeaders(): Record<string, string> {

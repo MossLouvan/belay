@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parsePairLink } from './pair-link.ts';
+import { normalizeFingerprint, parsePairLink } from './pair-link.ts';
 
 const LINK =
   'belay://pair?v=1&id=da771aad-caa5-4be3-bbbc-01ae4a36d02b&n=MacBook+Air&p=darwin' +
@@ -99,4 +99,22 @@ test('whitespace around a scan result is tolerated', () => {
 
 test('a label falls back when absent', () => {
   assert.equal(parsePairLink(LINK.replace('n=MacBook+Air', 'n=')).label, 'My computer');
+});
+
+const FINGERPRINT = '0123456789abcdef'.repeat(4);
+
+test('the certificate fingerprint is read from f= and normalised', () => {
+  const link = `belay://pair?v=1&id=mac-uuid&n=Mac&p=darwin&c=472234&f=${FINGERPRINT.toUpperCase()}&a=${encodeURIComponent('https://192.168.1.5:8787')}`;
+  assert.equal(parsePairLink(link)?.fingerprint, FINGERPRINT);
+});
+
+test('a link without f= (an older host) parses with no fingerprint', () => {
+  const link = `belay://pair?v=1&id=mac-uuid&n=Mac&p=darwin&c=472234&a=${encodeURIComponent('http://192.168.1.5:8787')}`;
+  assert.equal(parsePairLink(link)?.fingerprint, undefined);
+});
+
+test('a malformed fingerprint is dropped rather than pinned', () => {
+  const link = `belay://pair?v=1&id=mac-uuid&n=Mac&p=darwin&c=472234&f=nope&a=${encodeURIComponent('https://192.168.1.5:8787')}`;
+  assert.equal(parsePairLink(link)?.fingerprint, undefined);
+  assert.equal(normalizeFingerprint('ab:cd'), null);
 });

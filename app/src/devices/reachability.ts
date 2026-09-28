@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { checkHost } from '../api';
 import { SavedDevice, orderAddresses } from './model';
+import { pinAddresses } from './pinning';
 import { raceAddresses } from './race';
 
 export type Reachability = 'checking' | 'online' | 'offline';
@@ -59,6 +60,8 @@ export function useReachability(devices: readonly SavedDevice[]): ReachabilityMa
     });
 
     const probes = devices.map(async (device) => {
+      // A probe of an https address only answers when the certificate is pinned.
+      if (device.fingerprint) pinAddresses(device.addresses.map((a) => a.url), device.fingerprint);
       const winner = await raceAddresses(
         orderAddresses(device.addresses, device.lastKnownGoodUrl),
         async (url, signal) => {

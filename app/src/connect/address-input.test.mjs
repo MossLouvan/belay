@@ -28,9 +28,9 @@ const rejected = (input) => {
 
 // ---- accepted forms ----------------------------------------------------------
 
-test('a bare Tailscale IP gets http and the default port', () => {
+test('a bare IP outside the tailnet range gets https and the default port', () => {
   const parsed = ok('100.1.2.3');
-  assert.equal(parsed.url, `http://100.1.2.3:${DEFAULT_PORT}`);
+  assert.equal(parsed.url, `https://100.1.2.3:${DEFAULT_PORT}`);
   assert.equal(parsed.host, '100.1.2.3');
   assert.equal(parsed.port, DEFAULT_PORT);
 });
@@ -42,8 +42,8 @@ test('the example address is a Tailscale address', () => {
 });
 
 test('an explicit port is kept', () => {
-  assert.equal(ok('100.1.2.3:8787').url, 'http://100.1.2.3:8787');
-  assert.equal(ok('100.1.2.3:9000').url, 'http://100.1.2.3:9000');
+  assert.equal(ok('100.1.2.3:8787').url, 'https://100.1.2.3:8787');
+  assert.equal(ok('100.1.2.3:9000').url, 'https://100.1.2.3:9000');
   assert.equal(ok('100.1.2.3:9000').port, 9000);
 });
 
@@ -68,22 +68,22 @@ test('MagicDNS names are lower-cased so the same computer is one address', () =>
 });
 
 test('trailing and leading whitespace from a sloppy copy is ignored', () => {
-  assert.equal(ok('100.1.2.3 ').url, 'http://100.1.2.3:8787');
-  assert.equal(ok('  100.1.2.3\n').url, 'http://100.1.2.3:8787');
-  assert.equal(ok('\t100.1.2.3:8787 \n').url, 'http://100.1.2.3:8787');
+  assert.equal(ok('100.1.2.3 ').url, 'https://100.1.2.3:8787');
+  assert.equal(ok('  100.1.2.3\n').url, 'https://100.1.2.3:8787');
+  assert.equal(ok('\t100.1.2.3:8787 \n').url, 'https://100.1.2.3:8787');
 });
 
 test('a trailing slash or path is dropped — only the origin matters', () => {
   assert.equal(ok('http://100.1.2.3:8787/').url, 'http://100.1.2.3:8787');
-  assert.equal(ok('100.1.2.3:8787/health').url, 'http://100.1.2.3:8787');
-  assert.equal(ok('100.1.2.3/?x=1').url, 'http://100.1.2.3:8787');
+  assert.equal(ok('100.1.2.3:8787/health').url, 'https://100.1.2.3:8787');
+  assert.equal(ok('100.1.2.3/?x=1').url, 'https://100.1.2.3:8787');
 });
 
 test('a LAN address and a plain name still work, as the local fallback', () => {
   assert.equal(ok('192.168.1.20').family, 'lan');
-  assert.equal(ok('192.168.1.20').url, 'http://192.168.1.20:8787');
+  assert.equal(ok('192.168.1.20').url, 'https://192.168.1.20:8787');
   assert.equal(ok('pc.local').family, 'name');
-  assert.equal(ok('pc.local').url, 'http://pc.local:8787');
+  assert.equal(ok('pc.local').url, 'https://pc.local:8787');
   assert.equal(ok('localhost:8787').url, 'http://localhost:8787');
 });
 

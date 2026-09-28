@@ -44,6 +44,11 @@ function secureKey(id: string): string {
   return 'belay.token.' + id.replace(/[^A-Za-z0-9._-]/g, '_');
 }
 
+/** The host-proof secret (verify-host.ts) sits beside the token, same rules. */
+function secretKey(id: string): string {
+  return 'belay.secret.' + id.replace(/[^A-Za-z0-9._-]/g, '_');
+}
+
 /**
  * Load the store, migrating an old single connection if that is all we find.
  *
@@ -101,12 +106,21 @@ async function stashTokens(store: DeviceStore): Promise<DeviceStore> {
       // writing it back would overwrite the genuine keychain entry with the
       // sentinel, so leave that entry exactly as it is.
       .filter((d) => !isUnresolved(d.token))
-      .map((d) => SecureStore.setItemAsync(secureKey(d.id), d.token)),
+      .flatMap((d) => [
+        SecureStore.setItemAsync(secureKey(d.id), d.token),
+        ...(d.secret ? [SecureStore.setItemAsync(secretKey(d.id), d.secret)] : []),
+      ]),
   );
   for (const id of await previousIds()) {
-    if (!keep.has(id)) await SecureStore.deleteItemAsync(secureKey(id)).catch(() => undefined);
+    if (!keep.has(id)) {
+      await SecureStore.deleteItemAsync(secureKey(id)).catch(() => undefined);
+      await SecureStore.deleteItemAsync(secretKey(id)).catch(() => undefined);
+    }
   }
-  return { ...store, devices: store.devices.map((d) => ({ ...d, token: SECURE_MARK })) };
+  return {
+    ...store,
+    devices: store.devices.map((d) => ({ ...d, token: SECURE_MARK, ...(d.secret ? { secret: SECURE_MARK } : {}) })),
+  };
 }
 
 /** Ids in the blob currently on disk, so stale keychain entries can be dropped. */
@@ -145,7 +159,19 @@ async function restoreTokens(blob: unknown): Promise<unknown> {
     } catch {
       read = { kind: 'failed' };
     }
-    return { ...dev, token: resolveLoadedToken(SECURE_MARK, read) };
+    // The secret is optional: a missing entry (an older pairing) simply means
+    // the device carries none, and a failed read keeps the marker so the entry
+    // is not overwritten on the next save. It is never a reason to drop the
+    // computer — the token decides that.
+    let secret: string | undefined;
+    if ((dev as { secret?: unknown }).secret === SECURE_MARK) {
+      try {
+        secret = (await SecureStore.getItemAsync(secretKey(dev.id))) ?? undefined;
+      } catch {
+        secret = SECURE_MARK;
+      }
+    }
+    return { ...dev, token: resolveLoadedToken(SECURE_MARK, read), ...(secret !== undefined ? { secret } : {}) };
   }));
   return { ...(blob as object), devices: restored };
 }

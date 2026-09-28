@@ -37,6 +37,17 @@ export interface SavedDevice {
   readonly addresses: readonly HostAddress[];
   /** Bearer token for this (phone, host) pair. Independent of address. */
   readonly token: string;
+  /**
+   * Issued at pairing on hosts that prove their identity (verify-host.ts):
+   * the handle this phone names itself by when it challenges the host, the
+   * HMAC secret the host must answer with, and the SHA-256 of the host's TLS
+   * certificate to pin for its https addresses. All three are absent from a
+   * pairing made before the host had them — such an entry works only over
+   * Tailscale until it is paired again.
+   */
+  readonly deviceId?: string;
+  readonly secret?: string;
+  readonly fingerprint?: string;
   readonly addedAt: number;
   readonly lastConnectedAt?: number;
   /** Address that worked most recently — tried first next time. */
@@ -298,8 +309,13 @@ function isSavedDevice(value: unknown): value is SavedDevice {
   return typeof d.id === 'string' && d.id.length > 0
     && typeof d.label === 'string'
     && typeof d.token === 'string' && d.token.length > 0
+    && optionalString(d.deviceId) && optionalString(d.secret) && optionalString(d.fingerprint)
     && Array.isArray(d.addresses)
     && d.addresses.every(isHostAddress);
+}
+
+function optionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
 }
 
 function isHostAddress(value: unknown): value is HostAddress {

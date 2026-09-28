@@ -32,26 +32,28 @@ function isLegacyId(id: string): boolean {
  *                token would 401, so treat it as unreachable, not connected.
  * - `adopt`      a migrated (`legacy:`) entry reached a host that reports a real
  *                id — take that id over as the entry's key.
- * - `unknown`    no id was reported (an older host). Nothing to verify against,
- *                so proceed as before rather than inventing a failure.
+ *
+ * There is deliberately no "unknown" verdict any more. A host that reports no
+ * id used to be waved through, which meant anything answering at a saved
+ * address — a stranger holding the same 192.168.x on another network — was
+ * handed the bearer token on the next request. Nothing to verify against is
+ * a reason to stop, not to proceed; a host that old must be updated.
  */
-export type IdentityVerdict = 'match' | 'mismatch' | 'adopt' | 'unknown';
+export type IdentityVerdict = 'match' | 'mismatch' | 'adopt';
 
 /**
  * Reconcile a saved device's id with the id the winning host reported.
  *
- * `winnerHostId` is `undefined` when the host reported none (a host old enough
- * to predate /health identity). For a legacy entry any reported id is adopted;
- * for a real-id entry the reported id must match, and a mismatch is the reset
- * described above.
+ * `winnerHostId` is `undefined` when the host reported none, which is treated
+ * as a mismatch for every kind of entry. For a legacy entry any reported id is
+ * adopted; for a real-id entry the reported id must match, and a mismatch is
+ * the reset described above.
  */
 export function checkHostIdentity(
   deviceId: string,
   winnerHostId: string | undefined,
 ): IdentityVerdict {
-  if (isLegacyId(deviceId)) {
-    return winnerHostId ? 'adopt' : 'unknown';
-  }
-  if (!winnerHostId) return 'unknown';
+  if (!winnerHostId) return 'mismatch';
+  if (isLegacyId(deviceId)) return 'adopt';
   return winnerHostId === deviceId ? 'match' : 'mismatch';
 }

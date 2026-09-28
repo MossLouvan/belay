@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { checkHost } from '../api';
+import { pinAddresses, pinningAvailable, probeFingerprint } from '../devices/pinning';
 import { haptic } from '../ui';
 import type { PairingDeadEnd } from './dead-end';
 import { detectDeadEnd } from './dead-end';
@@ -175,6 +176,25 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
     checkSeq.current = seq;
     setBusy(true);
     try {
+      // A typed https address arrives with no fingerprint to pin, so read the
+      // one the host presents and pin THAT — then show it on the code screen
+      // for the user to compare with the host's own banner. Without it the
+      // native layer would refuse the self-signed certificate outright.
+      let fingerprint: string | undefined;
+      if (/^https:/i.test(resolved.url) && pinningAvailable) {
+        const seen = await probeFingerprint(resolved.url);
+        if (!live.current || seq !== checkSeq.current) return;
+        if (!seen) {
+          setBusy(false);
+          setHostError({
+            title: 'Could not read that computer\'s certificate',
+            message: 'Nothing answered over a secure connection at that address. Check the computer is running the Belay host and is on this network, or scan its pairing code instead.',
+          });
+          return;
+        }
+        pinAddresses([resolved.url], seen);
+        fingerprint = seen;
+      }
       const result = await checkHostBounded(resolved.url);
       // Apply nothing from a superseded check, and nothing at all once the
       // screen is gone (the already-paired redirect can unmount mid-flight).
@@ -194,6 +214,7 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
         // warning about a limitation that may not exist.
         native: result.native !== false,
         paired: Boolean(result.paired),
+        ...(fingerprint ? { fingerprint } : {}),
       });
       setCode('');
       setPairError(null);

@@ -6,7 +6,11 @@
 // wire a workspace around. The format is documented in the host's copy, and
 // both suites cover the same cases so drift shows up as a test failure.
 //
-//   belay://pair?v=1&id=<uuid>&n=<label>&p=<platform>&c=<code>&a=<url>&a=<url>
+//   belay://pair?v=1&id=<uuid>&n=<label>&p=<platform>&c=<code>&f=<sha256>&a=<url>&a=<url>
+//
+// `f` is the SHA-256 of the host's TLS certificate. Read off the host's own
+// screen, it is the one thing that lets the phone refuse every other
+// certificate before it has sent a byte of the pairing code.
 
 export const PAIR_LINK_VERSION = '1';
 
@@ -16,6 +20,8 @@ export interface ParsedPairLink {
   readonly platform: string;
   readonly code: string;
   readonly addresses: readonly string[];
+  /** Certificate fingerprint, 64 lowercase hex. Absent from hosts older than TLS. */
+  readonly fingerprint?: string;
 }
 
 /**
@@ -52,13 +58,26 @@ export function parsePairLink(raw: string): ParsedPairLink | null {
 
   if (!hostId || !/^\d{6}$/.test(code) || addresses.length === 0) return null;
 
+  const fingerprint = normalizeFingerprint(params.get('f'));
   return {
     hostId,
     label: params.get('n') || 'My computer',
     platform: params.get('p') || 'other',
     code,
     addresses,
+    ...(fingerprint ? { fingerprint } : {}),
   };
+}
+
+/** A SHA-256 fingerprint in any spelling (colons, spaces, case) → 64 lowercase hex, or null. */
+export function normalizeFingerprint(value: string | null | undefined): string | null {
+  const hex = String(value ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+  return hex.length === 64 ? hex : null;
+}
+
+/** The fingerprint as a person compares it with the host's screen: 8 groups of 8. */
+export function displayFingerprint(fingerprint: string): string {
+  return (fingerprint.match(/.{1,8}/g) ?? []).join(' ').toUpperCase();
 }
 
 /**

@@ -12,6 +12,7 @@ import { Platform } from 'react-native';
 import { router } from 'expo-router';
 import { checkHost, pair } from '../api';
 import { buildSavedDevice } from '../devices/from-host';
+import { pinAddresses, pinnedFingerprint } from '../devices/pinning';
 import type { SavedDevice } from '../devices/model';
 import { haptic } from '../ui';
 import type { Diagnosis } from './diagnose';
@@ -84,10 +85,21 @@ export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>
   const completePairing = useCallback(async (hostUrl: string, pairingCode: string) => {
     try {
       const result = await pair(hostUrl, pairingCode, deviceNameFor(Platform.OS));
+      // The host names its certificate in the reply; it must be the one this
+      // address was pinned to (from the QR, or the fingerprint shown for a
+      // typed address). Anything else means the pairing went somewhere else.
+      const pinned = pinnedFingerprint(hostUrl);
+      if (pinned && result.fingerprint && result.fingerprint !== pinned) {
+        throw new Error('the computer\'s certificate does not match the one this phone was shown');
+      }
+      // Pin the fingerprint for every address the host advertises before the
+      // identity re-read below and every connect after it.
+      if (result.fingerprint) pinAddresses([hostUrl], result.fingerprint);
       // Re-read /health now that we are paired, so the saved computer gets the
       // host's real identity and its full address list rather than just the one
       // URL that happened to be typed in.
       const identity = await checkHost(result.host);
+      if (result.fingerprint) pinAddresses((identity.addresses ?? []).map((a) => a.url), result.fingerprint);
       const device = buildSavedDevice(result, identity, Date.now());
       haptic('success');
       setStage('success');
@@ -136,6 +148,10 @@ export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>
     setPairError(null);
     setBusy(true);
     try {
+      // The QR carried the host's certificate fingerprint: pin it for every
+      // address before the first probe, so an https address only answers if it
+      // presents that certificate.
+      if (link.fingerprint) pinAddresses(link.addresses, link.fingerprint);
       const reachable = await firstReachable(link.addresses, checkHost);
       if (!reachable) {
         setStage('host');

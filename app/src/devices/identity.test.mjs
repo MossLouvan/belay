@@ -26,10 +26,14 @@ test('a legacy entry adopts whatever real id the host reports', () => {
   assert.equal(checkHostIdentity('legacy:http://10.0.0.5:8787', 'real-uuid'), 'adopt');
 });
 
-test('a legacy entry with no reported id has nothing to adopt yet', () => {
-  assert.equal(checkHostIdentity('legacy:http://10.0.0.5:8787', undefined), 'unknown');
+// HIGH-2 of the security review: 'unknown' used to mean "proceed", so a
+// machine that answered /health without an id was handed the token. An
+// unverifiable host is a mismatch — never send the token.
+test('a legacy entry against an id-less host is a mismatch, not a pass', () => {
+  assert.equal(checkHostIdentity('legacy:http://10.0.0.5:8787', undefined), 'mismatch');
 });
 
-test('a real-id entry against an id-less (older) host is left unverified', () => {
-  assert.equal(checkHostIdentity('mac-uuid', undefined), 'unknown');
+test('a real-id entry against an id-less (older) host is a mismatch', () => {
+  assert.equal(checkHostIdentity('mac-uuid', undefined), 'mismatch');
+  assert.equal(checkHostIdentity('mac-uuid', ''), 'mismatch');
 });

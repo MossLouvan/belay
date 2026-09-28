@@ -41,7 +41,7 @@ import { forgetPreview } from '../src/home/preview-store';
 export default function Devices() {
   const theme = useTheme();
   const look = useLook();
-  const { devices, active, addDevice, switchTo, forget, reconnect, phase, activeUrl } = useConnection();
+  const { devices, active, addDevice, switchTo, forget, reconnect, phase, activeUrl, trustProblem } = useConnection();
   // The attention store is host-scoped (reset on switch), so its counts
   // describe exactly one computer: the connected one. Every other card gets
   // null and shows no line — no "0 running", no placeholder.
@@ -229,7 +229,31 @@ export default function Devices() {
             ) : null}
           </View>
 
-          {active && (phase === 'unreachable' || (keepTrying && phase === 'connecting')) ? (
+          {active && phase === 'unreachable' && trustProblem ? (
+            trustProblem === 'needs-repair' ? (
+              <StatusNotice
+                testID="repair-banner"
+                status="warn"
+                title={`Pair again to secure ${active.label}`}
+                message={
+                  'That computer now encrypts connections on this network, and this phone\'s pairing ' +
+                  'is from before it did. Scan its pairing code once more; nothing else changes.'
+                }
+                action={{ label: 'Scan pairing code', onPress: () => router.push({ pathname: '/', params: { add: '1', scan: '1' } }) }}
+              />
+            ) : (
+              <StatusNotice
+                testID="identity-banner"
+                status="bad"
+                title={`That is not ${active.label}`}
+                message={
+                  'Something answered at its address but could not prove it is the computer this phone ' +
+                  'paired with, so nothing was sent to it. If the computer was reset, pair with it again.'
+                }
+                action={{ label: 'Try again', onPress: () => void reconnect() }}
+              />
+            )
+          ) : active && (phase === 'unreachable' || (keepTrying && phase === 'connecting')) ? (
             keepTrying ? (
               <StatusNotice
                 testID="reconnect-banner"

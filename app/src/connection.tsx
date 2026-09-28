@@ -7,7 +7,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  Connection, checkHost, setConnection as setClientConnection,
+  Connection, checkHost, challengeHost, setConnection as setClientConnection,
   clearConnection as clearClientConnection, setRecoveryHandler,
 } from './api';
 import {
@@ -15,8 +15,10 @@ import {
   upsertDevice, setActive, removeDevice, renameDevice, recordSuccess,
   orderAddresses, adoptRealId, findDevice,
 } from './devices/model';
-import { checkHostIdentity } from './devices/identity';
 import { isUnresolved } from './devices/token-resolve';
+import { pinAddresses, randomBytes } from './devices/pinning';
+import { verifyHost } from './devices/verify-host';
+import type { TrustProblem } from './devices/verify-host';
 import { loadStore, saveStore } from './devices/storage';
 import { raceAddresses } from './devices/race';
 
@@ -33,6 +35,13 @@ interface Ctx {
   phase: ConnectPhase;
   /** Which address won the race, for display. */
   activeUrl: string | null;
+  /**
+   * Why the active computer was refused although something answered: it
+   * could not prove it is the paired host, or this phone's pairing predates
+   * the host's certificate and must be redone. Null whenever `phase` is not
+   * 'unreachable', and null for a plain "nothing answered".
+   */
+  trustProblem: TrustProblem | null;
 
   addDevice: (device: SavedDevice) => Promise<void>;
   switchTo: (id: string) => Promise<void>;
@@ -51,6 +60,7 @@ const ConnectionContext = createContext<Ctx>({
   active: undefined,
   phase: 'idle',
   activeUrl: null,
+  trustProblem: null,
   addDevice: async () => {},
   switchTo: async () => {},
   forget: async () => {},
@@ -65,6 +75,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
   const [connection, setConn] = useState<Connection | null>(null);
   const [phase, setPhase] = useState<ConnectPhase>('idle');
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
+  const [trustProblem, setTrustProblem] = useState<TrustProblem | null>(null);
 
   /**
    * Guards against an older connect attempt finishing after a newer one and
@@ -107,6 +118,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     // a stream that is, in fact, still on screen. A normal connect still shows
     // the spinner.
     if (!opts?.silent) setPhase('connecting');
+    setTrustProblem(null);
 
     if (isUnresolved(device.token)) {
       // The keychain was unreadable when the store loaded (phone locked at a
@@ -122,39 +134,49 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       return;
     }
 
+    // Pin before the first packet: an https address only answers /health if
+    // the native layer accepted the certificate this pairing recorded.
+    const urls = device.addresses.map((a) => a.url);
+    if (device.fingerprint) pinAddresses(urls, device.fingerprint);
+
     const ordered = orderAddresses(device.addresses, device.lastKnownGoodUrl);
+    // The host answers plain HTTP on the LAN with a refusal that says why
+    // (426, `plaintext-refused`). That is not "unreachable" — it is "pair
+    // again" — and the race would otherwise flatten it into a dead probe.
+    let plaintextRefused = false;
     const winner = await raceAddresses(ordered, async (url, signal) => {
       const health = await checkHost(url, signal);
+      if (health.plaintextRefused) plaintextRefused = true;
       return { ok: health.ok, hostId: health.id };
     });
 
     // A newer attempt started while this one was in flight; its result wins.
     if (!mountedRef.current || attempt !== attemptRef.current) return;
 
-    if (!winner) {
+    const refuse = (problem: TrustProblem | null) => {
       setConn(null);
       clearClientConnection();
       setActiveUrl(null);
-      // A real, actionable state — the computer is asleep, or this network
-      // cannot reach it — not something to hide behind a spinner.
+      setTrustProblem(problem);
+      // A real, actionable state — the computer is asleep, this network
+      // cannot reach it, or it is not the machine we paired with — not
+      // something to hide behind a spinner.
       setPhase('unreachable');
-      return;
-    }
+    };
 
-    const verdict = checkHostIdentity(device.id, winner.hostId);
-    if (verdict === 'mismatch') {
-      // Something answered at this address, but it reports a different host id
-      // than the one we saved — the computer reset its pairing and minted a
-      // fresh identity. Our token was issued to the old one, so every authed
-      // call would 401. A false 'connected' here shows a dead computer with the
-      // old label; report it as unreachable, which is the honest state and the
-      // one that routes the user back to re-pairing.
-      setConn(null);
-      clearClientConnection();
-      setActiveUrl(null);
-      setPhase('unreachable');
-      return;
-    }
+    if (!winner) { refuse(plaintextRefused ? 'needs-repair' : null); return; }
+
+    // Something answered. Before the token goes anywhere: is it the computer
+    // this pairing belongs to? A different (or absent) host id, a failed
+    // proof, or a pairing too old to be verified on this link all stop here —
+    // see devices/verify-host.ts.
+    const trust = await verifyHost(
+      { device, url: winner.url, reportedHostId: winner.hostId },
+      challengeHost,
+      randomBytes,
+    );
+    if (!mountedRef.current || attempt !== attemptRef.current) return;
+    if (!trust.ok) { refuse(trust.problem); return; }
 
     const resolved: Connection = {
       host: winner.url,
@@ -173,8 +195,8 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     // A computer carried over from the old single-connection layout has a
     // synthesised id; the first host that reports a real one lets it become an
     // ordinary entry, keeping its token.
-    if (verdict === 'adopt' && winner.hostId) {
-      next = adoptRealId(next, device.id, winner.hostId);
+    if (trust.adoptId) {
+      next = adoptRealId(next, device.id, trust.adoptId);
     }
     await commit(next);
   }, [commit]);
@@ -227,6 +249,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       setConn(null);
       clearClientConnection();
       setActiveUrl(null);
+      setTrustProblem(null);
       setPhase('idle');
       return;
     }
@@ -272,6 +295,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     setConn(null);
     clearClientConnection();
     setActiveUrl(null);
+    setTrustProblem(null);
     setPhase('idle');
   }, [commit]);
 
@@ -284,6 +308,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     active,
     phase,
     activeUrl,
+    trustProblem,
     addDevice,
     switchTo,
     forget,
@@ -291,7 +316,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     reconnect,
     disconnect,
   }), [
-    ready, connection, store.devices, active, phase, activeUrl,
+    ready, connection, store.devices, active, phase, activeUrl, trustProblem,
     addDevice, switchTo, forget, rename, reconnect, disconnect,
   ]);
 

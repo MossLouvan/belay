@@ -125,13 +125,15 @@ export function parseAddress(input: string): ParsedAddress {
     };
   }
 
-  const protocol = (scheme ?? 'http').toLowerCase();
-  const port = rawPort === undefined ? (protocol === 'https' ? 443 : DEFAULT_PORT) : Number(rawPort);
+  // No scheme typed: the host serves TLS on the LAN and plain HTTP only over
+  // Tailscale and loopback (server/src/transport.ts), so the family decides.
+  const protocol = scheme ? scheme.toLowerCase() : defaultScheme(host, family);
+  const port = rawPort === undefined ? (scheme?.toLowerCase() === 'https' ? 443 : DEFAULT_PORT) : Number(rawPort);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     return { kind: 'invalid', reason: `"${rawPort}" is not a port. The host agent usually listens on ${DEFAULT_PORT}.` };
   }
 
-  const portSuffix = protocol === 'https' && port === 443 ? '' : `:${port}`;
+  const portSuffix = scheme?.toLowerCase() === 'https' && port === 443 ? '' : `:${port}`;
   return {
     kind: 'ok',
     url: `${protocol}://${host}${portSuffix}`,
@@ -140,6 +142,13 @@ export function parseAddress(input: string): ParsedAddress {
     family,
     hadCredentials: Boolean(credentials),
   };
+}
+
+/** The scheme for an address typed without one: https on the LAN, http where the link is already private. */
+export function defaultScheme(host: string, family: AddressFamily): 'http' | 'https' {
+  if (family === 'tailscale' || family === 'magicdns') return 'http';
+  if (host === 'localhost' || host.startsWith('127.')) return 'http';
+  return 'https';
 }
 
 /** How the micro-label under the field speaks. */
