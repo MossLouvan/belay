@@ -1125,12 +1125,12 @@ server.on('upgrade', (req, socket, head) => {
       socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return;
     }
 
-    // A ticket is preferred; the raw token is still accepted so an app built
-    // before /ws-ticket existed keeps working. New clients should never send it —
-    // see the route above for why a token in a URL is a problem.
+    // Tickets only. The raw token used to be accepted here as a fallback for
+    // apps built before /ws-ticket existed; every shipped client has minted
+    // tickets since, and a token in a URL is a token in every proxy log — see
+    // the route above.
     const ticket = url.searchParams.get('ticket') || '';
-    const redeemed = ticket ? tickets.redeem(ticket) : null;
-    const token = redeemed ?? url.searchParams.get('token') ?? '';
+    const token = (ticket ? tickets.redeem(ticket) : null) ?? '';
 
     // A paired phone, or — only on /ws/agent-attach, and only for a ticket
     // minted through the loopback attach route — the person standing at this
