@@ -59,23 +59,21 @@ desktop.
 `CopyFromScreen`) and for the pairing popup. Session 0 has no desktop: capture
 returns a blank frame and the popup reports `shown:false`.
 
-### Known limitation: changing mode after the first create
+### Changing mode after the first create
 
-The FIRST create applies exactly: request 1920x1080 and Windows reports
-`Belay Virtual Display Adapter -> 1920 x 1080`. A later create at a different
-mode returns `ok` and the driver reports the new mode, but the OS keeps the
-previous desktop resolution.
+The FIRST create applies exactly. A later create at a different mode used to
+return `ok` while the OS kept the previous desktop resolution: the driver
+reuses one `MonitorContainerId` so Windows remembers the display's layout and
+scale across sessions, and that same memory restored the old mode.
 
-The cause is deliberate elsewhere in this file: `MonitorContainerId` is a fixed
-GUID so Windows remembers the display's layout and scale across sessions. That
-same memory means a re-arriving monitor is restored to its remembered mode
-rather than adopting the new preferred one. Destroying and recreating is not
-enough.
-
-The fix is one of: call `IddCxMonitorUpdateModes` to update the mode list in
-place instead of tearing the monitor down, or have the host apply the mode with
-`ChangeDisplaySettingsEx` once the monitor has arrived. Neither is implemented
-yet, so treat "pick a resolution" as working once per session.
+`BelayHostVirtualDisplay.cs` now applies the requested mode itself: after
+`IOCTL_ADD_MONITOR` it polls `EnumDisplayDevices` (up to 5 s) for the
+"Belay Virtual Display Adapter" to arrive, then calls `ChangeDisplaySettingsEx`
+with `CDS_TEST` and `CDS_UPDATEREGISTRY` on that device. The create reply
+carries `display.applied` — `ok`, `adapter-not-found`, `rejected:<n>` or
+`failed:<n>` — so a host log shows exactly which step declined. **Written on
+a Mac; not yet run on Windows** — verify with the runbook below (create at two
+modes in one session and read the desktop resolution back).
 
 ### Still not verified
 

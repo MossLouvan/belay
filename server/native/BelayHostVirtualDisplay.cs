@@ -113,13 +113,71 @@ static class BelayVirtualDisplay
         {
             CheckProtocol(device);
             VddMonitorOut result = IoctlIn<VddMode, VddMonitorOut>(device, IOCTL_ADD_MONITOR, mode);
+            // The driver reports the mode it offered; Windows may still restore
+            // the mode it remembers for this (fixed-GUID) monitor. Apply the
+            // requested one explicitly, so "change resolution" works every time
+            // and not only on the first create of a session.
+            string applied = ApplyMode(result.Mode);
             var display = new Dictionary<string, object> {
                 { "W", (int)result.Mode.Width }, { "H", (int)result.Mode.Height },
                 { "hz", (int)result.Mode.RefreshHz },
                 { "name", "Belay Virtual Display Adapter" },
+                { "applied", applied },
             };
             return new Dictionary<string, object> { { "id", id }, { "ok", true }, { "display", display } };
         }
+    }
+
+    // ---- desktop mode ------------------------------------------------------
+    //
+    // Windows remembers a monitor's last mode by its container id, and the
+    // driver deliberately reuses one id so layout and scale survive sessions.
+    // The price is that a re-created monitor comes back at the remembered
+    // resolution rather than the newly requested one. ChangeDisplaySettingsEx
+    // on the arrived display is the documented way to set it; it needs the
+    // monitor to exist first, so this polls briefly for the adapter to appear.
+
+    const string AdapterName = "Belay Virtual Display Adapter";
+    const int ArrivalTimeoutMs = 5000;
+
+    /// Returns a short word for the log/reply: "ok", "unchanged", or why not.
+    static string ApplyMode(VddMode mode)
+    {
+        string deviceName = null;
+        int waited = 0;
+        while (deviceName == null && waited < ArrivalTimeoutMs)
+        {
+            deviceName = FindAdapterDeviceName();
+            if (deviceName == null) { Thread.Sleep(100); waited += 100; }
+        }
+        if (deviceName == null) return "adapter-not-found";
+
+        DEVMODE dm = new DEVMODE();
+        dm.dmSize = (ushort)Marshal.SizeOf(typeof(DEVMODE));
+        dm.dmPelsWidth = mode.Width;
+        dm.dmPelsHeight = mode.Height;
+        dm.dmDisplayFrequency = mode.RefreshHz;
+        dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
+        // Test first: a mode the driver did not enumerate is refused here
+        // without touching the desktop.
+        int test = ChangeDisplaySettingsEx(deviceName, ref dm, IntPtr.Zero, CDS_TEST, IntPtr.Zero);
+        if (test != DISP_CHANGE_SUCCESSFUL) return "rejected:" + test;
+        int rc = ChangeDisplaySettingsEx(deviceName, ref dm, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero);
+        if (rc == DISP_CHANGE_SUCCESSFUL) return "ok";
+        return "failed:" + rc;
+    }
+
+    /// The GDI device name (\\.\DISPLAYn) of the Belay adapter, or null.
+    static string FindAdapterDeviceName()
+    {
+        DISPLAY_DEVICE dd = new DISPLAY_DEVICE();
+        dd.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
+        for (uint i = 0; EnumDisplayDevices(null, i, ref dd, 0); i++)
+        {
+            if (dd.DeviceString == AdapterName) return dd.DeviceName;
+            dd.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
+        }
+        return null;
     }
 
     static Dictionary<string, object> Destroy(object id)
@@ -395,6 +453,43 @@ static class BelayVirtualDisplay
     }
 
     // ---- P/Invoke ----------------------------------------------------------
+
+    const uint DM_PELSWIDTH = 0x00080000, DM_PELSHEIGHT = 0x00100000, DM_DISPLAYFREQUENCY = 0x00400000;
+    const uint CDS_UPDATEREGISTRY = 0x00000001, CDS_TEST = 0x00000002;
+    const int DISP_CHANGE_SUCCESSFUL = 0;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct DISPLAY_DEVICE
+    {
+        public int cb;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+        public uint StateFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct DEVMODE
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+        public ushort dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;
+        public uint dmFields;
+        public int dmPositionX, dmPositionY;
+        public uint dmDisplayOrientation, dmDisplayFixedOutput;
+        public short dmColor, dmDuplex, dmYResolution, dmTTOption, dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+        public ushort dmLogPixels;
+        public uint dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency;
+        public uint dmICMMethod, dmICMIntent, dmMediaType, dmDitherType, dmReserved1, dmReserved2;
+        public uint dmPanningWidth, dmPanningHeight;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern bool EnumDisplayDevices(string device, uint index, ref DISPLAY_DEVICE displayDevice, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int ChangeDisplaySettingsEx(string deviceName, ref DEVMODE devMode, IntPtr hwnd, uint flags, IntPtr param);
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     static extern SafeFileHandle CreateFileW(string fileName, uint desiredAccess, uint shareMode,
