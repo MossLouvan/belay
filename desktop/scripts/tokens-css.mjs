@@ -43,18 +43,22 @@ export const OUTFIT_FACES = Object.freeze([
 const fontFace = ({ weight, file }) =>
   `@font-face {\n  font-family: "Outfit";\n  font-style: normal;\n  font-weight: ${weight};\n  font-display: block;\n  src: url("fonts/${file}") format("truetype");\n}`;
 
-/** The sans stack: the app's family first, then the platform faces behind it. */
-export const sansStack = (font) => `"${font.sans}", -apple-system, "Segoe UI", system-ui, sans-serif`;
+/**
+ * The sans stack. A single family (e.g. "Outfit") is quoted and gets the
+ * platform faces behind it; a value that is already a stack is used as-is.
+ */
+export const sansStack = (font) =>
+  font.sans.includes(',') ? font.sans : `"${font.sans}", -apple-system, "Segoe UI", system-ui, sans-serif`;
 
 const fontDeclarations = (font) => [
   declaration('sans', sansStack(font)),
   declaration('mono', font.mono),
 ];
 
-const typeDeclarations = (type) =>
+const typeDeclarations = (type, font) =>
   Object.entries(type).flatMap(([variant, style]) => {
     const name = `type-${kebab(variant)}`;
-    const family = style.fontFamily === 'Outfit' ? 'var(--sans)' : 'var(--mono)';
+    const family = style.fontFamily === font.sans ? 'var(--sans)' : 'var(--mono)';
     return [
       declaration(`${name}-family`, family),
       declaration(`${name}-size`, px(style.fontSize)),
@@ -115,7 +119,7 @@ export function renderTokensCss(theme, hud) {
       '',
       '  /* type: mono is the computer speaking, sans is Belay speaking */',
       ...fontDeclarations(theme.font),
-      ...typeDeclarations(theme.type),
+      ...typeDeclarations(theme.type, theme.font),
       '',
       '  /* spacing — strict 4pt base */',
       ...scaleDeclarations('space', theme.space),

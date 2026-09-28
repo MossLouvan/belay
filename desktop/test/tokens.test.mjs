@@ -13,7 +13,7 @@ import { groundFromTheme, renderGroundJs } from '../scripts/ground-js.mjs';
 import { HUD_KEYS, loadHud, parseHud } from '../scripts/hud-source.mjs';
 import { OUTPUTS, generate } from '../scripts/sync-tokens.mjs';
 import { loadDarkFirst, loadTheme, parseDarkFirst } from '../scripts/theme-source.mjs';
-import { OUTFIT_FACES, kebab, parseTokensCss, renderTokensCss } from '../scripts/tokens-css.mjs';
+import { OUTFIT_FACES, kebab, parseTokensCss, renderTokensCss, sansStack } from '../scripts/tokens-css.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const rendererDir = resolve(here, '..', 'renderer');
@@ -87,7 +87,7 @@ test('every type variant carries size, line, weight, tracking and transform', ()
 
 test('font families match the theme and the Outfit faces exist on disk', () => {
   const root = parseTokensCss(onDisk.css)[':root'];
-  assert.ok(root.sans.startsWith(`"${theme.font.sans}"`), '--sans leads with the app sans');
+  assert.equal(root.sans, sansStack(theme.font), '--sans is the app sans stack');
   assert.equal(root.mono, theme.font.mono);
   for (const face of OUTFIT_FACES) {
     const path = resolve(rendererDir, 'fonts', face.file);
