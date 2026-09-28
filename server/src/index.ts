@@ -19,7 +19,7 @@ import { URL } from 'node:url';
 
 import {
   loadState, addDevice, findDevice, findDeviceById, touchDevice, setHostName, getHostName, listDevices,
-  revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, stateFilePath, Device,
+  revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, stateFilePath, Device, PairedDevice,
 } from './state.js';
 import { ensureTlsIdentity } from './tls-cert.js';
 import { createPolyglotServer, transportAllowed, PLAINTEXT_REFUSED, PLAINTEXT_REFUSED_STATUS } from './transport.js';
@@ -269,7 +269,7 @@ function identity() {
 }
 
 /** What /pair hands a new device: its token, plus what it needs to verify this host later. */
-function pairReply(device: Device) {
+function pairReply(device: PairedDevice) {
   return {
     token: device.token,
     name: getHostName(),
@@ -1905,14 +1905,15 @@ server.on('error', (e: NodeJS.ErrnoException) => {
  */
 let listening = false;
 
-// BELAY_BIND. One http.Server can bind one address, so `tailnet` (loopback +
-// the Tailscale address) and an explicit list get one extra server per
-// additional address, each handing its upgrades to the single handler above.
+// BELAY_BIND. One listener binds one address, so `tailnet` (loopback + the
+// Tailscale address) and an explicit list get one extra listener per
+// additional address. Each is another TLS/plain sniffer in front of the SAME
+// two HTTP servers (transport.ts), so every bound address gets the same
+// certificate, the same plaintext rule and the same upgrade handler.
 const bind = configuredBind();
 if (bind.warning) console.warn(`[server] BELAY_BIND=${bind.setting}: ${bind.warning}`);
 for (const host of bind.hosts.slice(1)) {
-  const extra = createServer(app);
-  extra.on('upgrade', (req, socket, head) => server.emit('upgrade', req, socket, head));
+  const extra = createPolyglotServer(plainServer, secureServer);
   extra.on('error', (e: NodeJS.ErrnoException) => console.error(`[server] failed to bind ${host}:${PORT}: ${e.message}`));
   extra.listen(PORT, host);
 }
