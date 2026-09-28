@@ -42,12 +42,12 @@ works on macOS and Windows. If you prefer to be explicit there is also
 ```
   Belay host agent running on your Mac
   ─────────────────────────
-  Host name : Mosss-MacBook-Air.local
+  Host name : your-mac.local
   Port      : 8787
   Native    : ready (screen + input)
 
   Reachable at:
-    http://192.168.1.183:8787
+    http://192.168.1.20:8787
     http://100.101.102.103:8787   (Tailscale)
 
   macOS permissions (required for the Screen tab):

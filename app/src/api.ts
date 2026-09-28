@@ -185,7 +185,7 @@ export interface DiscoveredHost {
   id: string;
   label: string;
   platform: string;
-  /** The peer's name on the tailnet, e.g. "DESKTOP-BB4FRER". */
+  /** The peer's name on the tailnet, e.g. "DESKTOP-EXAMPLE". */
   tailnetName: string;
   /** The address the reporting host reached it on. */
   url: string;

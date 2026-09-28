@@ -26,16 +26,16 @@ function statusJson(peers: object): string {
 }
 
 const windowsPeer = {
-  HostName: 'DESKTOP-BB4FRER',
+  HostName: 'DESKTOP-EXAMPLE',
   OS: 'windows',
-  TailscaleIPs: ['100.82.170.69', 'fd7a:115c:a1e0::1'],
+  TailscaleIPs: ['100.64.10.20', 'fd7a:115c:a1e0::1'],
   Online: true,
 };
 
 const phonePeer = {
   HostName: 'localhost',
   OS: 'iOS',
-  TailscaleIPs: ['100.98.143.59'],
+  TailscaleIPs: ['100.64.10.30'],
   Online: true,
 };
 
@@ -46,7 +46,7 @@ const belayHealth: PeerHealth & { ok: true } = {
   platform: 'win32',
   addresses: [
     { kind: 'lan', url: 'http://192.168.1.9:8787' },
-    { kind: 'tailscale', url: 'http://100.82.170.69:8787' },
+    { kind: 'tailscale', url: 'http://100.64.10.20:8787' },
   ],
 };
 
@@ -64,8 +64,8 @@ function deps(overrides: Partial<DiscoveryDeps>): DiscoveryDeps {
 test('parsePeers reads hostname, OS, IPv4 and online state', () => {
   const peers = parsePeers(statusJson({ k1: windowsPeer, k2: { ...phonePeer, Online: false } }));
   assert.deepEqual(peers, [
-    { hostName: 'DESKTOP-BB4FRER', os: 'windows', ip: '100.82.170.69', online: true },
-    { hostName: 'localhost', os: 'iOS', ip: '100.98.143.59', online: false },
+    { hostName: 'DESKTOP-EXAMPLE', os: 'windows', ip: '100.64.10.20', online: true },
+    { hostName: 'localhost', os: 'iOS', ip: '100.64.10.30', online: false },
   ]);
 });
 
@@ -115,29 +115,29 @@ test('a peer running Belay is reported with its identity and addresses', async (
     probe: async (url) => {
       probed.push(url);
       // Only the PC answers: nothing listens on the phone's port.
-      return url.includes('100.82.170.69') ? parsePeerHealth(belayHealth) : null;
+      return url.includes('100.64.10.20') ? parsePeerHealth(belayHealth) : null;
     },
   }));
   assert.equal(scan.tailscale, true);
-  assert.deepEqual(probed.sort(), ['http://100.82.170.69:8787', 'http://100.98.143.59:8787']);
+  assert.deepEqual(probed.sort(), ['http://100.64.10.20:8787', 'http://100.64.10.30:8787']);
   assert.equal(scan.hosts.length, 1);
   const host = scan.hosts.find((h) => h.id === 'pc-uuid');
-  assert.equal(host?.tailnetName, 'DESKTOP-BB4FRER');
-  assert.equal(host?.url, 'http://100.82.170.69:8787');
+  assert.equal(host?.tailnetName, 'DESKTOP-EXAMPLE');
+  assert.equal(host?.url, 'http://100.64.10.20:8787');
   assert.equal(host?.addresses.length, 2);
 });
 
 test('a foreign-tailnet peer is never probed and never reported', async () => {
   const probed: string[] = [];
   const scan = await scanTailnet(8787, deps({
-    whois: async (ip) => ip === '100.82.170.69'
+    whois: async (ip) => ip === '100.64.10.20'
       ? { login: 'stranger@example.com', node: 'shared-node' }
       : { login: OWNER, node: 'phone' },
     probe: async (url) => { probed.push(url); return parsePeerHealth(belayHealth); },
   }));
   // The shared node is excluded even though it would have answered as Belay.
-  assert.equal(probed.includes('http://100.82.170.69:8787'), false);
-  assert.deepEqual(scan.hosts.map((h) => h.url), ['http://100.98.143.59:8787']);
+  assert.equal(probed.includes('http://100.64.10.20:8787'), false);
+  assert.deepEqual(scan.hosts.map((h) => h.url), ['http://100.64.10.30:8787']);
 });
 
 test('a peer whois cannot identify is excluded, not guessed at', async () => {
@@ -195,7 +195,7 @@ test('a closed port resolves to null rather than throwing', async () => {
 
 test('the asker is subtracted from both the hosts and the peer count', async () => {
   resetDiscoveryCache();
-  const reply = await discoverPeerHosts(8787, '::ffff:100.98.143.59', deps({
+  const reply = await discoverPeerHosts(8787, '::ffff:100.64.10.30', deps({
     probe: async () => parsePeerHealth(belayHealth),
   }));
   assert.equal(reply.tailscale, true);

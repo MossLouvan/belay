@@ -14,11 +14,11 @@ const pcHost = {
   id: 'pc-uuid',
   label: 'Windows PC',
   platform: 'win32',
-  tailnetName: 'DESKTOP-BB4FRER',
-  url: 'http://100.82.170.69:8787',
+  tailnetName: 'DESKTOP-EXAMPLE',
+  url: 'http://100.64.10.20:8787',
   addresses: [
     { kind: 'lan', url: 'http://192.168.1.9:8787' },
-    { kind: 'tailscale', url: 'http://100.82.170.69:8787' },
+    { kind: 'tailscale', url: 'http://100.64.10.20:8787' },
   ],
 };
 
@@ -61,16 +61,16 @@ test('a legacy-id computer is recognised by address overlap, not id', () => {
 test('candidates keep the advertised order and never duplicate the proven URL', () => {
   assert.deepEqual(candidateUrls(pcHost), [
     'http://192.168.1.9:8787',
-    'http://100.82.170.69:8787',
+    'http://100.64.10.20:8787',
   ]);
 });
 
 test('a proven URL the host does not advertise is appended', () => {
-  const proxied = { ...pcHost, url: 'http://100.82.170.69:9999' };
+  const proxied = { ...pcHost, url: 'http://100.64.10.20:9999' };
   assert.deepEqual(candidateUrls(proxied), [
     'http://192.168.1.9:8787',
-    'http://100.82.170.69:8787',
-    'http://100.82.170.69:9999',
+    'http://100.64.10.20:8787',
+    'http://100.64.10.20:9999',
   ]);
 });
 

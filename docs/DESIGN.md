@@ -349,7 +349,7 @@ segmented control in a sixth card.
 **After:** one continuous ledger.
 
 ```
-MOSSS-MACBOOK-AIR.LOCAL            (title, 28 UPPER, one line)
+YOUR-MAC.LOCAL                     (title, 28 UPPER, one line)
 ● LIVE · UPDATED 2S AGO            (label; dot = accentGraphic, pulsing)
 ────────────────────────────────── (hairline, full bleed)
 
@@ -387,7 +387,7 @@ FILES · 92 ITEMS                   (title + mono count on one line)
 ──────────────────────────────────
 HOME   DESKTOP   DOCUMENTS   DOWNLOADS      (label text-tabs; active = accent
 ━━━━                                         + 2pt underline; scrolls horizontally)
-/USERS/MOSSLOUVAN                  (mono path, tappable = go-to sheet; ↑ parent
+/USERS/YOU                         (mono path, tappable = go-to sheet; ↑ parent
                                     action flush right on the same row)
 [ Filter this folder…            ] (surface-filled input, 1 hairline border,
 ──────────────────────────────────  2pt radius — the only filled control)

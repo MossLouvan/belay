@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 
 import { checkedAtLabel, detectDeadEnd, reopenPairingCommand } from './dead-end.ts';
 
-const lan = { kind: 'lan', url: 'http://192.168.0.81:8787' };
-const ts = { kind: 'tailscale', url: 'http://100.108.50.23:8787' };
+const lan = { kind: 'lan', url: 'http://192.168.1.30:8787' };
+const ts = { kind: 'tailscale', url: 'http://100.64.10.40:8787' };
 
 /** A modern, already-paired host that requires a code from this connection. */
 const pairedHost = (extra = {}) => ({

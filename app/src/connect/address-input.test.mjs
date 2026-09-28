@@ -58,13 +58,13 @@ test('https keeps its scheme and does not get 8787 forced on it', () => {
 });
 
 test('a MagicDNS name is a tailnet address', () => {
-  const parsed = ok('mosss-macbook-air.tail1234.ts.net');
+  const parsed = ok('your-mac.tail1234.ts.net');
   assert.equal(parsed.family, 'magicdns');
-  assert.equal(parsed.url, 'http://mosss-macbook-air.tail1234.ts.net:8787');
+  assert.equal(parsed.url, 'http://your-mac.tail1234.ts.net:8787');
 });
 
 test('MagicDNS names are lower-cased so the same computer is one address', () => {
-  assert.equal(ok('Mosss-MacBook-Air.tail1234.ts.net').host, 'mosss-macbook-air.tail1234.ts.net');
+  assert.equal(ok('Your-Mac.tail1234.ts.net').host, 'your-mac.tail1234.ts.net');
 });
 
 test('trailing and leading whitespace from a sloppy copy is ignored', () => {

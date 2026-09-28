@@ -74,7 +74,7 @@ export function isTailscaleIPv4(host: string): boolean {
   return a === 100 && b >= 64 && b <= 127;
 }
 
-/** A MagicDNS name — `mosss-macbook-air.tail1234.ts.net`. */
+/** A MagicDNS name — `your-mac.tail1234.ts.net`. */
 export function isMagicDnsName(host: string): boolean {
   return /\.ts\.net$/i.test(host) && isHostname(host);
 }

@@ -15,8 +15,8 @@ import {
   readGuideDetection,
 } from './tailscale-flow.ts';
 
-const lanUrl = 'http://192.168.0.81:8787';
-const tsUrl = 'http://100.108.50.23:8787';
+const lanUrl = 'http://192.168.1.30:8787';
+const tsUrl = 'http://100.64.10.40:8787';
 const lan = { kind: 'lan', url: lanUrl };
 const ts = { kind: 'tailscale', url: tsUrl };
 

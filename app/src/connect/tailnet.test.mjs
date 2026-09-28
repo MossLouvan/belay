@@ -12,8 +12,8 @@ import {
   tailnetUrlFrom,
 } from './tailnet.ts';
 
-const lan = { kind: 'lan', url: 'http://192.168.0.81:8787' };
-const ts = { kind: 'tailscale', url: 'http://100.108.50.23:8787' };
+const lan = { kind: 'lan', url: 'http://192.168.1.30:8787' };
+const ts = { kind: 'tailscale', url: 'http://100.64.10.40:8787' };
 const magic = { kind: 'magicdns', url: 'http://mac.tail1234.ts.net:8787' };
 
 const host = (extra = {}) => ({ ok: true, addresses: [lan, ts], ...extra });
@@ -66,7 +66,7 @@ test('a LAN-only host has no upgrade to offer', () => {
 test('does not re-check the address it just checked', () => {
   // Same host, written differently — re-checking costs a round trip and can
   // only return what we already have.
-  const variants = ['100.108.50.23:8787', 'http://100.108.50.23', '100.108.50.23/'];
+  const variants = ['100.64.10.40:8787', 'http://100.64.10.40', '100.64.10.40/'];
   for (const written of variants) {
     assert.deepEqual(
       planTailnetUpgrade(host({ pairing: 'code' }), written),

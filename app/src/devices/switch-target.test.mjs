@@ -22,7 +22,7 @@ function device(id, label) {
 }
 
 const mac = device('mac-uuid', 'MacBook Air');
-const pc = device('pc-uuid', 'DESKTOP-BB4FRER');
+const pc = device('pc-uuid', 'DESKTOP-EXAMPLE');
 const third = device('third-uuid', 'Studio Mac');
 
 // ---- target selection ----------------------------------------------------
@@ -59,12 +59,12 @@ test('an active id that is not one of the two names no destination', () => {
 
 test('the label names the destination, so the tap is predictable', () => {
   const q = quickSwitch([mac, pc], mac);
-  assert.equal(q.text, '⇄ DESKTOP-BB4FRER');
+  assert.equal(q.text, '⇄ DESKTOP-EXAMPLE');
   assert.equal(q.target.id, pc.id);
 });
 
 test('the spoken label names the destination and the hint names the cost', () => {
   const q = quickSwitch([mac, pc], pc);
   assert.equal(q.accessibilityLabel, 'Switch to MacBook Air.');
-  assert.equal(q.accessibilityHint, 'Disconnects from DESKTOP-BB4FRER.');
+  assert.equal(q.accessibilityHint, 'Disconnects from DESKTOP-EXAMPLE.');
 });

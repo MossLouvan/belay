@@ -60,7 +60,7 @@ From `/tmp/belay_visuals/*.png` and the code that renders them:
 
 ## 3. Tokens (paste-ready)
 
-All changes land in `/Users/mosslouvan/projects/belay/app/src/theme.ts`. Existing verified hexes
+All changes land in `~/projects/belay/app/src/theme.ts`. Existing verified hexes
 are **kept** (they pass the WCAG worst-case discipline already documented there); the revamp
 adds depth roles, retires pulse motion, and re-grounds the naming in the alpine identity.
 Re-run the contrast script in docs/DESIGN-TOKENS.md §9 for every NEW hex before merging.

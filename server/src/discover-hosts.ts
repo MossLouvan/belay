@@ -122,7 +122,7 @@ export interface DiscoveredHost {
   readonly id: string;
   readonly label: string;
   readonly platform: string;
-  /** The peer's name on the tailnet, e.g. "DESKTOP-BB4FRER". */
+  /** The peer's name on the tailnet, e.g. "DESKTOP-EXAMPLE". */
   readonly tailnetName: string;
   /** The URL this host reached it on — proven from here, worth trying first. */
   readonly url: string;

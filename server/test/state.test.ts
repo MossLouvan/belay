@@ -157,7 +157,7 @@ test('a pre-v1 file without hostId is migrated and keeps its devices', () => {
 });
 
 test('label is editable and persists', () => {
-  setHostName('Mosss-MacBook-Air.local');
+  setHostName('your-mac.local');
   setLabel('MacBook Air');
   assert.equal(getLabel(), 'MacBook Air');
   loadState();

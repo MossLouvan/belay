@@ -47,12 +47,12 @@ test('isTunnelInterface knows a tunnel from a physical adapter', () => {
 });
 
 test('an ISP CGNAT address on Wi-Fi is NOT Tailscale', () => {
-  // Observed in practice: a Mac with no Tailscale installed had 100.68.229.206
+  // Observed in practice: a Mac with no Tailscale installed had 100.64.10.50
   // on en0, handed out by the ISP. Calling that Tailscale made the host claim
   // it was reachable from anywhere when the truth is the opposite — behind
   // CGNAT there is no public address and nothing to port-forward.
-  assert.equal(isTailscaleAddress('100.68.229.206', 'en0'), false);
-  assert.equal(isCgnatAddress('100.68.229.206'), true, 'still in the range, though');
+  assert.equal(isTailscaleAddress('100.64.10.50', 'en0'), false);
+  assert.equal(isCgnatAddress('100.64.10.50'), true, 'still in the range, though');
 });
 
 test('a CGNAT address on a tunnel interface is Tailscale', () => {
@@ -130,7 +130,7 @@ test('hasStableAddress is false for an empty list', () => {
 
 test('a host behind ISP CGNAT is not reported as reachable from anywhere', () => {
   // The exact situation on the owner's Mac: one address, 100.x, on en0.
-  const addresses = buildAddresses(8787, [], [on('100.68.229.206', 'en0')]);
+  const addresses = buildAddresses(8787, [], [on('100.64.10.50', 'en0')]);
   assert.equal(addresses[0].kind, 'lan', 'classified as local, not tailscale');
   assert.equal(hasStableAddress(addresses), false, 'must not promise remote reachability');
 });

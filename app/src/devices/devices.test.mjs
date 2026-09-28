@@ -176,12 +176,12 @@ test('isReachableFromAnywhere is false for a LAN-only computer', () => {
 
 test('an existing single connection migrates without re-pairing', () => {
   const store = migrateLegacy(
-    { host: 'http://192.168.1.5:8787', token: 'old-token', hostName: 'Mosss-MacBook' },
+    { host: 'http://192.168.1.5:8787', token: 'old-token', hostName: 'Example-MacBook' },
     123,
   );
   assert.equal(store.devices.length, 1);
   assert.equal(store.devices[0].token, 'old-token', 'the token survives — nobody re-pairs');
-  assert.equal(store.devices[0].label, 'Mosss-MacBook');
+  assert.equal(store.devices[0].label, 'Example-MacBook');
   assert.equal(store.activeId, store.devices[0].id);
   assert.ok(isLegacyId(store.devices[0].id));
 });

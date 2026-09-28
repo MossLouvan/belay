@@ -186,14 +186,14 @@ gate was stale and made a fully working machine look incapable. The control is
 no longer tied to `webrtcAvailable` — frame rate, bitrate and codec still are,
 because those genuinely need it.
 
-**Windows PC (DESKTOP-BB4FRER) — the host software is out of date.** Probed
+**Windows PC (DESKTOP-EXAMPLE) — the host software is out of date.** Probed
 read-only over Tailscale:
 
 ```
-$ curl -o /dev/null -w '%{http_code}' http://100.82.170.69:8787/audio/status   -> 404
-$ curl -o /dev/null -w '%{http_code}' http://100.82.170.69:8787/screen/info    -> 401
-$ curl http://100.82.170.69:8787/health
-{"ok":true,"name":"DESKTOP-BB4FRER",...,"platform":"win32",...}      # note: no "bwp" field
+$ curl -o /dev/null -w '%{http_code}' http://100.64.10.20:8787/audio/status   -> 404
+$ curl -o /dev/null -w '%{http_code}' http://100.64.10.20:8787/screen/info    -> 401
+$ curl http://100.64.10.20:8787/health
+{"ok":true,"name":"DESKTOP-EXAMPLE",...,"platform":"win32",...}      # note: no "bwp" field
 ```
 
 A 404 where `/screen/info` gives 401 means the route does not exist, i.e.

@@ -54,6 +54,6 @@ test('opaque origins are treated as non-browser clients', () => {
 
 test('a real web origin is still checked against the host allow-list', () => {
   assert.equal(isTrustedOrigin('http://evil.example'), false);
-  assert.equal(isTrustedOrigin('http://192.168.0.35:8787'), true);
+  assert.equal(isTrustedOrigin('http://192.168.1.35:8787'), true);
   assert.equal(isTrustedOrigin('not a url'), false);
 });

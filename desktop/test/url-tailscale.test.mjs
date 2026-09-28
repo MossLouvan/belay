@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { hostOrigin, isTailscaleOrigin } from '../src/url.js';
 
 test('a Tailscale CGNAT address is recognised', () => {
-  assert.equal(isTailscaleOrigin(hostOrigin('100.82.170.69')), true);
+  assert.equal(isTailscaleOrigin(hostOrigin('100.64.10.20')), true);
   assert.equal(isTailscaleOrigin('http://100.64.0.1:8787'), true);
   assert.equal(isTailscaleOrigin('http://100.127.255.254:8787'), true);
 });
