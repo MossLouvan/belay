@@ -10,6 +10,7 @@ import { BelayStreamView } from '../../modules/belay-stream/src';
 import type { QualityPreset, ResolutionOption } from './model';
 import type { HostFacts, StreamState } from './stream';
 import type { StreamPresets } from './use-stream-presets';
+import { LABS } from '../labs';
 
 const BWP_CHOICES: readonly { value: BwpPreference; label: string }[] = [
   { value: 'auto', label: 'Auto' },
@@ -83,7 +84,7 @@ export function QualitySheet({
         {/* True-resolution picker — only when the host advertises the virtual
             display driver. On every other host the physical-downscale path
             above is the whole story, so the section simply does not appear. */}
-        {vdAvailable ? (
+        {LABS && vdAvailable ? (
           <ResolutionSection resolutions={resolutions} resolution={resolution} onSelect={setResolutionId} />
         ) : null}
       </Column>

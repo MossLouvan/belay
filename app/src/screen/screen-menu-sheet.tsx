@@ -9,6 +9,7 @@ import type { QualityPreset } from './model';
 import { performanceSummary } from './screen-chrome';
 import type { StreamSettings } from './stream-settings-sheet';
 import type { HostAudioStatus } from '../stream/audio-player';
+import { LABS } from '../labs';
 
 export interface ScreenMenuSheetProps {
   readonly visible: boolean;
@@ -62,7 +63,7 @@ export function ScreenMenuSheet({
           accessibilityHint="Toggles the fps, bitrate and ping overlay"
           onPress={onToggleHud}
         />
-        <ListItem
+        {LABS ? <ListItem
           testID="toggle-audio"
           title="Host audio"
           // On a failure this is the ONE place the whole reason fits, so it
@@ -77,7 +78,7 @@ export function ScreenMenuSheet({
           selected={audioOn}
           accessibilityHint="Plays the computer's system audio through this phone's speaker"
           onPress={onToggleAudio}
-        />
+        /> : null}
         <ListItem
           testID="screen-help"
           title="Controls & permissions"

@@ -25,6 +25,10 @@ import { getTheme, useTheme } from '../theme';
 import { Txt, haptic } from '../ui';
 import { HUD } from './parts';
 import { POINTER_MODE_OPTIONS } from './dock-modes';
+import { LABS } from '../labs';
+
+/** Gaming is a labs surface: hidden from the store build. */
+const MODE_OPTIONS = LABS ? POINTER_MODE_OPTIONS : POINTER_MODE_OPTIONS.filter((option) => option.id !== 'gaming');
 
 /** The ink set a boxed control needs, resolved once per render. */
 interface BoxedInks {
@@ -81,7 +85,7 @@ export function ModeSwitch({ mode, onModeChange, floating = false, testID, style
         {
           flexDirection: 'row',
           minHeight: theme.layout.minTouch,
-          minWidth: POINTER_MODE_OPTIONS.length * (theme.layout.minTouch + theme.space.xs),
+          minWidth: MODE_OPTIONS.length * (theme.layout.minTouch + theme.space.xs),
           borderWidth: theme.layout.hairline,
           borderColor: inks.border,
           borderRadius: theme.radius.xs,
@@ -90,7 +94,7 @@ export function ModeSwitch({ mode, onModeChange, floating = false, testID, style
         style,
       ]}
     >
-      {POINTER_MODE_OPTIONS.map((option, index) => {
+      {MODE_OPTIONS.map((option, index) => {
         const active = option.id === mode;
         return (
           <Pressable
