@@ -41,10 +41,10 @@ export function EmptyComputers({ onAdd, onOpenOptions }: EmptyComputersProps) {
             gap: theme.space.xs,
           }}
         >
-          <Txt variant="subheading">Start the host agent</Txt>
+          <Txt variant="subheading">Install Belay on your computer</Txt>
           <Txt variant="body" tone="dim">
-            Run Belay on your Mac or Windows PC, then add it here with the address it
-            prints. The phone remembers it after that.
+            Get it at gobelay.com (or run npx belay-host), then add it here with the address
+            and code it shows. The phone remembers it after that.
           </Txt>
         </View>
         <AddComputerRow onPress={onAdd} testID="add-a-computer" />

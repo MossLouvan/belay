@@ -96,7 +96,7 @@ test('an upgrade plan that was never probed stays honest: untried', () => {
 // duplicates it on the next pair. --reset-pairing clears only the devices and
 // keeps the machine's identity and label.
 test('the reopen instruction resets pairing without deleting state', () => {
-  const expected = 'cd server\nnpm start -- --reset-pairing';
+  const expected = 'npx belay-host --reset-pairing';
   assert.equal(reopenPairingCommand('darwin'), expected);
   assert.equal(reopenPairingCommand('win32'), expected);
   assert.equal(reopenPairingCommand(undefined), expected);

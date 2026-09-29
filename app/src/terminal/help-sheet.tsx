@@ -60,7 +60,7 @@ export function TerminalHelpSheet({ visible, onClose }: TerminalHelpSheetProps) 
         <Txt variant="bodyStrong">If the header says “shell” instead of “pty”</Txt>
         <Caption>
           The computer is running without a real terminal, so there is no tab completion, cursor drawing or job
-          control. Install node-pty next to the host agent and restart it to get the full terminal back.
+          control. Update Belay on your computer and restart it to get the full terminal back.
         </Caption>
       </ScrollView>
     </Sheet>

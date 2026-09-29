@@ -44,7 +44,7 @@ export function useAutostart(): AutostartControl {
       const reply = on ? await api.autostartEnable() : await api.autostartDisable();
       setStatus({ supported: true, installed: reply.installed });
       if (reply.restarting) {
-        setError('Belay on that computer was started by autostart, so it is stopping now. Start it again by hand with npm start.');
+        setError('Belay on that computer was started by autostart, so it is stopping now. Open Belay on your computer to start it again.');
       }
     } catch (e: unknown) {
       setError(errorMessage(e));

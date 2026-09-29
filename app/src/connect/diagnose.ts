@@ -45,7 +45,7 @@ function mixedContentHint(url: string): string {
 }
 
 const REACHABILITY_STEPS =
-  'Check that the host agent is running on your PC (npm start in the server folder), that the address matches one it printed, and that both devices are on the same network. Away from home, use the PC\'s Tailscale address (100.x.y.z).';
+  'Check that Belay is running on your computer, that the address matches the one it shows, and that both devices are on the same network. Away from home, use the PC\'s Tailscale address (100.x.y.z).';
 
 /** Explains why `/health` did not answer, or answered with something unexpected. */
 export function diagnoseHostFailure(url: string, raw?: string): Diagnosis {
