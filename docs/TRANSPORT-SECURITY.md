@@ -137,3 +137,11 @@ client or TestFlight build to test the LAN path; Tailscale works in Expo Go.
 
 If Belay ever moves to a relay-based transport where the network is untrusted,
 this becomes app-layer end-to-end encryption instead.
+
+## Export compliance (App Store)
+
+`ITSAppUsesNonExemptEncryption` is `true`: the app ships ChaCha20-Poly1305
+(crates/belay-wire, via the xcframework) plus pinned TLS, so it no longer
+qualifies for the "only uses OS encryption" exemption. It uses standard
+published algorithms only, which self-classifies as mass-market 5D992.c — no
+CCATS/ERN needed, just the annual BIS self-classification report.
