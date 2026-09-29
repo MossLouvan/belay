@@ -1936,8 +1936,8 @@ server.listen(PORT, bind.hosts[0], () => {
   console.log(`  Hooks     : ${hooksBannerLine()}`);
   console.log(`  Notify    : ${notifyBannerLine()}`);
   // Printed because it is the answer to "why did my phone lose the pairing":
-  // the file defaults to process.cwd(), so a start from another folder without
-  // BELAY_STATE_FILE is a fresh, unpaired host with a new id.
+  // see data-dir.ts for which file wins (BELAY_STATE_FILE, a file beside the
+  // process, or the per-user data dir).
   console.log(`  State     : ${stateFilePath()}`);
   console.log(`  Bind      : ${bindBannerLine(bind)}`);
   // Async because it asks launchctl / Task Scheduler; printed as soon as it answers.

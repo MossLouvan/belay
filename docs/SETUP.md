@@ -24,7 +24,22 @@ Then continue with [the phone](#3-phone-run-the-app),
 - Xcode command line tools, for building the native screen/input helper:
   `xcode-select --install`
 
-### 2. Build and run
+### 2. Run
+
+```bash
+npx belay-host
+```
+
+On first run it compiles the native helper with `swiftc` (macOS) or `csc.exe`
+(Windows); if the toolchain is missing it says what to install and starts
+without the Screen tab. The state file and TLS key/certificate go in the
+per-user data directory — `~/Library/Application Support/Belay` on macOS,
+`%APPDATA%\Belay` on Windows, `~/.config/belay` on Linux — so it does not
+matter which folder you run it from. `BELAY_STATE_FILE` still overrides
+that, and an existing `belay-state.json` beside the process is still used, so
+an older install keeps its pairings.
+
+**From a checkout instead:**
 
 ```bash
 cd server
@@ -37,7 +52,7 @@ npm start
 works on macOS and Windows. If you prefer to be explicit there is also
 `npm run build:native:mac` and `npm run build:native:win`.
 
-`npm start` prints something like:
+Either way the host prints something like:
 
 ```
   Belay host agent running on your Mac
@@ -133,7 +148,15 @@ absolute path) to override. Sessions start in your home directory with
 - The .NET Framework (already on every Windows machine) — used to build the
   tiny native helper that captures the screen and injects input.
 
-### 2. Build and run
+### 2. Run
+
+```powershell
+npx belay-host
+```
+
+First run compiles `native\BelayHost.exe` with `csc.exe` (the .NET Framework
+compiler that ships with Windows). State and the TLS certificate go in
+`%APPDATA%\Belay`. From a checkout instead:
 
 ```powershell
 cd server
@@ -142,7 +165,7 @@ npm run build:native   # compiles native\BelayHost.exe
 npm start
 ```
 
-`npm start` prints something like:
+The host prints something like:
 
 ```
   Belay host agent running on your PC
@@ -356,7 +379,7 @@ regardless.
 | `BELAY_ALLOWED_ORIGINS` | `http://localhost:8081,http://127.0.0.1:8081` | Browser origins allowed by CORS (the local web build) |
 | `BELAY_HOSTS` | *(empty)* | Extra hostnames accepted in the `Host` header, comma-separated. IP literals, `localhost` and `*.local` are always accepted; anything else is refused to defeat DNS rebinding. Add your Tailscale MagicDNS name here if you connect by name |
 | `BELAY_LOCAL_PRIORITY` | `0` | `1` freezes remote input for 3 s whenever the host's own mouse or keyboard is used ("someone is using this computer directly"). Off by default so you can sit at the PC and drive it from the phone at the same time |
-| `BELAY_STATE_FILE` | `<cwd>/belay-state.json` | Where pairings and this host's id live. Set it, or always run `npm start` from `server/`; started from anywhere else the host comes up as a brand-new, unpaired machine |
+| `BELAY_STATE_FILE` | per-user data dir | Where pairings, this host's id and the TLS key/certificate live. Default: `~/Library/Application Support/Belay/belay-state.json` (macOS), `%APPDATA%\Belay\belay-state.json` (Windows), `~/.config/belay/belay-state.json` (Linux) — unless a `belay-state.json` (or legacy `tether-state.json`) already sits in the current directory, which keeps being used so older installs stay paired |
 | `BELAY_TAILNET_PAIR` | `1` | Pair without a code for devices on the host's own Tailscale account (`0` to always require the code) |
 | `BELAY_TAILSCALE_CLI` | auto | Path to the `tailscale` CLI if it is somewhere unusual |
 | `BELAY_SHELL` | platform default | Shell for the Terminal tab (`cmd` on Windows, or an absolute path on macOS) |

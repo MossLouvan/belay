@@ -46,16 +46,19 @@ through anyone else's servers.
 
 ## Quick start
 
-**1. On the computer** (macOS or Windows — same commands)
+**1. On the computer** (macOS or Windows — same command)
 
 ```bash
-cd server
-npm install
-npm run build:native   # screen capture + input helper for this platform
-npm start
+npx belay-host
 ```
 
-It prints a pairing code and the URLs it is reachable on.
+It builds the native screen/input helper on first run (needs the Xcode
+command line tools on macOS, `csc.exe` on Windows), then prints a pairing
+code and the URLs it is reachable on. State and the TLS certificate live in
+`~/Library/Application Support/Belay` (macOS), `%APPDATA%\Belay` (Windows)
+or `~/.config/belay` (Linux).
+
+From a checkout instead: `cd server && npm install && npm run build:native && npm start`.
 
 On **macOS** you must also grant two permissions before the Screen tab works —
 **System Settings → Privacy & Security → Screen & System Audio Recording** and
