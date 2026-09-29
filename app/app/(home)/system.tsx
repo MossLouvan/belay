@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { ConnectionStatus } from '../../src/ui';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
+import { SupportLinks } from '../../src/settings/support-links';
 import { api } from '../../src/api';
 import type { SystemStats } from '../../src/api';
 import { useTheme } from '../../src/theme';
@@ -315,6 +316,8 @@ function SystemTab() {
             <Label>Appearance</Label>
             <ThemeToggle testID="theme-toggle" />
           </View>
+          <Divider />
+          <SupportLinks testID="support-links" />
         </Column>
       </Card>
 
