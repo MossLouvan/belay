@@ -72,16 +72,18 @@ same code works for every reviewer device. A short screen recording of the
 flow is attached.
 
 NETWORK / ATS
-The ATS exception allows plain HTTP only to the user's own Tailscale
-addresses (100.64.0.0/10, the Tailscale CGNAT range) and their *.ts.net
-MagicDNS names. Those links are already WireGuard-encrypted by Tailscale.
-Every other connection, including the LAN and this test host, uses TLS with
-the host's certificate pinned at pairing.
+The app sets NSAllowsArbitraryLoads because the only place plain HTTP is
+used is the user's own Tailscale network (100.64.0.0/10 addresses and their
+*.ts.net MagicDNS names), which Tailscale already encrypts with WireGuard;
+those hosts have no public certificate. Every other connection, including the
+LAN and this test host, uses TLS with the host's certificate pinned at
+pairing, and the app refuses to send credentials to an unverified host.
 
 ENCRYPTION (standard algorithms only, no proprietary crypto)
   TLS 1.2+ with a pinned self-signed certificate; HMAC-SHA256 host proof
   before any token is sent; ChaCha20-Poly1305 (RFC 8439) for the stream.
-  The app qualifies for the exempt encryption category.
+  Declared in App Store Connect as using non-exempt encryption with
+  standard algorithms (mass market, 5D992.c); no proprietary crypto.
 
 2.5.2  The app downloads and executes no code. Everything it shows is a
        screen image, terminal text and file listings from the user's own
