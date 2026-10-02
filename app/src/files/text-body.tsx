@@ -35,6 +35,14 @@ export const countLines = (content: string): number => content.split('\n').lengt
 // and every space.
 const PRE_LINE: TextStyle | null = Platform.OS === 'web' ? ({ whiteSpace: 'pre' } as TextStyle) : null;
 
+// Wrap mode is a flex item, and a flex item's min-width defaults to its
+// content width — with pre-wrap, the longest line — so it never wrapped on
+// web (#140). minWidth 0 lets it shrink; `anywhere` breaks a long URL or JSON
+// blob too, not just prose.
+const WRAP_LINE: TextStyle = Platform.OS === 'web'
+  ? ({ flex: 1, minWidth: 0, overflowWrap: 'anywhere' } as TextStyle)
+  : { flex: 1, minWidth: 0 };
+
 export function TextBody({ content, wrap, font }: TextBodyProps) {
   const theme = useTheme();
   const [limit, setLimit] = useState(VIEWER_PAGE);
@@ -59,7 +67,7 @@ export function TextBody({ content, wrap, font }: TextBodyProps) {
         </View>
       ) : null}
       {wrap ? (
-        <Text selectable style={[codeStyle, { flex: 1 }]}>
+        <Text selectable style={[codeStyle, WRAP_LINE]}>
           {shown.join('\n')}
         </Text>
       ) : (

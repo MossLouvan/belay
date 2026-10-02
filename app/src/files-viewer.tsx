@@ -6,7 +6,7 @@
 // mojibake. Each branch lives in src/files/; this file is only the shell.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from './theme';
 import { Banner, Button, EmptyState, Micro, Row, Rule, SegmentedControl, Txt } from './ui';
@@ -24,6 +24,12 @@ import { loadMarkdownMode, persistMarkdownMode } from './files/markdown-mode-sto
 
 /** The host truncates a text read at this size and sets `truncated`. */
 const READ_LIMIT_LABEL = '512 KB';
+
+/** Same threshold as the Files screen: a phone in landscape (#139). */
+const SHORT_VIEWPORT_HEIGHT = 500;
+/** In a short window the chrome tightens and the truncation banner folds
+    into the caption, so the body keeps real height. */
+const useShort = (): boolean => useWindowDimensions().height < SHORT_VIEWPORT_HEIGHT;
 
 export interface OpenFile {
   readonly name: string;
@@ -52,6 +58,7 @@ const kindLabelOf = (file: OpenFile): string =>
 
 function TruncatedBanner() {
   const theme = useTheme();
+  if (useShort()) return null;
   return (
     <Banner
       testID="viewer-truncated"
@@ -70,8 +77,9 @@ function TextControls({
   font: ViewerFont; wrap: boolean; onFont: (f: ViewerFont) => void; onWrap: (w: boolean) => void;
 }) {
   const theme = useTheme();
+  const short = useShort();
   return (
-    <Row gap="sm" style={{ paddingHorizontal: theme.layout.margin, paddingBottom: theme.space.xs }}>
+    <Row gap="sm" style={{ paddingHorizontal: theme.layout.margin, paddingBottom: short ? theme.space.xxs : theme.space.xs }}>
       <SegmentedControl
         testID="viewer-font"
         accessibilityLabel="Text size"
@@ -211,14 +219,15 @@ function BinaryViewer({ file }: { file: OpenFile }) {
 export function FileViewer({ file, onClose }: FileViewerProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const short = useShort();
 
   const caption = file.kind === 'text' || file.kind === 'markdown'
-    ? `${formatSize(file.size)} · ${countLines(file.content ?? '')} lines`
+    ? `${formatSize(file.size)} · ${countLines(file.content ?? '')} lines${short && file.truncated ? ` · first ${READ_LIMIT_LABEL} only` : ''}`
     : `${kindLabelOf(file)} · ${formatSize(file.size)}`;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top }}>
-      <Row justify="space-between" gap="sm" style={{ paddingHorizontal: theme.layout.margin, paddingBottom: theme.space.sm }}>
+      <Row justify="space-between" gap="sm" style={{ paddingHorizontal: theme.layout.margin, paddingBottom: short ? theme.space.xxs : theme.space.sm }}>
         <View style={{ flex: 1, gap: 2 }}>
           <Txt variant="subheading" numberOfLines={1} heading>
             {file.name}
@@ -227,7 +236,7 @@ export function FileViewer({ file, onClose }: FileViewerProps) {
         </View>
         <Button testID="viewer-close" label="Close" onPress={onClose} size="sm" variant="secondary" />
       </Row>
-      <Rule style={{ marginBottom: theme.space.xs }} />
+      <Rule style={{ marginBottom: short ? theme.space.xxs : theme.space.xs }} />
 
       {file.kind === 'image' ? <ImageView name={file.name} path={file.path} size={file.size} /> : null}
       {file.kind === 'pdf' ? <PdfView name={file.name} path={file.path} size={file.size} /> : null}
@@ -235,7 +244,7 @@ export function FileViewer({ file, onClose }: FileViewerProps) {
       {file.kind === 'text' ? <TextViewer file={file} /> : null}
       {file.kind === 'binary' ? <BinaryViewer file={file} /> : null}
 
-      <View style={{ height: theme.space.sm }} />
+      <View style={{ height: short ? 0 : theme.space.sm }} />
     </View>
   );
 }
