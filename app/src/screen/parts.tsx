@@ -35,6 +35,12 @@ import type { BwpFallbackReason, BwpSkipReason } from './bwp-policy';
 import type { BwpStats } from './bwp';
 import { hudRows } from './hud';
 
+/**
+ * The web build's browser must not pan or pinch-zoom the page under a gesture
+ * surface (#133): our responder owns every touch there. Native ignores both keys.
+ */
+export const NO_BROWSER_GESTURES = { touchAction: 'none', userSelect: 'none' } as unknown as ViewStyle;
+
 export const FILL = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const;
 
 /**
@@ -552,6 +558,8 @@ export interface StreamHudProps {
   bwpClient?: BwpClientStats | null;
   /** Why the picture is JPEG when H.264 was on the table. */
   bwpFallback?: BwpSkipReason | BwpFallbackReason | null;
+  /** H.264 on the screen socket is carrying the picture. */
+  h264?: boolean;
   topInset?: number;
 }
 
@@ -566,12 +574,13 @@ export function StreamHud({
   bwpPath = null,
   bwpClient = null,
   bwpFallback = null,
+  h264 = false,
   topInset = 0,
 }: StreamHudProps) {
   const theme = useTheme();
   // Which rows make sense depends on which video path is live, and the JPEG
   // counters read zero throughout an H.264 stream. See ./hud.
-  const rows = hudRows({ stats, bwp, bwpSize, bwpPath, bwpClient, bwpFallback, quality, pingMs, zoom });
+  const rows = hudRows({ stats, bwp, bwpSize, bwpPath, bwpClient, bwpFallback, h264, quality, pingMs, zoom });
   return (
     <View
       testID="hud"

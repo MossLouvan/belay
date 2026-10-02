@@ -44,3 +44,15 @@ test('the roster is frozen — nothing downstream can mutate the options', () =>
   assert.ok(Object.isFrozen(POINTER_MODE_OPTIONS));
   for (const option of POINTER_MODE_OPTIONS) assert.ok(Object.isFrozen(option));
 });
+
+// #130: the portrait strip shows the mode in force, not "Trackpad" always.
+import { stripSelection } from './dock-modes.ts';
+
+test('the strip selects the true pointer mode, Keyboard while typing', () => {
+  assert.equal(stripSelection('touch', false), 'touch');
+  assert.equal(stripSelection('trackpad', false), 'trackpad');
+  assert.equal(stripSelection('gaming', false), 'gaming');
+  assert.equal(stripSelection('scroll', false), null);
+  assert.equal(stripSelection('touch', true), 'keyboard');
+  assert.equal(stripSelection('trackpad', true), 'keyboard');
+});

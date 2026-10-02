@@ -250,7 +250,9 @@ export function ControlDock({
     >
       {!floating ? <>
         <ModeStrip
+          mode={mode}
           typeOpen={typeOpen}
+          onTouch={wrap(() => { if (typeOpen) onToggleType(); onModeChange('touch'); })}
           onTrackpad={wrap(() => { if (typeOpen) onToggleType(); onModeChange('trackpad'); })}
           onKeyboard={wrap(onToggleType)}
           onController={wrap(() => onModeChange('gaming'))}
@@ -260,7 +262,7 @@ export function ControlDock({
       </> : null}
       <Sheet visible={!floating && moreOpen} onClose={() => setMoreOpen(false)} title="More controls" testID="more-controls-sheet">
         <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ paddingBottom: 16 }}>
-        <ModeSwitch mode={mode} onModeChange={(next) => { if (next === 'gaming') setMoreOpen(false); onModeChange(next); }} testID="pointer-mode" />
+        <ModeSwitch mode={mode} onModeChange={(next) => { setMoreOpen(false); onModeChange(next); }} testID="pointer-mode" />
         <View style={{ gap: 12, marginTop: 16 }}>
           <Button label="Right-click" testID="right-click" onPress={() => { onToggleRight(); setMoreOpen(false); }} variant="secondary" />
           <Button label="Double-click" testID="double-click" onPress={() => { onToggleDouble(); setMoreOpen(false); }} variant="secondary" />

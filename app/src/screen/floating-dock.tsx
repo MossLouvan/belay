@@ -31,10 +31,12 @@ export interface FloatingDockProps {
   readonly shown: boolean;
   readonly opacity: Animated.Value;
   readonly onHide: () => void;
+  /** Reports the bar's height, so typing can fit the picture above it. */
+  readonly onHeight?: (height: number) => void;
   readonly children: ReactNode;
 }
 
-export function FloatingDock({ shown, opacity, onHide, children }: FloatingDockProps) {
+export function FloatingDock({ shown, opacity, onHide, onHeight, children }: FloatingDockProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   return (
@@ -46,6 +48,7 @@ export function FloatingDock({ shown, opacity, onHide, children }: FloatingDockP
     // prop warns as deprecated and works.
     <Animated.View
       pointerEvents={shown ? 'box-none' : 'none'}
+      onLayout={onHeight ? (e) => onHeight(e.nativeEvent.layout.height) : undefined}
       style={{
         position: 'absolute',
         left: insets.left + theme.space.sm,

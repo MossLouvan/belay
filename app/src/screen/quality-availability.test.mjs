@@ -80,3 +80,9 @@ test('capability is a flag, not a phrase parsed out of the hint', () => {
     );
   }
 });
+
+// #134: the socket H.264 path is VideoToolbox — hardware — so it earns them too.
+test('hardware H.264 over the socket offers Performance and Ultra', () => {
+  assert.deepEqual(ids(availableQuality(null, true)), ids(QUALITY));
+  assert.deepEqual(ids(availableQuality(null, false)), ['smooth', 'balanced', 'sharp']);
+});

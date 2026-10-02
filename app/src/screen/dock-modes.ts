@@ -50,3 +50,15 @@ export const POINTER_MODE_OPTIONS: readonly PointerModeOption[] = Object.freeze(
 export function pointerModeOption(mode: ScreenMode): PointerModeOption {
   return POINTER_MODE_OPTIONS.find((option) => option.id === mode) ?? POINTER_MODE_OPTIONS[0];
 }
+
+/** A segment of the portrait strip: Touch · Pad · Keyboard (· Controller). */
+export type StripId = 'touch' | 'trackpad' | 'keyboard' | 'gaming';
+
+/**
+ * Which strip segment is lit. Keyboard while it is open, otherwise the
+ * pointer mode itself; Scroll has no segment, so nothing is lit for it.
+ */
+export function stripSelection(mode: ScreenMode, typeOpen: boolean): StripId | null {
+  if (typeOpen) return 'keyboard';
+  return mode === 'scroll' ? null : mode;
+}

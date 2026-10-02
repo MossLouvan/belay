@@ -97,11 +97,12 @@ export function useStreamPresets(active: boolean, device: Size): StreamPresets {
  */
 export function useQualityAvailability(
   bwpPath: string | null,
+  h264Socket: boolean,
   presets: Pick<StreamPresets, 'qualityId' | 'setQualityId'>,
   gamingEnabled: boolean
 ): readonly QualityPreset[] {
   const { qualityId, setQualityId } = presets;
-  const qualityChoices = useMemo(() => availableQuality(bwpPath), [bwpPath]);
+  const qualityChoices = useMemo(() => availableQuality(bwpPath, h264Socket), [bwpPath, h264Socket]);
   useEffect(() => {
     if (gamingEnabled) return;
     const supported = resolveQualityId(qualityId, qualityChoices);

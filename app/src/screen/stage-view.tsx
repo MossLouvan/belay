@@ -21,7 +21,7 @@ import { RemoteCursors } from './cursors-overlay';
 import type { CursorsState } from './cursors-store';
 import type { QualityPreset, Size } from './model';
 import { PanelState } from './panel-state';
-import { Crosshair, FILL, FullscreenGlyph, HUD, StageButton, StreamHud } from './parts';
+import { Crosshair, FILL, FullscreenGlyph, HUD, NO_BROWSER_GESTURES, StageButton, StreamHud } from './parts';
 import { MASCOT_BUTTON_SIZE } from './mascot-button';
 import { crosshairShown } from './screen-chrome';
 import type { PermissionState, StreamState } from './stream';
@@ -150,7 +150,7 @@ export function StageView(props: StageViewProps) {
         testID="screen-surface"
         accessibilityLabel="Remote screen. Tap to click, long press or two-finger tap to right-click, pinch to zoom, two fingers to scroll, three fingers to switch desktops or access system controls."
         {...(gamingEnabled ? {} : viewport.handlers)}
-        style={{
+        style={[{
           marginTop: stageOffset,
           width: stage.w > 0 ? stage.w : '100%',
           height: stage.h > 0 ? stage.h : undefined,
@@ -158,7 +158,7 @@ export function StageView(props: StageViewProps) {
           backgroundColor: theme.colors.machine,
           borderRadius: immersive ? 0 : look.cardRadius,
           overflow: 'hidden',
-        }}
+        }, NO_BROWSER_GESTURES]}
       >
         {/* pointerEvents none on everything inside keeps `screen-surface`
             the only touch target, so locationX/Y stay in stage coordinates
@@ -224,6 +224,7 @@ export function StageView(props: StageViewProps) {
             bwpPath={stream.bwpPath}
             bwpClient={stream.bwpClient}
             bwpFallback={stream.bwpFallback}
+            h264={stream.h264 !== null}
             /* Clear of the notch already once the stage has been nudged down. */
             topInset={immersive && stageOffset <= 0 ? insets.top : 0}
           />

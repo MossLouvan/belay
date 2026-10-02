@@ -459,6 +459,8 @@ export interface ScreenInfo {
   webrtc?: boolean;
   /** True when the host can stream H.264 over UDP; absent on older hosts. */
   bwp?: boolean;
+  /** True when the host has /input/down + /input/up (live drags); absent on older hosts. */
+  inputHold?: boolean;
 }
 
 /**
@@ -697,6 +699,9 @@ export const api = {
   scroll: (dy: number, dx = 0) => post('/input/scroll', { dy, dx }),
   drag: (x1: number, y1: number, x2: number, y2: number, screen?: number) =>
     post('/input/drag', { x1, y1, x2, y2, screen }),
+  // Live drag legs (hosts reporting `inputHold`): press, /input/move, release.
+  down: (x: number, y: number, screen?: number) => post('/input/down', { x, y, screen }),
+  up: (x: number, y: number, screen?: number) => post('/input/up', { x, y, screen }),
   typeText: (text: string) => post('/input/text', { text }),
   // Clipboard sync: pull the PC's clipboard text, or push the phone's onto it.
   // The host caps both directions at 100k UTF-16 units and answers `truncated`

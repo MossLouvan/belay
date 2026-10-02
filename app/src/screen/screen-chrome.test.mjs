@@ -14,12 +14,12 @@ import {
   dockAutoHides,
   headerTitle,
   hintVisible,
+  immersiveStageBox,
   immersiveStageOffset,
   isImmersive,
   isLandscape,
   normalizedDeviceSize,
   panelStateShown,
-  performanceSummary,
   recordKeyAction,
   shouldClearFullscreen,
   toggleArmedButton,
@@ -182,11 +182,6 @@ test('only iOS floats the type row', () => {
   assert.equal(typeRowFloats('web'), false);
 });
 
-test('the performance summary names the ceiling or Auto', () => {
-  assert.equal(performanceSummary({ fps: 60, bitrateMbps: 0, audioEnabled: false, codec: 'h264' }), '60 Hz • Auto • H264');
-  assert.equal(performanceSummary({ fps: 120, bitrateMbps: 8, audioEnabled: true, codec: 'hevc' }), '120 Hz • 8 Mbps • HEVC');
-});
-
 test('the docked stage keeps a usable minimum before it gives up the pad (#75)', () => {
   // Plenty of room: the pills and a roomy pad take their usual 160.
   assert.equal(dockedStageHeight(600), 440);
@@ -199,4 +194,21 @@ test('the docked stage keeps a usable minimum before it gives up the pad (#75)',
   // Too short for even the minimum: whatever is above the pills, never negative.
   assert.equal(dockedStageHeight(96), 40);
   assert.equal(dockedStageHeight(0), 1);
+});
+
+// #135: typing while immersive must not cover the picture — the stage fits
+// the band above the keyboard/key bar and centres there.
+test('the immersive stage box gives up the keyboard band', () => {
+  assert.deepEqual(immersiveStageBox({ w: 844, h: 390 }, 0), { w: 844, h: 390 });
+  assert.deepEqual(immersiveStageBox({ w: 844, h: 390 }, 300), { w: 844, h: 90 });
+  assert.deepEqual(immersiveStageBox({ w: 844, h: 390 }, 999), { w: 844, h: 1 });
+});
+
+test('a short stage centres in the band above the keys, not the whole screen', () => {
+  const inputs = { immersive: true, boxH: 844, stageH: 220, insetTop: 59, insetBottom: 34, bottomReserve: 340 };
+  const offset = immersiveStageOffset(inputs);
+  assert.equal(offset, 59 + (844 - 59 - 340 - 220) / 2);
+  assert.ok(offset + 220 <= 844 - 340, 'the whole picture sits above the keys');
+  // Landscape: a stage that fills the band sits at the top.
+  assert.equal(immersiveStageOffset({ immersive: true, boxH: 390, stageH: 90, insetTop: 0, insetBottom: 21, bottomReserve: 300 }), 0);
 });

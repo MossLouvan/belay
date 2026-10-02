@@ -11,7 +11,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { formatBitrate, hudRows, isBwpLive, nowLine, qualityDescription } from './hud.ts';
+import { formatBitrate, hudRows, isBwpLive, nowLine, qualityDescription, videoPathOf } from './hud.ts';
+import { fallbackReasonText } from './bwp-policy.ts';
 import { findQuality } from './model.ts';
 
 const quality = findQuality('balanced');
@@ -122,11 +123,11 @@ test('isBwpLive is true from the offer, not only once stats arrive', () => {
 // The JPEG copy describes knobs H.264 does not have, and quotes a frame-rate
 // ceiling that only existed because every JPEG frame cost full price.
 test('the quality description matches the path actually in use', () => {
-  const jpeg = qualityDescription(quality, false);
+  const jpeg = qualityDescription(quality, 'jpeg');
   assert.match(jpeg, new RegExp(`${quality.w}px wide`));
   assert.match(jpeg, new RegExp(`up to ${quality.fps} fps`));
 
-  const bwp = qualityDescription(quality, true);
+  const bwp = qualityDescription(quality, 'bwp');
   assert.match(bwp, /H\.264/);
   assert.match(bwp, new RegExp(`up to ${quality.bwpFps} fps`));
   assert.doesNotMatch(bwp, new RegExp(`${quality.w}px`), 'the downscale width is not what H.264 sends');
@@ -208,4 +209,27 @@ test('on JPEG the readout says why H.264 is not carrying the picture', () => {
   assert.equal(r.fps, `11 / ${quality.fps}`);
   // No reason, no row: a Mac host that never could is not a fallback.
   assert.equal(rowMap(hudRows(base)).h264, undefined);
+});
+
+// #134: a Mac sends hardware H.264 over the screen socket, with no BWP offer.
+// The readout must say so, not "JPEG — the host cannot stream H.264".
+test('the video path is h264 on the socket, bwp on UDP, jpeg otherwise', () => {
+  assert.equal(videoPathOf({ bwpPath: null, bwp: null, h264: true }), 'h264');
+  assert.equal(videoPathOf({ bwpPath: 'gpu', bwp: null, h264: false }), 'bwp');
+  assert.equal(videoPathOf({ bwpPath: null, bwp: null, h264: false }), 'jpeg');
+});
+
+test('socket H.264 reads as H.264, without the JPEG fallback row', () => {
+  const r = rowMap(hudRows({ ...base, h264: true, bwpFallback: 'host-unsupported' }));
+  assert.equal(r.codec, 'H.264 · socket');
+  assert.equal(r.h264, undefined);
+  assert.equal(r.fps, `${jpegStats.fps} / ${quality.fps}`);
+  assert.equal(nowLine({ ...base, h264: true }), 'Now: 11 fps · H.264 · ping 14 ms');
+  const d = qualityDescription(quality, 'h264');
+  assert.match(d, /H\.264/);
+  assert.match(d, new RegExp(`up to ${quality.fps} fps`));
+});
+
+test('a build without the receiver says so neutrally', () => {
+  assert.doesNotMatch(fallbackReasonText('no-native'), /no H\.264 receiver/);
 });
