@@ -17,7 +17,8 @@
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Belay finds your computer on this network so it can connect directly and fast.",
         "NSBonjourServices": [
-          "_belay._tcp"
+          "_belay._tcp",
+          "_irohv1._udp"
         ],
         "ITSAppUsesNonExemptEncryption": true,
         "NSAppTransportSecurity": {

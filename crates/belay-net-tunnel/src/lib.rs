@@ -21,6 +21,7 @@ use std::time::Duration;
 
 use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
@@ -130,13 +131,27 @@ pub fn relay_mode(relays: &[RelayUrl]) -> RelayMode {
 
 /// Bind a tunnel endpoint with the given identity and relays (see
 /// [`relay_mode`]; infra/relay/README.md for production).
+///
+/// The endpoint also advertises and looks up node ids on the local network
+/// over mDNS (service `_irohv1._udp`), so a phone and a computer on the same
+/// Wi-Fi find each other by node id with no relay at all. mDNS is best
+/// effort: if it cannot start (no multicast, iOS Local Network denied) the
+/// endpoint still binds and relays still work.
 pub async fn bind(secret: SecretKey, relay_mode: RelayMode) -> Result<Endpoint, iroh::endpoint::BindError> {
-    Endpoint::builder(presets::N0)
+    let endpoint = Endpoint::builder(presets::N0)
         .secret_key(secret)
         .alpns(vec![ALPN.to_vec()])
         .relay_mode(relay_mode)
         .bind()
-        .await
+        .await?;
+    match MdnsAddressLookup::builder().build(endpoint.id()) {
+        Ok(mdns) => match endpoint.address_lookup() {
+            Ok(lookup) => lookup.add(mdns),
+            Err(e) => eprintln!("[belay-net] local discovery not added: {e}"),
+        },
+        Err(e) => eprintln!("[belay-net] local discovery unavailable: {e}"),
+    }
+    Ok(endpoint)
 }
 
 /// Copy both directions between a QUIC bi-stream and a TCP socket until
