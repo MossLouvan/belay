@@ -192,3 +192,9 @@ export function pushTermHistory(command: string): void {
   const next = [...state.history.filter((h) => h !== command), command];
   setState({ history: next.slice(-MAX_HISTORY) });
 }
+
+/** Text written into the screen buffer locally, never sent — the piped
+    shell's command echo (#144). Queued behind any output already waiting. */
+export function echoTerm(text: string): void {
+  buffer = pushOutput(buffer, text);
+}

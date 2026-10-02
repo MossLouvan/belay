@@ -31,7 +31,7 @@ import { api } from '../../src/api';
 import type { FileEntry } from '../../src/api';
 import { Banner, Card, Divider, EmptyState, Input, Label, Row, Rule, Skeleton, TrackLabel, Txt } from '../../src/ui';
 import { useTheme } from '../../src/theme';
-import { crumbsFor, formatAsOf, isDenied, messageOf, parentOf, sortEntries, viewerKindOf } from '../../src/files-format';
+import { crumbsFor, formatAsOf, isDenied, messageOf, parentOf, sortEntries, unreadableMessage, viewerKindOf } from '../../src/files-format';
 import type { SortKey } from '../../src/files-format';
 import { FileRow } from '../../src/files-row';
 import { FileViewer } from '../../src/files-viewer';
@@ -45,6 +45,7 @@ import { InfoCard } from '../../src/files/info-card';
 import { hiddenCount, toggledHiddenMode, withoutHidden } from '../../src/files/hidden';
 import type { HiddenMode } from '../../src/files/hidden';
 import { loadHiddenMode, persistHiddenMode } from '../../src/files/hidden-store';
+import { getFilesSession, saveFilesSession } from '../../src/files/session-store';
 import { ToolPanel } from '../../src/home/panel';
 
 // --- constants ---------------------------------------------------------------
@@ -68,9 +69,12 @@ interface Root {
 
 /** The panel route: the unchanged tab body inside the shared slide-up chrome. */
 export default function FilesPanel() {
+  const { connection } = useConnection();
   return (
     <ToolPanel tab="files" testID="files-panel">
-      <FilesTab />
+      {/* Keyed on the host: another computer remounts the tab, so its state
+          starts from that host's session, never this one's (#141). */}
+      <FilesTab key={String(connection?.host ?? '')} />
     </ToolPanel>
   );
 }
@@ -81,21 +85,38 @@ function FilesTab() {
   const insets = useSafeAreaInsets();
   const short = useWindowDimensions().height < SHORT_VIEWPORT_HEIGHT;
 
+  // Where this host's Files tab was left (#141): the bottom bar unmounts this
+  // route on every tab switch, so the folder, history, viewer and scroll live
+  // in src/files/session-store and the state below starts from them.
+  const host = connection?.host ?? null;
+  const [restored] = useState(() => getFilesSession(host));
   const [roots, setRoots] = useState<readonly Root[]>([]);
-  const [path, setPath] = useState('');
-  const [entries, setEntries] = useState<readonly FileEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [path, setPath] = useState(restored.path);
+  const [entries, setEntries] = useState<readonly FileEntry[]>(restored.entries);
+  const [loading, setLoading] = useState(!restored.path);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [descending, setDescending] = useState(false);
-  const [viewer, setViewer] = useState<OpenFile | null>(null);
+  const [viewer, setViewer] = useState<OpenFile | null>(restored.viewer);
   const [selected, setSelected] = useState<FileEntry | null>(null);
-  const [history, setHistory] = useState<NavHistory>(emptyHistory);
+  const [history, setHistory] = useState<NavHistory>(restored.path ? restored.history : emptyHistory);
   const [gotoOpen, setGotoOpen] = useState(false);
   const [hiddenMode, setHiddenMode] = useState<HiddenMode>('hide');
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => restored.asOf || Date.now());
+  /** The folder the OS refused to open (#145): the crumb stays on it and the
+      listing chrome steps aside for the one message that explains it. */
+  const [blockedPath, setBlockedPath] = useState<string | null>(null);
+  /** In a short window the filter hides behind a toggle (#139). */
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  useEffect(() => {
+    saveFilesSession(host, { path, entries, history, viewer, asOf: now });
+  }, [entries, history, host, now, path, viewer]);
+
+  const listRef = useRef<FlatList<FileEntry>>(null);
+  const restoreY = useRef(restored.scroll.path === restored.path ? restored.scroll.y : 0);
 
   const cancelled = useRef(false);
   // Every navigation (listDir or readFile) takes a ticket; only the newest
@@ -152,6 +173,7 @@ function FilesTab() {
     if (stale()) return;
     setPath(result.path);
     setEntries(result.entries);
+    setBlockedPath(null);
     setError('');
     setQuery('');
     setNow(Date.now());
@@ -164,20 +186,31 @@ function FilesTab() {
     (target: string, record = true) =>
       loadDir(target, record).catch((e: unknown) => {
         if (cancelled.current) return;
-        setError(messageOf(e));
+        const message = messageOf(e);
+        setError(message);
         setEntries([]);
+        // An unreadable folder is still a real place: stand in it, so the
+        // crumb names it and Back returns from it.
+        if (unreadableMessage(message, target)) {
+          setPath(target);
+          setBlockedPath(target);
+          if (record) setHistory((h) => visitPath(h, target));
+        }
       }),
     [loadDir]
   );
 
   useEffect(() => {
     if (!connection) return;
-    setLoading(true);
+    if (!restored.path) setLoading(true);
     api
       .fileRoots()
       .then((result) => {
         if (cancelled.current) return;
         setRoots(result.roots);
+        // A folder restored from the session store is shown as it was; pull
+        // to refresh reloads it, and its "as of" stamp says how old it is.
+        if (restored.path) return undefined;
         if (result.roots.length > 0) return openDir(result.roots[0].path);
         setLoading(false);
         return undefined;
@@ -187,7 +220,7 @@ function FilesTab() {
         setError(messageOf(e));
         setLoading(false);
       });
-  }, [connection, openDir]);
+  }, [connection, openDir, restored.path]);
 
   const openEntry = useCallback(
     async (entry: FileEntry) => {
@@ -288,7 +321,9 @@ function FilesTab() {
 
   if (viewer) return <FileViewer file={viewer} onClose={() => setViewer(null)} />;
 
+  const blocked = blockedPath !== null && blockedPath === path ? unreadableMessage(error, path) : null;
   const denied = isDenied(error);
+  const showFilter = !blocked && (!short || filterOpen || query.length > 0);
   const margin = theme.layout.margin;
 
   /* Quiet tracked labels, not accent: this screen's one accented
@@ -298,6 +333,16 @@ function FilesTab() {
      the mode; the count line carries the "· N hidden" receipt. */
   const actions = (
     <Row gap="lg" align="flex-end">
+      {short ? (
+        <TrackLabel
+          testID="files-filter-toggle"
+          label="Filter"
+          accessibilityLabel={filterOpen ? 'Hide the filter' : 'Filter this folder'}
+          active={filterOpen}
+          onPress={() => setFilterOpen((open) => !open)}
+          hitSlop={theme.layout.hitSlop}
+        />
+      ) : null}
       <TrackLabel
         testID="files-hidden-toggle"
         label={hiddenMode === 'hide' ? 'Show hidden' : 'Hide hidden'}
@@ -333,7 +378,7 @@ function FilesTab() {
                 pull-to-refresh — not in a footer nobody scrolls to (§11.2). */}
             <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
               <Label numberOfLines={1} style={{ marginBottom: 0, flexShrink: 1 }}>
-                {[
+                {blocked ? formatAsOf(now) : [
                   `${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`,
                   // The count line owns the honesty: while dotfiles are filtered
                   // out, it says how many, so a "missing" file is one glance from
@@ -392,25 +437,29 @@ function FilesTab() {
         onNavigate={openDir}
       />
 
-      <View style={{ paddingHorizontal: margin, paddingBottom: theme.space.xs }}>
-        <Input
-          testID="files-search"
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Filter this folder…"
-          accessibilityLabel="Filter this folder"
-        />
-      </View>
+      {showFilter ? (
+        <View style={{ paddingHorizontal: margin, paddingBottom: theme.space.xs }}>
+          <Input
+            testID="files-search"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Filter this folder…"
+            accessibilityLabel="Filter this folder"
+            autoFocus={short && filterOpen}
+          />
+        </View>
+      ) : null}
 
       {error ? (
         <Banner
           testID="files-error"
           status={denied ? 'warn' : 'bad'}
-          title={denied ? 'The host would not open that' : 'Could not read the host'}
+          title={blocked ? 'This folder is locked' : denied ? 'The host would not open that' : 'Could not read the host'}
           message={
-            denied
-              ? `${error}. That path is outside the folders the agent is allowed to read, or the OS refused access.`
-              : error
+            blocked
+              ?? (denied
+                ? `${error}. That path is outside the folders the agent is allowed to read, or the OS refused access.`
+                : error)
           }
           action={path ? { label: 'Retry', onPress: () => openDir(path) } : undefined}
           style={{ marginHorizontal: margin, marginVertical: theme.space.xs }}
@@ -420,8 +469,10 @@ function FilesTab() {
       {/* The listing is the reference's table: one flush Card whose
           hairline-divided rows carry the data, with the sort header as the
           card's own column row. */}
+      {blocked ? null : (
       <Card flush style={{ flex: 1, marginHorizontal: margin, marginBottom: short ? theme.space.xs : theme.space.md, overflow: 'hidden' }}>
-        <SortHeader sortKey={sortKey} descending={descending} onChange={onSort} />
+        {/* In a short window the sort header goes; the chosen order stays. */}
+        {short ? null : <SortHeader sortKey={sortKey} descending={descending} onChange={onSort} />}
         {loading && !refreshing ? (
           <View style={{ paddingHorizontal: theme.space.md }}>
             {Array.from({ length: SKELETON_ROWS }, (_, i) => (
@@ -436,8 +487,18 @@ function FilesTab() {
           </View>
         ) : (
           <FlatList
+            ref={listRef}
             testID="file-list"
             data={visible}
+            onScroll={(event) => saveFilesSession(host, { scroll: { path, y: event.nativeEvent.contentOffset.y } })}
+            scrollEventThrottle={200}
+            // Back from a tab switch: the first layout of the restored list
+            // jumps to where it was left, once.
+            onContentSizeChange={() => {
+              if (restoreY.current <= 0) return;
+              listRef.current?.scrollToOffset({ offset: restoreY.current, animated: false });
+              restoreY.current = 0;
+            }}
             renderItem={renderItem}
             keyExtractor={(item) => item.path}
             ItemSeparatorComponent={Divider}
@@ -486,6 +547,7 @@ function FilesTab() {
           />
         )}
       </Card>
+      )}
 
       {selected ? <InfoCard entry={selected} now={now} onClose={() => setSelected(null)} /> : null}
 

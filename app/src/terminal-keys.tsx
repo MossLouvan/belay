@@ -125,6 +125,11 @@ export interface KeyBarProps {
    */
   onFontCycle?: () => void;
   fontLabel?: string;
+  /**
+   * A short (landscape) window: ONE row, with the symbols behind a toggle,
+   * so the transcript keeps the height (#139).
+   */
+  compact?: boolean;
 }
 
 /**
@@ -134,10 +139,11 @@ export interface KeyBarProps {
  * or Alt+F on a phone. A modifier applies to the next key press — any key, top
  * row included — and is then disarmed, so it can never leak into a later one.
  */
-export function KeyBar({ onSend, onClear, onHistory, onTab, ptyMode, onFontCycle, fontLabel }: KeyBarProps) {
+export function KeyBar({ onSend, onClear, onHistory, onTab, ptyMode, onFontCycle, fontLabel, compact }: KeyBarProps) {
   const theme = useTheme();
   const [ctrl, setCtrl] = useState(false);
   const [alt, setAlt] = useState(false);
+  const [symbols, setSymbols] = useState(false);
   const armed = ctrl || alt;
 
   const consume = useCallback(() => {
@@ -176,72 +182,106 @@ export function KeyBar({ onSend, onClear, onHistory, onTab, ptyMode, onFontCycle
   const rowStyle = { gap: theme.space.xs, paddingHorizontal: theme.layout.margin, paddingVertical: theme.space.xxs } as const;
   const secondary = armed ? LETTER_KEYS : SYMBOL_KEYS;
 
+  const modifiers = (
+    <>
+      <KeyCap id="Ctrl" label="ctrl" active={ctrl} wide onPress={() => setCtrl((v) => !v)} />
+      <KeyCap id="Alt" label="alt" active={alt} wide onPress={() => setAlt((v) => !v)} />
+    </>
+  );
+  const primaryCaps = (
+    <>
+      {PRIMARY_KEYS.map((key) => (
+        <KeyCap key={key.id} id={key.id} label={key.label} onPress={() => pressPrimary(key)} />
+      ))}
+      <KeyCap
+        id="clear"
+        label="clear"
+        wide
+        onPress={() => {
+          consume();
+          onClear();
+        }}
+      />
+      {/* Whole command lines: a modifier makes no sense here, so it is
+          consumed without being applied. */}
+      {LAUNCH_KEYS.map((key) => (
+        <KeyCap
+          key={key.id}
+          id={key.id}
+          label={key.label}
+          wide={key.wide}
+          onPress={() => {
+            consume();
+            if (key.send) onSend(key.send);
+          }}
+        />
+      ))}
+      {/* Text size lives with the keys, not in the header: it is a bar
+          control over how the transcript reads. One cap, cycling
+          sm → md → lg — a modifier makes no sense on it, so it is
+          consumed without being applied. */}
+      {onFontCycle ? (
+        <KeyCap
+          id="Aa"
+          label="Aa"
+          accessibilityLabel={fontLabel ? `Text size, ${fontLabel}` : 'Text size'}
+          wide
+          onPress={() => {
+            consume();
+            onFontCycle();
+          }}
+        />
+      ) : null}
+      {/* The keyboard is a state and needs a visible exit (docs/DESIGN.md
+          §11.2). Return can't dismiss here — it runs the command — and the
+          transcript's tap-to-blur is invisible, so the bar that sits right
+          above the keyboard carries the way out, as terminal apps do. */}
+      <KeyCap
+        id="hide"
+        label="⌄ hide"
+        wide
+        onPress={() => {
+          consume();
+          Keyboard.dismiss();
+        }}
+      />
+    </>
+  );
+  const secondaryCaps = secondary.map((ch) => (
+    <KeyCap key={ch} id={ch} label={ch} onPress={() => sendChar(ch)} />
+  ));
+  const row = (children: React.ReactNode) => (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={rowStyle}>
+      {children}
+    </ScrollView>
+  );
+
+  if (compact) {
+    // An armed modifier needs its letters, so it shows them; the toggle
+    // disarms and returns to the keys.
+    const showSecondary = symbols || armed;
+    return row(
+      <>
+        {modifiers}
+        <KeyCap
+          id="symbols"
+          label={showSecondary ? 'keys' : '#!'}
+          accessibilityLabel={showSecondary ? 'Show the keys' : 'Show the symbols'}
+          wide
+          onPress={() => {
+            if (armed) consume();
+            setSymbols(!showSecondary);
+          }}
+        />
+        {showSecondary ? secondaryCaps : primaryCaps}
+      </>
+    );
+  }
+
   return (
     <View style={{ gap: theme.space.none }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={rowStyle}>
-        <KeyCap id="Ctrl" label="ctrl" active={ctrl} wide onPress={() => setCtrl((v) => !v)} />
-        <KeyCap id="Alt" label="alt" active={alt} wide onPress={() => setAlt((v) => !v)} />
-        {PRIMARY_KEYS.map((key) => (
-          <KeyCap key={key.id} id={key.id} label={key.label} onPress={() => pressPrimary(key)} />
-        ))}
-        <KeyCap
-          id="clear"
-          label="clear"
-          wide
-          onPress={() => {
-            consume();
-            onClear();
-          }}
-        />
-        {/* Whole command lines: a modifier makes no sense here, so it is
-            consumed without being applied. */}
-        {LAUNCH_KEYS.map((key) => (
-          <KeyCap
-            key={key.id}
-            id={key.id}
-            label={key.label}
-            wide={key.wide}
-            onPress={() => {
-              consume();
-              if (key.send) onSend(key.send);
-            }}
-          />
-        ))}
-        {/* Text size lives with the keys, not in the header: it is a bar
-            control over how the transcript reads. One cap, cycling
-            sm → md → lg — a modifier makes no sense on it, so it is
-            consumed without being applied. */}
-        {onFontCycle ? (
-          <KeyCap
-            id="Aa"
-            label="Aa"
-            accessibilityLabel={fontLabel ? `Text size, ${fontLabel}` : 'Text size'}
-            wide
-            onPress={() => {
-              consume();
-              onFontCycle();
-            }}
-          />
-        ) : null}
-        {/* The keyboard is a state and needs a visible exit (docs/DESIGN.md
-            §11.2). Return can't dismiss here — it runs the command — and the
-            transcript's tap-to-blur is invisible, so the bar that sits right
-            above the keyboard carries the way out, as terminal apps do. */}
-        <KeyCap
-          id="hide"
-          label="⌄ hide"
-          wide
-          onPress={() => {
-            consume();
-            Keyboard.dismiss();
-          }}
-        />
-      </ScrollView>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={rowStyle}>
-        {secondary.map((ch) => (
-          <KeyCap key={ch} id={ch} label={ch} onPress={() => sendChar(ch)} />
-        ))}
-      </ScrollView>
+      {row(<>{modifiers}{primaryCaps}</>)}
+      {row(secondaryCaps)}
     </View>
   );
 }

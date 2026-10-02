@@ -133,3 +133,49 @@ test('pipeInput passes through text with no terminator, including control bytes'
   assert.equal(pipeInput('\x03'), '\x03');
   assert.equal(pipeInput('partial'), 'partial');
 });
+
+// --- piped shell control keys (#142) -----------------------------------------
+// The piped fallback has no line discipline, so ^C and ^D would otherwise reach
+// the shell as plain bytes and never interrupt anything.
+
+import { createPipeSession } from '../src/terminal.js';
+
+const IS_POSIX = process.platform !== 'win32';
+
+function pipeShell() {
+  const session = createPipeSession({
+    file: '/bin/sh', args: [], env: { ...process.env, PS1: '' }, cwd: process.cwd(), cols: 80, rows: 24,
+  });
+  let out = '';
+  session.onData((d) => { out += d; });
+  const waitFor = (needle: string, ms = 4000) => new Promise<void>((resolve, reject) => {
+    const started = Date.now();
+    const poll = () => {
+      if (out.includes(needle)) return resolve();
+      if (Date.now() - started > ms) return reject(new Error(`timed out waiting for ${needle}; got ${JSON.stringify(out)}`));
+      setTimeout(poll, 25);
+    };
+    poll();
+  });
+  return { session, waitFor };
+}
+
+test('piped ^C interrupts the foreground command and the shell lives on', { skip: !IS_POSIX }, async () => {
+  const { session, waitFor } = pipeShell();
+  try {
+    session.write('sleep 30\r');
+    await new Promise((r) => setTimeout(r, 300));
+    session.write('\x03');
+    session.write('echo alive\r');
+    await waitFor('alive');
+  } finally {
+    session.kill();
+  }
+});
+
+test('piped ^D ends stdin, so the shell exits', { skip: !IS_POSIX }, async () => {
+  const { session } = pipeShell();
+  const exited = new Promise<void>((resolve) => session.onExit(resolve));
+  session.write('\x04');
+  await Promise.race([exited, new Promise((_, rej) => setTimeout(() => rej(new Error('shell did not exit')), 4000))]);
+});
