@@ -640,6 +640,16 @@ export interface HookPermission extends PendingApproval {
   cwd: string;
   createdAt: number;
   expiresAt: number;
+  /** Set when the terminal is a pty session Belay itself spawned. */
+  belaySessionId?: string;
+}
+
+/** What a finished turn left in the working tree — `git diff --stat` in cwd. */
+export interface HookChanges {
+  files: number;
+  insertions: number;
+  deletions: number;
+  cwd: string;
 }
 
 /** A terminal session finished a turn, or has a prompt waiting at the keyboard. */
@@ -650,6 +660,9 @@ export interface HookNotice {
   cwd: string;
   text: string;
   createdAt: number;
+  belaySessionId?: string;
+  /** On a done notice, from newer hosts. */
+  changes?: HookChanges;
 }
 
 export interface HookList { permissions: HookPermission[]; notices: HookNotice[]; }
@@ -733,7 +746,8 @@ export const api = {
 
   // Agent: Claude Code sessions on the host. Every route is bearer-authed like
   // the rest; the live feed goes over `/ws/agent` (see `wsUrl`).
-  agentStatus: () => get<{ available: boolean }>('/agent/status'),
+  /** `hooksInstalled` is absent on hosts older than the hooks-status field. */
+  agentStatus: () => get<{ available: boolean; hooksInstalled?: boolean }>('/agent/status'),
   agentProjects: () => get<{ projects: AgentProject[] }>('/agent/projects'),
   /** Create a folder for a new project on the PC. `parent` may be `~`-relative. */
   agentCreateProject: (name: string, parent: string) =>

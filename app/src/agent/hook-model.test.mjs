@@ -100,3 +100,18 @@ test('noticeLine labels the kind and squeezes the text to one line', () => {
   assert.equal(long.text.length, 10);
   assert.equal(long.text.endsWith('…'), true);
 });
+
+// ---- changesLine ------------------------------------------------------------
+
+test('changesLine: "N files · +a −b", singular file, zero counts dropped', async () => {
+  const { changesLine } = await import('./hook-model.ts');
+  assert.equal(changesLine({ files: 3, insertions: 41, deletions: 7, cwd: '/p' }), '3 files · +41 −7');
+  assert.equal(changesLine({ files: 1, insertions: 0, deletions: 2, cwd: '/p' }), '1 file · −2');
+  assert.equal(changesLine({ files: 0, insertions: 0, deletions: 0, cwd: '/p' }), 'no file changes');
+  assert.equal(changesLine(undefined), '');
+});
+
+test('noticeLine: a done notice with changes carries the changes line', () => {
+  const line = noticeLine(notice('n1', { changes: { files: 2, insertions: 5, deletions: 0, cwd: '/p' } }));
+  assert.equal(line.label, 'done · 2 files · +5');
+});

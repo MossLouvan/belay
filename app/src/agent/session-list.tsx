@@ -12,22 +12,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { api } from '../api';
-import type { AgentProject, AgentSessionMeta, AgentStatus, DiscoveredSession } from '../api';
+import type { AgentProject, AgentSessionMeta, DiscoveredSession } from '../api';
 import { useTheme } from '../theme';
 import {
-  Badge, Banner, Button, Caption, Card, ConnectionStatus, Divider, Dot, EmptyState, IconButton, Input, Label, Micro, Row, Rule, Section, Skeleton, StatusBadge, TrackLabel, Txt, haptic,
+  Badge, Banner, Button, Caption, Card, ConnectionStatus, Divider, EmptyState, Input, Label, Row, Rule, Section, Skeleton, TrackLabel, Txt, haptic,
 } from '../ui';
+import { useConnection } from '../connection';
 import { SwitchComputerLink } from '../devices/switch-link';
 import { formatAsOf } from '../files-format';
-import { ago, groupDiscovered, projectName, statusLabel } from './model';
-import { isLive, kindLabel, ptyStateLabel, runningCount, sessionKind } from './session-kind';
-import { askSummary, countdown } from './attention';
-import { decideHook, dismissHookNotice, getAttention, refreshAttention, refreshDiscovered, refreshHooks, useAgentAttention } from './attention-store';
-import { discoveredFromHook, noticeLine, orderedHookAsks } from './hook-model';
-import { HookAskCard } from './hook-ask-card';
+import { getAttention, refreshAttention, refreshDiscovered, refreshHooks, useAgentAttention } from './attention-store';
+import { pathPlaceholder } from './new-project';
 import { combineLedgers, foldCosts, ledgerLine } from './cost-ledger';
 import type { CostLedger } from './cost-ledger';
 import { NewProjectSheet } from './new-project-sheet';
+import { fleetCounts, fleetRows } from './fleet';
+import { FleetBoard, FleetStrip, HooksBanner, PromptNotices } from './fleet-list';
 
 const messageOf = (e: unknown, fallback: string): string => (e instanceof Error ? e.message : fallback);
 
@@ -37,6 +36,8 @@ const ledgerSigOf = (metas: readonly AgentSessionMeta[]): string =>
 
 interface Availability {
   readonly available: boolean;
+  /** Absent on hosts older than the field — then no banner (#128). */
+  readonly hooksInstalled?: boolean;
 }
 
 // --- session list ------------------------------------------------------------
@@ -161,15 +162,12 @@ export function SessionList({
   }
 
   const unavailable = availability?.available === false;
-  const groups = groupDiscovered(discovered ?? []);
-  const hookAsks = orderedHookAsks(hooks);
-  const hookNotices = hooks?.notices ?? [];
+  // One list over every source, needs-you first (#124) — and the strip counts
+  // the same rows, so the numbers and the list can never disagree.
+  const rows = fleetRows(sessions, discovered, hooks);
+  const counts = fleetCounts(sessions, discovered, hooks, now);
+  const prompts = (hooks?.notices ?? []).filter((n) => n.kind !== 'done');
   const margin = theme.layout.margin;
-  // A pty session's status word is about its stream-json twin and stays
-  // 'idle' while a human is typing into it, so counting statuses alone read 0
-  // over a live terminal. runningCount asks each kind the right question.
-  const running = runningCount(sessions);
-  const waiting = sessions?.filter((s) => s.status === 'waiting').length ?? 0;
   // The running total across every session — the strip's SPEND stat.
   const totalLine = ledgerLine(combineLedgers((sessions ?? []).map((s) => ledgers[s.id]).filter((l): l is CostLedger => l !== undefined)));
 
@@ -211,319 +209,54 @@ export function SessionList({
         />
       ) : null}
 
-      {sessions !== null && sessions.length > 0 ? (
-        // The stat strip: the fleet at a glance, in the reference's stat-card
-        // idiom. A blue ring only while something is actually running; a small
-        // amber disc only while something waits on you.
-        <Row gap="sm" align="stretch" style={{ marginBottom: theme.space.lg }}>
-          <Card padding="sm" title="Running" testID="agent-stat-running" style={{ flex: 1 }}>
-            <Row gap="xs">
-              {running > 0 ? <Dot status="accent" ring size={7} /> : null}
-              <Txt variant="subheading">{String(running)}</Txt>
-            </Row>
-          </Card>
-          <Card padding="sm" title="Waiting" testID="agent-stat-waiting" style={{ flex: 1 }}>
-            <Row gap="xs">
-              {waiting > 0 ? <Dot status="warn" size={7} /> : null}
-              <Txt variant="subheading">{String(waiting)}</Txt>
-            </Row>
-          </Card>
-          <Card padding="sm" title="Spend" testID="agent-spend-total" style={{ flex: 1.6 }}>
-            {/* The summed ledger, in the mono ledger voice. */}
-            <Txt variant="monoSmall" tone={totalLine ? 'dim' : 'faint'} numberOfLines={1} style={{ paddingVertical: 2 }}>
-              {totalLine || '—'}
-            </Txt>
-          </Card>
-        </Row>
-      ) : null}
+      <FleetStrip counts={counts} spend={totalLine} />
 
-      {hookAsks.length > 0 ? (
-        // Terminal sessions blocked on this phone come first: they are the
-        // only rows on the tab a person at the keyboard is also waiting on.
-        <Section label="Needs you" rule={false} style={{ marginBottom: theme.space.lg }} testID="agent-hook-asks">
-          <View style={{ gap: theme.space.md }}>
-            {hookAsks.map((item, i) => (
-              <HookAskCard
-                key={item.id}
-                item={item}
-                now={now}
-                stackedCount={hookAsks.length - 1 - i}
-                onAnswer={(allow, choice) => { void decideHook(item.id, allow, choice); }}
-                onOpen={() => onWatch(discoveredFromHook(item))}
-              />
-            ))}
-          </View>
-        </Section>
-      ) : null}
+      {availability?.hooksInstalled === false ? <HooksBanner /> : null}
 
-      <Section
-        label="Sessions"
-        rule={false}
-        trailing={
-          <TrackLabel
-            testID="agent-new"
-            label="+ New session"
-            onPress={() => setPicking(true)}
-            disabled={unavailable}
-            inks={{ restLabel: theme.colors.accent }}
-          />
-        }
-      >
-        {sessions === null && !error && !pollError ? (
-          <Card flush>
-            {Array.from({ length: 3 }, (_, i) => (
-              <View key={i}>
-                {i > 0 ? <Divider /> : null}
-                <View style={{ paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, gap: theme.space.xs }}>
-                  <Skeleton width={`${44 + i * 10}%`} height={15} />
-                  <Skeleton width={`${58 + i * 8}%`} height={10} />
-                </View>
+      {sessions === null && !error && !pollError ? (
+        <Card flush>
+          {Array.from({ length: 3 }, (_, i) => (
+            <View key={i}>
+              {i > 0 ? <Divider /> : null}
+              <View style={{ paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, gap: theme.space.xs }}>
+                <Skeleton width={`${44 + i * 10}%`} height={15} />
+                <Skeleton width={`${58 + i * 8}%`} height={10} />
               </View>
-            ))}
-          </Card>
-        ) : null}
-
-        {sessions?.length === 0 && !unavailable ? (
-          <Card>
-            <EmptyState
-              testID="agent-empty"
-              title="No sessions yet"
-              message="Start one in a project folder and tell Claude what to build — you approve every action from here."
-              action={{ label: 'New session', onPress: () => setPicking(true) }}
+            </View>
+          ))}
+        </Card>
+      ) : (
+        <FleetBoard
+          rows={rows}
+          ledgers={ledgers}
+          now={now}
+          onOpen={onOpen}
+          onWatch={onWatch}
+          onRemove={remove}
+          newSession={
+            <TrackLabel
+              testID="agent-new"
+              label="+ New session"
+              onPress={() => setPicking(true)}
+              disabled={unavailable}
+              inks={{ restLabel: theme.colors.accent }}
             />
-          </Card>
-        ) : null}
+          }
+          empty={unavailable ? null : (
+            <Card>
+              <EmptyState
+                testID="agent-empty"
+                title="No agents yet"
+                message="Start one in a project folder and tell Claude what to build — you approve every action from here. Sessions you start in a terminal on the computer show up here too."
+                action={{ label: 'New session', onPress: () => setPicking(true) }}
+              />
+            </Card>
+          )}
+        />
+      )}
 
-        {sessions !== null && sessions.length > 0 ? (
-          <Card flush testID="agent-sessions">
-            {sessions.map((s, i) => (
-              <View key={s.id}>
-                {i > 0 ? <Divider /> : null}
-                <SessionRow session={s} ledger={ledgers[s.id]} now={now} onOpen={onOpen} onRemove={remove} />
-              </View>
-            ))}
-          </Card>
-        ) : null}
-      </Section>
-
-      {hookNotices.length > 0 ? (
-        // What terminal sessions reported since you last looked: a turn that
-        // finished, or a prompt the terminal is holding because this phone
-        // was not connected when it was raised. Tap to read; dismiss to clear.
-        <Section label="From the terminal" rule={false} style={{ marginTop: theme.space.xl }} testID="agent-hook-notices">
-          <Card flush>
-            {hookNotices.map((n, i) => {
-              const line = noticeLine(n);
-              return (
-                <View key={n.id}>
-                  {i > 0 ? <Divider /> : null}
-                  <Row gap="sm" style={{ paddingHorizontal: theme.space.md, paddingVertical: theme.space.xs }}>
-                    <Pressable
-                      testID={`agent-notice-${n.id}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${projectName(n.cwd)} ${line.label} — open the transcript`}
-                      onPress={() => {
-                        haptic('light');
-                        onWatch(discoveredFromHook(n));
-                      }}
-                      style={({ pressed }) => ({ flex: 1, gap: 2, minHeight: theme.layout.minTouch, justifyContent: 'center', opacity: pressed ? theme.motion.pressOpacity : 1 })}
-                    >
-                      <Row gap="xs">
-                        <Label style={{ marginBottom: 0 }}>{projectName(n.cwd)}</Label>
-                        <Micro tone={n.kind === 'terminal-prompt' ? 'warn' : 'faint'}>{line.label}</Micro>
-                      </Row>
-                      {line.text ? <Txt variant="body" tone="dim" numberOfLines={2}>{line.text}</Txt> : null}
-                    </Pressable>
-                    <IconButton
-                      testID={`agent-notice-dismiss-${n.id}`}
-                      accessibilityLabel={`Dismiss ${projectName(n.cwd)} ${line.label}`}
-                      variant="plain"
-                      hapticTone={null}
-                      onPress={() => { void dismissHookNotice(n.id); }}
-                    >
-                      <Txt variant="subheading" tone="faint">×</Txt>
-                    </IconButton>
-                  </Row>
-                </View>
-              );
-            })}
-          </Card>
-        </Section>
-      ) : null}
-
-      {groups.length > 0 ? (
-        <Section label="On this PC" rule={false} style={{ marginTop: theme.space.xl }}>
-          <Caption style={{ marginBottom: theme.space.sm }}>
-            Claude Code sessions on the computer — tap to watch; take over once the terminal is quiet.
-          </Caption>
-          <Card flush>
-            {groups.map((g, gi) => (
-              <View key={g.cwd}>
-                {gi > 0 ? <Divider /> : null}
-                <Row gap="xs" style={{ paddingHorizontal: theme.space.md, paddingTop: theme.space.sm, paddingBottom: theme.space.xxs }}>
-                  <Label style={{ marginBottom: 0 }}>{g.name}</Label>
-                  <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flexShrink: 1 }}>{g.cwd}</Txt>
-                </Row>
-                {g.sessions.map((d) => (
-                  <Pressable
-                    key={d.claudeSessionId}
-                    testID={`agent-resume-${d.claudeSessionId}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${d.live ? 'Watch' : 'Open'} ${d.preview || 'untitled session'}`}
-                    onPress={() => {
-                      haptic('light');
-                      onWatch(d);
-                    }}
-                    style={({ pressed }) => ({
-                      minHeight: theme.layout.minTouch,
-                      justifyContent: 'center',
-                      paddingHorizontal: theme.space.md,
-                      paddingVertical: theme.space.xs,
-                      opacity: pressed ? theme.motion.pressOpacity : 1,
-                    })}
-                  >
-                    <Row justify="space-between" gap="sm">
-                      <Txt variant="body" numberOfLines={1} style={{ flex: 1 }}>
-                        {d.preview || 'untitled session'}
-                      </Txt>
-                      {/* A terminal is writing to it right now — the accent's
-                          one job on this list besides the primary. */}
-                      {d.live ? (
-                        <Micro testID={`agent-live-${d.claudeSessionId}`} tone="accent">● LIVE</Micro>
-                      ) : (
-                        <Micro>{ago(d.lastWriteAt ?? d.mtime, now)}</Micro>
-                      )}
-                    </Row>
-                  </Pressable>
-                ))}
-                <View style={{ height: theme.space.xs }} />
-              </View>
-            ))}
-          </Card>
-        </Section>
-      ) : null}
+      <PromptNotices notices={prompts} onWatch={onWatch} />
     </ScrollView>
-  );
-}
-
-/**
- * The row's status mark (REVAMP-SPEC §3.5): a hollow blue ring only while the
- * turn is running (blue = active, and only then), a small amber disc while it
- * waits on you, muted otherwise. Steady shapes — no pulse.
- */
-const rowDot = (s: AgentStatus): { status: 'accent' | 'warn' | 'bad' | 'neutral'; ring: boolean } =>
-  s === 'running'
-    ? { status: 'accent', ring: true }
-    : { status: s === 'waiting' ? 'warn' : s === 'error' ? 'bad' : 'neutral', ring: false };
-
-/**
- * The same mark for a pty session, which has a second kind of "running": its
- * process. A live terminal nobody is mid-turn on was drawn exactly like a
- * killed one, so the list could not tell work in progress from a corpse.
- */
-const ptyRowDot = (s: AgentSessionMeta): { status: 'accent' | 'warn' | 'bad' | 'neutral'; ring: boolean } =>
-  s.status === 'waiting' || s.status === 'error' || !isLive(s)
-    ? rowDot(s.status)
-    : { status: 'accent', ring: true };
-
-/**
- * One session, one table row: dot + title with the trailing status word, then
- * the mono footnote (cwd left, spend right), then — only when it is asking —
- * the amber "needs you" line with the auto-deny countdown. The remove control
- * rides trailing; × is one of the universal five.
- */
-function SessionRow({
-  session: s,
-  ledger,
-  now,
-  onOpen,
-  onRemove,
-}: {
-  session: AgentSessionMeta;
-  ledger: CostLedger | undefined;
-  now: number;
-  onOpen: (id: string) => void;
-  onRemove: (id: string) => void;
-}) {
-  const theme = useTheme();
-  const kind = sessionKind(s);
-  const dot = kind === 'pty' ? ptyRowDot(s) : rowDot(s.status);
-  const spend = ledger ? ledgerLine(ledger) : '';
-  // A pty row's trailing fact is whether the terminal is alive, not when it
-  // was last touched: "stopped" and "live · 2 attached" are the two things
-  // worth knowing before tapping it.
-  const ptyState = ptyStateLabel(s);
-  const idle = s.status === 'idle' && !ptyState;
-  return (
-    <Row testID={`agent-session-${s.id}`} gap="xs" align="flex-start" style={{ paddingLeft: theme.space.md }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Open ${s.title}, ${kindLabel(kind)} session, ${ptyState ?? statusLabel(s.status)}`}
-        onPress={() => {
-          haptic('light');
-          onOpen(s.id);
-        }}
-        style={({ pressed }) => ({
-          flex: 1,
-          gap: theme.space.xxs,
-          paddingVertical: theme.space.sm,
-          minHeight: theme.layout.rowHeight,
-          justifyContent: 'center',
-          opacity: pressed ? theme.motion.pressOpacity : 1,
-        })}
-      >
-        <Row gap="xs">
-          <Dot status={dot.status} ring={dot.ring} size={7} />
-          <Txt variant="subheading" numberOfLines={1} style={{ flexShrink: 1 }}>{s.title}</Txt>
-          {/* Which of the two a row is matters before it is tapped: one opens a
-              terminal you can type into, the other a feed you approve from. */}
-          <Micro testID={`agent-kind-${s.id}`} tone="faint">{kindLabel(kind)}</Micro>
-          <View style={{ flex: 1 }} />
-          {/* When it last did anything — kept for a pty row too, because
-              "live" says nothing about how long it has been sitting there. */}
-          {ptyState && s.status === 'idle' ? (
-            <Micro tone="faint">{ago(s.lastUsed, now)}</Micro>
-          ) : null}
-          {/* One trailing fact: whether this terminal is alive and who is on
-              it, or — for a guided session — what it is doing. */}
-          <Micro
-            testID={`agent-state-${s.id}`}
-            tone={ptyState
-              ? (isLive(s) ? 'accent' : 'faint')
-              : idle ? 'faint' : s.status === 'waiting' ? 'warn' : s.status === 'error' ? 'bad' : 'accent'}
-          >
-            {ptyState && s.status === 'idle' ? ptyState : idle ? ago(s.lastUsed, now) : statusLabel(s.status)}
-          </Micro>
-        </Row>
-        <Row justify="space-between" gap="sm">
-          <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flexShrink: 1 }}>{s.cwd}</Txt>
-          {/* What this session has cost — value-right, like every ledger figure. */}
-          {spend ? <Txt variant="monoSmall" tone="faint" numberOfLines={1}>{spend}</Txt> : null}
-        </Row>
-        {s.pending ? (
-          // What it wants and how long before the host gives up — so a list
-          // of several sessions leaves no doubt about which one is asking.
-          <Row justify="space-between" gap="sm">
-            <Txt variant="monoSmall" tone="warn" numberOfLines={1} style={{ flexShrink: 1 }}>
-              {askSummary(s.pending.tool, s.pending.detail)}
-            </Txt>
-            {s.pending.expiresAt ? (
-              <Micro tone="dim">{`auto-denies in ${countdown(s.pending.expiresAt, now)}`}</Micro>
-            ) : null}
-          </Row>
-        ) : null}
-      </Pressable>
-      <IconButton
-        testID={`agent-del-${s.id}`}
-        accessibilityLabel={`Remove ${s.title}`}
-        accessibilityHint="Forgets this session in Belay; the transcript stays on the PC"
-        variant="plain"
-        hapticTone={null}
-        onPress={() => onRemove(s.id)}
-      >
-        <Txt variant="subheading" tone="faint">×</Txt>
-      </IconButton>
-    </Row>
   );
 }
 
@@ -531,6 +264,7 @@ function SessionRow({
 
 export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; onCreated: (id: string) => void }) {
   const theme = useTheme();
+  const platform = useConnection().active?.platform;
   const [projects, setProjects] = useState<readonly AgentProject[] | null>(null);
   const [manual, setManual] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -618,7 +352,7 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
         label="Folder on the PC"
         value={manual}
         onChangeText={setManual}
-        placeholder={'C:\\Users\\you\\project or ~/project'}
+        placeholder={pathPlaceholder(platform, 'project')}
         mono
         returnKeyType="go"
         onSubmitEditing={() => void create(manual)}

@@ -1,6 +1,6 @@
 // The cross-surface "needs you" band. Whenever any session is blocked on an
 // approval, this sits at the bottom of every surface — inline above the
-// desktop's control bar, floating over each tool panel's bottom edge — names
+// desktop's control bar and above each tool panel's tab bar — names
 // the session and the tool, and shows how long is left before the host gives
 // up.
 //
@@ -40,17 +40,7 @@ interface BandAsk {
   readonly count: number;
 }
 
-export interface NeedsYouBannerProps {
-  /**
-   * Absolute offset from its parent's bottom edge. Omit to render the band
-   * in normal flow instead — the desktop home lays it inline directly above
-   * the control bar (whose height moves with the key bar), while the tool
-   * panels float it over their own bottom edge.
-   */
-  bottom?: number;
-}
-
-export function NeedsYouBanner({ bottom }: NeedsYouBannerProps) {
+export function NeedsYouBanner() {
   const theme = useTheme();
   const router = useRouter();
   const pathname = usePathname();
@@ -101,8 +91,8 @@ export function NeedsYouBanner({ bottom }: NeedsYouBannerProps) {
 
   if (!primary) return null;
   // The session view already shows this ask, with the full input — and the
-  // Agent list shows a terminal ask at its top.
-  if (pathname.includes('agent') && openId === primary.sessionId) return null;
+  // Agent list (openId null) shows every ask at its top.
+  if (pathname.includes('agent') && (openId === null || openId === primary.sessionId)) return null;
 
   const left = countdown(deadline, now);
   const urgent = expiryUrgent(deadline, now);
@@ -112,9 +102,6 @@ export function NeedsYouBanner({ bottom }: NeedsYouBannerProps) {
       testID="needs-you"
       accessibilityLiveRegion="polite"
       style={{
-        ...(bottom === undefined
-          ? null
-          : { position: 'absolute' as const, left: 0, right: 0, bottom, zIndex: 2 }),
         paddingHorizontal: theme.layout.margin,
         paddingVertical: theme.space.sm,
         gap: theme.space.xs,

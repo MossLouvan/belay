@@ -78,6 +78,17 @@ export function previewPath(parent: string, name: string): string {
   return `${base || sep}${sep}${name}`;
 }
 
+/**
+ * The example path in a folder field, in the saved computer's own style: a
+ * Windows path on a Mac host reads as "wrong app" (#123). Both forms when the
+ * platform is unknown.
+ */
+export function pathPlaceholder(platform: string | undefined, leaf: string): string {
+  if (platform === 'darwin') return `~/${leaf}`;
+  if (platform === 'win32') return `C:\\Users\\you\\${leaf}`;
+  return `C:\\Users\\you\\${leaf} or ~/${leaf}`;
+}
+
 /** The folder a path lives in, in that path's own separator style. */
 export function parentOf(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, '');
