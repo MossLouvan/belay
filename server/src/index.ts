@@ -38,10 +38,11 @@ import { isTrustedHost, isTrustedOrigin, pairRefusal } from './host-guard.js';
 import { configuredBind, bindBannerLine } from './bind.js';
 import { messageOf } from './errors.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
-import { FRAME_DRAIN_POLL_MS, frameBackedUp } from './frame-backpressure.js';
+import { FRAME_BUFFER_CAP, FRAME_DRAIN_POLL_MS, frameBackedUp } from './frame-backpressure.js';
 import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-params.js';
 import { native, Frame, WindowFrame } from './native.js';
 import { encodeBinaryFrame } from './frame-codec.js';
+import { createH264Relay } from './h264-relay.js';
 import { classifyScreens } from './displays.js';
 import { openableWindows, sanitizeWindows, windowIdOf } from './windows.js';
 import { MAX_CLIPBOARD_UNITS, parseClipboardSet, shapeClipboardGet } from './clipboard.js';
@@ -1683,20 +1684,39 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
           }
         }
       }
+      retuneH264(); // the capture target changed: re-point the encoder
     }).catch(() => { /* a reconcile never rejects the chain */ });
   };
 
   const phoneOrLidRequest = (): VirtualDisplayRequest | null => desired ?? lidReq;
+
+  // ---- H.264 over this socket (h264-relay.ts) ------------------------------
+  //
+  // A phone that can decode natively asks with `?codec=h264`. On a Mac host
+  // the helper's VideoToolbox frames are forwarded as binary messages and the
+  // JPEG loop idles; anywhere else the relay announces JPEG and nothing
+  // changes. A retune (config, virtual display) restarts the encoder at the
+  // new size, whose first frame is a keyframe.
+  const h264 = url.searchParams.get('codec') === 'h264'
+    ? createH264Relay(ws, () => ({
+        width: params.width, quality: params.quality, fps: params.fps, screen: params.screen,
+        virtualDisplay: selectCaptureMode(activeReq, virtualUp).virtual !== null,
+      }), FRAME_BUFFER_CAP, (g) => { if (g.sw > 0 && g.sh > 0 && !virtualUp) lastAspect = g.sw / g.sh; })
+    : null;
+  const retuneH264 = (): void => { if (h264?.active) void h264.start(); };
 
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
       if (msg?.type === 'bwpStart') { void startBwp(msg); return; }
       if (msg?.type === 'bwpStop') { stopBwp(); return; }
+      if (msg?.type === 'keyframe') { h264?.keyframe(); return; }
+      if (msg?.type === 'h264stop') { h264?.stop(); return; }
       if (msg?.type !== 'config') return;
       params = resolveStreamParams(msg, params);
       const next = resolveVirtualRequest(msg, desired);
       if (!sameRequest(next, desired)) { desired = next; reconcileVirtual(); }
+      else retuneH264();
     } catch { /* ignore malformed control messages */ }
   });
 
@@ -1719,6 +1739,7 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
     // A streamer that outlived its socket would keep capturing the desktop and
     // sending it to a client that is gone.
     stopBwp();
+    h264?.stop();
     // Free the virtual display on disconnect: a display that outlived the phone
     // that asked for it would rearrange the host owner's desktop for nobody.
     desired = null;
@@ -1727,14 +1748,17 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
   };
   ws.on('close', teardown);
   ws.on('error', teardown);
+  void h264?.start();
 
   const loop = async () => {
     while (alive && ws.readyState === ws.OPEN) {
       const started = Date.now();
-      // Exactly one video path at a time. While BWP carries the pixels this
-      // loop must not also capture: two capture loops on one desktop compete
-      // for the same GPU and halve the frame rate of the one that matters.
-      if (bwpActive) {
+      // Exactly one video path at a time. While BWP or H.264 carries the
+      // pixels this loop must not also capture: two capture loops on one
+      // desktop compete for the same GPU and halve the frame rate of the one
+      // that matters. The H.264 relay also holds the loop while it negotiates,
+      // so its codec announcement always precedes the first pixel frame.
+      if (bwpActive || h264?.active || h264?.pending) {
         await sleep(BWP_IDLE_POLL_MS);
         continue;
       }

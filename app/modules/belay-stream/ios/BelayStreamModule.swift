@@ -48,6 +48,12 @@ public class BelayStreamModule: Module {
                 view.cursorEvents = on ?? false
             }
 
+            /// Push mode: frames come from `feedH264` (H.264 on the screen
+            /// WebSocket) instead of a UDP session. See BelayStreamView.push.
+            Prop("push") { (view: BelayStreamView, on: Bool?) in
+                view.setPushMode(on ?? false)
+            }
+
             Prop("source") { (view: BelayStreamView, source: BwpSourceRecord?) in
                 guard let source, source.isUsable else {
                     view.stop()
@@ -94,6 +100,19 @@ public class BelayStreamModule: Module {
             guard let view = BelayStreamView.current() else { return false }
             view.enqueueInput(report)
             return true
+        }
+
+        /// One H.264 access unit from the screen WebSocket, by blob handle.
+        ///
+        /// Synchronous and tiny on purpose: it runs once per frame on the JS
+        /// thread, and all it does there is look the blob up and hand it to
+        /// the view's decode queue. The bytes never become a JS value. The
+        /// blob is released whether or not a view is there to take it, so a
+        /// frame that arrives between mount and unmount cannot leak.
+        Function("feedH264") { (blobId: String, offset: Int, size: Int) -> Bool in
+            let data = BlobBridge.take(blobId: blobId, offset: offset, size: size)
+            guard let data, let view = BelayStreamView.current() else { return false }
+            return view.push(data)
         }
     }
 }

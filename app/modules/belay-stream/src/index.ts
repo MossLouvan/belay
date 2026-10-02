@@ -53,7 +53,13 @@ export type StreamStatus =
       readonly inputSent?: number;
       readonly rttMs: number;
     }
-  | { readonly state: 'error'; readonly error: string };
+  | { readonly state: 'error'; readonly error: string }
+  /**
+   * Push mode (H.264 over the WebSocket): the decoder needs a keyframe — a
+   * delta arrived with nothing to decode against, or the display layer
+   * failed. The owner forwards it to the host as `{type:'keyframe'}`.
+   */
+  | { readonly state: 'keyframe' };
 
 export interface CursorEvent {
   readonly x: number;
@@ -63,6 +69,11 @@ export interface CursorEvent {
 
 export interface BelayStreamViewProps extends ViewProps {
   readonly source: BwpSource | null;
+  /**
+   * Push mode: no UDP session; frames arrive through `feedH264` from the
+   * screen WebSocket instead. Mutually exclusive with `source`.
+   */
+  readonly push?: boolean;
   readonly onStatus?: (e: { nativeEvent: StreamStatus }) => void;
   readonly onCursor?: (e: { nativeEvent: CursorEvent }) => void;
   /** Opt in to `onCursor`; off by default so the native loop never dispatches to a missing listener. */
@@ -73,6 +84,8 @@ interface BelayStreamNativeModule {
   reservePort(): Promise<number>;
   /** Absent in a binary built before the Input channel landed. */
   sendInput?(report: Uint8Array): boolean;
+  /** Absent in a binary built before H.264 over the WebSocket. */
+  feedH264?(blobId: string, offset: number, size: number): boolean;
 }
 
 let nativeModule: BelayStreamNativeModule | null = null;
@@ -135,6 +148,32 @@ export function sendInput(report: Uint8Array): boolean {
   } catch {
     // A session that closed between the check and the call. The WebSocket
     // copy of this same report is already on its way.
+    return false;
+  }
+}
+
+/**
+ * Whether this build can take H.264 access units from the screen WebSocket
+ * and decode them natively (the view in push mode plus `feedH264`).
+ */
+export function canDecodeH264(): boolean {
+  return nativeView !== null && typeof nativeModule?.feedH264 === 'function';
+}
+
+/**
+ * Hand one Blob-delivered binary WebSocket message to the live push-mode view.
+ *
+ * Only the blob's native handle crosses from JS; the module resolves the bytes
+ * from React Native's blob store itself and releases them, so the access unit
+ * never exists on the JavaScript side. Returns false (and still releases the
+ * blob) when no push-mode view is mounted.
+ */
+export function feedH264(blobId: string, offset: number, size: number): boolean {
+  const feed = nativeModule?.feedH264;
+  if (!feed) return false;
+  try {
+    return feed.call(nativeModule, blobId, offset, size);
+  } catch {
     return false;
   }
 }

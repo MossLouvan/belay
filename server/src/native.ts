@@ -367,7 +367,7 @@ class NativeHost {
   private readVideoPipe(proc: ChildProcessWithoutNullStreams): void {
     const pipe = proc.stdio[3];
     if (!pipe || typeof (pipe as NodeJS.ReadableStream).on !== 'function') return;
-    let rest = Buffer.alloc(0);
+    let rest: Buffer = Buffer.alloc(0);
     (pipe as NodeJS.ReadableStream).on('data', (chunk: Buffer) => {
       let split;
       try {

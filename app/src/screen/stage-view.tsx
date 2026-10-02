@@ -109,7 +109,7 @@ export function StageView(props: StageViewProps) {
     </View>
   );
 
-  const hasPicture = Boolean(stream.bwp || stream.hasFrame);
+  const hasPicture = Boolean(stream.bwp || stream.h264 || stream.hasFrame);
 
   return (
     // ALWAYS flex-start (top-aligned) — centering the PANEL creates black
@@ -175,13 +175,21 @@ export function StageView(props: StageViewProps) {
             ],
           }}
         >
-          {/* Two video paths, never both. When the host is streaming H.264
-              over UDP the native view owns the picture and `frameUri` holds
-              whatever the last JPEG frame was — which is stale by definition,
-              because the host stopped sending them. */}
+          {/* One video path at a time. When the host is streaming H.264 —
+              over UDP (`bwp`) or on the screen socket itself (`h264`, fed
+              natively from the WebSocket) — the native view owns the picture
+              and the last JPEG frame is stale by definition, because the host
+              stopped sending them. */}
           {stream.bwp && BelayStreamView ? (
             <BelayStreamView
               source={stream.bwp}
+              onStatus={(e) => stream.onBwpStatus(e.nativeEvent)}
+              style={{ width: '100%', height: '100%' }}
+            />
+          ) : stream.h264 && BelayStreamView ? (
+            <BelayStreamView
+              source={null}
+              push
               onStatus={(e) => stream.onBwpStatus(e.nativeEvent)}
               style={{ width: '100%', height: '100%' }}
             />

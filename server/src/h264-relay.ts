@@ -39,7 +39,11 @@ export function keyframeRequestDue(lastRequestAt: number, now: number): boolean 
 export interface H264Relay {
   /** True while H.264 frames are flowing to this socket (the JPEG loop idles). */
   readonly active: boolean;
-  /** (Re)start with the current capture arguments; announces the outcome. */
+  /** True while a start is in flight: the JPEG loop must not send a frame
+   *  before the codec announcement, so it idles through this too. */
+  readonly pending: boolean;
+  /** (Re)start with the current capture arguments; announces the outcome.
+   *  A no-op once the phone has declined H.264 on this socket. */
   start(): Promise<void>;
   /** Ask the helper for an IDR (phone decoder failure, or our own drop). */
   keyframe(): void;
@@ -51,11 +55,14 @@ export function createH264Relay(
   ws: WebSocket,
   captureArgs: () => H264CaptureArgs,
   maxBufferedBytes: number,
+  onGeometry?: (geometry: H264Geometry) => void,
 ): H264Relay {
   let unsubscribe: (() => void) | null = null;
   let awaitingKeyframe = true;
   let lastRequestAt = -Infinity;
   let generation = 0;
+  let starting = 0;
+  let declined = false;
 
   const open = (): boolean => ws.readyState === ws.OPEN;
 
@@ -99,10 +106,13 @@ export function createH264Relay(
 
   return {
     get active() { return unsubscribe !== null; },
+    get pending() { return starting > 0; },
 
     async start(): Promise<void> {
+      if (declined) return;
       const mine = ++generation;
       const args = captureArgs();
+      starting += 1;
       let geometry: H264Geometry;
       try {
         geometry = await native.h264Start(args.width, args.fps, args.quality, args.screen, args.virtualDisplay);
@@ -111,20 +121,24 @@ export function createH264Relay(
         // the helper is too old), and the JPEG loop is already there.
         if (mine === generation) { detach(); announce('jpeg'); }
         return;
+      } finally {
+        starting -= 1;
       }
       if (mine !== generation) return; // a later start() won
       if (!open()) { detach(); return; }
       awaitingKeyframe = true;
       if (!unsubscribe) unsubscribe = native.onVideoFrame(onFrame);
+      onGeometry?.(geometry);
       announce('h264', geometry);
-      // The encoder's first frame after a start is an IDR; asking again is
-      // belt and braces for a retune that reused a running session.
-      requestKeyframe();
+      // No keyframe request here: every `h264start` opens a fresh encoder
+      // session whose first frame is an IDR (measured), and asking again
+      // would only double the one bandwidth spike this path has.
     },
 
     keyframe: requestKeyframe,
 
     stop(): void {
+      declined = true;
       generation += 1;
       const was = unsubscribe !== null;
       detach();
