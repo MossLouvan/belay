@@ -4,7 +4,7 @@
 // the same ones api.ts documents — bearer header, hard deadline, abort not
 // abandon — so a stalled host still surfaces as "didn't answer" here.
 
-import { getConnection, REQUEST_TIMEOUT_MS, TimeoutError, UnauthorizedError } from '../api';
+import { getConnection, REQUEST_TIMEOUT_MS, TimeoutError, UnauthorizedError } from '../api.ts';
 
 /** One changed file. Mirrors ChangedFile in server/src/changes-summary.ts. */
 export interface ChangedFile {
@@ -31,10 +31,23 @@ export interface ProjectChanges {
   readonly diffTruncated: boolean;
 }
 
-export async function fetchChanges(sessionId: string): Promise<ProjectChanges> {
+/** What to show changes for: a Belay session, or a session's folder (#127). */
+export interface ChangesTarget {
+  readonly session?: string;
+  readonly cwd?: string;
+}
+
+export function changesPath({ session, cwd }: ChangesTarget): string | null {
+  if (session) return `/agent/sessions/${encodeURIComponent(session)}/changes`;
+  if (cwd) return `/agent/changes?cwd=${encodeURIComponent(cwd)}`;
+  return null;
+}
+
+export async function fetchChanges(target: ChangesTarget): Promise<ProjectChanges> {
   const conn = getConnection();
   if (!conn) throw new Error('not connected');
-  const path = `/agent/sessions/${encodeURIComponent(sessionId)}/changes`;
+  const path = changesPath(target);
+  if (!path) throw new Error('no session or folder to show changes for');
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);

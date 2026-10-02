@@ -100,6 +100,20 @@ export function discoveredFromHook(item: HookPermission | HookNotice): Discovere
   };
 }
 
+/**
+ * The /changes params a notice opens, or null to open its transcript. A Belay
+ * session goes by id; a plain terminal session's finished turn goes by folder
+ * (the host serves GET /agent/changes?cwd= for session folders, #127) — but
+ * only when the notice carries a stat, i.e. the folder is a git repo and the
+ * host is new enough to know the route.
+ */
+export function changesParams(n: HookNotice): { session?: string; title: string; cwd: string } | null {
+  const title = projectName(n.cwd);
+  if (n.belaySessionId) return { session: n.belaySessionId, title, cwd: n.cwd };
+  if (n.kind === 'done' && n.changes) return { title, cwd: n.cwd };
+  return null;
+}
+
 /** "3 files · +41 −7" — what a finished turn changed; empty when unknown. */
 export function changesLine(changes: HookChanges | undefined): string {
   if (!changes) return '';

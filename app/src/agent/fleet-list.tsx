@@ -17,7 +17,7 @@ import { ago, projectName, statusLabel } from './model';
 import { isLive, kindLabel, ptyStateLabel, sessionKind } from './session-kind';
 import { askSummary, countdown } from './attention';
 import { decideHook, dismissHookNotice } from './attention-store';
-import { discoveredFromHook, noticeLine } from './hook-model';
+import { changesParams, discoveredFromHook, noticeLine } from './hook-model';
 import { HookAskCard } from './hook-ask-card';
 import { ledgerLine } from './cost-ledger';
 import type { CostLedger } from './cost-ledger';
@@ -93,14 +93,13 @@ export function FleetBoard({ rows, ledgers, now, onOpen, onWatch, onRemove, newS
   const needs = rows.filter((r) => r.state === 'waiting');
   const rest = rows.filter((r) => r.state !== 'waiting');
 
-  // A finished turn with a change count opens what changed; the Changes
-  // route is per Belay session, so a plain terminal session opens its
-  // transcript until the host can diff by folder.
+  // A finished turn opens what changed — by Belay session, or by folder for
+  // a plain terminal session (#127); anything else opens its transcript.
   const openNotice = (n: HookNotice) => {
     haptic('light');
-    if (n.belaySessionId) {
-      router.push({ pathname: '/changes', params: { session: n.belaySessionId, title: projectName(n.cwd), cwd: n.cwd } });
-    } else onWatch(discoveredFromHook(n));
+    const params = changesParams(n);
+    if (params) router.push({ pathname: '/changes', params });
+    else onWatch(discoveredFromHook(n));
   };
 
   const plainRow = (r: FleetRow) =>
