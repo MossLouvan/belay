@@ -4,6 +4,8 @@
 
 import { readBwpCapability } from './screen/bwp-policy.ts';
 import type { AudioProbe } from './stream/audio-capability.ts';
+import { TOKEN_PREFIX_LENGTH, tokenHashHex } from './devices/hmac.ts';
+import type { SavedDevice } from './devices/model.ts';
 
 export interface Connection {
   host: string; // e.g. http://100.101.102.103:8787
@@ -158,6 +160,9 @@ export interface HostCheck {
   plaintextRefused?: boolean;
 }
 
+/** `HostCheck.error` when something answered /health, but not as Belay. */
+export const NOT_BELAY = 'answered, but not as Belay';
+
 /**
  * Probe a host's /health. Pass a signal to actually cancel the request —
  * racing a timeout only abandons the fetch, which leaves it free to resolve
@@ -171,7 +176,11 @@ export async function checkHost(host: string, signal?: AbortSignal): Promise<Hos
       if (body.code === 'plaintext-refused') return { ok: false, error: body.error ?? 'plain HTTP refused', plaintextRefused: true };
       return { ok: false, error: `host returned ${res.status}` };
     }
-    const j = await res.json();
+    // A 200 that is not a JSON object is some other program's page (a router
+    // admin, a dev server's index fallback) — "isn't Belay", not a parser
+    // error for the user to read (#86).
+    const j = await res.json().catch(() => null);
+    if (typeof j !== 'object' || j === null) return { ok: false, error: NOT_BELAY };
     return {
       ok: true,
       name: j.name,
@@ -286,6 +295,32 @@ async function failureFor(res: Response, path: string): Promise<Error> {
   if (res.status === 401) return new UnauthorizedError();
   const j = await res.json().catch(() => ({}));
   return new Error((j as { error?: string }).error || `request failed (${res.status})`);
+}
+
+/** Forget must not hang on a sleeping computer: a short deadline, not the usual one. */
+const REVOKE_SELF_TIMEOUT_MS = 3000;
+
+/**
+ * Revoke a saved computer's own pairing on that computer (#83). Addressed and
+ * authed from the device itself, not the active connection, so a computer
+ * that is not the one in use can be forgotten too. No recovery re-race: the
+ * caller treats any failure as "could not reach it" and forgets anyway.
+ */
+export async function revokeSelf(device: SavedDevice): Promise<void> {
+  const host = device.lastKnownGoodUrl ?? device.addresses[0]?.url;
+  if (!host) throw new Error('no address to revoke at');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REVOKE_SELF_TIMEOUT_MS);
+  try {
+    const res = await fetchWithTimeout(host + '/devices/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${device.token}` },
+      body: JSON.stringify({ prefix: tokenHashHex(device.token).slice(0, TOKEN_PREFIX_LENGTH) }),
+    }, '/devices/revoke', controller.signal);
+    if (!res.ok) throw await failureFor(res, '/devices/revoke');
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

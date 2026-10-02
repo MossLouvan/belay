@@ -7,14 +7,18 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
 import { canRevoke, isSelfDevice, parseDevices, revocationCopy } from './devices-model.ts';
 
 const OWN_TOKEN = 'aabbccdd' + 'e'.repeat(56);
+// The host never sends a raw-token prefix: `tokenPrefix` is the first 8 hex
+// characters of sha256(token) (server/src/state.ts). The fixture must match.
+const OWN_PREFIX = createHash('sha256').update(OWN_TOKEN, 'utf8').digest('hex').slice(0, 8);
 
 const payload = {
   devices: [
-    { tokenPrefix: 'aabbccdd', name: 'iPhone', createdAt: 1000, lastSeen: 2000 },
+    { tokenPrefix: OWN_PREFIX, name: 'iPhone', createdAt: 1000, lastSeen: 2000 },
     { tokenPrefix: '11223344', name: 'Old iPhone', createdAt: 500, lastSeen: 600 },
   ],
 };
@@ -46,6 +50,9 @@ test('the phone in hand is recognised by its own token, nothing else', () => {
   assert.equal(isSelfDevice(devices[1], OWN_TOKEN), false);
   assert.equal(isSelfDevice(devices[0], undefined), false);
   assert.equal(isSelfDevice(devices[0], ''), false);
+  // A raw-token prefix must NOT match: the host hashes before truncating (#68).
+  const [raw] = parseDevices({ devices: [{ name: 'X', tokenPrefix: OWN_TOKEN.slice(0, 8) }] });
+  assert.equal(isSelfDevice(raw, OWN_TOKEN), false);
 });
 
 test('self-revocation is named as a logout, before it happens', () => {

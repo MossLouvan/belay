@@ -8,13 +8,14 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import {
   Connection, checkHost, challengeHost, setConnection as setClientConnection,
-  clearConnection as clearClientConnection, setRecoveryHandler,
+  clearConnection as clearClientConnection, setRecoveryHandler, revokeSelf,
 } from './api';
 import {
   DeviceStore, SavedDevice, emptyStore, activeDevice as pickActive,
-  upsertDevice, setActive, removeDevice, renameDevice, recordSuccess,
+  upsertDevice, setActive, renameDevice, recordSuccess,
   orderAddresses, adoptRealId, findDevice,
 } from './devices/model';
+import { forgetDevice } from './devices/forget';
 import { isUnresolved } from './devices/token-resolve';
 import { pinAddresses, randomBytes } from './devices/pinning';
 import { verifyHost } from './devices/verify-host';
@@ -164,6 +165,12 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       setPhase('unreachable');
     };
 
+    // A silent re-race that finds nothing leaves the connection in place: the
+    // request that triggered it retries once more and fails honestly, and the
+    // panel on screen shows its own "lost contact" state instead of being
+    // unmounted by the (home) guard mid-render (#69). A plaintext refusal is
+    // still a real verdict — that needs a new pairing, not a retry.
+    if (!winner && opts?.silent && !plaintextRefused) return;
     if (!winner) { refuse(plaintextRefused ? 'needs-repair' : null); return; }
 
     // Something answered. Before the token goes anywhere: is it the computer
@@ -241,7 +248,10 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     // at 'connecting' forever (auto-reconnect waits out 'connecting', so it
     // never recovers either).
     if (wasActive) attemptRef.current += 1;
-    const next = removeDevice(store, id);
+    // Revoke this phone's token on that computer first (best effort, short
+    // deadline), so "un-paired from it" is true on both ends; an unreachable
+    // host is still forgotten locally (#83).
+    const next = await forgetDevice(store, id, revokeSelf);
     await commit(next);
 
     const stillActive = pickActive(next);

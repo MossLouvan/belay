@@ -2,10 +2,11 @@
 // the friendly OS name / battery come from small platform-aware helpers, so
 // this file stays a thin composition layer.
 
-import { cpus, totalmem, freemem, uptime, hostname, platform, release } from 'node:os';
+import { cpus, totalmem, uptime, hostname, platform, release } from 'node:os';
 
 import { createCpuMeter } from './cpu.js';
 import { diskInfo } from './disk.js';
+import { memUsed as readMemUsed } from './memory.js';
 import { osName, batteryInfo, BatteryInfo } from './osinfo.js';
 
 // One meter for the process. It samples on its own background cadence (with an
@@ -38,11 +39,9 @@ export interface Stats {
 
 export async function getStats(): Promise<Stats> {
   // Independent probes, so run them together rather than in series.
-  const [disk, os, battery] = await Promise.all([diskInfo(), osName(), batteryInfo()]);
+  const [disk, os, battery, memUsed] = await Promise.all([diskInfo(), osName(), batteryInfo(), readMemUsed()]);
   const cores = cpus();
   const memTotal = totalmem();
-  const memFree = freemem();
-  const memUsed = memTotal - memFree;
 
   return {
     hostname: hostname(),
