@@ -81,3 +81,21 @@ export function readHealth(body) {
     name: typeof body.name === 'string' ? body.name : '',
   };
 }
+
+/** What the host's own pairing window lasts when its message predates `expiresInSec`. */
+const DEFAULT_CODE_SEC = 300;
+
+/**
+ * The host's `pairing` message (server/src/banner.ts) as window state: the
+ * link, its QR, and when the code stops working. Null when malformed.
+ */
+export function pairingFromMessage(data, now) {
+  if (!data || typeof data.link !== 'string' || !Array.isArray(data.modules)) return null;
+  const sec = Number.isFinite(data.expiresInSec) && data.expiresInSec > 0 ? data.expiresInSec : DEFAULT_CODE_SEC;
+  return { link: data.link, modules: data.modules, expiresAt: now + sec * 1000 };
+}
+
+/** The pairing to show now, or null once its code has expired. */
+export function livePairing(pairing, now) {
+  return pairing && pairing.expiresAt > now ? pairing : null;
+}

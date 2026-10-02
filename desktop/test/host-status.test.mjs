@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { loginItemAfterHealth, parsePairing, qrSvg, readHealth, statusLine } from '../src/host-status.js';
+import { livePairing, loginItemAfterHealth, pairingFromMessage, parsePairing, qrSvg, readHealth, statusLine } from '../src/host-status.js';
 
 test('parsePairing reads the code and identity, both schemes, rejects the rest', () => {
   const link = 'belay://pair?v=1&id=abc&n=Studio&p=darwin&c=123456&a=https%3A%2F%2F10.0.0.2%3A8787';
@@ -51,4 +51,30 @@ test('readHealth accepts the host shape and falls back for older hosts', () => {
   assert.equal(readHealth({ ok: true, id: 'x', paired: true }).devices, 1);
   assert.equal(readHealth({ ok: true }), null);
   assert.equal(readHealth(null), null);
+});
+
+// ---- a code on demand, shown while paired (#150) ----------------------------
+
+const LINK = 'belay://pair?v=1&id=abc&n=Studio&p=darwin&c=123456';
+
+test('pairingFromMessage keeps the link, the QR and when the code dies', () => {
+  const p = pairingFromMessage({ type: 'pairing', link: LINK, modules: [[true]], expiresInSec: 120 }, 1_000);
+  assert.deepEqual(p, { link: LINK, modules: [[true]], expiresAt: 121_000 });
+});
+
+test('pairingFromMessage falls back to the five-minute window for an older host', () => {
+  assert.equal(pairingFromMessage({ type: 'pairing', link: LINK, modules: [] }, 0)?.expiresAt, 300_000);
+});
+
+test('pairingFromMessage rejects anything malformed', () => {
+  assert.equal(pairingFromMessage({ type: 'pairing', link: 5, modules: [] }, 0), null);
+  assert.equal(pairingFromMessage({ type: 'pairing', link: LINK }, 0), null);
+  assert.equal(pairingFromMessage(null, 0), null);
+});
+
+test('livePairing hides a code once it has expired', () => {
+  const p = pairingFromMessage({ type: 'pairing', link: LINK, modules: [], expiresInSec: 120 }, 0);
+  assert.equal(livePairing(p, 119_999), p);
+  assert.equal(livePairing(p, 120_000), null);
+  assert.equal(livePairing(null, 0), null);
 });

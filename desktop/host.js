@@ -22,7 +22,9 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { GROUND } from './src/ground.js';
-import { PHONE_APP_URL, loginItemAfterHealth, parsePairing, qrSvg, readHealth, statusLine } from './src/host-status.js';
+import {
+  PHONE_APP_URL, livePairing, loginItemAfterHealth, pairingFromMessage, parsePairing, qrSvg, readHealth, statusLine,
+} from './src/host-status.js';
 import { launchAgentInstalled, stopLaunchAgent } from './src/launch-agent.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -100,19 +102,24 @@ export function startHost({ openViewer }) {
     app.setLoginItemSettings({ openAtLogin: prefs.openAtLogin === true, openAsHidden: true });
   };
 
-  const snapshot = () => ({
+  const snapshot = () => {
+    // Unlinked, the account claim QR is the way in; once linked, the 6-digit
+    // pairing code the phone asks for next — also while phones are already
+    // paired, when a new one asked or "Pair another phone" was chosen (#150),
+    // until the code expires.
+    const shown = state.claim ?? livePairing(state.pairing, Date.now());
+    return {
     ...state,
     // Live, not cached: the user flips these in System Settings while we watch.
     perms: permissions(),
-    // Unlinked, the account claim QR is the way in; once linked, the 6-digit
-    // pairing code the phone asks for next.
-    pairingSvg: (state.claim ?? state.pairing) ? qrSvg((state.claim ?? state.pairing).modules) : '',
-    pairingCode: (state.claim ?? state.pairing) ? parsePairing((state.claim ?? state.pairing).link)?.code ?? '' : '',
+    pairingSvg: shown ? qrSvg(shown.modules) : '',
+    pairingCode: shown ? parsePairing(shown.link)?.code ?? '' : '',
     phoneAppUrl: PHONE_APP_URL,
     phoneAppSvg,
     openAtLogin: prefs.openAtLogin === true,
     logFile: join(userData, LOG_FILE),
-  });
+    };
+  };
 
   const update = (patch) => {
     state = { ...state, ...patch };
@@ -175,8 +182,14 @@ export function startHost({ openViewer }) {
   // a MessageEvent; this side does not).
   const onChildMessage = (data) => {
     if (!data || typeof data !== 'object') return;
-    if (data.type === 'pairing' && typeof data.link === 'string' && Array.isArray(data.modules)) {
-      update({ pairing: { link: data.link, modules: data.modules } });
+    if (data.type === 'pairing') {
+      const pairing = pairingFromMessage(data, Date.now());
+      if (pairing) {
+        update({ pairing });
+        // A phone asked while this Mac is already paired: put the code in front
+        // of the person, not only in a popup that times out.
+        if (state.paired) openHostWindow();
+      }
     } else if (data.type === 'claim') {
       // The account claim QR while unlinked; `link: null` once it is linked.
       update({ claim: typeof data.link === 'string' && Array.isArray(data.modules) ? { link: data.link, modules: data.modules } : null });
@@ -197,7 +210,8 @@ export function startHost({ openViewer }) {
       if (!health) return;
       savePrefs(loginItemAfterHealth(prefs, health.paired));
       const changed = health.devices !== state.devices || health.native !== state.native || health.paired !== state.paired;
-      if (changed) update({ devices: health.devices, native: health.native, paired: health.paired, pairing: health.paired ? null : state.pairing });
+      // One more phone than before means the code on screen was just used.
+      if (changed) update({ devices: health.devices, native: health.native, paired: health.paired, pairing: health.devices > state.devices ? null : state.pairing });
     } catch { /* the next poll, or the exit handler, will say */ }
   };
 
@@ -227,6 +241,9 @@ export function startHost({ openViewer }) {
   ipcMain.handle('host:relaunch', () => { app.relaunch(); app.exit(0); });
   ipcMain.handle('host:openLogs', () => shell.openPath(join(userData, LOG_FILE)));
   ipcMain.handle('host:viewer', () => { openViewer(); return true; });
+  // The host mints (or re-shows) a code and posts it back as a `pairing` message.
+  const pairAnother = () => { child?.postMessage({ type: 'pair-code' }); openHostWindow(); return Boolean(child); };
+  ipcMain.handle('host:pairAnother', pairAnother);
   // Only ever on the user's click: unload the developer LaunchAgent, park its
   // plist, and try the port again right away instead of waiting for the retry.
   ipcMain.handle('host:takeOver', async () => {
@@ -264,6 +281,7 @@ export function startHost({ openViewer }) {
       ...(state.error ? [{ label: state.error, enabled: false }] : []),
       { type: 'separator' },
       { label: state.paired ? 'Show status & QR…' : 'Link a phone (QR)…', click: openHostWindow },
+      ...(state.paired ? [{ label: 'Pair another phone…', click: pairAnother }] : []),
       { label: 'Connect to a computer…', click: openViewer },
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.openAtLogin === true,

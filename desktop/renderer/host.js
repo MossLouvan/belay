@@ -21,7 +21,9 @@ function paint(state) {
   }
   $('phone-qr').hidden = !state.phoneAppSvg;
 
-  const showQr = running && !state.paired && state.pairingSvg;
+  // A code shows whenever the host has a live one — first run, or a phone
+  // asked / "Pair another phone" while others are already paired (#150).
+  const showQr = running && Boolean(state.pairingSvg);
   $('qr').hidden = !showQr;
   $('code-line').hidden = !showQr;
   if (showQr) {
@@ -30,12 +32,14 @@ function paint(state) {
     $('qr').innerHTML = state.pairingSvg;
     $('code').textContent = state.pairingCode;
   }
-  const linked = running && state.paired;
+  const linked = running && state.paired && !showQr;
   const busy = state.phase === 'busy';
   // Unlinked: the account claim QR. Linked to the account but not yet paired
   // with a phone: the 6-digit code the phone asks for next.
-  $('link-heading').lastChild.textContent = linked ? 'Linked' : state.claim || !state.pairing ? 'Scan this code in Belay' : 'Type this code in Belay';
-  $('link-caption').hidden = linked || busy;
+  $('link-heading').lastChild.textContent = linked ? 'Linked' : state.claim || !showQr ? 'Scan this code in Belay' : 'Type this code in Belay';
+  $('pair-another').hidden = !linked;
+  // A code for one more phone needs no account-link instructions under it.
+  $('link-caption').hidden = linked || busy || (state.paired && showQr && !state.claim);
   $('get-app').hidden = linked;
   $('busy').hidden = !busy;
   $('busy-agent').hidden = !busy || !state.launchAgent;
@@ -78,6 +82,7 @@ async function init() {
   });
   $('login-item').addEventListener('change', (e) => window.belayHost.setLoginItem(e.target.checked));
   $('viewer').addEventListener('click', () => window.belayHost.openViewer());
+  $('pair-another').addEventListener('click', () => window.belayHost.pairAnother());
   $('logs').addEventListener('click', () => window.belayHost.openLogs());
   // Permissions change outside this window (System Settings); re-read while visible.
   setInterval(async () => { if (document.visibilityState === 'visible') paint(await window.belayHost.state()); }, 3000);
