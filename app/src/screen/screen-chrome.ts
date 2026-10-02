@@ -151,17 +151,17 @@ export const dockedStageHeight = (boxH: number): number =>
 
 export interface PanelStateInputs {
   readonly captureBlocked: boolean;
-  readonly frameUri: string | null;
+  readonly hasFrame: boolean;
   readonly bwp: unknown;
 }
 
 /**
  * A live H.264 stream is a picture even before any JPEG frame has arrived —
- * and none ever will while it is up, so keying the overlay off `frameUri`
+ * and none ever will while it is up, so keying the overlay off `hasFrame`
  * alone would leave the "connecting" panel on top of working video.
  */
-export const panelStateShown = ({ captureBlocked, frameUri, bwp }: PanelStateInputs): boolean =>
-  captureBlocked || (!frameUri && !bwp);
+export const panelStateShown = ({ captureBlocked, hasFrame, bwp }: PanelStateInputs): boolean =>
+  captureBlocked || (!hasFrame && !bwp);
 
 export interface CrosshairInputs {
   readonly gaming: boolean;

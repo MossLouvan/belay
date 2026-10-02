@@ -229,7 +229,7 @@ export default function ScreenTab() {
 
   const showPanelState = panelStateShown({
     captureBlocked: permissions.captureBlocked,
-    frameUri: stream.frameUri,
+    hasFrame: stream.hasFrame,
     bwp: stream.bwp,
   });
   const noticeArea = <NoticeArea permissions={permissions} actionError={toast.value} onHelp={openHelp} />;

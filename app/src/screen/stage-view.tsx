@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BelayStreamView } from '../../modules/belay-stream/src';
 import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
+import { useFrameUri } from './frame-store';
 import { StageActions } from './stage-actions';
 import { RemoteCursors } from './cursors-overlay';
 import type { CursorsState } from './cursors-store';
@@ -66,6 +67,23 @@ export interface StageViewProps {
   readonly children?: ReactNode;
 }
 
+/**
+ * The JPEG leaf. The only component that re-renders per frame: it subscribes
+ * to the frame store itself, so the stage, dock and HUD around it do not.
+ */
+function FrameImage() {
+  const uri = useFrameUri();
+  if (!uri) return null;
+  return (
+    <Image
+      source={{ uri }}
+      accessibilityIgnoresInvertColors
+      style={{ width: '100%', height: '100%' }}
+      resizeMode="cover"
+    />
+  );
+}
+
 export function StageView(props: StageViewProps) {
   const {
     onBoxLayout, box, stage, stageOffset, aspect, viewport, stream, room, screenIndex, quality, pingMs, permissions,
@@ -91,7 +109,7 @@ export function StageView(props: StageViewProps) {
     </View>
   );
 
-  const hasPicture = Boolean(stream.bwp || stream.frameUri);
+  const hasPicture = Boolean(stream.bwp || stream.hasFrame);
 
   return (
     // ALWAYS flex-start (top-aligned) — centering the PANEL creates black
@@ -167,13 +185,8 @@ export function StageView(props: StageViewProps) {
               onStatus={(e) => stream.onBwpStatus(e.nativeEvent)}
               style={{ width: '100%', height: '100%' }}
             />
-          ) : stream.frameUri ? (
-            <Image
-              source={{ uri: stream.frameUri }}
-              accessibilityIgnoresInvertColors
-              style={{ width: '100%', height: '100%' }}
-              resizeMode="cover"
-            />
+          ) : stream.hasFrame ? (
+            <FrameImage />
           ) : null}
           {crosshairShown({ gaming: gamingEnabled, mode, padCursor, hasPicture }) ? (
             <Crosshair x={viewport.cursorX} y={viewport.cursorY} color={theme.colors.accent} />
@@ -181,7 +194,7 @@ export function StageView(props: StageViewProps) {
           {/* Collaborators' cursors ride INSIDE the zoom transform, so a
               remote pointer stays on the pixel it is pointing at however far
               this user has zoomed in. */}
-          {!gamingEnabled && stream.frameUri ? (
+          {!gamingEnabled && stream.hasFrame ? (
             <RemoteCursors
               cursors={room.cursors}
               selfId={room.selfId}
