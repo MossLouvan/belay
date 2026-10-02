@@ -6,10 +6,12 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import type { Account } from './api';
+import { parsePhoneRegistration, serializePhoneRegistration } from './phone-registration';
+import type { PhoneRegistration } from './phone-registration';
 
 const SESSION_KEY = 'belay.account.session';
 const ACCOUNT_KEY = 'belay.account.profile';
-/** The id GET/POST /devices gave this phone, so it is registered once, not per launch. */
+/** The id POST /devices gave this phone and the node id it was registered under (phone-registration.ts). */
 const PHONE_DEVICE_KEY = 'belay.account.phoneDeviceId';
 
 export interface StoredSession {
@@ -59,5 +61,6 @@ export async function clearSession(): Promise<void> {
   await Promise.all([write(SESSION_KEY, null), write(ACCOUNT_KEY, null), write(PHONE_DEVICE_KEY, null)]);
 }
 
-export const loadPhoneDeviceId = (): Promise<string | null> => read(PHONE_DEVICE_KEY).catch(() => null);
-export const savePhoneDeviceId = (id: string): Promise<void> => write(PHONE_DEVICE_KEY, id);
+export const loadPhoneRegistration = (): Promise<PhoneRegistration | null> =>
+  read(PHONE_DEVICE_KEY).then(parsePhoneRegistration, () => null);
+export const savePhoneRegistration = (r: PhoneRegistration): Promise<void> => write(PHONE_DEVICE_KEY, serializePhoneRegistration(r));

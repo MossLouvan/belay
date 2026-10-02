@@ -41,12 +41,14 @@ import { forgetPreview } from '../src/home/preview-store';
 import { useAccount } from '../src/account/store';
 import { mergeComputers } from '../src/account/merge-devices';
 import { LinkedSection } from '../src/account/linked-section';
+import type { ConnectionPath } from '../src/devices/tunnel-candidate';
 import { AccountRows, DeleteAccountSheet } from '../src/account/account-settings';
 
 export default function Devices() {
   const theme = useTheme();
   const look = useLook();
-  const { devices, active, addDevice, switchTo, forget, reconnect, phase, activeUrl, trustProblem } = useConnection();
+  const { devices, active, addDevice, switchTo, forget, reconnect, phase, activeUrl, path, trustProblem } = useConnection();
+  const connectedOver = activeUrl && phase === 'connected' ? `Connected over ${describeUrl(activeUrl, path)}.` : null;
   // The attention store is host-scoped (reset on switch), so its counts
   // describe exactly one computer: the connected one. Every other card gets
   // null and shows no line — no "0 running", no placeholder.
@@ -145,9 +147,7 @@ export default function Devices() {
             <ThemeToggle testID="appearance-picker" />
           </View>
           <SupportLinks testID="support-links" />
-          {activeUrl && phase === 'connected' ? (
-            <Caption testID="connected-over">{`Connected over ${describeUrl(activeUrl)}.`}</Caption>
-          ) : null}
+          {connectedOver ? <Caption testID="connected-over">{connectedOver}</Caption> : null}
           <Button label="Check again" testID="refresh-devices" variant="secondary" fullWidth onPress={() => { refreshAll(); setOptionsOpen(false); }} />
           <AccountRows onLeave={() => setOptionsOpen(false)} onRequestDelete={() => setDeletingAccount(true)} />
         </View>
@@ -179,8 +179,8 @@ export default function Devices() {
       >
         <View style={{ gap: theme.space.md }}>
           <Caption>
-            {details && activeUrl && active?.id === details.id && phase === 'connected'
-              ? `Connected over ${describeUrl(activeUrl)}.`
+            {details && connectedOver && active?.id === details.id
+              ? connectedOver
               : 'Belay reaches this computer at whichever of its saved addresses answers first.'}
           </Caption>
           {details && active?.id === details.id && phase === 'connected' ? (
@@ -334,8 +334,10 @@ export default function Devices() {
 }
 
 /** Human description of which path is in use, without showing a raw URL. */
-function describeUrl(url: string): string {
+function describeUrl(url: string, path: ConnectionPath | null): string {
   const host = url.replace(/^https?:\/\//, '').split(':')[0];
+  // The tunnel answers on loopback; what matters is whether it hole-punched.
+  if (host.startsWith('127.')) return path === 'direct' ? 'the Belay tunnel (direct)' : 'the Belay tunnel (relay)';
   if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return 'Tailscale';
   if (host.endsWith('.ts.net')) return 'Tailscale';
   return 'your local network';

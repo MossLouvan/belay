@@ -10,8 +10,9 @@ import Constants from 'expo-constants';
 
 import { AccountsError, createAccountsApi } from './api';
 import type { Account, AccountDevice, AccountsApi, SessionResult } from './api';
-import { clearSession, loadPhoneDeviceId, loadSession, saveSession, savePhoneDeviceId } from './session';
-import { getTunnelIdentity } from './tunnel-identity';
+import { clearSession, loadPhoneRegistration, loadSession, savePhoneRegistration, saveSession } from './session';
+import { registrationNeeded } from './phone-registration';
+import { getTunnelIdentity, stopTunnel } from './tunnel-identity';
 import { deviceNameFor } from '../connect/pair-flow';
 
 /** Override for local development: EXPO_PUBLIC_ACCOUNTS_API=http://localhost:8787/v1 */
@@ -52,7 +53,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     sessionRef.current = null;
     setAccount(null);
     setDevices([]);
-    await clearSession();
+    await Promise.all([clearSession(), stopTunnel()]);
   }, []);
 
   const refreshDevices = useCallback(async () => {
@@ -65,13 +66,20 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     }
   }, [api, forgetLocally]);
 
-  /** POST /devices once per sign-in; the id is kept so a relaunch does not re-register. */
+  /**
+   * POST /devices once per node id. Starting the tunnel is what yields the
+   * node id, so this is also where the tunnel comes up for a signed-in phone.
+   * A node id that changed since the last registration (the pre-FFI
+   * placeholder giving way to the real key) registers again and drops the
+   * stale phone from the account, best effort.
+   */
   const registerPhone = useCallback(async () => {
-    if (await loadPhoneDeviceId()) return;
-    const { nodeId } = await getTunnelIdentity();
+    const [stored, { nodeId }] = await Promise.all([loadPhoneRegistration(), getTunnelIdentity()]);
+    if (!registrationNeeded(stored, nodeId)) return;
     const name = Constants.deviceName || deviceNameFor(Platform.OS);
     const device = await api.registerPhone(name, nodeId, Platform.OS);
-    await savePhoneDeviceId(device.id);
+    await savePhoneRegistration({ id: device.id, nodeId });
+    if (stored && stored.id !== device.id) await api.removeDevice(stored.id).catch(() => undefined);
   }, [api]);
 
   useEffect(() => {

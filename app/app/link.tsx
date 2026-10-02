@@ -14,6 +14,7 @@ import { AccountsError } from '../src/account/api';
 import { parseClaimLink } from '../src/account/claim-link';
 import type { ParsedClaimLink } from '../src/account/claim-link';
 import { useAccount } from '../src/account/store';
+import { startPairingOverTunnel } from '../src/account/pair-over-tunnel';
 
 export default function Link() {
   const theme = useTheme();
@@ -36,7 +37,11 @@ export default function Link() {
       if (device.nodeId !== link.nodeId) throw new Error('That code belongs to a different computer than the one shown. Scan it again.');
       await refreshDevices();
       haptic('success');
+      // Linked; now pair through the tunnel with the code the host shows next.
+      // If the tunnel cannot reach it yet (the host admits this phone on its
+      // next heartbeat, up to a minute), the list offers Pair again.
       router.replace('/devices');
+      await startPairingOverTunnel(link.nodeId);
     } catch (e: unknown) {
       haptic('error');
       setError(errorMessage(e));

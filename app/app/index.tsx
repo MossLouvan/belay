@@ -38,12 +38,15 @@ export default function Connect() {
   // button that led here just bounces its user straight back. The computer
   // list's own address field arrives with `address` already typed (checked
   // on arrival), or with `scan` when it asked for the scanner.
-  const { add, address, scan } = useLocalSearchParams<{ add?: string; address?: string; scan?: string }>();
+  const { add, address, scan, node } = useLocalSearchParams<{ add?: string; address?: string; scan?: string; node?: string }>();
   const adding = add === '1';
   const arrivedAddress = typeof address === 'string' && address.trim() ? address : null;
+  // A linked computer being paired through the tunnel: the address is a
+  // loopback port, and the saved computer must carry this node id instead.
+  const tunnelNode = typeof node === 'string' && node ? node : null;
 
   const { ready: accountReady, account } = useAccount();
-  const session = usePairSession(addDevice);
+  const session = usePairSession(addDevice, tunnelNode);
   const check = useAddressCheck({ session, adding, scanRequested: scan === '1', arrivedAddress });
   const { stage, setStage, busy, setBusy, live, completePairing } = session;
   const { fadeAnim, transitionToStage } = useStageFade(setStage);

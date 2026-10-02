@@ -22,6 +22,9 @@ import { verifyHost } from './devices/verify-host';
 import type { TrustProblem } from './devices/verify-host';
 import { loadStore, saveStore } from './devices/storage';
 import { raceAddresses } from './devices/race';
+import { probeViaTunnel, tunnelNodeId, withTunnelCandidate } from './devices/tunnel-candidate';
+import type { ConnectionPath } from './devices/tunnel-candidate';
+import { tunnelPath, tunnelPort } from './devices/tunnel';
 
 /** Where the app is in the process of reaching the active computer. */
 export type ConnectPhase = 'idle' | 'connecting' | 'connected' | 'unreachable';
@@ -36,6 +39,8 @@ interface Ctx {
   phase: ConnectPhase;
   /** Which address won the race, for display. */
   activeUrl: string | null;
+  /** How the winner was reached: Wi-Fi/LAN, or the tunnel direct or via a relay. Null until connected. */
+  path: ConnectionPath | null;
   /**
    * Why the active computer was refused although something answered: it
    * could not prove it is the paired host, or this phone's pairing predates
@@ -61,6 +66,7 @@ const ConnectionContext = createContext<Ctx>({
   active: undefined,
   phase: 'idle',
   activeUrl: null,
+  path: null,
   trustProblem: null,
   addDevice: async () => {},
   switchTo: async () => {},
@@ -76,6 +82,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
   const [connection, setConn] = useState<Connection | null>(null);
   const [phase, setPhase] = useState<ConnectPhase>('idle');
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
+  const [path, setPath] = useState<ConnectionPath | null>(null);
   const [trustProblem, setTrustProblem] = useState<TrustProblem | null>(null);
 
   /**
@@ -131,6 +138,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       setConn(null);
       clearClientConnection();
       setActiveUrl(null);
+      setPath(null);
       setPhase('unreachable');
       return;
     }
@@ -140,12 +148,19 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     const urls = device.addresses.map((a) => a.url);
     if (device.fingerprint) pinAddresses(urls, device.fingerprint);
 
-    const ordered = orderAddresses(device.addresses, device.lastKnownGoodUrl);
+    // Plus the tunnel, when this computer is linked to the account: dialled by
+    // the node id the claim recorded, answering on a 127.0.0.1 port that is
+    // pinned to the same fingerprint before it is probed (tunnel-candidate.ts).
+    const ordered = withTunnelCandidate(orderAddresses(device.addresses, device.lastKnownGoodUrl), device);
     // The host answers plain HTTP on the LAN with a refusal that says why
     // (426, `plaintext-refused`). That is not "unreachable" — it is "pair
     // again" — and the race would otherwise flatten it into a dead probe.
     let plaintextRefused = false;
     const winner = await raceAddresses(ordered, async (url, signal) => {
+      const nodeId = tunnelNodeId(url);
+      if (nodeId && device.fingerprint) {
+        return probeViaTunnel({ dial: tunnelPort, pin: pinAddresses, check: checkHost }, nodeId, device.fingerprint, signal);
+      }
       const health = await checkHost(url, signal);
       if (health.plaintextRefused) plaintextRefused = true;
       return { ok: health.ok, hostId: health.id };
@@ -158,6 +173,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       setConn(null);
       clearClientConnection();
       setActiveUrl(null);
+      setPath(null);
       setTrustProblem(problem);
       // A real, actionable state — the computer is asleep, this network
       // cannot reach it, or it is not the machine we paired with — not
@@ -177,8 +193,12 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     // this pairing belongs to? A different (or absent) host id, a failed
     // proof, or a pairing too old to be verified on this link all stop here —
     // see devices/verify-host.ts.
+    // A tunnel candidate answered on its loopback port: that concrete URL is
+    // what is verified, pinned and talked to; the candidate name is what the
+    // store remembers (the port is new every launch).
+    const host = winner.via ?? winner.url;
     const trust = await verifyHost(
-      { device, url: winner.url, reportedHostId: winner.hostId, pinEnforced: pinEnforced(winner.url, device.fingerprint) },
+      { device, url: host, reportedHostId: winner.hostId, pinEnforced: pinEnforced(host, device.fingerprint) },
       challengeHost,
       randomBytes,
     );
@@ -186,15 +206,22 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     if (!trust.ok) { refuse(trust.problem); return; }
 
     const resolved: Connection = {
-      host: winner.url,
+      host,
       token: device.token,
       hostName: device.label,
       hostId: device.id,
     };
     setClientConnection(resolved);
     setConn(resolved);
-    setActiveUrl(winner.url);
+    setActiveUrl(host);
     setPhase('connected');
+    const viaTunnel = tunnelNodeId(winner.url);
+    if (viaTunnel) {
+      // Direct or relayed is a display fact; it must not hold up the commit below.
+      void tunnelPath(viaTunnel).then((p) => { if (mountedRef.current && attempt === attemptRef.current) setPath(p); });
+    } else {
+      setPath('wifi');
+    }
 
     // The current store, not the `from` snapshot captured before the race — a
     // concurrent forget/rename/disconnect must survive this commit.
@@ -269,6 +296,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       setConn(null);
       clearClientConnection();
       setActiveUrl(null);
+      setPath(null);
       setTrustProblem(null);
       setPhase('idle');
       return;
@@ -315,6 +343,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     setConn(null);
     clearClientConnection();
     setActiveUrl(null);
+    setPath(null);
     setTrustProblem(null);
     setPhase('idle');
   }, [commit]);
@@ -328,6 +357,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     active,
     phase,
     activeUrl,
+    path,
     trustProblem,
     addDevice,
     switchTo,
@@ -336,7 +366,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     reconnect,
     disconnect,
   }), [
-    ready, connection, store.devices, active, phase, activeUrl, trustProblem,
+    ready, connection, store.devices, active, phase, activeUrl, path, trustProblem,
     addDevice, switchTo, forget, rename, reconnect, disconnect,
   ]);
 

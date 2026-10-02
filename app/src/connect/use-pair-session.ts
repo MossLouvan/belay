@@ -14,6 +14,7 @@ import { checkHost, pair } from '../api';
 import { buildSavedDevice } from '../devices/from-host';
 import { pinAddresses, pinnedFingerprint } from '../devices/pinning';
 import type { SavedDevice } from '../devices/model';
+import { savedOverTunnel } from '../devices/tunnel-candidate';
 import { haptic } from '../ui';
 import type { Diagnosis } from './diagnose';
 import { diagnosePairFailure } from './diagnose';
@@ -48,7 +49,12 @@ export interface PairSession {
   readonly onChangeCode: (next: string) => void;
 }
 
-export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>): PairSession {
+/**
+ * `tunnelNodeId` is set when the computer is being paired THROUGH the
+ * tunnel (a linked computer): the saved entry then carries that node id and
+ * not the loopback port it was paired on.
+ */
+export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>, tunnelNodeId: string | null = null): PairSession {
   const [stage, setStage] = useState<Stage>('welcome');
   const [host, setHost] = useState<HostSummary | null>(null);
   const [code, setCode] = useState('');
@@ -100,7 +106,8 @@ export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>
       // URL that happened to be typed in.
       const identity = await checkHost(result.host);
       if (result.fingerprint) pinAddresses((identity.addresses ?? []).map((a) => a.url), result.fingerprint);
-      const device = buildSavedDevice(result, identity, Date.now());
+      const built = buildSavedDevice(result, identity, Date.now());
+      const device = tunnelNodeId ? savedOverTunnel(built, tunnelNodeId) : built;
       haptic('success');
       setStage('success');
       successTimer.current = setTimeout(() => {
@@ -117,7 +124,7 @@ export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>
       setPairError(diagnosePairFailure(hostUrl, errorMessage(e)));
       setCode('');
     }
-  }, [addDevice]);
+  }, [addDevice, tunnelNodeId]);
 
   const doPair = useCallback(async () => {
     if (!host) return;

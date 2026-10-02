@@ -7,6 +7,7 @@ import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
+import { pathLabel } from '../../src/devices/tunnel-candidate';
 import type { DiscoveredSession } from '../../src/api';
 import { useTheme } from '../../src/theme';
 import { Card, ConnectionStatus, EmptyState, Rule, Txt } from '../../src/ui';
@@ -28,7 +29,7 @@ function NotConnected() {
   const theme = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { phase, active } = useConnection();
+  const { phase, active, path } = useConnection();
   const margin = theme.layout.margin;
   const connecting = phase === 'connecting';
 
@@ -40,6 +41,7 @@ function NotConnected() {
           testID="agent-connection"
           phase={phase}
           machine={active?.label}
+          detail={pathLabel(path)}
           style={{ marginTop: theme.space.xxs }}
         />
       </View>
