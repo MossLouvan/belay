@@ -1,0 +1,20 @@
+/* The host window: a compact column, the QR on paper so any phone camera reads it. */
+.host { gap: var(--space-xl); padding-top: var(--space-lg); }
+.host-head { display: flex; align-items: center; gap: var(--space-md); }
+.host-mark { width: 56px; height: 56px; object-fit: contain; }
+.host-title { animation: none; margin: 0; }
+.subtitle { margin: 0; }
+
+.qr {
+  width: 240px; height: 240px; padding: var(--space-sm);
+  margin: var(--space-sm) auto;
+  background: #fff; color: #000;
+  border-radius: var(--radius-md);
+}
+.qr svg { display: block; width: 100%; height: 100%; }
+.code { color: var(--text); letter-spacing: var(--type-mono-tracking); }
+
+.perm { gap: var(--space-xs); }
+.perm[data-granted="true"] [data-role="request"],
+.perm[data-granted="true"] [data-role="open"] { display: none; }
+.perm[data-granted="true"] .badge { color: var(--accent); border-color: var(--accent-dim); }

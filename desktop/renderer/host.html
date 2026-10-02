@@ -1,0 +1,78 @@
+<!-- The host window: status, the pairing QR, the macOS permissions checklist,
+     and the start-at-login switch. Same tokens and components as connect.html.
+     The QR is inline SVG from the main process (src/host-status.js) — no
+     network, no remote image, nothing the CSP has to allow. -->
+<html lang="en" data-theme="dark">
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; font-src 'self';" />
+<title>Belay</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="host.css" />
+<body>
+  <main class="page host">
+    <header class="host-head">
+      <img class="host-mark" src="beluga-cutout.png" alt="" draggable="false" />
+      <div>
+        <h1 class="headline host-title">Belay <span class="brand">host</span></h1>
+        <p class="subtitle mono-dim" id="status" role="status">Starting…</p>
+      </div>
+    </header>
+
+    <section class="stack" id="link-section">
+      <p class="subheading" id="link-heading">Link a phone</p>
+      <p class="caption" id="link-caption">Open Belay on your phone, tap <strong>Scan</strong>, and point it at this code.</p>
+      <div class="qr" id="qr" hidden></div>
+      <p class="caption mono" id="code-line" hidden>…or type the code: <span class="code" id="code"></span></p>
+      <p class="caption" id="busy" hidden>Another Belay host is already answering on this port — probably the one
+        <code>npx belay-host</code> installed. Stop it with <code>npm run autostart -- remove</code> in <code>server/</code>,
+        then this app takes over. It retries by itself.</p>
+      <p class="error" id="error" hidden></p>
+    </section>
+
+    <section class="stack" id="perms" hidden>
+      <p class="subheading">Permissions</p>
+      <p class="caption">macOS asks once per app. Both land on <strong>Belay</strong>, not on Terminal.</p>
+      <ul class="list" id="perm-list">
+        <li class="device-row perm" data-kind="screen">
+          <div class="device-text">
+            <div class="name">Screen Recording</div>
+            <div class="caption">Needed to see this screen from the phone.</div>
+          </div>
+          <span class="badge" data-role="badge">checking</span>
+          <button class="button sm" type="button" data-role="request">Allow</button>
+          <button class="button sm" type="button" data-role="open">Settings</button>
+        </li>
+        <li class="device-row perm" data-kind="accessibility">
+          <div class="device-text">
+            <div class="name">Accessibility</div>
+            <div class="caption">Needed to tap and type from the phone.</div>
+          </div>
+          <span class="badge" data-role="badge">checking</span>
+          <button class="button sm" type="button" data-role="request">Allow</button>
+          <button class="button sm" type="button" data-role="open">Settings</button>
+        </li>
+      </ul>
+      <div id="relaunch" hidden>
+        <p class="caption">Screen Recording takes effect after a relaunch.</p>
+        <button class="button primary full" type="button" id="relaunch-button">Relaunch Belay</button>
+      </div>
+    </section>
+
+    <section class="stack">
+      <label class="row toggle">
+        <input type="checkbox" id="login-item" />
+        <p class="toggle-label">Start Belay when I log in</p>
+      </label>
+      <p class="caption">Turns on by itself the first time a phone links. The menu bar icon is Belay running.</p>
+    </section>
+
+    <div class="row affordances">
+      <button class="track-label" id="viewer" type="button">Connect to a computer instead</button>
+      <button class="track-label" id="logs" type="button">Open host log</button>
+    </div>
+  </main>
+  <script src="host.js"></script>
+</body>
+</html>
