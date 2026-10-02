@@ -334,8 +334,8 @@ private func handleIdle(_ command: Command) throws {
     replies.ok(id: command.id, ["idleMs": idleMs])
 }
 
-/// Driver-backed virtual display management (opt-in; the Node side gates it
-/// behind BELAY_VIRTUAL_DISPLAY and validates first — see
+/// Driver-backed virtual display management (on by default; the Node side
+/// honours BELAY_VIRTUAL_DISPLAY=0 as the off switch and validates first — see
 /// server/src/virtual-display.ts and docs/VIRTUAL-DISPLAY.md).
 ///
 /// One command, an `action` verb, three actions:
