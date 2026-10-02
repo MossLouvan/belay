@@ -66,6 +66,17 @@ export function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * sha256 hex of a bearer token — what the host stores and keys its device
+ * list by (server/src/state.ts hashToken); its `tokenPrefix` is a slice of it.
+ */
+export function tokenHashHex(token: string): string {
+  return toHex(sha256(utf8(token)));
+}
+
+/** How many hex characters of the hash the host sends as a device's `tokenPrefix`. */
+export const TOKEN_PREFIX_LENGTH = 8;
+
 /** HMAC-SHA256 (RFC 2104) of `message` under `key`. */
 export function hmacSha256(key: Uint8Array, message: Uint8Array): Uint8Array {
   const block = 64;

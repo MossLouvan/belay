@@ -18,21 +18,31 @@ interface AddComputerProps {
   /** Rendered above the field; omitted on the empty state, which has its own heading. */
   readonly heading?: boolean;
   readonly testID?: string;
+  /**
+   * Called just before leaving for the connect screen. The sheet that hosts
+   * this closes itself here — on web the list stays mounted under the pushed
+   * route, so an open sheet would sit over the pairing form (#82).
+   */
+  readonly onNavigate?: () => void;
 }
 
-export function AddComputer({ heading = true, testID = 'add-computer' }: AddComputerProps) {
+export function AddComputer({ heading = true, testID = 'add-computer', onNavigate }: AddComputerProps) {
   const theme = useTheme();
   const [address, setAddress] = useState('');
 
   const onSubmit = useCallback(() => {
     const route = addComputerRoute(address);
-    if (route) router.push(route);
-  }, [address]);
+    if (!route) return;
+    onNavigate?.();
+    router.push(route);
+  }, [address, onNavigate]);
 
   const onScan = useCallback(() => {
     const route = addComputerRoute(null);
-    if (route) router.push(route);
-  }, []);
+    if (!route) return;
+    onNavigate?.();
+    router.push(route);
+  }, [onNavigate]);
 
   return (
     <View testID={testID} style={{ gap: theme.space.md }}>

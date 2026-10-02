@@ -44,3 +44,22 @@ export function peak(values: readonly number[]): number | null {
   if (values.length === 0) return null;
   return Math.round(values.reduce((highest, value) => (value > highest ? value : highest), 0));
 }
+
+/** Grace past the poll interval before a silent host counts as stale (#69). */
+export const STALE_GRACE_MS = 3000;
+
+/**
+ * Whether the header should stop claiming "live": a failed poll always is;
+ * a poll that is overdue (hung request, host asleep) is too, before it fails.
+ * Nothing received yet is "connecting", not stale; paused polling never ages.
+ */
+export function isStale(
+  error: string | null,
+  lastOkAt: number | null,
+  intervalMs: number | null,
+  now: number,
+): boolean {
+  if (error) return true;
+  if (lastOkAt === null || intervalMs === null) return false;
+  return now - lastOkAt > intervalMs + STALE_GRACE_MS;
+}

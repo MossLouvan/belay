@@ -41,7 +41,7 @@ import { ChipGlyph, DiskGlyph, MemGlyph } from '../../src/system/glyphs';
 import { DevicesSection } from '../../src/system/paired-devices';
 import { parseDevices } from '../../src/system/devices-model';
 import type { PairedDevice } from '../../src/system/devices-model';
-import { EMPTY_SERIES, pushSeries } from '../../src/system/history';
+import { EMPTY_SERIES, isStale, pushSeries } from '../../src/system/history';
 import type { Series } from '../../src/system/history';
 import { fmtBytes } from '../../src/system/format';
 import { ThemeToggle } from '../../src/settings/theme-toggle';
@@ -193,7 +193,10 @@ function SystemTab() {
     router.replace('/');
   }, [active, forget]);
 
-  const stale = Boolean(error);
+  // Stale the moment a poll is overdue, not only once it has failed: a hung
+  // host would otherwise read "Connected" over frozen numbers for the whole
+  // request deadline (#69).
+  const stale = isStale(error, lastOkAt, RATE_MS[rate], clock);
   const title = stats?.hostname || connection?.hostName || 'Host';
   const margin = theme.layout.margin;
 
@@ -221,6 +224,7 @@ function SystemTab() {
         <ConnectionStatus
           phase={phase}
           surface={stale ? 'reconnecting' : 'live'}
+          detail={statusLine(stale, lastOkAt, clock)}
           trailing={<SwitchComputerLink />}
           style={{ marginTop: theme.space.xxs }}
         />

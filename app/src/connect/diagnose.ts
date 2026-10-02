@@ -6,6 +6,7 @@
 // copy here covers both causes honestly instead of guessing at one.
 
 import { Platform } from 'react-native';
+import { NOT_BELAY } from '../api';
 import { prettyHost } from './host-input';
 
 export interface Diagnosis {
@@ -52,15 +53,16 @@ export function diagnoseHostFailure(url: string, raw?: string): Diagnosis {
   const detail = (raw || '').trim();
   const name = prettyHost(url);
 
+  const notBelay = (reply: string): Diagnosis => ({
+    title: `Something answered at ${name}, but it isn't Belay`,
+    message: `It replied ${reply} where the host agent reports its health, so whatever is listening there is most likely a different program. Double-check the port — the agent listens on 8787 by default.`,
+  });
+  if (detail === NOT_BELAY) return notBelay('with a page instead of the health report');
+
   const status = /^host returned (\d{3})$/.exec(detail);
   if (status) {
     const code = Number(status[1]);
-    if (code === 404) {
-      return {
-        title: `Something answered at ${name}, but it isn't Belay`,
-        message: 'It replied 404 where the host agent reports its health, so whatever is listening there is most likely a different program. Double-check the port — the agent listens on 8787 by default.',
-      };
-    }
+    if (code === 404) return notBelay('404');
     if (code === 401 || code === 403) {
       return {
         title: `${name} refused the request (${code})`,
