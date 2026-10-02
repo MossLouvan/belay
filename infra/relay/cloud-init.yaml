@@ -1,0 +1,102 @@
+#cloud-config
+# Belay relay box: one pinned iroh-relay binary, TLS via its built-in Let's Encrypt,
+# ufw + unattended-upgrades. Shared by aws/ and azure/ deploy.sh, which replace
+# __HOSTNAME__ and __ACME_EMAIL__ before upload. Ubuntu 24.04 LTS, x86_64 or aarch64.
+hostname: __HOSTNAME__
+package_update: true
+package_upgrade: true
+packages: [ufw, unattended-upgrades, curl]
+
+users:
+  - name: iroh-relay
+    system: true
+    homedir: /var/lib/iroh-relay
+    shell: /usr/sbin/nologin
+
+write_files:
+  - path: /etc/iroh-relay.toml
+    permissions: "0644"
+    content: |
+      enable_relay = true
+      http_bind_addr = "[::]:80"
+      enable_quic_addr_discovery = true
+      enable_metrics = true
+      metrics_bind_addr = "127.0.0.1:9090"
+      access = "everyone"
+
+      [tls]
+      hostname = "__HOSTNAME__"
+      cert_mode = "LetsEncrypt"
+      contact = "__ACME_EMAIL__"
+      cert_dir = "/var/lib/iroh-relay/certs"
+      https_bind_addr = "[::]:443"
+      quic_bind_addr = "[::]:7842"
+
+      [limits]
+      accept_conn_limit = 100
+      accept_conn_burst = 200
+      [limits.client.rx]
+      bytes_per_second = 10000000
+      max_burst_bytes = 20000000
+
+  - path: /etc/systemd/system/iroh-relay.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Belay relay (iroh-relay)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      User=iroh-relay
+      ExecStart=/usr/local/bin/iroh-relay --config-path /etc/iroh-relay.toml
+      Restart=always
+      RestartSec=2
+      AmbientCapabilities=CAP_NET_BIND_SERVICE
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ReadWritePaths=/var/lib/iroh-relay
+      Environment=RUST_LOG=info
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/apt/apt.conf.d/52belay-unattended
+    permissions: "0644"
+    content: |
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+
+  # Pinned release; the checksum is of the GitHub release tarball. Bump both together
+  # with the `iroh` version in crates/belay-net-tunnel/Cargo.toml.
+  - path: /usr/local/sbin/install-iroh-relay
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      VERSION=v1.3.0
+      case "$(uname -m)" in
+        x86_64)  ARCH=x86_64;  SHA=50e0158f6b9aefc95b45b515485d3b94d786fb1bfa4155d25937c71b81905f8f ;;
+        aarch64) ARCH=aarch64; SHA=94161582a616aae4e28242b6c126ab4b0bbae38a051cd90952d34a06301eac6c ;;
+        *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+      esac
+      TGZ="iroh-relay-${VERSION}-${ARCH}-unknown-linux-gnu.tar.gz"
+      cd "$(mktemp -d)"
+      curl -fsSLO "https://github.com/n0-computer/iroh/releases/download/${VERSION}/${TGZ}"
+      echo "${SHA}  ${TGZ}" | sha256sum -c -
+      tar xzf "${TGZ}"
+      install -m 0755 iroh-relay /usr/local/bin/iroh-relay
+      install -d -o iroh-relay -g iroh-relay -m 0750 /var/lib/iroh-relay/certs
+
+runcmd:
+  - /usr/local/sbin/install-iroh-relay
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow 7842/udp
+  - ufw --force enable
+  - systemctl daemon-reload
+  - systemctl enable --now iroh-relay
+  - systemctl enable --now unattended-upgrades
