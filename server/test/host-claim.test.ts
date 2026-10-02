@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  onPoll, onHeartbeatFailure, runHostLink, claimLink, LinkState, LinkStore, LinkShow,
+  onPoll, onHeartbeatFailure, runHostLink, claimLink, LinkState, LinkStore, LinkShow, ALLOW_CACHE_MAX_AGE_MS,
 } from '../src/host-claim.js';
 import { AccountsError, AccountsClient } from '../src/accounts-client.js';
 
@@ -126,6 +126,35 @@ test('a cached allow-list is applied before the first heartbeat, and a failed he
   assert.deepEqual(seen, [['n9']]);
   assert.deepEqual(s.calls, ['heartbeat cred']);
   assert.equal(s.store.cred, 'cred');
+});
+
+test('a cached allow-list is NOT applied while no credential exists', async () => {
+  const s = script([
+    () => ({ claimCode: 'X', hostSecret: 'x', expiresAt: 1_000_000 + 600_000 }),
+    () => ({ status: 'pending' }),
+  ], null, { allowedNodeIds: ['n9'], relayUrls: [], at: 999_999 });
+  const seen: unknown[] = [];
+  await run(s, 2, (ids) => seen.push(ids));
+  assert.deepEqual(seen, [], 'an unlinked host admits nobody, whatever the disk says');
+});
+
+test('a cache older than 72 h is not replayed', async () => {
+  const s = script([() => new Error('offline')], 'cred', { allowedNodeIds: ['n9'], relayUrls: [], at: 1_000_000 - ALLOW_CACHE_MAX_AGE_MS });
+  const seen: unknown[] = [];
+  await run(s, 1, (ids) => seen.push(ids));
+  assert.deepEqual(seen, []);
+  assert.deepEqual(s.calls, ['heartbeat cred'], 'the link itself is kept; only the stale list is dropped');
+});
+
+test('a 401 heartbeat empties the allow-list and its cache immediately', async () => {
+  const s = script([
+    () => new AccountsError(401, 'revoked'),
+    () => ({ claimCode: 'AGAIN', hostSecret: 'c', expiresAt: 1_000_000 + 600_000 }),
+  ], 'stale-cred', { allowedNodeIds: ['n1'], relayUrls: ['r'], at: 999_999 });
+  const seen: unknown[] = [];
+  await run(s, 2, (ids, relays) => seen.push([ids, relays]));
+  assert.deepEqual(seen, [[['n1'], ['r']], [[], []]], 'cache replayed at start, then revoked');
+  assert.deepEqual(s.store.cache, { allowedNodeIds: [], relayUrls: [], at: 1_000_000 });
 });
 
 test('a credential-less "claimed" while holding none re-claims', async () => {

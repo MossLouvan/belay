@@ -2,8 +2,8 @@
 //! bi-streams are piped byte-for-byte to a TCP port.
 //!
 //! Two halves, one crate:
-//! * the host runs [`serve`]: accept connections from phones on the account's
-//!   allow-list and pipe each stream to the host's HTTPS port;
+//! * the host runs [`Host::serve`]: accept connections from phones on the
+//!   account's allow-list and pipe each stream to the host's tunnel listener;
 //! * the phone runs [`Forwarder`]: a 127.0.0.1 TCP listener whose every
 //!   accepted connection becomes one bi-stream to the host.
 //!
@@ -13,15 +13,17 @@
 //! the host's device-token auth applies unchanged. An account compromise
 //! alone therefore reaches the host's front door and nothing behind it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey};
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
 
 pub use iroh;
 
@@ -31,6 +33,23 @@ pub const ALPN: &[u8] = b"belay/1";
 /// QUIC application close code sent to a peer that is not on the allow-list.
 pub const CLOSE_NOT_ALLOWED: u32 = 0x4003;
 
+/// First line of every TCP stream the host side pipes: who is on the other
+/// end of the tunnel, so the host can tag the socket `tunnel:<nodeId>` and
+/// keep per-phone pairing/replay/notification state. Only the sidecar speaks
+/// it; the host drops any connection to its tunnel listener without it.
+pub const STREAM_HEADER_PREFIX: &str = "belay-tunnel/1 ";
+
+pub fn stream_header(id: &EndpointId) -> String {
+    format!("{STREAM_HEADER_PREFIX}{id}\n")
+}
+
+/// Concurrent bi-streams one connection may have open: a phone opens one per
+/// HTTP connection; sixty-four is far above what a client keeps alive and
+/// bounds what a compromised phone can fan out.
+pub const MAX_STREAMS_PER_CONNECTION: usize = 64;
+/// Concurrent tunnel connections the host accepts overall.
+pub const MAX_CONNECTIONS: usize = 256;
+
 /// The node ids a host accepts connections from. Everything else is closed
 /// before a single stream is accepted, so no byte of theirs reaches the host.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,11 +58,11 @@ pub struct AllowList {
 }
 
 impl AllowList {
-    /// Build from node ids as the accounts service spells them (z-base-32 /
-    /// hex, whatever `EndpointId: FromStr` accepts). Returns the list and
-    /// the entries it could not parse; the caller decides whether a bad entry
-    /// is a log line or a refusal. An unparseable id never silently widens
-    /// or narrows the list — it is simply reported.
+    /// Build from node ids as the accounts service spells them (whatever
+    /// `EndpointId: FromStr` accepts). Returns the list and the entries it
+    /// could not parse; the caller decides whether a bad entry is a log line
+    /// or a refusal. An unparseable id never silently widens or narrows the
+    /// list — it is simply reported.
     pub fn parse<'a>(ids: impl IntoIterator<Item = &'a str>) -> (AllowList, Vec<String>) {
         let mut ok = HashSet::new();
         let mut bad = Vec::new();
@@ -75,10 +94,6 @@ impl AllowList {
     }
 }
 
-/// A shared, replaceable allow-list: the heartbeat loop swaps it, the accept
-/// loop reads it.
-pub type SharedAllowList = Arc<RwLock<AllowList>>;
-
 /// Bind a tunnel endpoint with the given identity.
 ///
 /// `relays` empty means n0's public relays (development only; see
@@ -109,7 +124,7 @@ pub async fn pipe(mut send: SendStream, mut recv: RecvStream, mut tcp: TcpStream
     };
     let down = async {
         let r = tokio::io::copy(&mut recv, &mut tcp_wr).await;
-        let _ = tokio::io::AsyncWriteExt::shutdown(&mut tcp_wr).await;
+        let _ = tcp_wr.shutdown().await;
         r
     };
     let (a, b) = tokio::join!(up, down);
@@ -123,33 +138,108 @@ pub fn admit(allow: &AllowList, remote: &EndpointId) -> bool {
     allow.allows(remote)
 }
 
-/// Host side: accept tunnel connections forever, piping every bi-stream from an
-/// allowed peer to `target` (the host's own HTTPS listener for tunnel traffic).
-pub async fn serve(endpoint: Endpoint, allow: SharedAllowList, target: SocketAddr) {
-    while let Some(incoming) = endpoint.accept().await {
-        let allow = allow.clone();
-        tokio::spawn(async move {
-            let conn = match incoming.accept() {
-                Ok(accepting) => match accepting.await {
-                    Ok(c) => c,
-                    Err(_) => return,
-                },
-                Err(_) => return,
-            };
-            let remote = conn.remote_id();
-            let ok = allow.read().map(|l| admit(&l, &remote)).unwrap_or(false);
-            if !ok {
-                conn.close(CLOSE_NOT_ALLOWED.into(), b"not allowed");
-                return;
+/// The host side: the allow-list and every live connection, so a phone that
+/// leaves the list loses its connection the moment the list is replaced, not
+/// when it next reconnects.
+pub struct Host {
+    allow: RwLock<AllowList>,
+    live: Mutex<HashMap<EndpointId, Vec<Connection>>>,
+    conns: Arc<Semaphore>,
+}
+
+impl Host {
+    pub fn new(allow: AllowList) -> Arc<Host> {
+        Arc::new(Host {
+            allow: RwLock::new(allow),
+            live: Mutex::new(HashMap::new()),
+            conns: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
+        })
+    }
+
+    pub fn allows(&self, id: &EndpointId) -> bool {
+        self.allow.read().map(|l| admit(&l, id)).unwrap_or(false)
+    }
+
+    pub fn allow_len(&self) -> usize {
+        self.allow.read().map(|l| l.len()).unwrap_or(0)
+    }
+
+    /// Replace the allow-list and close every live connection from a node id
+    /// no longer on it (immediate revocation).
+    pub fn set_allow(&self, list: AllowList) {
+        if let Ok(mut slot) = self.allow.write() {
+            *slot = list;
+        }
+        let Ok(mut live) = self.live.lock() else { return };
+        let revoked: Vec<EndpointId> = live.keys().filter(|id| !self.allows(id)).copied().collect();
+        for id in revoked {
+            for conn in live.remove(&id).unwrap_or_default() {
+                conn.close(CLOSE_NOT_ALLOWED.into(), b"revoked");
             }
-            while let Ok((send, recv)) = conn.accept_bi().await {
-                tokio::spawn(async move {
-                    if let Ok(tcp) = TcpStream::connect(target).await {
-                        let _ = pipe(send, recv, tcp).await;
-                    }
-                });
+        }
+    }
+
+    fn track(&self, conn: &Connection) {
+        if let Ok(mut live) = self.live.lock() {
+            live.entry(conn.remote_id()).or_default().push(conn.clone());
+        }
+    }
+
+    fn untrack(&self, conn: &Connection) {
+        let Ok(mut live) = self.live.lock() else { return };
+        let id = conn.remote_id();
+        if let Some(list) = live.get_mut(&id) {
+            list.retain(|c| c.stable_id() != conn.stable_id());
+            if list.is_empty() {
+                live.remove(&id);
             }
-        });
+        }
+    }
+
+    /// Accept tunnel connections forever, piping every bi-stream from an
+    /// allowed peer to `target` (the host's tunnel listener), each stream
+    /// prefixed with [`stream_header`].
+    pub async fn serve(self: Arc<Self>, endpoint: Endpoint, target: SocketAddr) {
+        while let Some(incoming) = endpoint.accept().await {
+            let Ok(permit) = self.conns.clone().acquire_owned().await else { return };
+            let host = self.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                let Ok(accepting) = incoming.accept() else { return };
+                let Ok(conn) = accepting.await else { return };
+                host.connection(conn, target).await;
+            });
+        }
+    }
+
+    async fn connection(&self, conn: Connection, target: SocketAddr) {
+        let remote = conn.remote_id();
+        if !self.allows(&remote) {
+            conn.close(CLOSE_NOT_ALLOWED.into(), b"not allowed");
+            return;
+        }
+        self.track(&conn);
+        let streams = Arc::new(Semaphore::new(MAX_STREAMS_PER_CONNECTION));
+        let header = stream_header(&remote);
+        while let Ok((send, recv)) = conn.accept_bi().await {
+            // Re-checked per stream: the list may have changed since the
+            // handshake, and set_allow's close may still be in flight.
+            if !self.allows(&remote) {
+                conn.close(CLOSE_NOT_ALLOWED.into(), b"revoked");
+                break;
+            }
+            let Ok(permit) = streams.clone().acquire_owned().await else { break };
+            let header = header.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                let Ok(mut tcp) = TcpStream::connect(target).await else { return };
+                if tcp.write_all(header.as_bytes()).await.is_err() {
+                    return;
+                }
+                let _ = pipe(send, recv, tcp).await;
+            });
+        }
+        self.untrack(&conn);
     }
 }
 
@@ -187,12 +277,15 @@ impl Forwarder {
         let local_port = listener.local_addr()?.port();
         let conn: Arc<tokio::sync::Mutex<Option<Connection>>> = Arc::default();
         let shared = conn.clone();
+        let streams = Arc::new(Semaphore::new(MAX_STREAMS_PER_CONNECTION));
         let task = tokio::spawn(async move {
             while let Ok((tcp, _)) = listener.accept().await {
+                let Ok(permit) = streams.clone().acquire_owned().await else { return };
                 let endpoint = endpoint.clone();
                 let remote = remote.clone();
                 let shared = shared.clone();
                 tokio::spawn(async move {
+                    let _permit = permit;
                     let Some(conn) = connected(&endpoint, remote, &shared).await else { return };
                     if let Ok((send, recv)) = conn.open_bi().await {
                         let _ = pipe(send, recv, tcp).await;
@@ -277,5 +370,16 @@ mod tests {
         let (list, bad) = AllowList::parse([padded.as_str()]);
         assert!(bad.is_empty());
         assert!(list.allows(&a));
+    }
+
+    #[test]
+    fn stream_header_is_one_line_of_prefix_and_64_hex() {
+        let a = id();
+        let h = stream_header(&a);
+        assert!(h.starts_with("belay-tunnel/1 "));
+        assert!(h.ends_with('\n'));
+        let hex = &h["belay-tunnel/1 ".len()..h.len() - 1];
+        assert_eq!(hex.len(), 64);
+        assert!(hex.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
     }
 }

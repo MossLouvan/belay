@@ -80,9 +80,17 @@ export function parsePoll(json: unknown): ClaimPoll {
   };
 }
 
+/** An iroh node id as the sidecar prints it: 32 bytes, lowercase hex. */
+const NODE_ID_RE = /^[0-9a-f]{64}$/;
+
 export function parseHeartbeat(json: unknown): Heartbeat {
   const o = (json ?? {}) as Record<string, unknown>;
-  return { allowedNodeIds: strs(o.allowedNodeIds, 'allowedNodeIds'), relayUrls: strs(o.relayUrls ?? [], 'relayUrls') };
+  const allowedNodeIds = strs(o.allowedNodeIds, 'allowedNodeIds');
+  const bad = allowedNodeIds.find((id) => !NODE_ID_RE.test(id));
+  // One malformed entry fails the whole answer rather than being skipped: a
+  // list the service got wrong is not a list to admit anyone on.
+  if (bad !== undefined) throw new Error(`accounts: allowedNodeIds entry is not a 64-hex node id: ${JSON.stringify(bad)}`);
+  return { allowedNodeIds, relayUrls: strs(o.relayUrls ?? [], 'relayUrls') };
 }
 
 async function call(url: string, init: RequestInit): Promise<unknown> {

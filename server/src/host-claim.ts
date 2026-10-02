@@ -29,6 +29,13 @@ export const CLAIM_POLL_MS = 2_000;
 export const HEARTBEAT_MS = 60_000;
 /** After a failed accounts call (offline, 5xx): neither a hot loop nor a long outage. */
 export const RETRY_MS = 15_000;
+/**
+ * How long a cached allow-list may be replayed after a restart without the
+ * service confirming it. Past this the tunnel admits nobody until a
+ * heartbeat answers: a host cut off from the accounts service for three days
+ * loses tunnel access, but a revoked phone can never ride a stale cache longer.
+ */
+export const ALLOW_CACHE_MAX_AGE_MS = 72 * 60 * 60 * 1000;
 
 /** What the phone scans. */
 export function claimLink(code: string, nodeId: string): string {
@@ -86,9 +93,11 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export async function runHostLink(deps: HostLinkDeps): Promise<void> {
   const now = deps.now ?? Date.now;
   const sleep = deps.sleep ?? realSleep;
-  const cached = deps.store.readCache();
-  if (cached) deps.onAllowList(cached.allowedNodeIds, cached.relayUrls);
   const cred = deps.store.readCredential();
+  // Only a linked host replays its cache, and only a recent one: an unlinked
+  // host admits nobody, and a stale list could carry a revoked phone forever.
+  const cached = cred ? deps.store.readCache() : null;
+  if (cached && now() - cached.at < ALLOW_CACHE_MAX_AGE_MS) deps.onAllowList(cached.allowedNodeIds, cached.relayUrls);
   let state: LinkState = cred ? { kind: 'linked', hostCredential: cred } : UNLINKED;
 
   while (!deps.signal?.aborted) {
@@ -134,6 +143,10 @@ async function step(state: LinkState, deps: HostLinkDeps, nowMs: number): Promis
         const next = onHeartbeatFailure(state, e);
         if (next.kind === 'unlinked') {
           deps.store.clearCredential();
+          // Revoked means revoked now: the sidecar admits nobody, and a restart
+          // cannot replay yesterday's list.
+          deps.store.writeCache({ allowedNodeIds: [], relayUrls: [], at: nowMs });
+          deps.onAllowList([], []);
           deps.show.line('  This computer is no longer linked to an account — scan the new code to link it again.');
           return [next, 0];
         }

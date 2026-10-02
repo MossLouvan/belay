@@ -14,14 +14,15 @@
 //!                     (an `allow` with no ids admits nobody);
 //!                     `sign <message>` answers `sig <base64url Ed25519 signature>`
 //!                     on stdout, so the host can prove it owns the node id at
-//!                     claim time without ever seeing the secret key.
+//!                     claim time without ever seeing the secret key. Only
+//!                     messages starting with `belay-claim:v1:` are signed: the
+//!                     key must never become a general-purpose oracle.
 //! Any other line is ignored with a note on stderr. EOF on stdin exits.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
 
-use belay_net_tunnel::{bind, AllowList, SharedAllowList};
+use belay_net_tunnel::{bind, AllowList, Host};
 use iroh::{RelayUrl, SecretKey};
 
 fn key_path() -> PathBuf {
@@ -61,7 +62,14 @@ fn load_or_create_key(path: &PathBuf) -> std::io::Result<SecretKey> {
             .ok_or_else(|| Error::new(ErrorKind::InvalidData, format!("{} is not a 64-hex key", path.display()))),
         Err(e) if e.kind() == ErrorKind::NotFound => {
             if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
+                let mut db = std::fs::DirBuilder::new();
+                db.recursive(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::DirBuilderExt;
+                    db.mode(0o700);
+                }
+                db.create(dir)?;
             }
             let key = SecretKey::generate();
             let mut opts = std::fs::OpenOptions::new();
@@ -130,17 +138,24 @@ fn parse_line(line: &str) -> Command<'_> {
     Command::Unknown
 }
 
+/// The only message shape the key signs.
+const SIGNABLE_PREFIX: &str = "belay-claim:v1:";
+
 /// Apply one stdin line. Returns the reply to print, if any.
-fn apply_line(line: &str, allow: &SharedAllowList, key: &SecretKey) -> Option<String> {
+fn apply_line(line: &str, host: &Host, key: &SecretKey) -> Option<String> {
     match parse_line(line) {
         Command::Allow(list) => {
             eprintln!("[belay-net] allow-list: {} node id(s)", list.len());
-            if let Ok(mut slot) = allow.write() {
-                *slot = list;
-            }
+            host.set_allow(list);
             None
         }
-        Command::Sign(msg) => Some(format!("sig {}", base64url(&key.sign(msg.as_bytes()).to_bytes()))),
+        Command::Sign(msg) if msg.starts_with(SIGNABLE_PREFIX) => {
+            Some(format!("sig {}", base64url(&key.sign(msg.as_bytes()).to_bytes())))
+        }
+        Command::Sign(_) => {
+            eprintln!("[belay-net] refusing to sign a message that is not a claim");
+            Some("sig-refused".to_string())
+        }
         Command::Unknown => {
             eprintln!("[belay-net] ignoring line {line:?}");
             None
@@ -172,19 +187,19 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let allow: SharedAllowList = Arc::new(RwLock::new(AllowList::default()));
+    let host = Host::new(AllowList::default());
 
     println!("ready {}", endpoint.id());
     let _ = std::io::stdout().flush();
 
-    let serve = tokio::spawn(belay_net_tunnel::serve(endpoint.clone(), allow.clone(), target));
+    let serve = tokio::spawn(host.clone().serve(endpoint.clone(), target));
 
     // stdin is blocking; a thread is the smallest thing that reads it.
     let signer = endpoint.secret_key().clone();
     let stdin_done = tokio::task::spawn_blocking(move || {
         for line in std::io::stdin().lock().lines() {
             let Ok(line) = line else { break };
-            if let Some(reply) = apply_line(&line, &allow, &signer) {
+            if let Some(reply) = apply_line(&line, &host, &signer) {
                 println!("{reply}");
                 let _ = std::io::stdout().flush();
             }
@@ -203,29 +218,52 @@ mod tests {
 
     #[test]
     fn allow_line_replaces_the_list() {
-        let allow: SharedAllowList = Arc::default();
+        let host = Host::new(AllowList::default());
         let key = SecretKey::generate();
         let id = key.public();
-        assert_eq!(apply_line(&format!("allow {id}"), &allow, &key), None);
-        assert!(allow.read().unwrap().allows(&id));
-        assert_eq!(apply_line("allow", &allow, &key), None, "an empty allow line is valid");
-        assert!(!allow.read().unwrap().allows(&id), "and admits nobody");
+        assert_eq!(apply_line(&format!("allow {id}"), &host, &key), None);
+        assert!(host.allows(&id));
+        assert_eq!(apply_line("allow", &host, &key), None, "an empty allow line is valid");
+        assert!(!host.allows(&id), "and admits nobody");
         assert_eq!(parse_line("allowance"), Command::Unknown);
-        assert_eq!(apply_line("nonsense", &allow, &key), None);
+        assert_eq!(apply_line("nonsense", &host, &key), None);
     }
 
     #[test]
     fn sign_line_answers_a_verifiable_base64url_signature() {
-        let allow: SharedAllowList = Arc::default();
+        let host = Host::new(AllowList::default());
         let key = SecretKey::generate();
         let msg = format!("belay-claim:v1:{}:1760000000", key.public());
-        let reply = apply_line(&format!("sign {msg}"), &allow, &key).unwrap();
+        let reply = apply_line(&format!("sign {msg}"), &host, &key).unwrap();
         let b64 = reply.strip_prefix("sig ").unwrap();
         assert!(!b64.contains(['+', '/', '=']), "base64url, unpadded: {b64}");
         assert_eq!(b64.len(), 86, "64 signature bytes");
         let bytes = unbase64url(b64);
         let sig = iroh::Signature::from_bytes(&bytes.try_into().unwrap());
         key.public().verify(msg.as_bytes(), &sig).unwrap();
+    }
+
+    #[test]
+    fn sign_refuses_anything_that_is_not_a_claim() {
+        let host = Host::new(AllowList::default());
+        let key = SecretKey::generate();
+        for msg in ["hello", "belay-claim:v2:x", "xbelay-claim:v1:x"] {
+            assert_eq!(apply_line(&format!("sign {msg}"), &host, &key).as_deref(), Some("sig-refused"), "{msg:?}");
+        }
+        assert_eq!(parse_line("sign "), Command::Unknown, "an empty message is not even a command");
+    }
+
+    #[test]
+    fn key_dir_is_created_private() {
+        let dir = std::env::temp_dir().join(format!("belay-net-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        load_or_create_key(&dir.join("net-key")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
