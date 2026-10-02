@@ -140,3 +140,12 @@ export function sendInput(report: Uint8Array): boolean {
 }
 
 export const BelayStreamView = nativeView;
+
+export {
+  closeTunnel,
+  dialTunnel,
+  isTunnelAvailable,
+  startTunnel,
+  tunnelStats,
+} from './tunnel';
+export type { TunnelStats } from './tunnel';

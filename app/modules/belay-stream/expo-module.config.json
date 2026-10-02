@@ -1,7 +1,7 @@
 {
   "platforms": ["apple"],
   "apple": {
-    "modules": ["BelayStreamModule", "BelayPinModule"],
+    "modules": ["BelayStreamModule", "BelayPinModule", "BelayTunnelModule"],
     "podspecPath": "ios/BelayStream.podspec"
   }
 }

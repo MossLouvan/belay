@@ -25,6 +25,8 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { TUNNEL_REMOTE_ADDRESS } from './tunnel-listener.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Where the compiled streamer lives, preferring a release build. */
@@ -109,6 +111,9 @@ export function validPort(raw: unknown): number | null {
  */
 export function normalizeAddress(raw: string | undefined | null): string | null {
   if (!raw) return null;
+  // A tunneled client (tunnel-listener.ts) has no UDP address at all: video
+  // for it rides the tunnel's streams, never a datagram aimed at the sidecar.
+  if (raw.startsWith(TUNNEL_REMOTE_ADDRESS)) return null;
   const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(raw);
   if (mapped) return mapped[1];
   // A bare IPv6 address needs brackets before a port can be appended to it.

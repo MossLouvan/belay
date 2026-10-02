@@ -33,6 +33,11 @@ import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
 import { BwpSession, bwpAvailable } from './bwp-stream.js';
+import { createTunnelListener } from './tunnel-listener.js';
+import { startTunnel, tunnelAvailable, Tunnel } from './tunnel.js';
+import { fetchAccountsClient } from './accounts-client.js';
+import { diskLinkStore, runHostLink } from './host-claim.js';
+import qrcode from 'qrcode-terminal';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin, pairRefusal } from './host-guard.js';
 import { configuredBind, bindBannerLine } from './bind.js';
@@ -2027,7 +2032,49 @@ server.listen(PORT, bind.hosts[0], () => {
   // a device is on the desktop. Never awaited and never fatal: a host with no
   // interactive desktop just answers shown:false.
   void native.tray('show', `Belay - ${getHostName()}`, false).catch(() => {});
+  startTunnelHost();
 });
+
+// ---- tunnel: reach this computer from anywhere -----------------------------
+//
+// A second listener, 127.0.0.1 only, that the belay-net sidecar pipes phone
+// streams into. tunnel-listener.ts tags everything that arrives there as
+// remote, so none of the loopback privileges above apply to it. Without the
+// sidecar binary the host behaves exactly as before: no listener, no claim.
+let tunnel: Tunnel | null = null;
+const linkAbort = new AbortController();
+
+function startTunnelHost(): void {
+  if (!tunnelAvailable()) { console.log('  Tunnel    : belay-net binary not built — tunnel off (npm run build:tunnel)'); return; }
+  const listener = createTunnelListener({ app, tls: { key: tls.key, cert: tls.cert }, onUpgrade });
+  listener.on('error', (e: NodeJS.ErrnoException) => console.error(`[tunnel] listener failed: ${e.message}`));
+  listener.listen(0, '127.0.0.1', () => {
+    const targetPort = (listener.address() as { port: number }).port;
+    const store = diskLinkStore();
+    const cached = store.readCache();
+    try {
+      tunnel = startTunnel({ targetPort, relayUrls: cached?.relayUrls ?? [] });
+    } catch (e) {
+      console.error('[tunnel] not started:', messageOf(e)); return;
+    }
+    const t = tunnel;
+    void t.nodeId.then((nodeId) => {
+      console.log(`  Tunnel    : node ${nodeId.slice(0, 10)}… (${store.readCredential() ? 'linked' : 'not linked — scan the QR below'})`);
+      return runHostLink({
+        client: fetchAccountsClient(), store, nodeId,
+        name: getHostName(), platform: getPlatform(),
+        sign: (m) => t.sign(m),
+        onAllowList: (ids, relays) => { t.setAllowList(ids); t.setRelays(relays); },
+        show: {
+          qr: (link) => qrcode.generate(link, { small: true }),
+          line: (text) => console.log(text),
+          popup: (title, body) => { void native.notify(title, body, '', 20).catch(() => {}); },
+        },
+        signal: linkAbort.signal,
+      });
+    }).catch((e: unknown) => console.error('[tunnel] link loop died:', messageOf(e)));
+  });
+}
 
 // While no device is paired, keep a valid pairing code alive and reprint it
 // whenever it rotates, so the PC always shows a code that actually works even
@@ -2072,6 +2119,8 @@ process.on('uncaughtException', (error: unknown) => {
 // Normal sleep is restored before the process goes: an exit while armed must
 // not leave the machine never-sleeping.
 const shutdown = (): void => {
+  linkAbort.abort();
+  tunnel?.stop();
   void lid.stop().finally(() => { native.stop(); process.exit(0); });
 };
 process.on('SIGINT', shutdown);
