@@ -26,14 +26,14 @@ function homeWithSecret(secret: string | null): string {
   return home;
 }
 
-interface Seen { readonly event: string; readonly secret: string | undefined; readonly body: unknown }
+interface Seen { readonly event: string; readonly secret: string | undefined; readonly session: string | undefined; readonly body: unknown }
 
 async function fakeHost(answer: unknown): Promise<{ port: number; seen: Seen[]; close(): Promise<void> }> {
   const app = express();
   app.use(express.json());
   const seen: Seen[] = [];
   app.post('/hooks/:event', (req, res) => {
-    seen.push({ event: req.params.event, secret: req.get('x-belay-hook-secret'), body: req.body });
+    seen.push({ event: req.params.event, secret: req.get('x-belay-hook-secret'), session: req.get('x-belay-session'), body: req.body });
     res.setHeader('x-belay-hook', 'test');
     res.json(answer);
   });
@@ -124,5 +124,15 @@ test('Stop is forwarded and prints nothing', async () => {
     }));
     assert.equal(out.stdout, '');
     assert.equal(host.seen[0]?.event, 'Stop');
+  } finally { await host.close(); }
+});
+
+test('a Belay pty session (BELAY_SESSION set) is forwarded, with its id in a header', async () => {
+  const host = await fakeHost({});
+  try {
+    const out = await runHook(host.port, homeWithSecret(SECRET), permission, { BELAY_SPAWNED: '1', BELAY_SESSION: 'pty-1' });
+    assert.equal(out.code, 0);
+    assert.equal(host.seen.length, 1);
+    assert.equal(host.seen[0].session, 'pty-1');
   } finally { await host.close(); }
 });

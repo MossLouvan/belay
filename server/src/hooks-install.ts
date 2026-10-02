@@ -157,3 +157,8 @@ export function hooksStatusLine(settings: unknown): string {
   if (events.length === 0) return 'not installed — run `npm run hooks:install` to approve terminal sessions from the phone';
   return `partially installed (${events.join(', ')}) — run \`npm run hooks:install\` to complete`;
 }
+
+/** Every event carries a Belay entry — what GET /agent/status reports as `hooksInstalled`. */
+export function hooksInstalled(settings: unknown): boolean {
+  return installedEvents(settings).length === HOOK_EVENTS.length;
+}

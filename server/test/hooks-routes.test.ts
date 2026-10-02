@@ -10,7 +10,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createHooksStore } from '../src/hooks-store.js';
-import { hookWaitMs, projectTitle, registerHookRoutes, HOOK_REASON_HEADER } from '../src/hooks-routes.js';
+import { hookWaitMs, projectTitle, registerHookRoutes, HOOK_REASON_HEADER, HOOK_SESSION_HEADER } from '../src/hooks-routes.js';
 import type { HookRouteDeps } from '../src/hooks-routes.js';
 import { HOOK_SECRET_HEADER } from '../src/hooks-secret.js';
 import type { NotifyEvent } from '../src/notify.js';
@@ -31,6 +31,7 @@ interface Harness {
   readonly pings: NotifyEvent[];
   phones: number;
   belay: Set<string>;
+  pty: Set<string>;
   starts: number;
   close(): Promise<void>;
 }
@@ -40,14 +41,15 @@ async function harness(over: Partial<HookRouteDeps> = {}): Promise<Harness> {
   app.use(express.json());
   const store = createHooksStore({ newId: (() => { let n = 0; return () => `h${++n}`; })() });
   const pings: NotifyEvent[] = [];
-  const h = { phones: 1, belay: new Set<string>(), starts: 0 };
+  const h = { phones: 1, belay: new Set<string>(), pty: new Set<string>(), starts: 0 };
   const auth: express.RequestHandler = (req, res, next) => {
     if (req.headers.authorization === `Bearer ${TOKEN}`) next(); else res.status(401).json({ error: 'unauthorized' });
   };
   registerHookRoutes(app, auth, {
-    store, secret: SECRET, waitMs: 500, phonePollMs: 20,
+    store, secret: SECRET, waitMs: 500, phonePollMs: 20, phoneGraceMs: 100,
     phones: () => h.phones,
     isBelaySession: (id) => h.belay.has(id),
+    isPtySession: (id) => h.pty.has(id),
     onSessionStart: () => { h.starts += 1; },
     notify: (ev) => { pings.push(ev); },
     hostLabel: () => 'mac', hostId: () => 'host-1',
@@ -59,6 +61,7 @@ async function harness(over: Partial<HookRouteDeps> = {}): Promise<Harness> {
     url, store, pings,
     get phones() { return h.phones; }, set phones(v) { h.phones = v; },
     get belay() { return h.belay; }, set belay(v) { h.belay = v; },
+    get pty() { return h.pty; }, set pty(v) { h.pty = v; },
     get starts() { return h.starts; }, set starts(v) { h.starts = v; },
     close: () => new Promise((r) => server.close(() => r())),
   };
@@ -207,16 +210,111 @@ test('the wait runs out: {} and the ask is gone (Claude Code shows its own promp
   } finally { await h.close(); }
 });
 
-test('every phone disconnects mid-wait: {} promptly, not at the deadline', async () => {
+test('every phone disconnects mid-wait: {} after the grace window, not at the deadline, and a notice says so', async () => {
   const h = await harness({ waitMs: 5_000 });
   try {
     const held = hookPost(h.url, 'PermissionRequest', ask());
     await until(() => h.store.pending().length === 1);
     h.phones = 0;
+    const t0 = Date.now();
     const r = await held;
+    assert.ok(Date.now() - t0 >= 90, 'withdrew before the grace window');
     assert.equal(r.headers.get(HOOK_REASON_HEADER), 'phone-left');
     assert.deepEqual(await r.json(), {});
     assert.deepEqual(h.store.pending(), []);
+    const notice = h.store.notices()[0];
+    assert.equal(notice.kind, 'terminal-prompt');
+    assert.equal(notice.sessionId, 'sess-1');
+    assert.match(notice.text, /terminal/);
+  } finally { await h.close(); }
+});
+
+test('a short socket blip is bridged: the ask survives and the phone still decides it', async () => {
+  const h = await harness({ waitMs: 5_000 });
+  try {
+    const held = hookPost(h.url, 'PermissionRequest', ask());
+    await until(() => h.store.pending().length === 1);
+    h.phones = 0;
+    await new Promise((r) => setTimeout(r, 50));
+    h.phones = 1;
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(h.store.pending().length, 1);
+    await phone(h.url, '/agent/hooks/h1/decide', 'POST', { allow: true });
+    assert.equal((await held).headers.get(HOOK_REASON_HEADER), 'decided');
+    assert.deepEqual(h.store.notices(), []);
+  } finally { await h.close(); }
+});
+
+test('the wait running out also leaves a "back at the terminal" notice', async () => {
+  const h = await harness({ waitMs: 60 });
+  try {
+    await hookPost(h.url, 'PermissionRequest', ask());
+    assert.equal(h.store.notices()[0]?.kind, 'terminal-prompt');
+  } finally { await h.close(); }
+});
+
+// ---- Belay's own pty sessions ----------------------------------------------
+
+test('a pty session Belay spawned asks like a terminal one, tagged with its Belay session id', async () => {
+  const h = await harness();
+  h.pty = new Set(['pty-1']);
+  h.belay = new Set(['sess-1']);   // its claude id is known to the host too
+  try {
+    const held = fetch(`${h.url}/hooks/PermissionRequest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [HOOK_SECRET_HEADER]: SECRET, [HOOK_SESSION_HEADER]: 'pty-1' },
+      body: JSON.stringify(ask()),
+    });
+    await until(() => h.store.pending().length === 1);
+    assert.equal(h.store.pending()[0].belaySessionId, 'pty-1');
+    const list = await (await phone(h.url, '/agent/hooks')).json();
+    assert.equal(list.permissions[0].belaySessionId, 'pty-1');
+    await phone(h.url, '/agent/hooks/h1/decide', 'POST', { allow: true });
+    assert.equal((await held).headers.get(HOOK_REASON_HEADER), 'decided');
+  } finally { await h.close(); }
+});
+
+test('an unknown or malformed session header is ignored, so a stream session still gets {} at once', async () => {
+  const h = await harness();
+  h.belay = new Set(['sess-1']);
+  try {
+    for (const tag of ['nope', 'bad id!', 'x'.repeat(200)]) {
+      const r = await fetch(`${h.url}/hooks/PermissionRequest`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', [HOOK_SECRET_HEADER]: SECRET, [HOOK_SESSION_HEADER]: tag },
+        body: JSON.stringify(ask()),
+      });
+      assert.equal(r.headers.get(HOOK_REASON_HEADER), 'belay-session');
+    }
+    assert.deepEqual(h.store.pending(), []);
+  } finally { await h.close(); }
+});
+
+test('a Stop from a pty session tags its notice with the Belay session id', async () => {
+  const h = await harness();
+  h.pty = new Set(['pty-1']);
+  try {
+    await fetch(`${h.url}/hooks/Stop`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [HOOK_SECRET_HEADER]: SECRET, [HOOK_SESSION_HEADER]: 'pty-1' },
+      body: JSON.stringify(ask({ hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'ok' })),
+    });
+    assert.equal(h.store.notices()[0].belaySessionId, 'pty-1');
+  } finally { await h.close(); }
+});
+
+// ---- what changed ----------------------------------------------------------
+
+test('a Stop carries the cwd change stat on the notice and the done ping; a failed stat is simply absent', async () => {
+  const stat = { files: 3, insertions: 41, deletions: 7, cwd: '/Users/me/projects/belay' };
+  const h = await harness({ changes: async (cwd) => (cwd === stat.cwd ? stat : undefined) });
+  try {
+    await hookPost(h.url, 'Stop', ask({ hook_event_name: 'Stop', stop_hook_active: false, last_assistant_message: 'ok' }));
+    assert.deepEqual(h.store.notices()[0].changes, stat);
+    assert.deepEqual(h.pings[0].changes, stat);
+    await hookPost(h.url, 'Stop', ask({ hook_event_name: 'Stop', session_id: 'sess-2', cwd: '/elsewhere', stop_hook_active: false }));
+    assert.equal(h.store.notices()[0].changes, undefined);
+    assert.equal(h.pings[1].changes, undefined);
   } finally { await h.close(); }
 });
 

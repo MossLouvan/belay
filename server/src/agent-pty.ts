@@ -81,6 +81,8 @@ export interface SpawnSpec {
   readonly rows: number;
   /** Set only when reviving across a host restart — see buildPtyArgs. */
   readonly claudeSessionId?: string;
+  /** The Belay session id, exported as BELAY_SESSION for the hook script. */
+  readonly belaySessionId?: string;
 }
 
 export type PtySpawner = (spec: SpawnSpec) => Promise<PtyHandle>;
@@ -149,6 +151,7 @@ export const INHERITED_CLAUDE_MARKERS: readonly string[] = Object.freeze([
 export function ptyEnv(
   base: Readonly<Record<string, string | undefined>> = process.env as Record<string, string>,
   plat: NodeJS.Platform = process.platform,
+  belaySessionId?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(base)) {
@@ -156,12 +159,16 @@ export function ptyEnv(
     if (INHERITED_CLAUDE_MARKERS.includes(key)) continue;
     env[key] = value;
   }
-  // Read by hooks/belay-hook.mjs, which returns immediately when it is set.
-  // This session has a real terminal the user can reach from the phone or the
-  // desk, so Claude's own permission dialog is the right UI for it — the hook
-  // must not also fire the ask at the phone, or one approval would exist in
-  // two places at once.
+  // Read by hooks/belay-hook.mjs. On its own it means "stand aside" (a stream
+  // session asks through its MCP sidecar, so a hook ask would be a second
+  // prompt for one tool call). A pty session also carries BELAY_SESSION, and
+  // then the hook forwards with that id: the host raises the ask on the
+  // session's card, and while the hook waits Claude shows a spinner instead of
+  // its dialog, so the approval still exists in exactly one place. No phone
+  // connected → the host answers {} at once and the TUI dialog appears.
   env.BELAY_SPAWNED = '1';
+  delete env.BELAY_SESSION;   // never inherit another session's tag
+  if (belaySessionId) env.BELAY_SESSION = belaySessionId;
   // Nothing reads this one. It is set anyway, and deliberately: the marker
   // above is shared with stream sessions, so anything inside a pty session
   // that ever needs to know which of the two it is — a shell prompt, a user's
@@ -185,7 +192,7 @@ export const spawnClaudePty: PtySpawner = async (spec) => {
   if (!existsSync(spec.cwd)) throw new Error(`project folder is gone: ${spec.cwd}`);
 
   const win = process.platform === 'win32';
-  const env = ptyEnv();
+  const env = ptyEnv(undefined, undefined, spec.belaySessionId);
 
   const args = buildPtyArgs(spec.claudeSessionId);
   let term: any;
@@ -489,7 +496,7 @@ export function createPtyRegistry(options: RegistryOptions = {}): PtyRegistry {
       const reviving = !!s.claudeSessionId;
 
       const handle = await spawn({
-        cwd: s.cwd, cols: s.size.cols, rows: s.size.rows, claudeSessionId: s.claudeSessionId,
+        cwd: s.cwd, cols: s.size.cols, rows: s.size.rows, claudeSessionId: s.claudeSessionId, belaySessionId: s.id,
       });
       s.handle = handle;
       // Unconditionally, not only when it changed. `s.size` can have moved
