@@ -36,7 +36,15 @@ function paint(state) {
   const busy = state.phase === 'busy';
   // Unlinked: the account claim QR. Linked to the account but not yet paired
   // with a phone: the 6-digit code the phone asks for next.
-  $('link-heading').lastChild.textContent = linked ? 'Linked' : state.claim || !showQr ? 'Scan this code in Belay' : 'Type this code in Belay';
+  // Unlinked: signing in here links this computer with no QR; the claim QR
+  // below stays as the other way in.
+  const signIn = running && Boolean(state.claim);
+  $('signin').hidden = !signIn;
+  $('signin-apple').hidden = !state.signInProviders?.apple;
+  $('signin-google').hidden = !state.signInProviders?.google;
+  $('linked-to').hidden = !state.linkedTo;
+  $('linked-to').textContent = state.linkedTo ? `Linked to ${state.linkedTo}` : '';
+  $('link-heading').lastChild.textContent = linked ? 'Linked' : state.claim ? 'Or scan this code in Belay' : !showQr ? 'Scan this code in Belay' : 'Type this code in Belay';
   $('pair-another').hidden = !linked;
   // A code for one more phone needs no account-link instructions under it.
   $('link-caption').hidden = linked || busy || (state.paired && showQr && !state.claim);
@@ -62,6 +70,46 @@ function paint(state) {
   $('login-item').checked = state.openAtLogin;
 }
 
+// ── sign in to link this computer ──────────────────────────────────────────
+// The main process does the sign-in and hands the session to the host; this
+// page only ever sees {ok, error, maskedEmail}.
+function wireSignIn() {
+  const msg = (text) => { $('signin-msg').textContent = text; };
+  const buttons = ['signin-apple', 'signin-google', 'signin-email-send', 'signin-code-send'];
+  const busy = async (text, work) => {
+    msg(text);
+    for (const id of buttons) $(id).disabled = true;
+    try { return await work(); } finally { for (const id of buttons) $(id).disabled = false; }
+  };
+  const showCodeStep = (on) => {
+    $('signin-email-form').hidden = on;
+    $('signin-code-form').hidden = !on;
+    $('signin-back').hidden = !on;
+    if (on) $('signin-code').focus();
+  };
+  const done = (result) => {
+    // Linked: the host's state push swaps this section for "Linked to …".
+    msg(result.ok ? '' : result.error);
+    if (result.ok) { $('signin-code').value = ''; showCodeStep(false); }
+  };
+  $('signin-email-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const result = await busy('Sending a code…', () => window.belayHost.emailStart($('signin-email').value));
+    msg(result.ok ? `We emailed a 6-digit code to ${$('signin-email').value.trim()}.` : result.error);
+    if (result.ok) showCodeStep(true);
+  });
+  $('signin-code-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    done(await busy('Linking this computer…', () => window.belayHost.emailVerify($('signin-email').value, $('signin-code').value)));
+  });
+  $('signin-back').addEventListener('click', () => { msg(''); showCodeStep(false); });
+  for (const name of ['apple', 'google']) {
+    $(`signin-${name}`).addEventListener('click', async () => {
+      done(await busy('Finish signing in in your browser…', () => window.belayHost.signInWith(name)));
+    });
+  }
+}
+
 async function init() {
   paint(await window.belayHost.state());
   window.belayHost.onChange(paint);
@@ -84,6 +132,7 @@ async function init() {
   $('viewer').addEventListener('click', () => window.belayHost.openViewer());
   $('pair-another').addEventListener('click', () => window.belayHost.pairAnother());
   $('logs').addEventListener('click', () => window.belayHost.openLogs());
+  wireSignIn();
   // Permissions change outside this window (System Settings); re-read while visible.
   setInterval(async () => { if (document.visibilityState === 'visible') paint(await window.belayHost.state()); }, 3000);
 }

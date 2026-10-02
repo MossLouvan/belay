@@ -157,7 +157,7 @@ export function FloatingMascot({ landscape, hudBottom, accessibilityLabel, onPre
         transform: pan.getTranslateTransform(),
       }}
     >
-      <BelugaAvatar size={40} backgroundColor={HUD.scrim} />
+      <BelugaAvatar size={40} />
     </Animated.View>
   );
 }

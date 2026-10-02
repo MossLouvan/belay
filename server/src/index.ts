@@ -36,8 +36,8 @@ import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
 import { BwpSession, bwpAvailable } from './bwp-stream.js';
 import { createTunnelListener } from './tunnel-listener.js';
 import { startTunnel, tunnelAvailable, Tunnel } from './tunnel.js';
-import { fetchAccountsClient } from './accounts-client.js';
-import { diskLinkStore, runHostLink } from './host-claim.js';
+import { AccountsError, fetchAccountsClient } from './accounts-client.js';
+import { diskLinkStore, linkWithSession, runHostLink } from './host-claim.js';
 import qrcode from 'qrcode-terminal';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin, pairRefusal } from './host-guard.js';
@@ -2133,6 +2133,8 @@ server.listen(PORT, bind.hosts[0], () => {
 // sidecar binary the host behaves exactly as before: no listener, no claim.
 let tunnel: Tunnel | null = null;
 const linkAbort = new AbortController();
+/** Set once the node id is known: link with a session Belay.app signed in with. */
+let linkBySession: ((session: string) => Promise<{ maskedEmail?: string }>) | null = null;
 
 function startTunnelHost(): void {
   if (!tunnelAvailable()) { console.log('  Tunnel    : belay-net binary not built — tunnel off (npm run build:tunnel)'); return; }
@@ -2150,10 +2152,13 @@ function startTunnelHost(): void {
     const t = tunnel;
     void t.nodeId.then((nodeId) => {
       console.log(`  Tunnel    : node ${nodeId.slice(0, 10)}… (${store.readCredential() ? 'linked' : 'not linked — scan the QR below'})`);
+      const client = fetchAccountsClient();
+      const sign = (m: string) => t.sign(m);
+      linkBySession = (session) => linkWithSession({ client, store, nodeId, name: getHostName(), platform: getPlatform(), sign }, session);
       return runHostLink({
-        client: fetchAccountsClient(), store, nodeId,
+        client, store, nodeId,
         name: getHostName(), platform: getPlatform(),
-        sign: (m) => t.sign(m),
+        sign,
         onAllowList: (ids, relays) => { tunnelAllowList = [...ids]; t.setAllowList(ids); t.setRelays(relays); },
         show: {
           qr: (link) => {
@@ -2193,9 +2198,36 @@ function showCodeOnDemand(): { code: string; expiresInSec: number } {
   return c;
 }
 
+const SESSION_RE = /^[A-Za-z0-9_-]{20,128}$/;
+
+/**
+ * Belay.app signed in on this computer: one POST /hosts/link with that
+ * session, then it is dropped (it only ever lives in this call's arguments).
+ */
+async function linkFromApp(session: unknown): Promise<void> {
+  const reply = (r: Record<string, unknown>) => postToApp({ type: 'link-result', ...r });
+  if (typeof session !== 'string' || !SESSION_RE.test(session)) return reply({ ok: false, error: 'Sign-in did not return a usable session.' });
+  if (!linkBySession) return reply({ ok: false, error: 'The tunnel is not running on this computer yet, so it cannot be linked.' });
+  try {
+    const { maskedEmail } = await linkBySession(session);
+    console.log(`  Linked to ${maskedEmail ?? 'your Belay account'} (signed in on this computer).`);
+    postToApp({ type: 'claim', link: null });
+    reply({ ok: true, ...(maskedEmail ? { maskedEmail } : {}) });
+  } catch (e) {
+    const error = e instanceof AccountsError && e.code === 'device_exists'
+      ? 'This computer is already linked to that account. Remove it in the Belay app on your phone, then try again.'
+      : e instanceof AccountsError && e.status === 401 ? 'Sign-in expired. Try again.'
+      : e instanceof AccountsError && e.status === 429 ? 'Too many attempts. Wait a few minutes and try again.'
+      : `Could not link this computer: ${messageOf(e)}`;
+    console.warn(`[link] sign-in link failed: ${messageOf(e)}`);
+    reply({ ok: false, error });
+  }
+}
+
 // Belay.app's "Pair another phone": the person is at this computer, so no gate.
 onAppMessage((message) => {
   if (message.type === 'pair-code') showCodeOnDemand();
+  if (message.type === 'link-session') void linkFromApp(message.session);
 });
 setInterval(() => {
   if (deviceCount() > 0) return;

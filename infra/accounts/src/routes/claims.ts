@@ -29,7 +29,7 @@ const normalizeCode = (code: string): string => {
   return upper;
 };
 
-async function requireProofOfPossession(body: Record<string, unknown>, nodeId: string): Promise<void> {
+export async function requireProofOfPossession(body: Record<string, unknown>, nodeId: string): Promise<void> {
   const ts = requireInteger(body, 'ts');
   const sig = requireString(body, 'sig', 128, /^[A-Za-z0-9_-]{86}$/);
   if (Math.abs(Date.now() / 1000 - ts) > CLAIM_SIG_SKEW_S) throw unauthorized('ts outside the allowed window');

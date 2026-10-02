@@ -21,6 +21,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import {
+  accountsBase, appleSignIn, emailStart, emailVerify, googleSignIn, providers, signInConfig,
+} from './src/account-signin.js';
 import { GROUND } from './src/ground.js';
 import {
   PHONE_APP_URL, livePairing, loginItemAfterHealth, pairingFromMessage, parsePairing, qrSvg, readHealth, statusLine,
@@ -35,6 +38,7 @@ const RESTART_DELAY_MS = 3_000;
 const PREFS_FILE = 'host-prefs.json';
 const STATE_FILE = 'belay-state.json';
 const LOG_FILE = 'host.log';
+const LINK_TIMEOUT_MS = 30_000;
 const SETTINGS_PANE = {
   screen: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
   accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
@@ -92,7 +96,9 @@ export function startHost({ openViewer }) {
   let quitting = false;
   let hostWindow = null;
   let tray = null;
-  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, claim: null, perms: permissions() };
+  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, claim: null, linkedTo: null, perms: permissions() };
+  const signIn = signInConfig();
+  const signInProviders = providers(signIn);
   const phoneAppSvg = qrSvg(qrModules(PHONE_APP_URL));
 
   const savePrefs = (next) => {
@@ -116,6 +122,7 @@ export function startHost({ openViewer }) {
     pairingCode: shown ? parsePairing(shown.link)?.code ?? '' : '',
     phoneAppUrl: PHONE_APP_URL,
     phoneAppSvg,
+    signInProviders,
     openAtLogin: prefs.openAtLogin === true,
     logFile: join(userData, LOG_FILE),
     };
@@ -193,6 +200,8 @@ export function startHost({ openViewer }) {
     } else if (data.type === 'claim') {
       // The account claim QR while unlinked; `link: null` once it is linked.
       update({ claim: typeof data.link === 'string' && Array.isArray(data.modules) ? { link: data.link, modules: data.modules } : null });
+    } else if (data.type === 'link-result') {
+      linkWaiter?.(data);
     } else if (data.type === 'listening') {
       update({ phase: 'running', paired: data.paired === true });
     } else if (data.type === 'autostart' && typeof data.id === 'number') {
@@ -235,6 +244,43 @@ export function startHost({ openViewer }) {
     hostWindow.on('closed', () => { hostWindow = null; });
     return hostWindow;
   };
+
+  // ── sign in on this computer → linked, no QR ────────────────────────────
+  // The session lives only in these calls: straight to the host child for one
+  // POST /hosts/link (it signs the node proof and stores the host credential
+  // at 0600), then dropped. Never on disk, never sent to the renderer.
+  let linkWaiter = null;
+  const linkWithSession = (session) => new Promise((resolve) => {
+    if (!child) { resolve({ ok: false, error: 'Belay is not running yet. Try again in a moment.' }); return; }
+    const timer = setTimeout(() => { linkWaiter = null; resolve({ ok: false, error: 'This computer did not answer. Try again.' }); }, LINK_TIMEOUT_MS);
+    linkWaiter = (result) => {
+      clearTimeout(timer);
+      linkWaiter = null;
+      resolve(result.ok === true
+        ? { ok: true, maskedEmail: typeof result.maskedEmail === 'string' ? result.maskedEmail : null }
+        : { ok: false, error: typeof result.error === 'string' ? result.error : 'Could not link this computer.' });
+    };
+    child.postMessage({ type: 'link-session', session });
+  });
+  const signInThen = async (getSession) => {
+    try {
+      const result = await linkWithSession(await getSession());
+      if (result.ok) update({ linkedTo: result.maskedEmail ?? 'your Belay account', claim: null });
+      return result;
+    } catch (e) {
+      return { ok: false, error: e?.message ?? String(e) };
+    }
+  };
+  const openUrl = (url) => shell.openExternal(url);
+  ipcMain.handle('host:signin:emailStart', async (_event, email) => {
+    try { await emailStart(accountsBase(), email); return { ok: true }; } catch (e) { return { ok: false, error: e?.message ?? String(e) }; }
+  });
+  ipcMain.handle('host:signin:emailVerify', (_event, { email, code } = {}) => signInThen(() => emailVerify(accountsBase(), email, code)));
+  ipcMain.handle('host:signin:provider', (_event, name) => {
+    if (name === 'google' && signInProviders.google) return signInThen(() => googleSignIn({ config: signIn, base: accountsBase(), openUrl }));
+    if (name === 'apple' && signInProviders.apple) return signInThen(() => appleSignIn({ config: signIn, base: accountsBase(), openUrl }));
+    return { ok: false, error: 'That sign-in is not set up in this build.' };
+  });
 
   ipcMain.handle('host:state', () => snapshot());
   ipcMain.handle('host:loginItem', (_event, on) => { savePrefs({ ...prefs, openAtLogin: on === true }); return prefs.openAtLogin; });
