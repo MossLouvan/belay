@@ -1,0 +1,25 @@
+{
+  "name": "belay-accounts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Belay accounts service - Apple/Google/email sign-in, device registry, QR claims (Cloudflare Workers + D1)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply belay-accounts --remote",
+    "migrate:local": "wrangler d1 migrations apply belay-accounts --local",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261001.1",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}
