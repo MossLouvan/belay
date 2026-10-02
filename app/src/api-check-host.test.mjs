@@ -45,7 +45,7 @@ test('revokeSelf posts the hashed-token prefix with the device\'s own bearer (#8
     return { ok: true, status: 200, json: async () => ({ ok: true }) };
   });
   try {
-    await revokeSelf({ ...device, lastKnownGoodUrl: 'http://10.0.0.5:8787' });
+    await revokeSelf(device, 'http://10.0.0.5:8787');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, 'http://10.0.0.5:8787/devices/revoke');
     assert.equal(calls[0].init.headers.Authorization, 'Bearer tok');
@@ -57,6 +57,6 @@ test('revokeSelf posts the hashed-token prefix with the device\'s own bearer (#8
 test('revokeSelf rejects on a refusal, so forget can carry on regardless', async () => {
   const restore = withFetch(async () => ({ ok: false, status: 500, json: async () => ({}) }));
   try {
-    await assert.rejects(revokeSelf(device));
+    await assert.rejects(revokeSelf(device, 'http://10.0.0.5:8787'));
   } finally { restore(); }
 });

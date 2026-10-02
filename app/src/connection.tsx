@@ -15,7 +15,7 @@ import {
   upsertDevice, setActive, renameDevice, recordSuccess,
   orderAddresses, adoptRealId, findDevice,
 } from './devices/model';
-import { forgetDevice } from './devices/forget';
+import { forgetDevice, revokeAtVerifiedHost } from './devices/forget';
 import { isUnresolved } from './devices/token-resolve';
 import { pinAddresses, randomBytes } from './devices/pinning';
 import { verifyHost } from './devices/verify-host';
@@ -250,8 +250,18 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     if (wasActive) attemptRef.current += 1;
     // Revoke this phone's token on that computer first (best effort, short
     // deadline), so "un-paired from it" is true on both ends; an unreachable
-    // host is still forgotten locally (#83).
-    const next = await forgetDevice(store, id, revokeSelf);
+    // or unverified host is still forgotten locally (#83). The live connection
+    // already passed verifyHost; any other address must pass it now, exactly
+    // as connectTo does, before the token is sent there.
+    const next = await forgetDevice(store, id, (device) => {
+      if (device.fingerprint) pinAddresses(device.addresses.map((a) => a.url), device.fingerprint);
+      return revokeAtVerifiedHost(device, {
+        connectedHost: connection?.hostId === device.id ? connection.host : null,
+        checkHost: (url) => checkHost(url),
+        verify: (input) => verifyHost(input, challengeHost, randomBytes),
+        revoke: revokeSelf,
+      });
+    });
     await commit(next);
 
     const stillActive = pickActive(next);
@@ -265,7 +275,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     }
     // Only re-race when we just removed the computer we were talking to.
     if (wasActive) await connectTo(stillActive, next);
-  }, [store, commit, connectTo]);
+  }, [store, connection, commit, connectTo]);
 
   const rename = useCallback(async (id: string, label: string) => {
     attemptRef.current += 1; // don't let an in-flight connect revert the rename

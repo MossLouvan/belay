@@ -301,14 +301,13 @@ async function failureFor(res: Response, path: string): Promise<Error> {
 const REVOKE_SELF_TIMEOUT_MS = 3000;
 
 /**
- * Revoke a saved computer's own pairing on that computer (#83). Addressed and
- * authed from the device itself, not the active connection, so a computer
- * that is not the one in use can be forgotten too. No recovery re-race: the
- * caller treats any failure as "could not reach it" and forgets anyway.
+ * Revoke a saved computer's own pairing on that computer (#83). Authed from
+ * the device itself, not the active connection, so a computer that is not the
+ * one in use can be forgotten too. `host` MUST already have passed verify-host
+ * (devices/forget.ts gates this) — the token goes nowhere unverified. No
+ * recovery re-race: the caller treats any failure as "could not reach it".
  */
-export async function revokeSelf(device: SavedDevice): Promise<void> {
-  const host = device.lastKnownGoodUrl ?? device.addresses[0]?.url;
-  if (!host) throw new Error('no address to revoke at');
+export async function revokeSelf(device: SavedDevice, host: string): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REVOKE_SELF_TIMEOUT_MS);
   try {
