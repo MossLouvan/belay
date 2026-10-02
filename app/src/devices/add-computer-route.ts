@@ -14,6 +14,16 @@ export interface AddComputerRoute {
  * `null` asks for the scanner instead. Blank text goes nowhere — Connect on
  * an empty field is a no-op, not a trip to another screen.
  */
+/**
+ * Pair a linked computer through the tunnel: the connect screen checks the
+ * loopback port like any typed https address (reads and shows the host's
+ * fingerprint, asks for the 6-digit code), and `node` tells it to save the
+ * computer under its node id rather than the ephemeral port.
+ */
+export function pairOverTunnelRoute(port: number, nodeId: string): AddComputerRoute {
+  return { pathname: '/', params: { add: '1', address: `https://127.0.0.1:${port}`, node: nodeId } };
+}
+
 export function addComputerRoute(address: string | null): AddComputerRoute | null {
   if (address === null) {
     return { pathname: '/', params: { add: '1', scan: '1' } };

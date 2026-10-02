@@ -80,6 +80,21 @@ function isHttps(url: string): boolean {
   return /^https:/i.test(url);
 }
 
+/**
+ * The tunnel's loopback forwarder (`https://127.0.0.1:<port>`). Loopback is a
+ * private link for plain http — nothing leaves the phone — but through the
+ * tunnel the bytes do leave, so it must earn trust the way a LAN address
+ * does: an https answer the native layer pinned for that host:port.
+ */
+function isLoopback(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'localhost' || host === '::1' || host.startsWith('127.');
+  } catch {
+    return false;
+  }
+}
+
 /** True for a device paired since the host issued proof secrets. */
 export function hasProofSecret(device: TrustSubject): device is TrustSubject & { deviceId: string; secret: string } {
   return typeof device.deviceId === 'string' && device.deviceId.length > 0
@@ -103,10 +118,11 @@ export async function verifyHost(
 
   if (hasProofSecret(device)) {
     // An enforced TLS pin on a public link already proved identity: skip the
-    // /challenge round trip. Tailscale and loopback keep it — a .ts.net name
-    // can carry a publicly valid certificate, so the pin is not the only way
-    // that handshake could have passed.
-    if (isHttps(url) && !isPrivateLink(url) && pinEnforced === true) return { ok: true, adoptId };
+    // /challenge round trip. Tailscale keeps it — a .ts.net name can carry a
+    // publicly valid certificate, so the pin is not the only way that
+    // handshake could have passed. Loopback https is the tunnel: the pin is
+    // enforced for exactly that host:port, so it counts as pinned https.
+    if (isHttps(url) && pinEnforced === true && (!isPrivateLink(url) || isLoopback(url))) return { ok: true, adoptId };
     const nonce = nonceHex(randomBytes);
     const proof = await challenge(url, device.deviceId, nonce);
     if (!proofMatches(device.secret, nonce, proof)) return { ok: false, problem: 'identity' };
