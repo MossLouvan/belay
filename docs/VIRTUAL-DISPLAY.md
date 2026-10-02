@@ -12,10 +12,14 @@ client-chosen mode. Both coexist: a display Belay creates is classified by
 the same `displays.ts` logic as any other (its names contain "Virtual", and
 on Windows it enumerates under `ROOT#`, so both signals fire).
 
-Everything here is **opt-in behind `BELAY_VIRTUAL_DISPLAY=1`** and additive.
-With the flag off (the default), the routes refuse with a pointer to this
-doc, the native helpers are never asked, and the default capture path is
-byte-for-byte what it was.
+Everything here is **on by default** and additive: lid-closed mode (below)
+depends on it, and the phone's resolution picker offers it whenever the host
+reports it available. `BELAY_VIRTUAL_DISPLAY=0` is the explicit off switch:
+the routes then refuse with a pointer to this doc, the native helpers are
+never asked, and the default capture path is byte-for-byte what it was. A
+host that cannot make a display (Windows without the driver or not elevated,
+an older macOS) degrades to a clear error at create time and keeps streaming
+the physical screen.
 
 ## Honest status
 
@@ -159,7 +163,7 @@ height 480–4320 even, refresh 24–240 Hz, default 60.
 
 ```bash
 cd server && npm run build:native:mac       # rebuild the helper
-BELAY_VIRTUAL_DISPLAY=1 npm start
+npm start
 # then, with a paired token:
 curl -X POST -H "Authorization: Bearer <token>" -H 'Content-Type: application/json' \
   -d '{"width":2360,"height":1640,"refreshHz":60}' http://localhost:8787/screen/virtual-display
@@ -219,7 +223,7 @@ see "Secure Boot blocks the last step" above.
 
 1. `pnputil /enum-drivers` lists BelayVdd; Device Manager shows no error 52
    (signing) after reboot.
-2. Start the host elevated with `BELAY_VIRTUAL_DISPLAY=1`.
+2. Start the host elevated.
 3. `POST /screen/virtual-display {"width":1920,"height":1080,"refreshHz":60}`
    → Settings → Display shows a new 1920x1080 monitor.
 4. `GET /screen/info` → the new screen's `id` contains `ROOT#BelayVDD` and
@@ -257,3 +261,36 @@ workarounds; they are a support and security disaster.
   `BelayVdd.inf`, `BelayVdd.vcxproj`, `build-driver.ps1`
 - `server/native/BelayHostVirtualDisplay.cs`, wired in `BelayHost.cs` and
   `build.ps1`
+
+## Lid-closed mode
+
+"Keep running with the lid closed" (System tab) keeps a laptop awake with the
+lid shut while a phone is streaming, and streams a virtual display at the
+stream's size while the lid is closed. Policy in `server/src/lid-mode.ts`
+(pure, tested), shell in `server/src/lid-host.ts`, routes `GET/POST /lid-mode`
+(paired devices only), state persisted as `lidClosedMode` in the host state
+file.
+
+- **Arm**: switch on AND at least one screen stream. **Release**: switch off,
+  30 minutes with no stream, or ≤20% on battery (the phone gets a "plug it
+  in" notice). Keep-awake is also released on host start and on SIGINT/SIGTERM,
+  so a crash cannot leave the machine never-sleeping.
+- **macOS**: `pmset -a disablesleep 1|0`, which needs root. The first enable
+  shows one admin prompt (`osascript … with administrator privileges`) that
+  copies the rule to a root-owned `/etc/sudoers.d/.belay-lid.tmp` (0440
+  root:wheel; sudo ignores dotted names), runs `visudo -cf` on that copy and
+  renames it to `/etc/sudoers.d/belay-lid` only if it passes — so nothing
+  running as your user can swap the file between the check and the install.
+  The rule allows exactly `/usr/bin/pmset -a disablesleep 0` and
+  `… 1` for your user, nothing else. Afterwards `sudo -n` runs them silently.
+  Cancel the prompt and the switch stays off. Lid state is read from
+  `ioreg -r -k AppleClamshellState -d 4`, polled every 2 s only while armed.
+  Remove the rule with `sudo rm /etc/sudoers.d/belay-lid`.
+- **Windows** (unverified here): the current `LIDACTION` AC/DC indexes are
+  saved to host state, set to 0 (do nothing) + `powercfg /setactive` while
+  armed, and restored on release or next start. There is no cheap lid probe
+  from Node, so the virtual display stays up for the whole armed stream. Needs
+  the driver above.
+- Manual check: switch on, start a stream, close the lid, confirm the stream
+  continues on the virtual display, open the lid, switch off, and confirm
+  `pmset -g | grep SleepDisabled` reads 0.

@@ -265,6 +265,42 @@ impl Session {
         Ok(())
     }
 
+    /// Block until a datagram is waiting or `timeout` passes. Returns whether
+    /// one is waiting; a following `poll` drains it.
+    ///
+    /// Replaces a fixed sleep between polls: a frame that lands 0.1 ms into a
+    /// 2 ms sleep used to wait out the rest. The socket is switched to
+    /// blocking for one `peek` and back — a few µs of syscalls, only paid
+    /// when there was nothing to do anyway.
+    pub fn wait_readable(&mut self, timeout: Duration) -> Result<bool, SessionError> {
+        self.socket.set_nonblocking(false)?;
+        self.socket.set_read_timeout(Some(timeout.max(Duration::from_millis(1))))?;
+        let mut probe = [0u8; 1];
+        let ready = match self.socket.peek_from(&mut probe) {
+            Ok(_) => true,
+            Err(ref e)
+                if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
+            {
+                false
+            }
+            // ICMP unreachable surfaces here too; poll() handles it.
+            Err(ref e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused
+                ) =>
+            {
+                true
+            }
+            Err(e) => {
+                let _ = self.socket.set_nonblocking(true);
+                return Err(SessionError::Io(e));
+            }
+        };
+        self.socket.set_nonblocking(true)?;
+        Ok(ready)
+    }
+
     /// Drain the socket and advance the session. Never blocks.
     pub fn poll(&mut self) -> Result<Vec<Event>, SessionError> {
         let mut events = Vec::new();
@@ -334,13 +370,17 @@ impl Session {
             return self.on_control(&plaintext).map(|e| vec![e]);
         }
 
-        match self.reassemblers[header.channel as usize].push(&header, &plaintext) {
-            Accepted::Complete { frame_id, keyframe, payload } => Some(vec![Event::Frame {
-                channel: header.channel,
-                frame_id,
-                keyframe,
-                payload,
-            }]),
+        let slot = header.channel as usize;
+        match self.reassemblers[slot].push(&header, &plaintext) {
+            Accepted::Complete { frame_id, keyframe, payload } => {
+                // A whole video frame went missing before this one: the
+                // decoder has no reference for it, and no fragment-level
+                // drop will ever say so. Ask on evidence, once.
+                if header.channel == Channel::Video && self.reassemblers[slot].take_gap() {
+                    self.want_keyframe = true;
+                }
+                Some(vec![Event::Frame { channel: header.channel, frame_id, keyframe, payload }])
+            }
             Accepted::Dropped(_) => {
                 // A frame we gave up on means the decoder is broken. Ask for a
                 // keyframe on evidence rather than emitting them on a timer.
@@ -657,6 +697,45 @@ mod tests {
         }
         let rtt = host.rtt_ms().expect("the host samples RTT from the client's reports");
         assert!((0.0..500.0).contains(&rtt), "loopback RTT should be small, got {rtt}");
+    }
+
+    #[test]
+    fn wait_readable_returns_early_for_a_datagram_and_times_out_without_one() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        let t = Instant::now();
+        assert!(!client.wait_readable(Duration::from_millis(20)).unwrap());
+        assert!(t.elapsed() >= Duration::from_millis(15), "must actually wait");
+
+        host.send_frame(Channel::Video, b"x", true).unwrap();
+        let t = Instant::now();
+        assert!(client.wait_readable(Duration::from_millis(500)).unwrap());
+        assert!(t.elapsed() < Duration::from_millis(400), "must wake on arrival, not on timeout");
+        // The datagram is still there for poll, and poll still never blocks.
+        let events = client.poll().unwrap();
+        assert!(events.iter().any(|e| matches!(e, Event::Frame { .. })));
+        let t = Instant::now();
+        let _ = client.poll().unwrap();
+        assert!(t.elapsed() < Duration::from_millis(50), "poll must be non-blocking again");
+    }
+
+    /// A whole frame lost on the wire — not one fragment of it ever arrives —
+    /// must still produce a keyframe request, because the decoder is about to
+    /// reference a frame it never saw.
+    #[test]
+    fn a_wholly_lost_video_frame_requests_a_keyframe() {
+        let (mut host, mut client) = pair(BitratePreset::Max);
+        host.send_frame(Channel::Video, b"k", true).unwrap();
+        let _ = drain(&mut client);
+        // Burn a frame id without sending it.
+        host.next_frame_id[Channel::Video as usize] += 1;
+        host.send_frame(Channel::Video, b"d", false).unwrap();
+        let _ = drain(&mut client);
+
+        let events = drain(&mut host);
+        assert!(
+            events.iter().any(|e| matches!(e, Event::KeyframeNeeded)),
+            "the host must be asked for a keyframe: {events:?}"
+        );
     }
 
     #[test]

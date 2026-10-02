@@ -159,16 +159,18 @@ final class InputController {
         }
     }
 
-    func click(_ button: MouseButton, at position: PointerTarget?, double: Bool) throws {
+    /// `count` is which click of a sequence a lone click is (2 = the second
+    /// tap of a double-tap the phone sent without waiting); `double` posts
+    /// both clicks itself. clickState carries the "Nth click" hint that makes
+    /// applications recognise a real double-click.
+    func click(_ button: MouseButton, at position: PointerTarget?, double: Bool, count: Int = 1) throws {
         try Permissions.require(.accessibility)
         let point = try resolve(position)
-        let count = double ? 2 : 1
-        for index in 1...count {
-            // clickState carries the "this is the Nth click of a sequence" hint
-            // that makes applications recognise a real double-click.
-            try post(type: button.downType, at: point, button: button.cgButton, clickState: index)
-            try post(type: button.upType, at: point, button: button.cgButton, clickState: index)
-            if index < count { Thread.sleep(forTimeInterval: Self.doubleClickGapSeconds) }
+        let states = double ? [1, 2] : [max(1, count)]
+        for (n, state) in states.enumerated() {
+            try post(type: button.downType, at: point, button: button.cgButton, clickState: state)
+            try post(type: button.upType, at: point, button: button.cgButton, clickState: state)
+            if n < states.count - 1 { Thread.sleep(forTimeInterval: Self.doubleClickGapSeconds) }
         }
         heldButtons.remove(button)
     }

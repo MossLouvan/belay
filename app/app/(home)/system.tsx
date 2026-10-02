@@ -36,6 +36,7 @@ import {
 import { StatCard } from '../../src/system/stat-card';
 import { ActivityChart } from '../../src/system/activity-chart';
 import { BatteryCard, HostCard, statusLine } from '../../src/system/sections';
+import { LidCard } from '../../src/system/lid-card';
 import { CardRow } from '../../src/system/card-row';
 import { ChipGlyph, DiskGlyph, MemGlyph } from '../../src/system/glyphs';
 import { DevicesSection } from '../../src/system/paired-devices';
@@ -293,6 +294,9 @@ function SystemTab() {
       </Row>
 
       <HostCard stats={stats} />
+
+      {/* Lid-closed mode; re-read on every successful stats poll so the state line is live. */}
+      <LidCard pollKey={lastOkAt ?? 0} />
 
       <DevicesSection
         devices={devices}

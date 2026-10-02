@@ -463,9 +463,9 @@ export interface ScreenInfo {
 
 /**
  * What GET /screen/virtual-display reports. The phone gates its true-resolution
- * picker on `available`: the BELAY_VIRTUAL_DISPLAY flag is on AND the host's
- * native backend actually exists (macOS with the private API). `active` is
- * whether one is up right now. A host with the flag off answers 403, which
+ * picker on `available`: the host's native backend actually exists (macOS with
+ * the private API, Windows with the driver). `active` is whether one is up
+ * right now. A host that switched the feature off answers 403, which
  * `virtualDisplayStatus` maps to all-false — the option simply does not appear.
  */
 export interface AutostartStatus {
@@ -483,6 +483,15 @@ export interface VirtualDisplayStatus {
   enabled: boolean;
   available: boolean;
   active: boolean;
+}
+
+/** GET/POST /lid-mode: "Keep running with the lid closed". Older hosts 404 the GET. */
+export type LidModeState = 'off' | 'ready' | 'awake' | 'battery-low';
+export interface LidModeStatus {
+  readonly supported: boolean;
+  readonly enabled: boolean;
+  readonly status: LidModeState;
+  readonly lidClosed: boolean;
 }
 
 export interface FileEntry { name: string; path: string; dir: boolean; size: number; mtime: number; }
@@ -679,8 +688,11 @@ export const api = {
   // `screen` is the monitor the coordinates are normalized against (an index
   // from ScreenInfo.screens). Left undefined it is dropped by JSON.stringify,
   // so old hosts see the exact requests they always did (primary monitor).
-  click: (x: number, y: number, button = 'left', double = false, screen?: number, mods?: string[]) =>
-    post('/input/click', { x, y, button, double, screen, mods }),
+  // `count` 2 marks the second click of a double-tap sequence (macOS posts it
+  // with clickState 2; Windows recognises the pair by its own timing). Left
+  // undefined for a lone click, so old hosts see exactly what they always did.
+  click: (x: number, y: number, button = 'left', double = false, screen?: number, mods?: string[], count?: 1 | 2) =>
+    post('/input/click', { x, y, button, double, screen, mods, count: count === 2 ? 2 : undefined }),
   move: (x: number, y: number, screen?: number) => post('/input/move', { x, y, screen }),
   scroll: (dy: number, dx = 0) => post('/input/scroll', { dy, dx }),
   drag: (x1: number, y1: number, x2: number, y2: number, screen?: number) =>
@@ -699,6 +711,9 @@ export const api = {
   discoverHosts: () => get<DiscoverHostsReply>('/discover/hosts'),
   /** Rename this computer on the host, so every phone sees the new name. */
   setLabel: (label: string) => post<{ ok: boolean; label: string }>('/label', { label }),
+  lidMode: () => get<LidModeStatus>('/lid-mode'),
+  /** On macOS the first enable raises an admin prompt on the host; a cancel answers 403 with the reason. */
+  setLidMode: (enabled: boolean) => post<LidModeStatus>('/lid-mode', { enabled }),
   /** Start-at-login on the host (its scripts/autostart-*). Older hosts 404 the GET. */
   autostartStatus: () => get<AutostartStatus>('/autostart'),
   autostartEnable: () => post<AutostartReply>('/autostart/enable', {}),

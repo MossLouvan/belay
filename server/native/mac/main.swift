@@ -9,9 +9,12 @@
 //   clipboard (get/set — two-way clipboard sync with the phone)
 //   audiostart | audiostop | audiostatus  (driverless system-audio loopback)
 //
-// The loop is deliberately single-threaded and synchronous: Node serialises
-// requests anyway, and one command at a time means a frame can never interleave
-// with an input event on the wire.
+// The loop is single-threaded and synchronous for everything except input.
+// Node writes every command the moment it has it, and the helper answered them
+// in order — so a click that arrived during a 30 ms capture waited for it.
+// Mouse and keyboard commands now run on their own serial queue (`inputQueue`),
+// which keeps them ordered among themselves but never behind a frame. Replies
+// are id-matched and ReplyWriter locks the pipe, so lines never interleave.
 
 import CoreGraphics  // CGWindowID, for the per-window commands
 import Foundation
@@ -23,7 +26,10 @@ private let captureQualityRange = 1...100
 
 private let replies = ReplyWriter()
 private let capture = CaptureEngine()
+/// Touched only from `inputQueue` (and from `run()` on exit, via a sync hop):
+/// InputController keeps `heldButtons`, which must never race.
 private let input = InputController()
+private let inputQueue = DispatchQueue(label: "belay.input", qos: .userInteractive)
 private let gamepad = GamepadKeymap()
 private let virtualDisplays = VirtualDisplayManager()
 
@@ -77,7 +83,7 @@ private func run() {
     // physically pressed — a phone that disconnects mid-drag would otherwise
     // leave the desktop stuck in a drag with no way to clear it.
     gamepad.detach()
-    input.releaseAll()
+    inputQueue.sync { input.releaseAll() }
     #if BELAY_WEBRTC_BUILD
     webrtc.stop() // close the peer + encoder before the capture streams they feed
     #endif
@@ -100,13 +106,13 @@ private func handle(_ command: Command) throws {
     case "gamepaddetach": gamepad.detach(); replies.ok(id: command.id)
     case "info": try handleInfo(command)
     case "capture": try handleCapture(command)
-    case "move": try handleMove(command)
-    case "down": try handleButton(command, down: true)
-    case "up": try handleButton(command, down: false)
-    case "click": try handleClick(command)
-    case "scroll": try handleScroll(command)
-    case "key": try handleKey(command)
-    case "text": try handleText(command)
+    case "move": onInputQueue(command, handleMove)
+    case "down": onInputQueue(command) { try handleButton($0, down: true) }
+    case "up": onInputQueue(command) { try handleButton($0, down: false) }
+    case "click": onInputQueue(command, handleClick)
+    case "scroll": onInputQueue(command, handleScroll)
+    case "key": onInputQueue(command, handleKey)
+    case "text": onInputQueue(command, handleText)
     case "idle": try handleIdle(command)
     case "windows": replies.ok(id: command.id, ["windows": WindowList.all()])
     case "capturewindow": try handleCaptureWindow(command)
@@ -134,6 +140,14 @@ private func handle(_ command: Command) throws {
         #endif
     default:
         throw HostError(.badCommand, "unknown command: \(command.name)", details: ["cmd": command.name])
+    }
+}
+
+/// Run an input command off the capture thread. The command is a value and
+/// the reply carries its own id, so nothing here is shared with the main loop.
+private func onInputQueue(_ command: Command, _ body: @escaping (Command) throws -> Void) {
+    inputQueue.async {
+        do { try body(command) } catch { replies.failure(id: command.id, HostError.wrap(error)) }
     }
 }
 
@@ -306,7 +320,8 @@ private func handleButton(_ command: Command, down: Bool) throws {
 
 private func handleClick(_ command: Command) throws {
     let button = try MouseButton.parse(try command.string("button"))
-    try input.click(button, at: try optionalPosition(command), double: try command.bool("double"))
+    try input.click(button, at: try optionalPosition(command), double: try command.bool("double"),
+                    count: try command.int("count", default: 1, clampedTo: 1...2))
     replies.ok(id: command.id)
 }
 
@@ -353,8 +368,8 @@ private func handleIdle(_ command: Command) throws {
     replies.ok(id: command.id, ["idleMs": idleMs])
 }
 
-/// Driver-backed virtual display management (opt-in; the Node side gates it
-/// behind BELAY_VIRTUAL_DISPLAY and validates first — see
+/// Driver-backed virtual display management (on by default; the Node side
+/// honours BELAY_VIRTUAL_DISPLAY=0 as the off switch and validates first — see
 /// server/src/virtual-display.ts and docs/VIRTUAL-DISPLAY.md).
 ///
 /// One command, an `action` verb, three actions:

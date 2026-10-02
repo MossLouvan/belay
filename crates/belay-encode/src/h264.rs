@@ -53,7 +53,7 @@ impl Default for EncoderConfig {
             height: 1080,
             fps: 60,
             bitrate_bps: 8_000_000,
-            keyframe_interval_s: 4,
+            keyframe_interval_s: 30,
         }
     }
 }

@@ -163,6 +163,8 @@ export default function ScreenTab() {
   // Transient toast for one-shot input failures.
   const toast = useTransient<string>(STREAM.toastMs);
   const reportError = toast.show;
+  // Host advisories (the lid-closed battery warning) use the same strip.
+  useEffect(() => { if (stream.notice) reportError(stream.notice); }, [stream.notice, reportError]);
 
   const tools = useToolsHint();
   const typing = useTypeRow(reportError);
@@ -227,7 +229,7 @@ export default function ScreenTab() {
 
   const showPanelState = panelStateShown({
     captureBlocked: permissions.captureBlocked,
-    frameUri: stream.frameUri,
+    hasFrame: stream.hasFrame,
     bwp: stream.bwp,
   });
   const noticeArea = <NoticeArea permissions={permissions} actionError={toast.value} onHelp={openHelp} />;

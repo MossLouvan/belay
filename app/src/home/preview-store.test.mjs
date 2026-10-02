@@ -168,3 +168,11 @@ test('clearPreviews empties the store and the pending frames with it', () => {
   flushStreamFrames(undefined, 1200);
   assert.equal(previewCache().length, 0);
 });
+
+test('rememberStreamFrame returns the data URI it built, so the stream need not build a second one', () => {
+  clearPreviews();
+  const uri = rememberStreamFrame('mac', jpeg('u'), 1000);
+  assert.equal(uri, previewFor('mac').uri);
+  assert.ok(uri.startsWith('data:image/jpeg;base64,'));
+  assert.equal(rememberStreamFrame(undefined, jpeg('u'), 1000), 'data:image/jpeg;base64,' + jpeg('u'), 'even with nothing to remember');
+});
