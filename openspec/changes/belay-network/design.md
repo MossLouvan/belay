@@ -18,6 +18,7 @@
 | POST | /hosts/heartbeat | host credential | `{}` → `{allowedNodeIds:[...phone nodeIds on the account], relayUrls:[...]}` |
 
 - Session and host credentials: 32 random bytes base64url, stored SHA-256 hashed in D1, shown once. Sessions last 90 days with sliding expiry.
+- Auth headers (clarification, 2026-10-02): `session` and `host credential` rows both use `Authorization: Bearer <token>`; `GET /claims/:code` uses `X-Host-Secret`. `POST /devices` also accepts an optional `platform` (defaults to `unknown`) and upserts by `nodeId`. The host credential is returned by the FIRST `GET /claims/:code` after acceptance only; later polls return `{status:'claimed'}` without it. Account JSON is `{id, email|null, createdAt}`.
 - Claim QR payload: `belay://claim?c=<code>&n=<nodeId>`. The phone checks that the nodeId it later dials equals the claimed one.
 - Reviewer: env `REVIEW_EMAIL` + `REVIEW_CODE` (secret) accepts a fixed code for that one address.
 - Secrets only via `wrangler secret`; none in the repo. Rate limiting on every unauthenticated route.
