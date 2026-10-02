@@ -16,7 +16,7 @@
 
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, X509Certificate } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const TLS_KEY_FILE = 'belay-tls-key.pem';
@@ -132,6 +132,7 @@ export function ensureTlsIdentity(dir: string, log: (line: string) => void = con
   const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const key = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
   const cert = toPem('CERTIFICATE', selfSignedCertificate(privateKey));
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(keyPath, key, { mode: FILE_MODE });
   writeFileSync(certPath, cert, { mode: FILE_MODE });
   log(`[tls] minted a new host certificate in ${dir}`);

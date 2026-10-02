@@ -39,4 +39,6 @@ test('a malformed code or node id is refused', () => {
   assert.equal(parseClaimLink(`belay://claim?c=ABCD2341&n=${NODE}`), null, 'not base32 (1)');
   assert.equal(parseClaimLink('belay://claim?c=ABCD2345&n='), null, 'no node');
   assert.equal(parseClaimLink('belay://claim?c=ABCD2345&n=not%20a%20node%20id'), null, 'node with spaces');
+  assert.equal(parseClaimLink(`belay://claim?c=ABCD2345&n=${NODE.toUpperCase()}`), null, 'hex must be lowercase');
+  assert.equal(parseClaimLink(`belay://claim?c=ABCD2345&n=${'a'.repeat(63)}`), null, 'exactly 64 hex');
 });

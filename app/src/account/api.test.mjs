@@ -53,7 +53,7 @@ test('email verify returns the session and account', async () => {
 
 test('apple and google sign-in post the contract bodies', async () => {
   const { fetch, calls } = mockFetch(
-    { body: { nonce: 'server-nonce' } },
+    { body: { nonce: 'server-nonce', expiresAt: '2026-10-02T00:05:00Z' } },
     { body: { session: 's', account: { id: 'a' } } },
     { body: { session: 's', account: { id: 'a' } } },
   );
@@ -102,7 +102,7 @@ test('register phone, accept claim and delete account use the contract paths', a
 
 test('accepting a claim: 409 is "already linked", 404 is one friendly message for any bad code', async () => {
   const { fetch } = mockFetch(
-    { status: 409, body: { error: 'conflict', code: 'device_exists' } },
+    { status: 409, body: { error: 'already linked', code: 'device_exists' } },
     { status: 404, body: { error: 'not found', code: 'claim_not_found' } },
     { status: 404, body: { error: 'expired', code: 'claim_expired' } },
   );

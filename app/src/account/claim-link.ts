@@ -15,8 +15,8 @@ export interface ParsedClaimLink {
 }
 
 const CLAIM_CODE = /^[A-Z2-7]{8}$/;
-/** iroh node ids are 64 hex chars; accept any URL-safe token so a format change is not a dead scanner. */
-const NODE_ID = /^[A-Za-z0-9_-]{16,}$/;
+/** The API's one nodeId encoding: the Ed25519 public key as exactly 64 lowercase hex (design.md). */
+const NODE_ID = /^[0-9a-f]{64}$/;
 
 export function parseClaimLink(raw: string): ParsedClaimLink | null {
   let url: URL;

@@ -24,7 +24,8 @@ let memo: TunnelIdentity | null = null;
 export async function getTunnelIdentity(): Promise<TunnelIdentity> {
   if (memo) return memo;
   const stored = Platform.OS === 'web' ? null : await SecureStore.getItemAsync(NODE_ID_KEY).catch(() => null);
-  const nodeId = stored ?? `stub-${toHex(randomBytes(30))}`;
+  // 64 lowercase hex, the API's only accepted nodeId form; random until the FFI supplies the real key.
+  const nodeId = stored ?? toHex(randomBytes(32));
   if (!stored && Platform.OS !== 'web') await SecureStore.setItemAsync(NODE_ID_KEY, nodeId).catch(() => undefined);
   memo = { nodeId };
   return memo;

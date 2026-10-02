@@ -32,7 +32,7 @@ through anyone else's servers.
 | File browser + text file viewer | ✅ |
 | Live system stats | ✅ |
 | Agent tab — drive Claude Code on the PC | ✅ pick a project, prompt from the phone, approve every action |
-| Join a phone-started Claude session at the keyboard | ✅ `cd server && npm run attach` — same live session, nothing restarts |
+| Join a phone-started Claude session at the keyboard | ✅ `npx belay-host attach` (or `cd server && npm run attach` in a checkout) — same live session, nothing restarts |
 | Voice prompts + global dictation | ✅ hold-to-talk, transcribed on the phone, on-device |
 | Resume any past Claude session | ✅ "On this PC" list in the Agent tab, or `npm run sessions` |
 | Runs on iPhone via Expo Go | ✅ |
@@ -46,16 +46,19 @@ through anyone else's servers.
 
 ## Quick start
 
-**1. On the computer** (macOS or Windows — same commands)
+**1. On the computer** (macOS or Windows — same command)
 
 ```bash
-cd server
-npm install
-npm run build:native   # screen capture + input helper for this platform
-npm start
+npx belay-host
 ```
 
-It prints a pairing code and the URLs it is reachable on.
+It builds the native screen/input helper on first run (needs the Xcode
+command line tools on macOS, `csc.exe` on Windows), then prints a pairing
+code and the URLs it is reachable on. State and the TLS certificate live in
+`~/Library/Application Support/Belay` (macOS), `%APPDATA%\Belay` (Windows)
+or `~/.config/belay` (Linux).
+
+From a checkout instead: `cd server && npm install && npm run build:native && npm start`.
 
 On **macOS** you must also grant two permissions before the Screen tab works —
 **System Settings → Privacy & Security → Screen & System Audio Recording** and
