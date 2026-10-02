@@ -13,7 +13,6 @@
     "backgroundColor": "#0b0d12",
     "ios": {
       "supportsTablet": false,
-      "buildNumber": "4",
       "bundleIdentifier": "com.mosslouvan.belay",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Belay connects to your PC on your local network or Tailscale to control it.",
