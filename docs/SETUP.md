@@ -269,6 +269,10 @@ Stop the Mac sleeping while you might want to reach it:
   adapter when the display is off" → **on**. A sleeping Mac is unreachable.
 - On a MacBook the lid must stay open, *or* the Mac must be on power with an
   external display attached — a closed lid otherwise means clamshell sleep.
+  Or turn on **Keep running with the lid closed** in the app's System tab: while
+  a phone is streaming the Mac stays awake with the lid shut and streams a
+  virtual display (one admin prompt the first time; details in
+  [`VIRTUAL-DISPLAY.md`](VIRTUAL-DISPLAY.md#lid-closed-mode)).
 - `caffeinate -s` in a spare terminal is the quick, temporary version.
 
 Run it at login with a **LaunchAgent**. One command does the whole thing:
@@ -391,6 +395,7 @@ regardless.
 | `BELAY_NOTIFY_EVENTS` | `approval,error` | Which events ping: `approval`, `done`, `error` |
 | `BELAY_NOTIFY_DETAIL` | *(off)* | `on` to include the command/path in the notification (keep off on public ntfy.sh) |
 | `BELAY_NOTIFY_TOKEN` | *(unset)* | Bearer token for the webhook (ntfy access token etc.); never logged |
+| `BELAY_VIRTUAL_DISPLAY` | *(on)* | `0` switches off Belay-made virtual displays (true-resolution streaming and lid-closed mode). See [`VIRTUAL-DISPLAY.md`](VIRTUAL-DISPLAY.md) |
 
 ## Agent tab and voice
 

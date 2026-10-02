@@ -122,6 +122,17 @@ test('the fifth page is desktop navigation — the three-finger swipe made visib
   assert.deepEqual(ids, ['DeskPrev', 'DeskNext', 'Overview', 'AppExpose', 'NotifyCenter']);
 });
 
+test('platform-only caps are offered only on their platform (#80)', () => {
+  const idsOn = (mac) => cellsOf(buildKeyPages(KEYS, mac)[4]).map((cell) => (cell.kind === 'key' ? cell.spec.id : ''));
+  // Notify has no default macOS hotkey; its Win+A would land as ⌘A (Select All).
+  assert.deepEqual(idsOn(true), ['DeskPrev', 'DeskNext', 'Overview', 'AppExpose']);
+  // App Exposé has no Windows chord; a bare Down arrow is not a substitute.
+  assert.deepEqual(idsOn(false), ['DeskPrev', 'DeskNext', 'Overview', 'NotifyCenter']);
+  // Nothing else on the bar is platform-bound.
+  assert.equal(buildKeyPages(KEYS, true).length, 5);
+  assert.equal(cellsOf(buildKeyPages(KEYS, false)[3]).length, 8);
+});
+
 test('desktop caps send the native chord for each platform', () => {
   // Virtual desktops: Win+Ctrl+arrows on Windows; LITERAL Control+arrows on
   // macOS — plain ctrl would be remapped to Command by BELAY_MAC_CTRL and

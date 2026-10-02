@@ -46,6 +46,8 @@ import { detectSwipe } from './swipe';
 import type { SwipeDirection } from './swipe';
 import { detectEdgeGesture, edgeGestureToAction } from './edge-gestures';
 import type { EdgeTuning } from './edge-gestures';
+import { planTap } from './tap-plan';
+import type { TapMemory } from './tap-plan';
 
 export type { PointerMode };
 
@@ -358,17 +360,18 @@ export function useViewport(options: ViewportOptions): Viewport {
     [paintCursor, queueCursorMove, sizeRef]
   );
 
-  // A tap awaiting double-tap confirmation: its single click is deferred by
-  // GESTURE.doubleTapMs so a quick second tap can upgrade it to a double-click
-  // (which the host sends as a real cc1+cc2). Only plain left taps defer;
-  // armed R-CLICK/2×CLICK still fire instantly.
-  const doubleTap = useRef<{ point: { x: number; y: number }; timer: ReturnType<typeof setTimeout> } | null>(null);
+  // The last plain tap (tap-plan.ts): a second one inside the window is sent
+  // as click #2 of the sequence, so nothing ever waits for a double-tap.
+  const lastTap = useRef<TapMemory>(null);
 
   const sendLeftClick = useCallback(
-    (point: { x: number; y: number }, double: boolean) => {
-      haptic(double ? 'medium' : 'light');
+    (point: { x: number; y: number }, count: 1 | 2) => {
+      haptic(count === 2 ? 'medium' : 'light');
       const mods = activeModsRef.current?.();
-      send(() => api.click(point.x, point.y, 'left', double, screenRef.current, mods), double ? 'Double-click' : 'Click');
+      send(
+        () => api.click(point.x, point.y, 'left', false, screenRef.current, mods, count),
+        count === 2 ? 'Double-click' : 'Click'
+      );
       onPointerRef.current?.();
     },
     [send]
@@ -399,23 +402,13 @@ export function useViewport(options: ViewportOptions): Viewport {
   );
 
   // Route a stage tap: an armed one-shot (right/double) fires immediately; a
-  // plain tap defers briefly so a second tap nearby becomes a double-click.
+  // plain tap clicks at once, and a second tap nearby is click #2.
   const handleTap = useCallback(
     (point: { x: number; y: number }) => {
       if (buttonRef.current !== 'none') { clickAt(point); return; }
-      const dt = doubleTap.current;
-      if (dt && Math.abs(point.x - dt.point.x) < GESTURE.doubleTapSlop && Math.abs(point.y - dt.point.y) < GESTURE.doubleTapSlop) {
-        clearTimeout(dt.timer);
-        doubleTap.current = null;
-        sendLeftClick(dt.point, true); // upgrade the pair to one real double-click
-        return;
-      }
-      if (dt) { clearTimeout(dt.timer); doubleTap.current = null; sendLeftClick(dt.point, false); }
-      const timer = setTimeout(() => {
-        doubleTap.current = null;
-        sendLeftClick(point, false);
-      }, GESTURE.doubleTapMs);
-      doubleTap.current = { point, timer };
+      const plan = planTap(lastTap.current, point, Date.now());
+      lastTap.current = plan.next;
+      sendLeftClick(plan.point, plan.count);
     },
     [clickAt, sendLeftClick]
   );
@@ -868,7 +861,6 @@ export function useViewport(options: ViewportOptions): Viewport {
       stopMomentum();
       if (moveTimer.current) clearTimeout(moveTimer.current);
       if (gesture.current.longPress) clearTimeout(gesture.current.longPress);
-      if (doubleTap.current) clearTimeout(doubleTap.current.timer);
     },
     [stopMomentum]
   );

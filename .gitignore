@@ -99,3 +99,6 @@ docs/brand/wallpaper/
 # The iOS client library is built on a Mac by scripts/build-ios-client.sh.
 # Build output, tens of MB per architecture, and must never be committed.
 app/modules/belay-stream/ios/lib/
+
+# host TLS identity (private key) — never commit
+belay-tls-*.pem

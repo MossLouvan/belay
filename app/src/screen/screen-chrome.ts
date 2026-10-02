@@ -133,19 +133,35 @@ export type RecordKeyAction = 'start' | 'stop' | 'review';
 export const recordKeyAction = (phase: RecordPhase): RecordKeyAction =>
   phase === 'idle' ? 'start' : phase === 'recording' ? 'stop' : 'review';
 
+/** Below the docked stage: the pill row's air (12) and the pills (44). */
+export const PILLS_RESERVE_PX = 56;
+/** The usual reserve under the stage: the pills plus a roomy trackpad. */
+export const DOCKED_RESERVE_PX = 160;
+/** The least stage worth drawing: room for the panel-state name, body and action. */
+export const DOCKED_STAGE_MIN_PX = 160;
+
+/**
+ * The portrait stage's height budget inside a panel `boxH` tall. Normally the
+ * panel minus the pills and the pad; when that would leave a sliver (a small
+ * phone, a notice banner, the inline keyboard open — #75) the pad yields
+ * first and the stage keeps its minimum, then whatever is above the pills.
+ */
+export const dockedStageHeight = (boxH: number): number =>
+  Math.max(1, boxH - DOCKED_RESERVE_PX, Math.min(DOCKED_STAGE_MIN_PX, boxH - PILLS_RESERVE_PX));
+
 export interface PanelStateInputs {
   readonly captureBlocked: boolean;
-  readonly frameUri: string | null;
+  readonly hasFrame: boolean;
   readonly bwp: unknown;
 }
 
 /**
  * A live H.264 stream is a picture even before any JPEG frame has arrived —
- * and none ever will while it is up, so keying the overlay off `frameUri`
+ * and none ever will while it is up, so keying the overlay off `hasFrame`
  * alone would leave the "connecting" panel on top of working video.
  */
-export const panelStateShown = ({ captureBlocked, frameUri, bwp }: PanelStateInputs): boolean =>
-  captureBlocked || (!frameUri && !bwp);
+export const panelStateShown = ({ captureBlocked, hasFrame, bwp }: PanelStateInputs): boolean =>
+  captureBlocked || (!hasFrame && !bwp);
 
 export interface CrosshairInputs {
   readonly gaming: boolean;

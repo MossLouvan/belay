@@ -109,7 +109,13 @@ interface Persisted {
   /** User-editable display name, e.g. "MacBook Air". Defaults to the host name. */
   readonly label: string;
   readonly devices: readonly Device[];
+  /** "Keep running with the lid closed" switch (lid-mode.ts). */
+  readonly lidClosedMode: boolean;
+  /** Windows: the LIDACTION pair saved before arming, so a crash can be undone. */
+  readonly lidSavedLidAction: LidAction | null;
 }
+
+export interface LidAction { readonly ac: number; readonly dc: number }
 
 function emptyState(): Persisted {
   return {
@@ -118,6 +124,8 @@ function emptyState(): Persisted {
     hostName: '',
     label: '',
     devices: [],
+    lidClosedMode: false,
+    lidSavedLidAction: null,
   };
 }
 
@@ -193,7 +201,14 @@ function migrate(raw: unknown): Persisted {
     hostName,
     label: typeof r.label === 'string' && r.label ? r.label : hostName,
     devices: valid,
+    lidClosedMode: r.lidClosedMode === true,
+    lidSavedLidAction: isLidAction(r.lidSavedLidAction) ? r.lidSavedLidAction : null,
   };
+}
+
+function isLidAction(v: unknown): v is LidAction {
+  const a = v as { ac?: unknown; dc?: unknown } | null;
+  return typeof a === 'object' && a !== null && Number.isInteger(a.ac) && Number.isInteger(a.dc);
 }
 
 export function loadState(): void {
@@ -284,6 +299,17 @@ export function getLabel(): string {
 
 export function setLabel(label: string): void {
   state = { ...state, label };
+  save();
+}
+
+export function getLidClosedMode(): boolean { return state.lidClosedMode; }
+export function setLidClosedMode(on: boolean): void {
+  state = { ...state, lidClosedMode: on };
+  save();
+}
+export function getLidSavedAction(): LidAction | null { return state.lidSavedLidAction; }
+export function setLidSavedAction(v: LidAction | null): void {
+  state = { ...state, lidSavedLidAction: v };
   save();
 }
 

@@ -1,23 +1,31 @@
 // The overlay along the top edge while immersive (portrait fullscreen or
-// landscape): the Connected pill, the mascot, the recording strip and the
-// sent receipt, then whatever notice the route floats over the picture.
-// Recording must stay unmissable in fullscreen too — it floats on the HUD
-// scrim over the top edge, outliving the dock's auto-hide.
+// landscape): the Connected pill, the recording strip and the sent receipt,
+// then whatever notice the route floats over the picture. Recording must
+// stay unmissable in fullscreen too — it floats on the HUD scrim over the
+// top edge, outliving the dock's auto-hide.
+//
+// The mascot is no longer drawn here: it is the movable FloatingMascot the
+// route floats over everything (floating-mascot.tsx). The top row keeps a
+// slot its height for it, and the block reports its measured height so the
+// button's clamp and the panel-state guidance (#76) can stay out from under
+// the notices.
 
 import React from 'react';
 import { View } from 'react-native';
+import type { LayoutChangeEvent } from 'react-native';
 import type { ReactNode } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
-import { BelugaAvatar, Txt } from '../ui';
+import { Txt } from '../ui';
+import { MASCOT_BUTTON_SIZE } from './mascot-button';
 import { HUD } from './parts';
 import { RecordStrip, SentNotice } from './record-parts';
 import type { SentInfo } from './record-parts';
 import type { RecordingStatus } from './record';
 
 export interface ImmersiveHudProps {
-  readonly mascotLabel: string;
-  readonly onMascotPress: () => void;
+  /** The block's measured height, so the route knows where its bottom edge is. */
+  readonly onHeight: (height: number) => void;
   readonly recordingStatus: RecordingStatus;
   readonly onStopRecording: () => void;
   readonly onReviewRecording: () => void;
@@ -28,8 +36,7 @@ export interface ImmersiveHudProps {
 }
 
 export function ImmersiveHud({
-  mascotLabel,
-  onMascotPress,
+  onHeight,
   recordingStatus,
   onStopRecording,
   onReviewRecording,
@@ -41,10 +48,11 @@ export function ImmersiveHud({
   const insets = useSafeAreaInsets();
   return (
     <View
+      onLayout={(event: LayoutChangeEvent) => onHeight(event.nativeEvent.layout.height)}
       style={{ pointerEvents: 'box-none', position: 'absolute', top: insets.top + theme.space.xs, left: 0, right: 0, zIndex: 3 }}
     >
-      {/* Landscape HUD: Connected pill (top-left) and beluga avatar (top-right) */}
-      <View style={{ pointerEvents: 'box-none', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: theme.space.sm, marginBottom: theme.space.xs }}>
+      {/* The top row: Connected pill (left); the right is the mascot button's slot. */}
+      <View style={{ pointerEvents: 'box-none', flexDirection: 'row', alignItems: 'flex-start', minHeight: MASCOT_BUTTON_SIZE, paddingHorizontal: theme.space.sm, marginBottom: theme.space.xs }}>
         {/* Connected status pill */}
         <View
           style={{
@@ -58,16 +66,6 @@ export function ImmersiveHud({
         >
           <Txt variant="label" style={{ color: HUD.ink }}>Connected</Txt>
         </View>
-        {/* Beluga avatar: the flip plus the orientation latch — from
-            landscape, tapping the mascot IS "take me back upright".
-            Screen options moved to the dock's Menu key. */}
-        <BelugaAvatar
-          testID="stream-beluga-avatar"
-          size={48}
-          backgroundColor={HUD.scrim}
-          accessibilityLabel={mascotLabel}
-          onPress={onMascotPress}
-        />
       </View>
       {/* Recording must stay unmissable in fullscreen too — it floats on
           the HUD scrim over the top edge, outliving the dock's auto-hide. */}

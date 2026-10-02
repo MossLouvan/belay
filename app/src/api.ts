@@ -4,6 +4,8 @@
 
 import { readBwpCapability } from './screen/bwp-policy.ts';
 import type { AudioProbe } from './stream/audio-capability.ts';
+import { TOKEN_PREFIX_LENGTH, tokenHashHex } from './devices/hmac.ts';
+import type { SavedDevice } from './devices/model.ts';
 
 export interface Connection {
   host: string; // e.g. http://100.101.102.103:8787
@@ -158,6 +160,9 @@ export interface HostCheck {
   plaintextRefused?: boolean;
 }
 
+/** `HostCheck.error` when something answered /health, but not as Belay. */
+export const NOT_BELAY = 'answered, but not as Belay';
+
 /**
  * Probe a host's /health. Pass a signal to actually cancel the request —
  * racing a timeout only abandons the fetch, which leaves it free to resolve
@@ -171,7 +176,11 @@ export async function checkHost(host: string, signal?: AbortSignal): Promise<Hos
       if (body.code === 'plaintext-refused') return { ok: false, error: body.error ?? 'plain HTTP refused', plaintextRefused: true };
       return { ok: false, error: `host returned ${res.status}` };
     }
-    const j = await res.json();
+    // A 200 that is not a JSON object is some other program's page (a router
+    // admin, a dev server's index fallback) — "isn't Belay", not a parser
+    // error for the user to read (#86).
+    const j = await res.json().catch(() => null);
+    if (typeof j !== 'object' || j === null) return { ok: false, error: NOT_BELAY };
     return {
       ok: true,
       name: j.name,
@@ -286,6 +295,31 @@ async function failureFor(res: Response, path: string): Promise<Error> {
   if (res.status === 401) return new UnauthorizedError();
   const j = await res.json().catch(() => ({}));
   return new Error((j as { error?: string }).error || `request failed (${res.status})`);
+}
+
+/** Forget must not hang on a sleeping computer: a short deadline, not the usual one. */
+const REVOKE_SELF_TIMEOUT_MS = 3000;
+
+/**
+ * Revoke a saved computer's own pairing on that computer (#83). Authed from
+ * the device itself, not the active connection, so a computer that is not the
+ * one in use can be forgotten too. `host` MUST already have passed verify-host
+ * (devices/forget.ts gates this) — the token goes nowhere unverified. No
+ * recovery re-race: the caller treats any failure as "could not reach it".
+ */
+export async function revokeSelf(device: SavedDevice, host: string): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REVOKE_SELF_TIMEOUT_MS);
+  try {
+    const res = await fetchWithTimeout(host + '/devices/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${device.token}` },
+      body: JSON.stringify({ prefix: tokenHashHex(device.token).slice(0, TOKEN_PREFIX_LENGTH) }),
+    }, '/devices/revoke', controller.signal);
+    if (!res.ok) throw await failureFor(res, '/devices/revoke');
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -429,9 +463,9 @@ export interface ScreenInfo {
 
 /**
  * What GET /screen/virtual-display reports. The phone gates its true-resolution
- * picker on `available`: the BELAY_VIRTUAL_DISPLAY flag is on AND the host's
- * native backend actually exists (macOS with the private API). `active` is
- * whether one is up right now. A host with the flag off answers 403, which
+ * picker on `available`: the host's native backend actually exists (macOS with
+ * the private API, Windows with the driver). `active` is whether one is up
+ * right now. A host that switched the feature off answers 403, which
  * `virtualDisplayStatus` maps to all-false — the option simply does not appear.
  */
 export interface AutostartStatus {
@@ -449,6 +483,15 @@ export interface VirtualDisplayStatus {
   enabled: boolean;
   available: boolean;
   active: boolean;
+}
+
+/** GET/POST /lid-mode: "Keep running with the lid closed". Older hosts 404 the GET. */
+export type LidModeState = 'off' | 'ready' | 'awake' | 'battery-low';
+export interface LidModeStatus {
+  readonly supported: boolean;
+  readonly enabled: boolean;
+  readonly status: LidModeState;
+  readonly lidClosed: boolean;
 }
 
 export interface FileEntry { name: string; path: string; dir: boolean; size: number; mtime: number; }
@@ -645,8 +688,11 @@ export const api = {
   // `screen` is the monitor the coordinates are normalized against (an index
   // from ScreenInfo.screens). Left undefined it is dropped by JSON.stringify,
   // so old hosts see the exact requests they always did (primary monitor).
-  click: (x: number, y: number, button = 'left', double = false, screen?: number, mods?: string[]) =>
-    post('/input/click', { x, y, button, double, screen, mods }),
+  // `count` 2 marks the second click of a double-tap sequence (macOS posts it
+  // with clickState 2; Windows recognises the pair by its own timing). Left
+  // undefined for a lone click, so old hosts see exactly what they always did.
+  click: (x: number, y: number, button = 'left', double = false, screen?: number, mods?: string[], count?: 1 | 2) =>
+    post('/input/click', { x, y, button, double, screen, mods, count: count === 2 ? 2 : undefined }),
   move: (x: number, y: number, screen?: number) => post('/input/move', { x, y, screen }),
   scroll: (dy: number, dx = 0) => post('/input/scroll', { dy, dx }),
   drag: (x1: number, y1: number, x2: number, y2: number, screen?: number) =>
@@ -665,6 +711,9 @@ export const api = {
   discoverHosts: () => get<DiscoverHostsReply>('/discover/hosts'),
   /** Rename this computer on the host, so every phone sees the new name. */
   setLabel: (label: string) => post<{ ok: boolean; label: string }>('/label', { label }),
+  lidMode: () => get<LidModeStatus>('/lid-mode'),
+  /** On macOS the first enable raises an admin prompt on the host; a cancel answers 403 with the reason. */
+  setLidMode: (enabled: boolean) => post<LidModeStatus>('/lid-mode', { enabled }),
   /** Start-at-login on the host (its scripts/autostart-*). Older hosts 404 the GET. */
   autostartStatus: () => get<AutostartStatus>('/autostart'),
   autostartEnable: () => post<AutostartReply>('/autostart/enable', {}),

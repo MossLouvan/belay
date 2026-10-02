@@ -234,6 +234,22 @@ pub unsafe extern "C" fn belay_client_next_frame(
     BELAY_FRAME_NONE
 }
 
+/// Block until a datagram is waiting or `timeout_ms` passes, whichever comes
+/// first. For the receive loop to call instead of sleeping between empty
+/// `next_frame`s. Returns 1 when something is waiting, 0 on timeout, or a
+/// negative error code.
+///
+/// # Safety
+/// `handle` must be a live handle from `belay_client_open`.
+#[no_mangle]
+pub unsafe extern "C" fn belay_client_wait(handle: *mut c_void, timeout_ms: u32) -> c_int {
+    let Some(client) = (handle as *mut BelayClient).as_mut() else { return BELAY_ERR_ARGS };
+    match client.session.wait_readable(std::time::Duration::from_millis(u64::from(timeout_ms))) {
+        Ok(ready) => c_int::from(ready),
+        Err(_) => BELAY_ERR_SESSION,
+    }
+}
+
 /// The bitrate the controller has settled on, for display.
 ///
 /// # Safety

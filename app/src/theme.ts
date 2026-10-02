@@ -410,8 +410,12 @@ const buildTheme = (scheme: ColorScheme, colors: Palette): Theme =>
  */
 export const fieldworkPalette: Palette = Object.freeze({ ...darkPalette,
   bg: '#191B1C', surface: '#222426', surfaceAlt: '#232628', sheet: '#1F2123',
-  border: '#2C2F31', borderStrong: '#494D50', text: '#F2F2EF', textDim: '#A8ACAF', textFaint: '#82878A',
+  // textFaint ≥ 4.90:1 on every backdrop (#71; was #82878A at 4.19 on surfaceAlt).
+  border: '#2C2F31', borderStrong: '#494D50', text: '#F2F2EF', textDim: '#A8ACAF', textFaint: '#8E9396',
   accent: '#F99657', accentGraphic: '#F99657', accentPress: '#E0824A', onAccent: '#1A1210',
+  // The danger button's ink is the same scorched ink as onAccent: 6.65:1 on
+  // `bad`, where the inherited white was 2.78 (#71).
+  onDanger: '#1A1210',
   accentDim: '#4A392E', accentSoft: '#4A392E', onAccentSoft: '#F9A96F', focus: '#F99657',
   heroBg: '#191B1C', heroGlow: 'transparent', trackRest: '#3A3E41',
   machine: '#101112', skeleton: '#202325',
@@ -425,7 +429,8 @@ export const fieldworkPalette: Palette = Object.freeze({ ...darkPalette,
  */
 export const currentPalette: Palette = Object.freeze({ ...lightPalette,
   bg: '#F5F8FC', surface: '#FCFDFE', surfaceAlt: '#EAEFF4', sheet: '#FFFFFF',
-  text: '#101828', textDim: '#5B6676', textFaint: '#8791A1', border: '#E4E9F0', borderStrong: '#C7CEDA',
+  // textFaint ≥ 4.54:1 on every backdrop (#71; was #8791A1 at 2.75 on surfaceAlt).
+  text: '#101828', textDim: '#5B6676', textFaint: '#616D7E', border: '#E4E9F0', borderStrong: '#C7CEDA',
   accent: '#245CCC', accentGraphic: '#245CCC', accentPress: '#1B49A5',
   accentSoft: '#E4ECFB', onAccentSoft: '#1F52B8', focus: '#245CCC',
   heroBg: '#F5F8FC', heroGlow: 'transparent', trackRest: '#D5DCE6',

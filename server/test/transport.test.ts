@@ -49,6 +49,9 @@ test('one port answers both plain HTTP and HTTPS', async () => {
   const plain = createHttp(handler);
   const secure = createHttps({ key: tls.key, cert: tls.cert }, handler);
   const server = createPolyglotServer(plain, secure);
+  // The sniffing listener owns the TCP handle, so the HTTP servers' own
+  // noDelay never reaches it: a frame or a click would sit in Nagle's buffer.
+  assert.equal((server as { noDelay?: boolean }).noDelay, true);
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as { port: number }).port;
 

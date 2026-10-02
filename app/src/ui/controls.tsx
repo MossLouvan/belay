@@ -19,6 +19,18 @@ import { haptic } from './haptics';
 import { Row } from './layout';
 import { Txt } from './text';
 
+/**
+ * The selected state of a `role="tab"` Pressable, for BOTH platforms (#70,
+ * #81). `accessibilityState` is what VoiceOver reads on native; react-native-
+ * web 0.21 no longer maps it to ARIA and only emits an `aria-selected` prop
+ * passed verbatim (ignored on native). Spread this on every tab instead of
+ * passing `accessibilityState={{ selected }}` alone.
+ */
+export const tabSelected = (selected: boolean, disabled = false) => ({
+  accessibilityState: { selected, disabled },
+  'aria-selected': selected,
+});
+
 export interface SegmentOption<T extends string> {
   readonly value: T;
   readonly label: string;
@@ -104,21 +116,13 @@ export function SegmentedControl<T extends string>({
             key={option.value}
             accessibilityRole={role === 'radio' ? 'radio' : 'tab'}
             accessibilityLabel={option.label}
-            // A radio is announced by `checked`, a tab by `selected`, and
-            // react-native-web only emits the attribute whose key is present —
-            // passing the other as `undefined` leaves the state off the DOM
-            // node entirely, which is how a checked radio reported nothing.
-            accessibilityState={
-              role === 'radio'
-                ? { checked: selected, disabled: optionDisabled }
-                : { selected, disabled: optionDisabled }
-            }
-            // react-native-web renders `accessibilityState.checked` only for
-            // the roles IT considers checkable, and a View-backed radio is not
-            // one of them — so the attribute never reached the DOM. The `aria-`
-            // prop is passed through verbatim on web and ignored on native,
-            // where `accessibilityState` above is what VoiceOver reads.
-            aria-checked={role === 'radio' ? selected : undefined}
+            // A radio is announced by `checked`, a tab by `selected`. Native
+            // reads `accessibilityState`; react-native-web ignores it and only
+            // emits the verbatim `aria-*` prop, so each role passes both (see
+            // `tabSelected`).
+            {...(role === 'radio'
+              ? { accessibilityState: { checked: selected, disabled: optionDisabled }, 'aria-checked': selected }
+              : tabSelected(selected, optionDisabled))}
             disabled={optionDisabled}
             hitSlop={segmentHitSlop}
             onPress={() => {

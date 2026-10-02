@@ -144,7 +144,7 @@ export default function Devices() {
 
       <Sheet visible={addingOpen} onClose={() => setAddingOpen(false)} title="Add computer" testID="add-computer-sheet">
         <View style={{ gap: theme.space.md }}>
-          <AddComputer heading={false} />
+          <AddComputer heading={false} onNavigate={() => setAddingOpen(false)} />
           {/* The connected computer can see the rest of the tailnet, so adding
               the other machine becomes one tap instead of typing an address.
               It belongs in this sheet, not on the list: it is an add path. */}
@@ -199,7 +199,9 @@ export default function Devices() {
               <Button label="Cancel" variant="secondary" fullWidth onPress={() => setPendingForget(null)} />
             </View>
             <View style={{ flex: 1 }}>
-              <Button label="Forget this computer" variant="danger" fullWidth onPress={() => void onConfirmForget()} />
+              {/* "Forget", not "Forget this computer": the title already names
+                  it, and the long label clips at half width on a 390pt phone (#83). */}
+              <Button label="Forget" variant="danger" fullWidth onPress={() => void onConfirmForget()} />
             </View>
           </Row>
         </View>
@@ -309,7 +311,8 @@ export default function Devices() {
           ) : null}
         </View>
       </Screen>
-      <AppearanceNav selected="screen" />
+      {/* The list is none of the tabs: nothing lit, Screen navigates (#73). */}
+      <AppearanceNav />
       {sheets}
     </View>
   );

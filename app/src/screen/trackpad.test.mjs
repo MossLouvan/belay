@@ -13,6 +13,7 @@ import {
   PAD_TOP_GAP_PX,
   padGapBelow,
   padMounted,
+  PAD_PILLS_PX,
   padRect,
   showsPadHint,
 } from './trackpad.ts';
@@ -53,15 +54,23 @@ test('the portrait pad sits under the pill row, down to the panel margin', () =>
   assert.equal(padRect(600, 240).top + PAD_MIN_PX <= 600 - PAD_BOTTOM_PX, true);
 });
 
-test('a shrinking panel gives up the pill row before it gives up a pad', () => {
-  // Inline keyboard open: the dock grows, the panel shrinks, and stageH + gap
-  // would otherwise drop below the pad's own bottom and collapse (or invert) it.
-  const tight = padRect(200, 180);
+test('a shrinking panel keeps the pad a full touch target while the air lasts', () => {
+  // Inline keyboard open: the dock grows, the panel shrinks. While the pill
+  // row's air (the gap minus the pills) can absorb it, the pad stays 44pt.
+  const tight = padRect(200, 90);
   assert.equal(tight.top, 200 - PAD_BOTTOM_PX - PAD_MIN_PX);
   assert.equal(200 - tight.bottom - tight.top, PAD_MIN_PX, 'never thinner than one touch target');
 
   const nothing = padRect(0, 0);
   assert.equal(nothing.top, 0, 'pre-layout sizes never go negative');
+});
+
+test('a pad that would ride up over the pill row stands down instead (#75)', () => {
+  // With the stage at its docked minimum there is no room left for a pad
+  // under the pills; it collapses rather than painting behind them.
+  const squeezed = padRect(200, 180);
+  assert.equal(squeezed.top, 200 - PAD_BOTTOM_PX, 'zero height, flush with the bottom margin');
+  assert.equal(200 - squeezed.bottom - squeezed.top, 0);
 });
 
 test('every pad rect is a rect, not an inversion', () => {

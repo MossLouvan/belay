@@ -23,7 +23,7 @@
 // when a read has failed.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Platform, RefreshControl, ScrollView, View } from 'react-native';
+import { FlatList, Platform, RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
 import { SwitchComputerLink } from '../../src/devices/switch-link';
@@ -51,6 +51,14 @@ import { ToolPanel } from '../../src/home/panel';
 
 const SKELETON_ROWS = 8;
 
+/**
+ * Below this window height (a phone in landscape is 375–430) the fixed chrome
+ * — title, count line, roots, path bar, filter — eats the whole screen and the
+ * list gets 0px (#91). Short viewports drop the title and count line and let
+ * the header actions share the roots row.
+ */
+const SHORT_VIEWPORT_HEIGHT = 500;
+
 interface Root {
   readonly name: string;
   readonly path: string;
@@ -71,6 +79,7 @@ function FilesTab() {
   const { connection } = useConnection();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const short = useWindowDimensions().height < SHORT_VIEWPORT_HEIGHT;
 
   const [roots, setRoots] = useState<readonly Root[]>([]);
   const [path, setPath] = useState('');
@@ -89,6 +98,14 @@ function FilesTab() {
   const [now, setNow] = useState(() => Date.now());
 
   const cancelled = useRef(false);
+  // Every navigation (listDir or readFile) takes a ticket; only the newest
+  // ticket may touch the view or history, so a slow folder overtaken by a
+  // later tap is dropped instead of jumping the user back (#92).
+  const navSeq = useRef(0);
+  const nextNav = () => {
+    const seq = ++navSeq.current;
+    return () => cancelled.current || seq !== navSeq.current;
+  };
 
   useEffect(() => {
     cancelled.current = false;
@@ -121,20 +138,25 @@ function FilesTab() {
    * somewhere else, breaking the dedupe that keeps the stack sane.
    */
   const loadDir = useCallback(async (target: string, record: boolean): Promise<void> => {
+    const stale = nextNav();
     setLoading(true);
     setSelected(null);
+    let result;
     try {
-      const result = await api.listDir(target);
-      if (cancelled.current) return;
-      setPath(result.path);
-      setEntries(result.entries);
-      setError('');
-      setQuery('');
-      setNow(Date.now());
-      if (record) setHistory((h) => visitPath(h, result.path));
-    } finally {
-      if (!cancelled.current) setLoading(false);
+      result = await api.listDir(target);
+    } catch (e: unknown) {
+      if (stale()) return;
+      setLoading(false);
+      throw e;
     }
+    if (stale()) return;
+    setPath(result.path);
+    setEntries(result.entries);
+    setError('');
+    setQuery('');
+    setNow(Date.now());
+    setLoading(false);
+    if (record) setHistory((h) => visitPath(h, result.path));
   }, []);
 
   /** The forgiving wrapper for taps: failures land in the banner, not a throw. */
@@ -183,9 +205,10 @@ function FilesTab() {
         setViewer({ name: entry.name, path: entry.path, size: entry.size, kind });
         return;
       }
+      const stale = nextNav();
       try {
         const file = await api.readFile(entry.path);
-        if (cancelled.current) return;
+        if (stale()) return;
         setViewer({
           name: file.name,
           path: file.path,
@@ -195,7 +218,7 @@ function FilesTab() {
           kind,
         });
       } catch (e: unknown) {
-        if (!cancelled.current) setError(messageOf(e));
+        if (!stale()) setError(messageOf(e));
       }
     },
     [openDir]
@@ -268,82 +291,94 @@ function FilesTab() {
   const denied = isDenied(error);
   const margin = theme.layout.margin;
 
-  return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top + theme.space.md }}>
-      <View style={{ paddingHorizontal: margin }}>
-        <Row justify="space-between" align="flex-end" gap="sm">
-          <Txt variant="display" heading>
-            Files
-          </Txt>
-          {/* Quiet tracked labels, not accent: this screen's one accented
-              selection is the active root, and these occasional verbs must not
-              dilute it (docs/DESIGN.md §3.3). The resting track says tappable.
-              The hidden toggle states the *action*, so its label flips with
-              the mode; the count line below carries the "· N hidden" receipt. */}
-          <Row gap="lg" align="flex-end">
-            <TrackLabel
-              testID="files-hidden-toggle"
-              label={hiddenMode === 'hide' ? 'Show hidden' : 'Hide hidden'}
-              accessibilityLabel={hiddenMode === 'hide' ? 'Show hidden files' : 'Hide hidden files'}
-              accessibilityHint="Files whose names start with a dot"
-              onPress={toggleHidden}
-              hitSlop={theme.layout.hitSlop}
-            />
-            <TrackLabel
-              testID="files-goto"
-              label="Go to…"
-              accessibilityLabel="Go to a folder path"
-              accessibilityHint="Type or paste an absolute path"
-              onPress={() => setGotoOpen(true)}
-              hitSlop={theme.layout.hitSlop}
-            />
-          </Row>
-        </Row>
-        {/* The freshness stamp lives up here in the fixed header — visible
-            before the need arises, proving the listing's age and implying
-            pull-to-refresh — not in a footer nobody scrolls to (§11.2). */}
-        <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
-          <Label numberOfLines={1} style={{ marginBottom: 0, flexShrink: 1 }}>
-            {[
-              `${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`,
-              // The count line owns the honesty: while dotfiles are filtered
-              // out, it says how many, so a "missing" file is one glance from
-              // its explanation — and the toggle sits right beside the number.
-              hiddenMode === 'hide' && hiddenN > 0 ? `${hiddenN} hidden` : '',
-              formatAsOf(now),
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </Label>
-          <SwitchComputerLink />
-        </Row>
-      </View>
-      <Rule style={{ marginTop: theme.space.sm }} />
+  /* Quiet tracked labels, not accent: this screen's one accented
+     selection is the active root, and these occasional verbs must not
+     dilute it (docs/DESIGN.md §3.3). The resting track says tappable.
+     The hidden toggle states the *action*, so its label flips with
+     the mode; the count line carries the "· N hidden" receipt. */
+  const actions = (
+    <Row gap="lg" align="flex-end">
+      <TrackLabel
+        testID="files-hidden-toggle"
+        label={hiddenMode === 'hide' ? 'Show hidden' : 'Hide hidden'}
+        accessibilityLabel={hiddenMode === 'hide' ? 'Show hidden files' : 'Hide hidden files'}
+        accessibilityHint="Files whose names start with a dot"
+        onPress={toggleHidden}
+        hitSlop={theme.layout.hitSlop}
+      />
+      <TrackLabel
+        testID="files-goto"
+        label="Go to…"
+        accessibilityLabel="Go to a folder path"
+        accessibilityHint="Type or paste an absolute path"
+        onPress={() => setGotoOpen(true)}
+        hitSlop={theme.layout.hitSlop}
+      />
+    </Row>
+  );
 
-      {/* The allowed roots as text-tabs: the selection IS the 2pt underline. */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0, flexShrink: 0 }}
-        contentContainerStyle={{ paddingHorizontal: margin, gap: theme.space.md }}
-      >
-        {/* Every root carries the resting track (docs/DESIGN.md §11.1): the
-            unselected ones must look pressable too, or the strip is
-            indistinguishable from the inert count line two lines up. The
-            active root is marked in INK — label and track — not accent: this
-            screen spends blue exactly once, on the active sort column. */}
-        {roots.map((root) => (
-          <TrackLabel
-            key={root.path}
-            testID={`root-${root.name}`}
-            label={root.name}
-            accessibilityLabel={`Open ${root.name}`}
-            active={path === root.path}
-            inks={{ activeLabel: theme.colors.text, activeTrack: theme.colors.text }}
-            onPress={() => openDir(root.path)}
-          />
-        ))}
-      </ScrollView>
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg, paddingTop: insets.top + (short ? theme.space.xs : theme.space.md) }}>
+      {short ? null : (
+        <>
+          <View style={{ paddingHorizontal: margin }}>
+            <Row justify="space-between" align="flex-end" gap="sm">
+              <Txt variant="display" heading>
+                Files
+              </Txt>
+              {actions}
+            </Row>
+            {/* The freshness stamp lives up here in the fixed header — visible
+                before the need arises, proving the listing's age and implying
+                pull-to-refresh — not in a footer nobody scrolls to (§11.2). */}
+            <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+              <Label numberOfLines={1} style={{ marginBottom: 0, flexShrink: 1 }}>
+                {[
+                  `${visible.length} item${visible.length === 1 ? '' : 's'} · ${folderCount} folder${folderCount === 1 ? '' : 's'}`,
+                  // The count line owns the honesty: while dotfiles are filtered
+                  // out, it says how many, so a "missing" file is one glance from
+                  // its explanation — and the toggle sits right beside the number.
+                  hiddenMode === 'hide' && hiddenN > 0 ? `${hiddenN} hidden` : '',
+                  formatAsOf(now),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Label>
+              <SwitchComputerLink />
+            </Row>
+          </View>
+          <Rule style={{ marginTop: theme.space.sm }} />
+        </>
+      )}
+
+      {/* The allowed roots as text-tabs: the selection IS the 2pt underline.
+          In a short viewport the header actions share this row (#91). */}
+      <Row justify="space-between" gap="sm" style={{ paddingHorizontal: margin }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0, flexShrink: 1 }}
+          contentContainerStyle={{ gap: theme.space.md }}
+        >
+          {/* Every root carries the resting track (docs/DESIGN.md §11.1): the
+              unselected ones must look pressable too, or the strip is
+              indistinguishable from the inert count line two lines up. The
+              active root is marked in INK — label and track — not accent: this
+              screen spends blue exactly once, on the active sort column. */}
+          {roots.map((root) => (
+            <TrackLabel
+              key={root.path}
+              testID={`root-${root.name}`}
+              label={root.name}
+              accessibilityLabel={`Open ${root.name}`}
+              active={path === root.path}
+              inks={{ activeLabel: theme.colors.text, activeTrack: theme.colors.text }}
+              onPress={() => openDir(root.path)}
+            />
+          ))}
+        </ScrollView>
+        {short ? actions : null}
+      </Row>
 
       <PathBar
         path={path}
@@ -385,7 +420,7 @@ function FilesTab() {
       {/* The listing is the reference's table: one flush Card whose
           hairline-divided rows carry the data, with the sort header as the
           card's own column row. */}
-      <Card flush style={{ flex: 1, marginHorizontal: margin, marginBottom: theme.space.md, overflow: 'hidden' }}>
+      <Card flush style={{ flex: 1, marginHorizontal: margin, marginBottom: short ? theme.space.xs : theme.space.md, overflow: 'hidden' }}>
         <SortHeader sortKey={sortKey} descending={descending} onChange={onSort} />
         {loading && !refreshing ? (
           <View style={{ paddingHorizontal: theme.space.md }}>

@@ -4,6 +4,8 @@
 // to it, is exactly the kind of logic that must not live untested inside a
 // component.
 
+import { tokenHashHex } from '../devices/hmac.ts';
+
 export interface PairedDevice {
   /**
    * The host's truncated token — identity for revocation, never rendered.
@@ -47,9 +49,13 @@ export function canRevoke(device: PairedDevice): boolean {
   return device.tokenPrefix.length >= MIN_REVOKE_PREFIX;
 }
 
-/** Whether this row is the very phone the user is holding. */
+/**
+ * Whether this row is the very phone the user is holding. The host truncates
+ * the token's SHA-256 (server/src/state.ts hashToken), never the token itself,
+ * so the comparison is against the hash of our own token (#68).
+ */
 export function isSelfDevice(device: PairedDevice, ownToken: string | undefined): boolean {
-  return canRevoke(device) && !!ownToken && ownToken.startsWith(device.tokenPrefix);
+  return canRevoke(device) && !!ownToken && tokenHashHex(ownToken).startsWith(device.tokenPrefix);
 }
 
 export interface RevocationCopy {

@@ -10,7 +10,16 @@ import { existsSync } from 'node:fs';
 // macOS and skip on a Linux CI runner that has no zsh.
 const HAS_ZSH = existsSync('/bin/zsh');
 
-import { resolveShell, shellEnv, shellCwd, pipeInput } from '../src/terminal.js';
+import { resolveShell, shellEnv, shellCwd, pipeInput, pipeOutput } from '../src/terminal.js';
+
+test('pipeOutput turns a bare LF into CRLF so the client cursor returns to column 0', () => {
+  assert.equal(pipeOutput('a\nb\n'), 'a\r\nb\r\n');
+});
+
+test('pipeOutput leaves an existing CRLF alone', () => {
+  assert.equal(pipeOutput('a\r\nb'), 'a\r\nb');
+  assert.equal(pipeOutput('plain'), 'plain');
+});
 
 test('windows defaults to PowerShell with the original flags', () => {
   const spec = resolveShell({} as NodeJS.ProcessEnv, 'win32');
