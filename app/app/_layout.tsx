@@ -12,6 +12,7 @@ import * as Linking from 'expo-linking';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
 import { ConnectionProvider, useConnection } from '../src/connection';
+import { AccountProvider, useAccount } from '../src/account/store';
 import { useTheme } from '../src/theme';
 import { restoreThemeMode } from '../src/settings/theme-mode';
 import { RopeSplash } from '../src/connect/rope-splash';
@@ -144,8 +145,9 @@ function AgentLinkHandler() {
 function Routes({ forced }: { forced: boolean }) {
   const theme = useTheme();
   const { ready } = useConnection();
+  const { ready: accountReady } = useAccount();
 
-  if (!ready && !forced) return <Boot />;
+  if (!(ready && accountReady) && !forced) return <Boot />;
 
   return (
     <Stack
@@ -156,6 +158,8 @@ function Routes({ forced }: { forced: boolean }) {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="sign-in" />
+      <Stack.Screen name="link" />
       <Stack.Screen name="devices" />
       {/* No swipe-back on the desktop. react-native-screens makes the pop
           gesture FULL-WIDTH by default on iOS 26 (`fullScreenSwipeEnabled`
@@ -224,10 +228,12 @@ export default function RootLayout() {
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <SafeAreaProvider>
         <StatusBar style={theme.isDark ? 'light' : 'dark'} />
-        <ConnectionProvider>
-          {ready ? <Routes forced={bootTimedOut} /> : <Boot />}
-          <AgentLinkHandler />
-        </ConnectionProvider>
+        <AccountProvider>
+          <ConnectionProvider>
+            {ready ? <Routes forced={bootTimedOut} /> : <Boot />}
+            <AgentLinkHandler />
+          </ConnectionProvider>
+        </AccountProvider>
       </SafeAreaProvider>
     </View>
   );

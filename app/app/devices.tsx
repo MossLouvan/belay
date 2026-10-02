@@ -37,6 +37,10 @@ import { ThemeToggle } from '../src/settings/theme-toggle';
 import { AppearanceNav } from '../src/home/appearance-nav';
 import { useDevicePreviews } from '../src/home/use-device-previews';
 import { forgetPreview } from '../src/home/preview-store';
+import { useAccount } from '../src/account/store';
+import { mergeComputers } from '../src/account/merge-devices';
+import { LinkedSection } from '../src/account/linked-section';
+import { AccountRows, DeleteAccountSheet } from '../src/account/account-settings';
 
 export default function Devices() {
   const theme = useTheme();
@@ -48,6 +52,9 @@ export default function Devices() {
   const { sessions: agentSessions, discovered: agentDiscovered, hooks: agentHooks } = useAgentAttention();
   const agents = phase === 'connected' ? fleetLine(agentSessions, agentDiscovered, agentHooks) : null;
   const { byId, urlById, refresh } = useReachability(devices);
+  const { devices: accountDevices, refreshDevices } = useAccount();
+  const { linkedOnly } = mergeComputers(devices, accountDevices);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   // Desktop thumbnails for the cards. Fetches only for computers this screen
   // just proved reachable, only while it is on screen, and only when the
   // picture it holds is missing or a minute old — see src/home/use-device-previews.
@@ -77,8 +84,9 @@ export default function Devices() {
 
   const refreshAll = useCallback(() => {
     refresh();
+    void refreshDevices();
     setDiscoveryNonce((n) => n + 1);
-  }, [refresh]);
+  }, [refresh, refreshDevices]);
 
   /**
    * Save a discovered computer and land on its screen — the identical
@@ -139,8 +147,11 @@ export default function Devices() {
             <Caption testID="connected-over">{`Connected over ${describeUrl(activeUrl)}.`}</Caption>
           ) : null}
           <Button label="Check again" testID="refresh-devices" variant="secondary" fullWidth onPress={() => { refreshAll(); setOptionsOpen(false); }} />
+          <AccountRows onLeave={() => setOptionsOpen(false)} onRequestDelete={() => setDeletingAccount(true)} />
         </View>
       </Sheet>
+
+      <DeleteAccountSheet visible={deletingAccount} onClose={() => setDeletingAccount(false)} />
 
       <Sheet visible={addingOpen} onClose={() => setAddingOpen(false)} title="Add computer" testID="add-computer-sheet">
         <View style={{ gap: theme.space.md }}>
@@ -209,7 +220,7 @@ export default function Devices() {
     </>
   );
 
-  if (devices.length === 0) {
+  if (devices.length === 0 && linkedOnly.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
         <EmptyComputers onAdd={() => setAddingOpen(true)} onOpenOptions={() => setOptionsOpen(true)} />
@@ -296,6 +307,8 @@ export default function Devices() {
             ))}
             <AddComputerRow onPress={() => setAddingOpen(true)} />
           </View>
+
+          <LinkedSection devices={linkedOnly} />
 
           {lanOnly.length > 0 ? (
             <StatusNotice

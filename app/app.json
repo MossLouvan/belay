@@ -33,7 +33,8 @@
           }
         ],
         "GCSupportsControllerUserInteraction": true
-      }
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "com.mosslouvan.belay",
@@ -88,7 +89,8 @@
           "photosPermission": "Belay lets you pick photos or screenshots to send to Claude on your computer.",
           "cameraPermission": "Belay uses the camera to take a photo to send to Claude on your computer."
         }
-      ]
+      ],
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": false
