@@ -40,19 +40,23 @@ export function ConnectionStatus({
 }: ConnectionStatusProps) {
   const view = describeSurface(phase, surface, { paired, detail });
   return (
-    <Row justify="space-between" gap="sm" style={style} testID={testID}>
+    // Wraps rather than overlaps: when the status and the machine link cannot
+    // share one line (narrow phones, long names), the link drops to its own
+    // line instead of painting over the status text.
+    <Row justify="space-between" gap="sm" wrap style={[{ rowGap: 0 }, style]} testID={testID}>
       <Row gap="xs" style={{ flexShrink: 1, minWidth: 0 }}>
         {/* Text-first status badge — no color-coded dots (premium redesign) */}
         <StatusBadge
           label={view.word}
           variant="subtle"
+          style={{ flexShrink: 1, minWidth: 0 }}
           trailing={
             <>
               {/* Show transition ring for opening/reconnecting states */}
               {view.ring ? <TransitionRing /> : null}
               {/* Detail rides along when steady (not while transitioning) */}
               {view.detail ? (
-                <Label tone="faint" style={{ marginBottom: 0, marginLeft: 4 }}>
+                <Label tone="faint" numberOfLines={1} style={{ marginBottom: 0, marginLeft: 4, flexShrink: 1 }}>
                   {view.detail}
                 </Label>
               ) : null}
@@ -62,7 +66,9 @@ export function ConnectionStatus({
       </Row>
       {/* The machine link (a place, not a status) yields the row to the status
           and truncates its own name rather than pushing the word off screen. */}
-      {trailing ? <View style={{ flexShrink: 1, minWidth: 0, maxWidth: '60%' }}>{trailing}</View> : null}
+      {trailing ? (
+        <View style={{ flexShrink: 1, minWidth: 0, maxWidth: '100%', marginLeft: 'auto' }}>{trailing}</View>
+      ) : null}
     </Row>
   );
 }

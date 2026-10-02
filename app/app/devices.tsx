@@ -340,7 +340,8 @@ function describeUrl(url: string, path: ConnectionPath | null): string {
   const host = url.replace(/^https?:\/\//, '').split(':')[0];
   // The tunnel answers on loopback; what matters is whether it hole-punched.
   if (host.startsWith('127.')) return path === 'direct' ? 'the Belay tunnel (direct)' : 'the Belay tunnel (relay)';
-  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return 'Tailscale';
-  if (host.endsWith('.ts.net')) return 'Tailscale';
+  // Tailnet addresses (CGNAT 100.64/10, *.ts.net) read vendor-neutral.
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return 'a private network';
+  if (host.endsWith('.ts.net')) return 'a private network';
   return 'your local network';
 }

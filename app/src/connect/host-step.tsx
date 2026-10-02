@@ -54,7 +54,7 @@ function RecentHosts({
           <ListItem
             title={prettyHost(url)}
             mono
-            subtitle={isTailscaleAddress(url) ? 'Tailscale' : 'Local network'}
+            subtitle={isTailscaleAddress(url) ? 'Private network' : 'Local network'}
             onPress={() => onPick(url)}
             testID={`recent-${prettyHost(url)}`}
             accessibilityHint="Uses this address"

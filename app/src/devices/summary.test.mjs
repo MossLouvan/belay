@@ -26,18 +26,23 @@ const mac = {
 // ---- path labelling ------------------------------------------------------
 
 test('each address kind has a short label and a spoken form', () => {
-  assert.equal(kindLabel('lan'), 'LAN');
-  assert.equal(kindLabel('tailscale'), 'Tailscale');
+  assert.equal(kindLabel('lan'), 'Wi-Fi');
+  assert.equal(kindLabel('tailscale'), 'Private network');
   assert.equal(kindLabel('relay'), 'Relay');
   assert.equal(kindSpoken('lan'), 'your local network');
   assert.equal(kindSpoken('relay'), 'a relay');
 });
 
-test('magicdns is described as Tailscale, not as a DNS scheme', () => {
-  // The user chose Tailscale; MagicDNS is just how its names resolve. Showing
-  // "MAGICDNS" in the header would name the mechanism, not the path.
-  assert.equal(kindLabel('magicdns'), 'Tailscale');
-  assert.equal(kindSpoken('magicdns'), 'Tailscale');
+test('tailnet addresses read as a private network, never a vendor or a DNS scheme', () => {
+  // Belay must not look reliant on Tailscale: a 100.x or *.ts.net path is just
+  // "a private network" to the user. MagicDNS is the mechanism, not the path.
+  assert.equal(kindLabel('magicdns'), 'Private network');
+  assert.equal(kindSpoken('magicdns'), 'a private network');
+  assert.equal(kindSpoken('tailscale'), 'a private network');
+  for (const kind of ['lan', 'tailscale', 'magicdns', 'relay']) {
+    assert.doesNotMatch(kindLabel(kind), /tailscale/i);
+    assert.doesNotMatch(kindSpoken(kind), /tailscale/i);
+  }
 });
 
 test('the winning URL is resolved to its saved kind, never guessed', () => {
@@ -49,17 +54,20 @@ test('the winning URL is resolved to its saved kind, never guessed', () => {
 
 // ---- the summary itself --------------------------------------------------
 
-test('connected over the LAN reads name · LAN with a steady good dot', () => {
+test('connected over the LAN reads name · Wi-Fi with a steady good dot', () => {
   const s = connectionSummary(mac, 'connected', 'http://192.168.1.5:8787');
-  assert.equal(s.text, 'MacBook Air · LAN');
+  assert.equal(s.text, 'MacBook Air · Wi-Fi');
   assert.equal(s.status, 'good');
   assert.equal(s.pulse, false);
   assert.match(s.accessibilityLabel, /over your local network/);
 });
 
-test('connected over Tailscale names the tunnel', () => {
+test('connected over a tailnet address reads Private network, not the vendor', () => {
   const s = connectionSummary(mac, 'connected', 'http://100.101.102.103:8787');
-  assert.equal(s.text, 'MacBook Air · Tailscale');
+  assert.equal(s.text, 'MacBook Air · Private network');
+  assert.match(s.accessibilityLabel, /over a private network/);
+  const dns = connectionSummary(mac, 'connected', 'http://mac.tailnet.ts.net:8787');
+  assert.equal(dns.text, 'MacBook Air · Private network');
 });
 
 test('a winner that matches no saved address shows the name alone', () => {
