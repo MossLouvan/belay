@@ -6,16 +6,18 @@ import { acceptClaim, createClaim, pollClaim } from './routes/claims.js';
 import { createDevice, deleteDevice, listDevices } from './routes/devices.js';
 import { emailStart, emailVerify } from './routes/email.js';
 import { heartbeat } from './routes/hosts.js';
-import { deleteMe, getMe } from './routes/me.js';
-import { appleAuth, googleAuth } from './routes/oidc.js';
+import { deleteMe, getMe, logout } from './routes/me.js';
+import { appleAuth, googleAuth, issueNonce } from './routes/oidc.js';
 
 type Handler = (req: Request, env: Env, ...params: string[]) => Promise<Response>;
 
 const routes: ReadonlyArray<readonly [method: string, pattern: RegExp, handler: Handler]> = [
   ['POST', /^\/v1\/auth\/email\/start$/, emailStart],
   ['POST', /^\/v1\/auth\/email\/verify$/, emailVerify],
+  ['POST', /^\/v1\/auth\/nonce$/, issueNonce],
   ['POST', /^\/v1\/auth\/apple$/, appleAuth],
   ['POST', /^\/v1\/auth\/google$/, googleAuth],
+  ['POST', /^\/v1\/auth\/logout$/, logout],
   ['GET', /^\/v1\/me$/, getMe],
   ['DELETE', /^\/v1\/me$/, deleteMe],
   ['POST', /^\/v1\/devices$/, createDevice],
@@ -27,12 +29,20 @@ const routes: ReadonlyArray<readonly [method: string, pattern: RegExp, handler: 
   ['POST', /^\/v1\/hosts\/heartbeat$/, heartbeat],
 ];
 
+function decodeParam(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    throw new HttpError(400, 'bad_request', 'malformed path');
+  }
+}
+
 export async function handle(req: Request, env: Env): Promise<Response> {
   const path = new URL(req.url).pathname;
   try {
     for (const [method, pattern, handler] of routes) {
       const match = pattern.exec(path);
-      if (match && req.method === method) return await handler(req, env, ...match.slice(1).map(decodeURIComponent));
+      if (match && req.method === method) return await handler(req, env, ...match.slice(1).map(decodeParam));
     }
     return json({ error: 'not found', code: 'not_found' }, 404);
   } catch (err) {
@@ -47,6 +57,8 @@ const HOUSEKEEPING = [
   'DELETE FROM email_codes WHERE expires_at < ?1',
   'DELETE FROM rate_limits WHERE window_start < ?1',
   'DELETE FROM sessions WHERE expires_at < ?1',
+  'DELETE FROM nonces WHERE expires_at < ?1',
+  'DELETE FROM used_tokens WHERE expires_at < ?1',
 ];
 
 export default {

@@ -20,6 +20,7 @@ export const LIMITS = {
   ip: { max: 60, windowMs: 60_000 },
   emailStart: { max: 5, windowMs: 10 * 60_000 },
   emailVerify: { max: 10, windowMs: 10 * 60_000 },
+  claimAccept: { max: 10, windowMs: 10 * 60_000 },
 } as const satisfies Record<string, Limit>;
 
 /** Throws 429 when `key` exceeds `limit.max` hits in the current window. */

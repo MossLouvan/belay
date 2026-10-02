@@ -2,7 +2,7 @@
 
 import { createSession, findOrCreateAccount, accountJson } from '../auth.js';
 import { emailCode, sha256Hex } from '../crypto.js';
-import { EMAIL_CODE_MAX_ATTEMPTS, EMAIL_CODE_TTL_MS, type Env } from '../env.js';
+import { EMAIL_CODE_MAX_ATTEMPTS, EMAIL_CODE_REUSE_MS, EMAIL_CODE_TTL_MS, type Env } from '../env.js';
 import { HttpError, clientIp, json, noContent, readJson, requireEmail, requireString } from '../http.js';
 import { LIMITS, enforceLimit } from '../rate-limit.js';
 
@@ -38,14 +38,18 @@ export async function emailStart(req: Request, env: Env): Promise<Response> {
 
   if (isReviewer(env, email)) return noContent(); // fixed REVIEW_CODE, nothing to send
 
+  // A code younger than EMAIL_CODE_REUSE_MS stays valid: a stranger cannot
+  // invalidate the one the real user is about to type.
+  const now = Date.now();
   const code = emailCode();
-  await env.DB.prepare(
-    `INSERT INTO email_codes (email, code_hash, attempts, expires_at) VALUES (?1, ?2, 0, ?3)
-     ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, attempts = 0, expires_at = excluded.expires_at`,
+  const { meta } = await env.DB.prepare(
+    `INSERT INTO email_codes (email, code_hash, attempts, created_at, expires_at) VALUES (?1, ?2, 0, ?3, ?4)
+     ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, attempts = 0, created_at = excluded.created_at, expires_at = excluded.expires_at
+     WHERE created_at < ?5`,
   )
-    .bind(email, await codeHash(email, code), Date.now() + EMAIL_CODE_TTL_MS)
+    .bind(email, await codeHash(email, code), now, now + EMAIL_CODE_TTL_MS, now - EMAIL_CODE_REUSE_MS)
     .run();
-  await sendCode(env, email, code);
+  if (meta.changes === 1) await sendCode(env, email, code);
   return noContent();
 }
 
@@ -72,7 +76,7 @@ export async function emailVerify(req: Request, env: Env): Promise<Response> {
   const email = requireEmail(body);
   const code = requireString(body, 'code', 6, /^\d{6}$/);
   await enforceLimit(env.DB, `ip:${clientIp(req)}`, LIMITS.ip);
-  await enforceLimit(env.DB, `email-verify:${email}`, LIMITS.emailVerify);
+  await enforceLimit(env.DB, `email-verify:${email}:${clientIp(req)}`, LIMITS.emailVerify);
 
   await checkCode(env, email, code);
   const account = await findOrCreateAccount(env.DB, 'email', email, email);

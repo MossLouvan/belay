@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { app, mockResend } from './helpers.js';
+import { app, claimBody, makeNode, mockResend } from './helpers.js';
 
 const EMAIL = 'someone@example.com';
 
@@ -94,11 +94,45 @@ test('rate limits per email and per ip', async () => {
     assert.equal((await a.call('POST', '/v1/auth/email/start', { body: { email: EMAIL } })).status, 429);
     assert.equal((await a.call('POST', '/v1/auth/email/start', { body: { email: 'other@example.com' } })).status, 204);
 
-    const claim = { nodeId: 'abc123', name: 'Mac', platform: 'macos' };
+    const claim = await claimBody(await makeNode());
     for (let i = 0; i < 60; i++) assert.equal((await a.call('POST', '/v1/claims', { body: claim, ip: '198.51.100.9' })).status, 200);
     assert.equal((await a.call('POST', '/v1/claims', { body: claim, ip: '198.51.100.9' })).status, 429);
     const res = await a.call('POST', '/v1/auth/email/start', { body: { email: 'third@example.com' }, ip: '198.51.100.9' });
     assert.equal(res.status, 429);
+  } finally {
+    resend.restore();
+  }
+});
+
+test('M3: verify limit is per email+IP, so a stranger cannot lock the real user out', async () => {
+  const a = app();
+  const resend = mockResend();
+  try {
+    await a.call('POST', '/v1/auth/email/start', { body: { email: EMAIL } });
+    for (let i = 0; i < 10; i++) await a.call('POST', '/v1/auth/email/verify', { body: { email: EMAIL, code: '000000' }, ip: '198.51.100.7' });
+    assert.equal((await a.call('POST', '/v1/auth/email/verify', { body: { email: EMAIL, code: '000000' }, ip: '198.51.100.7' })).status, 429);
+    const real = await a.call('POST', '/v1/auth/email/verify', { body: { email: EMAIL, code: resend.codes[0] }, ip: '198.51.100.8' });
+    assert.notEqual(real.status, 429);
+  } finally {
+    resend.restore();
+  }
+});
+
+test('M3: a fresh code is kept (not overwritten) for 2 minutes', async () => {
+  const a = app();
+  const resend = mockResend();
+  try {
+    await a.call('POST', '/v1/auth/email/start', { body: { email: EMAIL } });
+    await a.call('POST', '/v1/auth/email/start', { body: { email: EMAIL } }); // attacker re-requests
+    assert.equal(resend.codes.length, 1);
+    assert.equal((await a.call('POST', '/v1/auth/email/verify', { body: { email: EMAIL, code: resend.codes[0] } })).status, 200);
+
+    await a.call('POST', '/v1/auth/email/start', { body: { email: EMAIL } });
+    await a.env.DB.prepare('UPDATE email_codes SET created_at = ?1').bind(Date.now() - 3 * 60_000).run();
+    await a.call('POST', '/v1/auth/email/start', { body: { email: EMAIL } });
+    assert.equal(resend.codes.length, 3);
+    assert.equal((await a.call('POST', '/v1/auth/email/verify', { body: { email: EMAIL, code: resend.codes[1] } })).status, 401);
+    assert.equal((await a.call('POST', '/v1/auth/email/verify', { body: { email: EMAIL, code: resend.codes[2] } })).status, 200);
   } finally {
     resend.restore();
   }

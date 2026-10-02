@@ -11,7 +11,7 @@ export async function createDevice(req: Request, env: Env): Promise<Response> {
   const body = await readJson(req);
   if (body.kind !== 'phone') throw bad("kind must be 'phone'");
   const name = requireString(body, 'name', 100);
-  const nodeId = requireString(body, 'nodeId', 128, NODE_ID_RE);
+  const nodeId = requireString(body, 'nodeId', 64, NODE_ID_RE);
   const platform = optionalString(body, 'platform', 32, 'unknown');
   const now = Date.now();
 

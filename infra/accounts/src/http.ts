@@ -51,11 +51,23 @@ export function requireEmail(body: Record<string, unknown>): string {
   return requireString(body, 'email', 254, EMAIL_RE).trim().toLowerCase();
 }
 
-// Tunnel node ids: iroh prints 64 hex chars; stay lenient for other encodings.
-export const NODE_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+// iroh NodeId: the 32-byte Ed25519 public key as 64 lowercase hex chars.
+export const NODE_ID_RE = /^[0-9a-f]{64}$/;
 
-export const clientIp = (req: Request): string =>
-  req.headers.get('cf-connecting-ip') ?? req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+export function requireInteger(body: Record<string, unknown>, field: string): number {
+  const value = body[field];
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw bad(`${field} must be an integer`);
+  return value;
+}
+
+// Cloudflare sets cf-connecting-ip on every request; nothing else is trusted.
+export const clientIp = (req: Request): string => req.headers.get('cf-connecting-ip') ?? 'unknown';
+
+export function maskEmail(email: string | null): string | null {
+  if (!email) return null;
+  const [local, domain] = email.split('@');
+  return `${local.slice(0, 2)}***@${domain}`;
+}
 
 export function bearer(req: Request): string | null {
   const header = req.headers.get('authorization') ?? '';

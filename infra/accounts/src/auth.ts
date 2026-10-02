@@ -1,7 +1,7 @@
 // Accounts, sessions and host credentials.
 
 import { newId, randomCredential, sha256Hex } from './crypto.js';
-import { SESSION_REFRESH_AFTER_MS, SESSION_TTL_MS } from './env.js';
+import { SESSION_MAX_LIFETIME_MS, SESSION_REFRESH_AFTER_MS, SESSION_TTL_MS } from './env.js';
 import { bearer, unauthorized } from './http.js';
 
 export interface AccountRow {
@@ -51,17 +51,27 @@ export async function requireSession(req: Request, db: D1Database, now = Date.no
   const hash = await sha256Hex(token);
   const row = await db
     .prepare(
-      `SELECT a.id, a.email, a.created_at, s.expires_at FROM sessions s JOIN accounts a ON a.id = s.account_id
-       WHERE s.hash = ?1 AND s.expires_at > ?2`,
+      `SELECT a.id, a.email, a.created_at, s.expires_at, s.created_at AS session_created_at
+       FROM sessions s JOIN accounts a ON a.id = s.account_id
+       WHERE s.hash = ?1 AND s.expires_at > ?2 AND s.created_at > ?3`,
     )
-    .bind(hash, now)
-    .first<AccountRow & { expires_at: number }>();
+    .bind(hash, now, now - SESSION_MAX_LIFETIME_MS)
+    .first<AccountRow & { expires_at: number; session_created_at: number }>();
   if (!row) throw unauthorized('invalid or expired session');
 
-  if (row.expires_at < now + SESSION_TTL_MS - SESSION_REFRESH_AFTER_MS) {
-    await db.prepare('UPDATE sessions SET expires_at = ?1 WHERE hash = ?2').bind(now + SESSION_TTL_MS, hash).run();
+  // Sliding expiry, capped at the absolute lifetime.
+  const slid = Math.min(now + SESSION_TTL_MS, row.session_created_at + SESSION_MAX_LIFETIME_MS);
+  if (row.expires_at < slid - SESSION_REFRESH_AFTER_MS) {
+    await db.prepare('UPDATE sessions SET expires_at = ?1 WHERE hash = ?2').bind(slid, hash).run();
   }
   return { id: row.id, email: row.email, created_at: row.created_at };
+}
+
+export async function deleteSession(req: Request, db: D1Database): Promise<void> {
+  const token = bearer(req);
+  if (!token) throw unauthorized('missing session');
+  const { meta } = await db.prepare('DELETE FROM sessions WHERE hash = ?1').bind(await sha256Hex(token)).run();
+  if (meta.changes === 0) throw unauthorized('invalid or expired session');
 }
 
 /** Resolves the bearer host credential to a host device. */

@@ -25,7 +25,7 @@ npm run dev       # wrangler dev, local D1 (run migrate:local first)
 
 ## Auth headers
 
-- Session routes: `Authorization: Bearer <session>`
+- Session routes (incl. `POST /auth/logout`): `Authorization: Bearer <session>`
 - `POST /hosts/heartbeat`: `Authorization: Bearer <hostCredential>`
 - `GET /claims/:code`: `X-Host-Secret: <hostSecret>`
 
@@ -46,6 +46,8 @@ Nothing in this repo creates cloud resources. All ids and secrets are placeholde
    npx wrangler secret put REVIEW_EMAIL     # App Store reviewer address
    npx wrangler secret put REVIEW_CODE      # exactly 6 digits
    ```
+   After App Review, remove the backdoor: `npx wrangler secret delete REVIEW_EMAIL`
+   and `npx wrangler secret delete REVIEW_CODE` (either missing disables it).
 6. **Resend domain**: in Resend -> Domains add `gobelay.com`, add the DKIM /
    SPF / MX records it prints to the gobelay.com DNS zone (Cloudflare), wait for
    "Verified". `EMAIL_FROM` must use that domain.
@@ -65,5 +67,15 @@ followed by `npm run migrate`.
 - The host credential is minted on the host's first poll after the phone
   accepts the claim, so plaintext never waits in D1.
 - Deleting an account relies on `ON DELETE CASCADE` (D1 enforces foreign keys).
-- Rate limits: 60/min per IP on unauthenticated routes, 5 code sends and 10
-  verifies per email per 10 min. The counter is a fixed window in D1.
+- `POST /claims` needs proof of possession: the host signs
+  `belay-claim:v1:<nodeId>:<ts>` with its Ed25519 node key. nodeIds are 64
+  lowercase hex chars (iroh `NodeId` display form).
+- Accepting a claim for a nodeId the account already has linked (with a live
+  credential) is a 409; the phone must `DELETE /devices/:id` first.
+- Apple nonces are server-issued (`POST /auth/nonce`, 5 min, single-use);
+  Google ID tokens are accepted once (hash kept until `exp`).
+- Rate limits: 60/min per IP on unauthenticated routes, 5 code sends per email
+  and 10 verifies per email+IP per 10 min, 10 claim accepts per account per
+  10 min. The counter is a fixed window in D1. A code younger than 2 min is
+  kept rather than overwritten by a new start request.
+- Sessions: 90 d sliding, 365 d absolute; `POST /auth/logout` revokes one.

@@ -1,5 +1,7 @@
 import { handle } from '../src/index.js';
+import { base64url } from '../src/crypto.js';
 import type { Env } from '../src/env.js';
+import { claimMessage } from '../src/routes/claims.js';
 import { fakeD1 } from './fake-d1.js';
 
 export interface CallOptions {
@@ -53,6 +55,33 @@ export function mockResend(status = 200): { codes: string[]; restore: () => void
   }) as typeof fetch;
   return { codes, restore: () => (globalThis.fetch = original) };
 }
+
+/** An iroh-style node: Ed25519 keypair, nodeId = 64 lowercase hex chars. */
+export interface Node {
+  readonly nodeId: string;
+  sign(message: string): Promise<string>;
+}
+
+export async function makeNode(): Promise<Node> {
+  const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair;
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+  return {
+    nodeId: [...raw].map((b) => b.toString(16).padStart(2, '0')).join(''),
+    async sign(message) {
+      const sig = await crypto.subtle.sign({ name: 'Ed25519' }, pair.privateKey, new TextEncoder().encode(message));
+      return base64url(new Uint8Array(sig));
+    },
+  };
+}
+
+/** A valid POST /claims body for `node`. */
+export async function claimBody(node: Node, overrides: Record<string, unknown> = {}) {
+  const ts = Math.floor(Date.now() / 1000);
+  return { nodeId: node.nodeId, name: 'Moss MacBook', platform: 'macos', ts, sig: await node.sign(claimMessage(node.nodeId, ts)), ...overrides };
+}
+
+/** Any syntactically valid phone nodeId. */
+export const phoneNodeId = (seed = 'a'): string => seed.charCodeAt(0).toString(16).padStart(2, '0').repeat(32);
 
 /** Signs in via email and returns the session token. */
 export async function signIn(a: ReturnType<typeof app>, email = 'user@example.com'): Promise<string> {

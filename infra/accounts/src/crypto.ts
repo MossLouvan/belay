@@ -41,3 +41,13 @@ export function emailCode(): string {
 }
 
 export const newId = (): string => crypto.randomUUID();
+
+export const fromHex = (hex: string): Uint8Array => Uint8Array.from(hex.match(/../g) ?? [], (b) => parseInt(b, 16));
+
+/** Verifies a raw 64-byte Ed25519 signature over `message` by the 32-byte key `publicKey`. */
+export async function verifyEd25519(publicKey: Uint8Array, message: string, signature: Uint8Array): Promise<boolean> {
+  if (publicKey.length !== 32 || signature.length !== 64) return false;
+  const key = await crypto.subtle.importKey('raw', publicKey, { name: 'Ed25519' }, false, ['verify']).catch(() => null);
+  if (!key) return false;
+  return crypto.subtle.verify({ name: 'Ed25519' }, key, signature, enc.encode(message));
+}

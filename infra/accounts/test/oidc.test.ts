@@ -35,31 +35,56 @@ const exp = Math.floor(Date.now() / 1000) + 600;
 
 test('apple: verifies token + nonce, creates an account, then signs the same account in again', async () => {
   const a = app();
-  const nonce = 'raw-nonce-from-the-app';
+  const nonce = (await a.call('POST', '/v1/auth/nonce')).body.nonce as string;
   const identityToken = await sign({ iss: APPLE.issuers[0], aud: 'com.mosslouvan.belay', sub: 'apple-1', exp, nonce: await sha256Hex(nonce), email: 'a@privaterelay.appleid.com', email_verified: 'true' });
 
   const first = await a.call('POST', '/v1/auth/apple', { body: { identityToken, nonce } });
   assert.equal(first.status, 200);
   assert.equal(first.body.account.email, 'a@privaterelay.appleid.com');
 
-  const again = await a.call('POST', '/v1/auth/apple', { body: { identityToken, nonce } });
+  // M1: the nonce is single-use, so the same token+nonce cannot be replayed
+  const replay = await a.call('POST', '/v1/auth/apple', { body: { identityToken, nonce } });
+  assert.deepEqual(replay, { status: 401, body: { error: 'nonce unknown, expired or already used', code: 'invalid_nonce' } });
+
+  const nonce2 = (await a.call('POST', '/v1/auth/nonce')).body.nonce as string;
+  const token2 = await sign({ iss: APPLE.issuers[0], aud: 'com.mosslouvan.belay', sub: 'apple-1', exp, nonce: await sha256Hex(nonce2) });
+  const again = await a.call('POST', '/v1/auth/apple', { body: { identityToken: token2, nonce: nonce2 } });
   assert.equal(again.body.account.id, first.body.account.id);
   assert.notEqual(again.body.session, first.body.session);
 
-  const wrongNonce = await a.call('POST', '/v1/auth/apple', { body: { identityToken, nonce: 'other' } });
+  const wrongNonce = await a.call('POST', '/v1/auth/apple', { body: { identityToken: token2, nonce: 'other' } });
   assert.deepEqual(wrongNonce, { status: 401, body: { error: 'nonce mismatch', code: 'invalid_token' } });
+
+  // M1: a client-chosen nonce the server never issued is refused even when the token matches it
+  const nonce3 = 'client-chosen';
+  const token3 = await sign({ iss: APPLE.issuers[0], aud: 'com.mosslouvan.belay', sub: 'apple-1', exp, nonce: await sha256Hex(nonce3) });
+  assert.equal((await a.call('POST', '/v1/auth/apple', { body: { identityToken: token3, nonce: nonce3 } })).body.code, 'invalid_nonce');
+
+  // expired nonce
+  const nonce4 = (await a.call('POST', '/v1/auth/nonce')).body.nonce as string;
+  await a.env.DB.prepare('UPDATE nonces SET expires_at = ?1').bind(Date.now() - 1).run();
+  const token4 = await sign({ iss: APPLE.issuers[0], aud: 'com.mosslouvan.belay', sub: 'apple-1', exp, nonce: await sha256Hex(nonce4) });
+  assert.equal((await a.call('POST', '/v1/auth/apple', { body: { identityToken: token4, nonce: nonce4 } })).body.code, 'invalid_nonce');
 });
 
 test('google: accepts any configured client id and links by verified email', async () => {
   const a = app();
   const email = 'shared@example.com';
-  const apple = await sign({ iss: APPLE.issuers[0], aud: 'com.mosslouvan.belay', sub: 'apple-2', exp, nonce: await sha256Hex('n'), email, email_verified: true });
-  const viaApple = await a.call('POST', '/v1/auth/apple', { body: { identityToken: apple, nonce: 'n' } });
+  const n = (await a.call('POST', '/v1/auth/nonce')).body.nonce as string;
+  const apple = await sign({ iss: APPLE.issuers[0], aud: 'com.mosslouvan.belay', sub: 'apple-2', exp, nonce: await sha256Hex(n), email, email_verified: true });
+  const viaApple = await a.call('POST', '/v1/auth/apple', { body: { identityToken: apple, nonce: n } });
 
   const google = await sign({ iss: GOOGLE.issuers[0], aud: 'ios.apps.googleusercontent.com', sub: 'google-2', exp, email, email_verified: true });
   const viaGoogle = await a.call('POST', '/v1/auth/google', { body: { idToken: google } });
   assert.equal(viaGoogle.status, 200);
   assert.equal(viaGoogle.body.account.id, viaApple.body.account.id);
+
+  // M1: a Google token is accepted once
+  const replay = await a.call('POST', '/v1/auth/google', { body: { idToken: google } });
+  assert.deepEqual(replay, { status: 401, body: { error: 'token already used', code: 'invalid_token' } });
+  const hash = await a.env.DB.prepare('SELECT hash, expires_at FROM used_tokens').first<{ hash: string; expires_at: number }>();
+  assert.equal(hash?.hash, await sha256Hex(google));
+  assert.equal(hash?.expires_at, exp * 1000);
 
   const badAud = await sign({ iss: GOOGLE.issuers[0], aud: 'someone-else.apps.googleusercontent.com', sub: 'google-3', exp });
   assert.equal((await a.call('POST', '/v1/auth/google', { body: { idToken: badAud } })).status, 401);

@@ -51,6 +51,19 @@ CREATE TABLE email_codes (
   email TEXT PRIMARY KEY,
   code_hash TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+
+-- Server-issued Apple nonces (hashed), consumed once by /auth/apple.
+CREATE TABLE nonces (
+  hash TEXT PRIMARY KEY,
+  expires_at INTEGER NOT NULL
+);
+
+-- sha256 of accepted Google ID tokens, kept until they expire (replay guard).
+CREATE TABLE used_tokens (
+  hash TEXT PRIMARY KEY,
   expires_at INTEGER NOT NULL
 );
 
