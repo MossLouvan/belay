@@ -155,6 +155,12 @@ test('expired, done and error messages each say what happened next', () => {
   assert.match(done.body, /\$0\.08/);
   assert.equal(done.priority, 'default');
 
+  const changed = buildMessage({
+    kind: 'done', host: 'PC', hostId: 'h', session: { id: 's', title: 'corrosion' },
+    ok: true, changes: { files: 3, insertions: 41, deletions: 7, cwd: '/p' },
+  }, false);
+  assert.match(changed.body, /3 files · \+41 −7/);
+
   const failed = buildMessage({
     kind: 'done', host: 'PC', hostId: 'h', session: { id: 's', title: 'corrosion' }, ok: false,
   }, false);

@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, readdirSync, writeFileSync, existsSync, mkdi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  belayHookGroups, hooksStatusLine, installedEvents, isBelayHook, mergeHooks, removeHooks,
+  belayHookGroups, hooksInstalled, hooksStatusLine, installedEvents, isBelayHook, mergeHooks, removeHooks,
 } from '../src/hooks-install.js';
 import type { JsonObject } from '../src/hooks-install.js';
 import { runHooksInstall, settingsPath } from '../src/hooks-install-cli.js';
@@ -166,4 +166,12 @@ test('install with no settings file creates one; a broken file is left alone', (
   assert.equal(bad.ok, false);
   assert.equal(readFileSync(settingsPath(broken), 'utf8'), '{ not json');
   assert.equal(existsSync(`${settingsPath(broken)}.belay-backup-0`), false);
+});
+
+test('hooksInstalled is true only when every event carries a Belay entry', () => {
+  assert.equal(hooksInstalled(mergeHooks(userSettings(), OPTS).settings), true);
+  assert.equal(hooksInstalled(userSettings()), false);
+  assert.equal(hooksInstalled(null), false);
+  const partial = removeHooks(mergeHooks(userSettings(), OPTS).settings).settings;
+  assert.equal(hooksInstalled({ ...partial, hooks: { Stop: (mergeHooks(userSettings(), OPTS).settings.hooks as JsonObject).Stop } }), false);
 });

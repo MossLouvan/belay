@@ -24,6 +24,7 @@ import { join } from 'node:path';
 const DEFAULT_PORT = 8787;
 const SECRET_HEADER = 'x-belay-hook-secret';
 const REASON_HEADER = 'x-belay-hook';
+const SESSION_HEADER = 'x-belay-session';
 // How long the script itself will wait for the host, for a PermissionRequest.
 // The host holds the request for its own (shorter) wait and answers {} when it
 // gives up; this is only the backstop if the host never answers at all. It
@@ -70,13 +71,16 @@ function readStdin() {
 const note = (msg) => { try { process.stderr.write(`[belay-hook] ${msg}\n`); } catch { /* nothing to do */ } };
 
 async function main() {
-  // A session Belay spawned already has its own way to ask, and asking the
-  // phone twice for one tool call would be worse than not asking at all:
-  //   - a stream session answers through Belay's own MCP sidecar;
-  //   - a pty session has no sidecar — it has a real terminal, so the CLI's
-  //     own permission dialog is the ask, reachable from the phone and the
-  //     desk alike. Either way this hook must stay out of it.
-  if (process.env.BELAY_SPAWNED === '1') return;
+  // A session Belay spawned must never be asked twice for one tool call:
+  //   - a stream session (BELAY_SPAWNED alone) answers through Belay's own
+  //     MCP sidecar, so this hook stands aside;
+  //   - a pty session also carries BELAY_SESSION=<its Belay id>. It has no
+  //     sidecar, so the hook is its ask: forwarded with that id, the host puts
+  //     it on the session's card, and the TUI dialog only appears if the host
+  //     answers "no decision".
+  const belaySession = process.env.BELAY_SESSION;
+  const tagged = typeof belaySession === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(belaySession);
+  if (process.env.BELAY_SPAWNED === '1' && !tagged) return;
 
   const raw = await readStdin();
   let payload;
@@ -98,7 +102,7 @@ async function main() {
   try {
     res = await fetch(`http://127.0.0.1:${port}/hooks/${event}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', [SECRET_HEADER]: secret },
+      headers: { 'content-type': 'application/json', [SECRET_HEADER]: secret, ...(tagged ? { [SESSION_HEADER]: belaySession } : {}) },
       body: raw,
       signal: ctl.signal,
     });

@@ -24,6 +24,7 @@
 //    session, tool name, time left) and the one-line detail is opt-in for
 //    people on a self-hosted or access-controlled endpoint.
 
+import type { ChangeStat } from './changes-stat.js';
 import { productEnv } from './env.js';
 
 const HTTP_SCHEMES = new Set(['http:', 'https:']);
@@ -59,6 +60,8 @@ export interface NotifyEvent {
   readonly ok?: boolean;
   readonly costUsd?: number;
   readonly durationMs?: number;
+  /** done: what the turn left in the working tree, when the cwd is a repo. */
+  readonly changes?: ChangeStat;
   /** error: a short, already-safe description (no stderr, no paths). */
   readonly text?: string;
 }
@@ -181,9 +184,11 @@ export function buildMessage(ev: NotifyEvent, includeDetail: boolean, now = Date
     case 'done': {
       const secs = ev.durationMs !== undefined ? ` in ${Math.max(1, Math.round(ev.durationMs / 1000))}s` : '';
       const cost = ev.costUsd !== undefined ? ` ($${ev.costUsd.toFixed(2)})` : '';
+      const c = ev.changes;
+      const changed = c ? ` · ${c.files} file${c.files === 1 ? '' : 's'} · +${c.insertions} −${c.deletions}` : '';
       return ev.ok === false
-        ? { title: `${ev.host}: turn failed`, body: `${who} finished with an error${secs}.`, priority: 'high', link }
-        : { title: `${ev.host}: turn finished`, body: `${who} is done${secs}${cost}. Claude waits for your next prompt.`, priority: 'default', link };
+        ? { title: `${ev.host}: turn failed`, body: `${who} finished with an error${secs}${changed}.`, priority: 'high', link }
+        : { title: `${ev.host}: turn finished`, body: `${who} is done${secs}${cost}${changed}. Claude waits for your next prompt.`, priority: 'default', link };
     }
     case 'error':
       return {

@@ -16,6 +16,7 @@
 // Claude Code turns into its ordinary terminal prompt.
 
 import { toolDetail } from './agent-events.js';
+import type { ChangeStat } from './changes-stat.js';
 import { buildPreview } from './approval-preview.js';
 import type { ApprovalPreview } from './approval-preview.js';
 import { riskTier } from './approval-scopes.js';
@@ -46,6 +47,8 @@ export interface HookPermission {
   readonly preview?: ApprovalPreview;
   readonly createdAt: number;
   readonly expiresAt: number;
+  /** Set when the ask came from a pty session Belay spawned. */
+  readonly belaySessionId?: string;
 }
 
 export type HookNoticeKind = 'terminal-prompt' | 'done';
@@ -57,6 +60,15 @@ export interface HookNotice {
   readonly cwd: string;
   readonly text: string;
   readonly createdAt: number;
+  readonly belaySessionId?: string;
+  /** done: what the turn left in `cwd`, when it is a git repo. */
+  readonly changes?: ChangeStat;
+}
+
+/** What the host knows about a hook event beyond its payload. */
+export interface HookExtra {
+  readonly belaySessionId?: string;
+  readonly changes?: ChangeStat;
 }
 
 /** The thin row the attention socket carries. */
@@ -86,11 +98,11 @@ export interface HooksStoreDeps {
 }
 
 export interface HooksStore {
-  raise(event: PermissionRequestEvent, waitMs: number): { readonly item: HookPermission; readonly decision: Promise<HookDecision | null> };
+  raise(event: PermissionRequestEvent, waitMs: number, belaySessionId?: string): { readonly item: HookPermission; readonly decision: Promise<HookDecision | null> };
   decide(id: string, allow: boolean, choiceId?: string): boolean;
   /** The hook stopped waiting (timeout, disconnect): the ask can no longer be answered. */
-  withdraw(id: string): void;
-  notice(event: HookEvent): void;
+  withdraw(id: string): boolean;
+  notice(event: HookEvent, extra?: HookExtra): void;
   dismiss(id: string): boolean;
   pending(): readonly HookPermission[];
   notices(): readonly HookNotice[];
@@ -172,7 +184,7 @@ export function createHooksStore(deps: HooksStoreDeps = {}): HooksStore {
   };
 
   return {
-    raise(event, waitMs) {
+    raise(event, waitMs, belaySessionId) {
       const id = newId();
       const t = now();
       const { toolName: tool, toolInput, cwd } = event;
@@ -186,6 +198,7 @@ export function createHooksStore(deps: HooksStoreDeps = {}): HooksStore {
         preview: buildPreview(tool, toolInput, cwd),
         createdAt: t,
         expiresAt: t + waitMs,
+        ...(belaySessionId ? { belaySessionId } : {}),
       };
       let resolve: (d: HookDecision | null) => void = () => {};
       const decision = new Promise<HookDecision | null>((r) => { resolve = r; });
@@ -213,14 +226,15 @@ export function createHooksStore(deps: HooksStoreDeps = {}): HooksStore {
         : { behavior: 'allow' });
     },
 
-    withdraw(id) { settle(id, null); },
+    withdraw(id) { return settle(id, null); },
 
-    notice(event) {
+    notice(event, extra = {}) {
+      const base = { id: newId(), sessionId: event.sessionId, cwd: event.cwd, createdAt: now(), ...extra };
       if (event.kind === 'Stop') {
         if (event.stopHookActive) return;
-        addNotice({ id: newId(), kind: 'done', sessionId: event.sessionId, cwd: event.cwd, text: event.lastAssistantMessage, createdAt: now() });
+        addNotice({ ...base, kind: 'done', text: event.lastAssistantMessage });
       } else if (event.kind === 'Notification' && event.notificationType === 'permission_prompt') {
-        addNotice({ id: newId(), kind: 'terminal-prompt', sessionId: event.sessionId, cwd: event.cwd, text: event.message, createdAt: now() });
+        addNotice({ ...base, kind: 'terminal-prompt', text: event.message });
       }
     },
 
