@@ -48,7 +48,7 @@ export async function appleAuth(req: Request, env: Env): Promise<Response> {
   const nonce = requireString(body, 'nonce', 256);
   await enforceLimit(env.DB, `ip:${clientIp(req)}`, LIMITS.ip);
 
-  const claims = await verifyIdToken(identityToken, { ...APPLE, audiences: [env.APPLE_AUDIENCE] });
+  const claims = await verifyIdToken(identityToken, { ...APPLE, audiences: splitList(env.APPLE_AUDIENCE) });
   if (claims.nonce !== (await sha256Hex(nonce))) throw new HttpError(401, 'invalid_token', 'nonce mismatch');
   await consumeNonce(env, nonce);
   return signIn(env, 'apple', claims);
