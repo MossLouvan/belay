@@ -9,22 +9,25 @@
 // no log line explaining why.
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, renameSync, chmodSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
-import { hostname } from 'node:os';
+import { existsSync, readFileSync, writeFileSync, renameSync, chmodSync, unlinkSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { hostname, homedir } from 'node:os';
 
 import { productEnv } from './env.js';
+import { resolveStateFile, LEGACY_STATE_FILE_NAME } from './data-dir.js';
 
 /**
- * Where state lives.
- *
- * Overridable because the default is `process.cwd()`, which means launching the
- * agent from a different directory silently creates a *new* empty state and the
- * user appears unpaired for no visible reason. A service manager that sets its
- * own working directory hits this immediately.
+ * Where state lives. See data-dir.ts: an explicit BELAY_STATE_FILE wins, then
+ * a file already beside the process (pre-data-dir installs), then the
+ * per-user data directory that `npx belay-host` relies on.
  */
 const CONFIGURED_STATE_FILE = productEnv('STATE_FILE');
-const STATE_FILE = CONFIGURED_STATE_FILE || join(process.cwd(), 'belay-state.json');
+const STATE_FILE = resolveStateFile(
+  CONFIGURED_STATE_FILE,
+  process.cwd(),
+  { platform: process.platform, home: homedir(), env: process.env },
+  existsSync,
+);
 
 /**
  * Where the pre-rename install kept the same state. Read once, on first boot
@@ -34,7 +37,7 @@ const STATE_FILE = CONFIGURED_STATE_FILE || join(process.cwd(), 'belay-state.jso
  * deleted: an old host binary may still be running against it, and a file of
  * device tokens is the last thing to clean up speculatively.
  */
-const LEGACY_STATE_FILE = join(process.cwd(), 'tether-state.json');
+const LEGACY_STATE_FILE = join(process.cwd(), LEGACY_STATE_FILE_NAME);
 
 /** The file this process reads and writes, for the startup banner. */
 export function stateFilePath(): string { return STATE_FILE; }
@@ -259,6 +262,7 @@ export function loadState(): void {
 function save(): boolean {
   const temporary = `${STATE_FILE}.tmp`;
   try {
+    mkdirSync(dirname(STATE_FILE), { recursive: true, mode: 0o700 });
     writeFileSync(temporary, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: STATE_FILE_MODE });
     renameSync(temporary, STATE_FILE);
     // rename preserves the temp file's mode, but an older state file created

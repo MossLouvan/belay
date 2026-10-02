@@ -1,11 +1,39 @@
 {
   "name": "belay-host",
   "version": "1.0.0",
-  "private": true,
   "type": "module",
   "description": "Belay host agent - lets the Belay iOS app control this Windows or macOS machine",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MossLouvan/belay.git",
+    "directory": "server"
+  },
+  "homepage": "https://github.com/MossLouvan/belay#readme",
+  "bin": {
+    "belay-host": "bin/belay-host.mjs"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "!dist/**/*.map",
+    "native/",
+    "!native/BelayHostMac",
+    "!native/TetherHostMac",
+    "!native/*.exe",
+    "!native/*.dll",
+    "!native/win-display/",
+    "!native/mac/transport/vendor/",
+    "hooks/",
+    "scripts/",
+    "approval-mcp.cjs"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "dist/index.js",
   "scripts": {
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build:native": "node -e \"const cp=process.getBuiltinModule('node:child_process');const p=process.platform;if(p!=='win32'&&p!=='darwin'){console.error('[build:native] no native helper for '+p);process.exit(1)}const win=p==='win32';const f=win?'powershell':'/bin/bash';const a=win?['-NoProfile','-ExecutionPolicy','Bypass','-File','native/build.ps1']:['native/build-mac.sh'];try{cp.execFileSync(f,a,{stdio:'inherit'})}catch(e){console.error('[build:native] '+(win?'native/build.ps1':'native/build-mac.sh')+' failed: '+e.message);process.exit(1)}\"",
