@@ -102,6 +102,21 @@ test('BELAY_TEST_CODE is honoured only with the explicit opt-in', () => {
   assert.equal(consumeCode('123456'), true, 'the test code is deliberately reusable');
 });
 
+// App Review: several reviewer devices pair with one host over days. The fixed
+// code must keep working after the first device pairs — when the host no
+// longer calls ensureCode() and the random-code window is closed for good.
+test('the test code pairs a second device after the first, with no fresh code minted', () => {
+  process.env.BELAY_TEST_CODE = '246810';
+  process.env.BELAY_ALLOW_TEST_CODE = '1';
+  generateCode();
+  assert.equal(consumeCode('246810'), true, 'first device');
+  // Nothing mints a code once deviceCount() > 0; the host simply keeps serving.
+  assert.equal(currentCode()?.code, '246810', 'the fixed code never expires');
+  assert.equal(consumeCode('246810'), true, 'second device, later');
+  assert.equal(consumeCode('246811'), false, 'a wrong code is still wrong');
+  assert.equal(consumeCode('246810'), true, 'third device');
+});
+
 // Regression: the core of the reported bug. Before the fix, `testCode()` was
 // refused only when NODE_ENV === 'production' — a branch nothing in the shipped
 // run path ever set — so a BELAY_TEST_CODE alone silently disabled pairing on a

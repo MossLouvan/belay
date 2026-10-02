@@ -30,6 +30,7 @@ import { layoutDockKeys } from './dock-layout';
 import type { RecordPhase } from './record';
 import type { PendingButton } from './viewport';
 import { ModeStrip } from './mode-strip';
+import { LABS } from '../labs';
 
 /** VoiceOver's stepper verbs on the zoom key — the old −/+ keys, as gestures. */
 const ZOOM_ACTIONS = Object.freeze([
@@ -263,7 +264,7 @@ export function ControlDock({
         <View style={{ gap: 12, marginTop: 16 }}>
           <Button label="Right-click" testID="right-click" onPress={() => { onToggleRight(); setMoreOpen(false); }} variant="secondary" />
           <Button label="Double-click" testID="double-click" onPress={() => { onToggleDouble(); setMoreOpen(false); }} variant="secondary" />
-          <Button label={recordKeyLabel(recordPhase)} testID="record-key" onPress={() => { onRecord(); setMoreOpen(false); }} variant="secondary" />
+          {LABS ? <Button label={recordKeyLabel(recordPhase)} testID="record-key" onPress={() => { onRecord(); setMoreOpen(false); }} variant="secondary" /> : null}
           <Button label={`Zoom ${zoom.toFixed(1)}× · Reset`} testID="zoom-level" onPress={onZoomReset} variant="secondary" />
           {onOpenClipboard ? <Button label="Clipboard" testID="clipboard-key" onPress={() => { setMoreOpen(false); onOpenClipboard(); }} variant="secondary" /> : null}
           {screens.length > 1 ? <Button label={`Monitor ${monitorShown}/${screens.length}`} testID="monitor-switcher" onPress={() => { setMoreOpen(false); onOpenMonitorPicker(); }} variant="secondary" /> : null}
@@ -397,7 +398,7 @@ export function ControlDock({
           {/* The label names what pressing does NEXT (Rec → Stop → Send), and
               the lit track holds through recording AND ready — a stopped-but-
               unsent clip must not let the key go quiet. */}
-          <DockKey
+          {LABS ? <DockKey
             testID="record-key"
             label={recordKeyLabel(recordPhase)}
             accessibilityLabel={
@@ -415,7 +416,7 @@ export function ControlDock({
             active={recordPhase !== 'idle'}
             floating={floating}
             onPress={wrap(onRecord)}
-          />
+          /> : null}
           {onOpenClipboard ? (
             <DockKey
               testID="clipboard-key"

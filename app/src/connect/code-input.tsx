@@ -21,6 +21,8 @@ export interface CodeInputProps {
   invalid?: boolean;
   autoFocus?: boolean;
   testID?: string;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
 const DEFAULT_LENGTH = 6;
@@ -126,6 +128,8 @@ export function CodeInput({
   invalid = false,
   autoFocus = false,
   testID,
+  accessibilityLabel,
+  accessibilityHint,
 }: CodeInputProps) {
   const theme = useTheme();
   const input = useRef<TextInput>(null);
@@ -180,8 +184,8 @@ export function CodeInput({
         autoComplete="one-time-code"
         returnKeyType="go"
         selectionColor="transparent"
-        accessibilityLabel={`Pairing code, ${length} digits`}
-        accessibilityHint="Enter the code shown in the Belay window on your PC"
+        accessibilityLabel={accessibilityLabel ?? `Pairing code, ${length} digits`}
+        accessibilityHint={accessibilityHint ?? 'Enter the code shown in the Belay window on your PC'}
         style={[
           {
             position: 'absolute',

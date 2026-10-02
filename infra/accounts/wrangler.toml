@@ -1,0 +1,30 @@
+# Belay accounts service. Placeholder ids only - see README.md for setup.
+name = "belay-accounts"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "belay-accounts"
+# Replace with the id printed by `wrangler d1 create belay-accounts`.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[vars]
+APPLE_AUDIENCE = "com.mosslouvan.belay"
+# Comma-separated OAuth client ids (iOS, Android, web) accepted as `aud`.
+GOOGLE_AUDIENCES = "REPLACE_ME.apps.googleusercontent.com"
+EMAIL_FROM = "Belay <sign-in@gobelay.com>"
+# Comma-separated iroh relay URLs returned by /hosts/heartbeat.
+RELAY_URLS = ""
+
+# Secrets (never in this file), set with `wrangler secret put <NAME>`:
+#   RESEND_API_KEY, REVIEW_EMAIL, REVIEW_CODE
+
+# Hourly cleanup of expired claims, codes, sessions and rate-limit windows.
+[triggers]
+crons = ["17 * * * *"]
+
+[[routes]]
+pattern = "api.gobelay.com"
+custom_domain = true

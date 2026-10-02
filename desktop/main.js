@@ -25,6 +25,7 @@ import { fitWindow } from './src/displays.js';
 import { cascadeOffset, initialSize, windowLabel } from './src/windows.js';
 import { GROUND } from './src/ground.js';
 import { createPinStore, probeFingerprint } from './src/pins.js';
+import { startHost } from './host.js';
 
 // The certificate pins Chromium consults for every TLS connection the
 // renderer makes (src/pins.js). Loaded from the saved session at startup and
@@ -245,19 +246,27 @@ app.whenReady().then(() => {
     return true;
   });
 
-  createConnectWindow();
+  // The host role: menu bar item, QR window, permissions, login item. The
+  // viewer (connect window) stays one menu entry away — a Mac can still open
+  // another computer's displays as windows, host or not.
+  const openHostWindow = startHost({ openViewer: createConnectWindow });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createConnectWindow();
+    if (BrowserWindow.getAllWindows().length === 0) openHostWindow();
   });
+
+  if (app.isPackaged) {
+    // GitHub Releases feed (latest-mac.yml / latest.yml). Needs a signed build
+    // to install on macOS; an unsigned one logs the refusal and carries on.
+    import('electron-updater')
+      .then(({ default: updater }) => updater.autoUpdater.checkForUpdatesAndNotify())
+      .catch((e) => console.error(`[updater] ${e?.message ?? e}`));
+  }
 });
 
-// Windows and Linux quit with the last window; macOS keeps the app running,
-// which is the platform convention and lets the dock icon reopen the connect
-// window without re-pairing.
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+// Closing the last window never quits: the host keeps serving from the menu
+// bar on every platform. Quit lives in the tray menu.
+app.on('window-all-closed', () => {});
 
 // A renderer must never navigate itself somewhere else or spawn a window we did
 // not create: both are how a hostile page reached through the host's HTTP

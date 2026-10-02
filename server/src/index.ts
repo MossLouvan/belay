@@ -82,6 +82,7 @@ import { readSettings, settingsPath } from './hooks-install-cli.js';
 import { createCursorRegistry } from './cursors.js';
 import { createCursorHub } from './cursor-channel.js';
 import { createInputFloor, denialBody, isLocalActivity } from './input-floor.js';
+import { postToApp } from './host-ipc.js';
 import type { FloorDenied } from './input-floor.js';
 import { registerImageRoutes } from './image-routes.js';
 import { registerThumbnailRoutes } from './thumbnail.js';
@@ -313,6 +314,9 @@ app.get('/health', async (req, res) => {
     // that capture worked while every call was failing against a dead helper.
     native: native.isReady(),
     paired: deviceCount() > 0,
+    // How many phones are paired, for Belay.app's menu bar. Not secret: it is
+    // one number, and `paired` already says whether it is zero.
+    devices: deviceCount(),
     // Whether this host can stream H.264 over UDP (the streamer binary is
     // present). The phone makes BWP its default only when this is true, and
     // never asks a host that says false — so a Mac host is never left waiting
@@ -1999,6 +2003,7 @@ for (const host of bind.hosts.slice(1)) {
 
 server.listen(PORT, bind.hosts[0], () => {
   listening = true;
+  postToApp({ type: 'listening', port: PORT, paired: deviceCount() > 0 });
   printBanner({
     hostName: getHostName(),
     port: PORT,
@@ -2015,8 +2020,8 @@ server.listen(PORT, bind.hosts[0], () => {
   console.log(`  Hooks     : ${hooksBannerLine()}`);
   console.log(`  Notify    : ${notifyBannerLine()}`);
   // Printed because it is the answer to "why did my phone lose the pairing":
-  // the file defaults to process.cwd(), so a start from another folder without
-  // BELAY_STATE_FILE is a fresh, unpaired host with a new id.
+  // see data-dir.ts for which file wins (BELAY_STATE_FILE, a file beside the
+  // process, or the per-user data dir).
   console.log(`  State     : ${stateFilePath()}`);
   console.log(`  Bind      : ${bindBannerLine(bind)}`);
   // Async because it asks launchctl / Task Scheduler; printed as soon as it answers.

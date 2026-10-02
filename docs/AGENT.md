@@ -74,8 +74,9 @@ in progress. Nothing restarts, nothing replays a transcript into a new process,
 and the phone stays attached at the same time.
 
 ```bash
-cd server && npm run attach            # lists the sessions you can join
-cd server && npm run attach -- <id>    # join one
+npx belay-host attach                  # lists the sessions you can join
+npx belay-host attach <id>             # join one
+# from a checkout: cd server && npm run attach [-- <id>]
 ```
 
 **Ctrl-]** detaches. It leaves the session running and says so — detaching is

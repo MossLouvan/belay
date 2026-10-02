@@ -18,6 +18,7 @@ import { IconDeviceGamepad2, IconKeyboard, IconPointer } from '@tabler/icons-rea
 import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
 import { Txt, tabSelected } from '../ui';
+import { LABS } from '../labs';
 
 type ModeId = 'dock-trackpad' | 'toggle-type' | 'dock-controller';
 
@@ -66,7 +67,7 @@ export function ModeStrip({ typeOpen, onTrackpad, onKeyboard, onController }: Mo
         borderColor: theme.colors.border,
       }}
     >
-      {(Object.keys(GLYPHS) as ModeId[]).map((id) => {
+      {(Object.keys(GLYPHS) as ModeId[]).filter((id) => LABS || id !== 'dock-controller').map((id) => {
         const active = id === selected;
         const Glyph = GLYPHS[id];
         const ink = active ? activeInk : theme.colors.textDim;

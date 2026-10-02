@@ -320,5 +320,5 @@ test('every link state has a word for the header — the screen is never blank a
 });
 
 test('the desk command names this exact session, so it can be typed as printed', () => {
-  assert.equal(deskCommand('abc123'), 'npm run attach -- abc123');
+  assert.equal(deskCommand('abc123'), 'npx belay-host attach abc123');
 });

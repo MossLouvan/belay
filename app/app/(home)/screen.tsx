@@ -44,6 +44,7 @@ import type { Size } from '../../src/screen/model';
 import { aspectOf, isMacHost, readPermissions, useHostFacts, useScreenStream } from '../../src/screen/stream';
 import { useViewport } from '../../src/screen/viewport';
 import { useRemoteCursors } from '../../src/screen/cursors-store';
+import { LABS } from '../../src/labs';
 import { KeyBar, NoticeArea } from '../../src/screen/parts';
 import { EdgeRevealStrip } from '../../src/screen/edge-reveal';
 import { FloatingMascot } from '../../src/screen/floating-mascot';
@@ -181,7 +182,7 @@ export default function ScreenTab() {
 
   // The collaboration channel: everyone else's cursor coming in, ours going
   // out. Only while this tab is live — an unfocused tab has nobody pointing.
-  const room = useRemoteCursors(active && !gaming.enabled);
+  const room = useRemoteCursors(LABS && active && !gaming.enabled);
 
   const viewport = useViewport({
     sizeRef: stageRef,
