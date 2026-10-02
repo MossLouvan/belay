@@ -210,3 +210,23 @@ test('the messages a host refusal produces are recognised as denials', () => {
   assert.equal(isDenied('EACCES: permission denied'), true);
   assert.equal(isDenied('path does not exist'), false, 'a typo is not a refusal');
 });
+
+// --- unreadable folders (#145) ----------------------------------------------
+
+import { unreadableMessage } from './files-format.ts';
+
+test('an unreadable folder names the folder and the Full Disk Access fix, not the raw error', () => {
+  const msg = unreadableMessage('path is not readable', '/Users/me/Library/Mail');
+  assert.match(msg, /“Mail”/);
+  assert.match(msg, /Full Disk Access/);
+  assert.doesNotMatch(msg, /EACCES|scandir|\/Users/);
+});
+
+test('a raw EACCES from an older host is recognised too', () => {
+  assert.ok(unreadableMessage("EACCES: permission denied, scandir '/tmp/x/noperm'", '/tmp/x/noperm'));
+});
+
+test('other errors are not unreadable folders', () => {
+  assert.equal(unreadableMessage('path does not exist', '/a'), null);
+  assert.equal(unreadableMessage('path is outside the allowed roots', '/a'), null);
+});

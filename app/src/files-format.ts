@@ -268,3 +268,14 @@ export const messageOf = (error: unknown): string =>
 // a generic network failure instead of the calmer "would not open" banner.
 export const isDenied = (message: string): boolean =>
   /denied|EACCES|EPERM|not permitted|forbidden|outside the allowed/i.test(message);
+
+/**
+ * A folder the OS would not open, said in words with the usual fix (#145):
+ * on macOS that is almost always privacy protection without Full Disk Access.
+ * Null for every other failure.
+ */
+export function unreadableMessage(message: string, path: string): string | null {
+  if (!/not readable|EACCES|EPERM|permission denied|not permitted/i.test(message)) return null;
+  const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  return `The computer blocked access to “${name}”. On a Mac, grant Belay Full Disk Access in System Settings → Privacy & Security, then retry.`;
+}

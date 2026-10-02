@@ -182,3 +182,18 @@ test('listing a file says it is a file, without syscall noise', async () => {
     return true;
   });
 });
+
+test('an unreadable folder says so without leaking the raw EACCES syscall text (#145)', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
+  const { chmod } = await import('node:fs/promises');
+  const locked = join(inside, 'noperm');
+  await mkdir(locked, { recursive: true });
+  await chmod(locked, 0o000);
+  try {
+    await assert.rejects(() => listDir(locked), (e: Error) => {
+      assert.equal(e.message, 'path is not readable');
+      return true;
+    });
+  } finally {
+    await chmod(locked, 0o755);
+  }
+});

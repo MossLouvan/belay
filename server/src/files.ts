@@ -241,7 +241,13 @@ export async function listDir(target: string): Promise<{ path: string; entries: 
   // ENOTDIR (whose message embeds the scandir syscall and full path).
   const s = await stat(dir);
   if (!s.isDirectory()) throw new Error('path is a file, not a folder');
-  const names = await readdir(dir);
+  // A folder the OS will not open (mode 000, or macOS privacy without Full
+  // Disk Access) must say so plainly, not leak `EACCES: …, scandir '/…'` (#145).
+  const names = await readdir(dir).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === 'EACCES' || code === 'EPERM') throw new Error('path is not readable');
+    throw error;
+  });
   const described = await Promise.all(names.map((name) => describeEntry(dir, name)));
   const entries = described.filter((e): e is Entry => e !== null);
   // Folders first, then alphabetical — the order people expect in a file list.
