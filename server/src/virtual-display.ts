@@ -1,8 +1,9 @@
 // Driver-backed virtual displays: the host renders at the client's exact
 // resolution and refresh rate, decoupled from any physical monitor.
 //
-// This is the policy/validation layer for the OPT-IN virtual display driver
-// feature (BELAY_VIRTUAL_DISPLAY=1). It is deliberately separate from
+// This is the policy/validation layer for the virtual display driver feature
+// (on by default; BELAY_VIRTUAL_DISPLAY=0 is the explicit off switch). It is
+// deliberately separate from
 // displays.ts: that file *classifies* displays the OS already has, whatever
 // created them; this file decides whether Belay itself may *create and
 // destroy* one through the native helper, and validates every number a client
@@ -18,8 +19,9 @@
 //     same private CoreGraphics API DeskPad (MIT) and BetterDisplay use. No
 //     kernel driver, no install; the helper owns the display's lifetime.
 //
-// Nothing in the default capture path consults this module. With the flag off
-// the routes answer with a clear refusal and the native helper is never asked.
+// Nothing in the default capture path consults this module. With the feature
+// switched off the routes answer with a clear refusal and the native helper is
+// never asked.
 
 import { productEnv } from './env.js';
 
@@ -53,18 +55,19 @@ export const DEFAULT_REFRESH_HZ = 60;
 /**
  * Whether the virtual display driver feature is enabled on this host.
  *
- * Opt-in and default-off on purpose: creating displays changes the host's
- * desktop topology (windows can move, resolutions can rearrange), and on
- * Windows it requires a separately installed driver. Off means the feature is
- * invisible — the default capture path is untouched.
+ * On by default: lid-closed mode depends on it, and a host that cannot make a
+ * display (no driver, not elevated, old macOS) already degrades to a clean
+ * error at create time. `BELAY_VIRTUAL_DISPLAY=0` (or false/off/no) is the
+ * explicit off switch, which makes the feature invisible — the default
+ * capture path is untouched.
  */
 export function virtualDisplayEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
   const raw = productEnv('VIRTUAL_DISPLAY', env);
-  if (!raw) return false;
+  if (!raw) return true;
   const v = raw.trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'on' || v === 'yes';
+  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
 }
 
 function intField(value: unknown): number | undefined {
@@ -128,7 +131,7 @@ export function parseVirtualDisplayRequest(body: unknown): VirtualDisplayParse {
  * so the route and any future callers refuse identically.
  */
 export const VIRTUAL_DISPLAY_DISABLED_ERROR =
-  'virtual display support is disabled on this host; set BELAY_VIRTUAL_DISPLAY=1 and restart (see docs/VIRTUAL-DISPLAY.md)';
+  'virtual display support is switched off on this host (BELAY_VIRTUAL_DISPLAY=0); unset it and restart (see docs/VIRTUAL-DISPLAY.md)';
 
 // ---------------------------------------------------------------------------
 // Phone-driven capture path (the Parsec-style TRUE resolution feature).

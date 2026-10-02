@@ -58,7 +58,7 @@ export function useStreamPresets(active: boolean, device: Size): StreamPresets {
   );
 
   // Probe once per active session whether this host can render at a chosen
-  // resolution. A 403 (flag off) or an unreachable host resolves to false
+  // resolution. A 403 (switched off) or an unreachable host resolves to false
   // inside the api helper, so the true-resolution picker simply stays hidden
   // on hosts that cannot do it — no error, no broken option.
   useEffect(() => {

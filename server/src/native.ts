@@ -443,7 +443,7 @@ class NativeHost {
   focusWindow(window: string): Promise<{ focused?: boolean }> {
     return this.send({ cmd: 'focuswindow', window });
   }
-  // ---- Virtual display driver (opt-in, behind BELAY_VIRTUAL_DISPLAY) -----
+  // ---- Virtual display driver (on by default; BELAY_VIRTUAL_DISPLAY=0 off) --
   //
   // Ask the helper to create/destroy a driver-backed display at an exact
   // resolution and refresh, so the host renders what the client can show —
