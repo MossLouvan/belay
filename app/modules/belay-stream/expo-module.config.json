@@ -1,7 +1,10 @@
 {
-  "platforms": ["apple"],
+  "platforms": ["apple", "android"],
   "apple": {
     "modules": ["BelayStreamModule", "BelayPinModule"],
     "podspecPath": "ios/BelayStream.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.belaypin.BelayPinModule"]
   }
 }
