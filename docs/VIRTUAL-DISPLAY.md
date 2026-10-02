@@ -277,8 +277,11 @@ file.
   so a crash cannot leave the machine never-sleeping.
 - **macOS**: `pmset -a disablesleep 1|0`, which needs root. The first enable
   shows one admin prompt (`osascript … with administrator privileges`) that
-  installs `/etc/sudoers.d/belay-lid` (0440 root:wheel, checked with
-  `visudo -cf` first) allowing exactly `/usr/bin/pmset -a disablesleep 0` and
+  copies the rule to a root-owned `/etc/sudoers.d/.belay-lid.tmp` (0440
+  root:wheel; sudo ignores dotted names), runs `visudo -cf` on that copy and
+  renames it to `/etc/sudoers.d/belay-lid` only if it passes — so nothing
+  running as your user can swap the file between the check and the install.
+  The rule allows exactly `/usr/bin/pmset -a disablesleep 0` and
   `… 1` for your user, nothing else. Afterwards `sudo -n` runs them silently.
   Cancel the prompt and the switch stays off. Lid state is read from
   `ioreg -r -k AppleClamshellState -d 4`, polled every 2 s only while armed.

@@ -21,7 +21,7 @@ import { join } from 'node:path';
 
 import { messageOf } from './errors.js';
 import {
-  BATTERY_WARNING, PMSET, SUDOERS_PATH, lidStatus, parseClamshell, parsePowercfgLidAction,
+  BATTERY_WARNING, PMSET, SUDOERS_PATH, SUDOERS_STAGING, lidStatus, parseClamshell, parsePowercfgLidAction,
   parseWin32Battery, sudoersRule, toLidBattery, type LidBattery, type LidStatus,
 } from './lid-mode.js';
 import { batteryInfo } from './osinfo.js';
@@ -153,9 +153,16 @@ export function createLidController(d: LidDeps): LidController {
       chmodSync(file, 0o440);
       // The path rides in argv; AppleScript's `quoted form of` shell-quotes it.
       // The script text itself is a constant.
+      //
+      // Order matters (TOCTOU): the user-owned temp file is copied to a
+      // root-owned staging file FIRST, then validated, then renamed into place
+      // — so nothing running as this user can swap the file between the check
+      // and the install. The staging name contains a '.', which sudo ignores
+      // inside sudoers.d, so it is inert even for the instant it exists.
       const script =
-        'do shell script "/usr/sbin/visudo -cf " & quoted form of item 1 of argv & ' +
-        `" && /usr/bin/install -o root -g wheel -m 0440 " & quoted form of item 1 of argv & " ${SUDOERS_PATH}"` +
+        `do shell script "/usr/bin/install -o root -g wheel -m 0440 " & quoted form of item 1 of argv & " ${SUDOERS_STAGING}` +
+        ` && (/usr/sbin/visudo -cf ${SUDOERS_STAGING} && /bin/mv -f ${SUDOERS_STAGING} ${SUDOERS_PATH}` +
+        ` || (/bin/rm -f ${SUDOERS_STAGING}; exit 1))"` +
         ' with administrator privileges';
       await d.exec('osascript', ['-e', 'on run argv', '-e', script, '-e', 'end run', file], PROMPT_TIMEOUT_MS);
     } finally {

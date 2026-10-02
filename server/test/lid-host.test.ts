@@ -74,12 +74,15 @@ test('mac: enabling with no sudoers rule installs it once through the admin prom
   assert.equal(h.enabled(), true);
   const install = h.ran.find((l) => l.startsWith('osascript'));
   assert.ok(install, 'osascript ran');
-  assert.match(install, /visudo -cf/);
-  assert.match(install, /install -o root -g wheel -m 0440/);
-  assert.match(install, /\/etc\/sudoers\.d\/belay-lid/);
   assert.match(install, /with administrator privileges/);
-  // Argument travels as argv, never spliced into the script text.
-  assert.doesNotMatch(install, /tmp.*&&/);
+  // TOCTOU: the user temp file is copied to a root-owned staging path first;
+  // visudo validates THAT copy, and only it is renamed into place.
+  const copy = install.indexOf('/usr/bin/install -o root -g wheel -m 0440 " & quoted form of item 1 of argv & " /etc/sudoers.d/.belay-lid.tmp');
+  const check = install.indexOf('/usr/sbin/visudo -cf /etc/sudoers.d/.belay-lid.tmp');
+  const move = install.indexOf('/bin/mv -f /etc/sudoers.d/.belay-lid.tmp /etc/sudoers.d/belay-lid');
+  assert.ok(copy >= 0 && check > copy && move > check, install);
+  assert.doesNotMatch(install, /visudo -cf " & quoted form/, 'must never validate the user-owned path');
+  assert.match(install, /\|\| \(\/bin\/rm -f \/etc\/sudoers\.d\/\.belay-lid\.tmp; exit 1\)/, 'failed check removes the staging copy');
 });
 
 test('mac: a cancelled admin prompt leaves the switch off and says why', async () => {

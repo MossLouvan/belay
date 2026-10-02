@@ -70,6 +70,8 @@ export function parseWin32Battery(stdout: string): LidBattery | null {
 
 export const PMSET = '/usr/bin/pmset';
 export const SUDOERS_PATH = '/etc/sudoers.d/belay-lid';
+/** Root-owned staging copy, validated before the rename. The '.' makes sudo ignore it. */
+export const SUDOERS_STAGING = '/etc/sudoers.d/.belay-lid.tmp';
 
 // POSIX portable username: anything else could smuggle sudoers syntax.
 const SAFE_USER = /^[a-z_][a-z0-9_.-]{0,31}$/i;
