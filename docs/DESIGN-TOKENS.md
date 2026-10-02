@@ -12,6 +12,37 @@ if any hex or alpha changes.
 
 ---
 
+## 0. Harbour — the default look (2026-10)
+
+The app and Belay.app now default to **Harbour**, gobelay.com's palette (belay-site
+`globals.css` `[data-harbour]`, the setup pill in `chrome.css`). Current and Fieldwork stay
+selectable (System → Appearance: Harbour · Night · Current · Fieldwork). Source of truth:
+`harbourPalette` / `harbourNightPalette` / `harbourType` in `app/src/theme.ts`; the
+desktop's `tokens.css` is generated from them (`npm run sync-tokens`).
+
+| Role | Day | Night | From the site |
+|---|---|---|---|
+| bg | `#ECE9E3` | `#0E1C24` | the misty sky / deep sea slate |
+| surface · sheet | `#FDF8EF` | `#15272F` · `#132530` | lamplit paper (`--color-paper-2`) |
+| surfaceAlt | `#E2E7E2` | `#1B3039` | paper-3, sea-foam grey |
+| text · textDim · textFaint | `#1E3A4C` `#3A5666` `#4F6977` | `#EEF2EF` `#B4C5C8` `#8DA3A9` | deep sea ink |
+| accent (text, links) | `#0C6069` | `#7FD6CA` | lagoon ink |
+| accentGraphic (marks) | `#2B8C82` | `#56C2B6` | lagoon line |
+| accentSoft / onAccentSoft (selected chip) | `#FFF3DC` / `#7A4E0E` | `#3A3222` / `#FFCB7E` | lamplight glass |
+| ctaTop → ctaBottom / onCta (primary pill) | `#FFE2A8` → `#FFBF66` / `#1A3A45` | `#FFD68F` → `#F5B354` / `#1A3A45` | `.setup-pill` lantern amber |
+| swash | `#FFD99A` | amber 30% | `.hero__swash--amber` |
+| depth (card / cloud-pill shadow) | sea shadow `rgb(47 74 82)` | black + 1px top rim | `--color-sea-shadow` |
+
+New roles on every palette: `ctaTop`, `ctaBottom`, `onCta`, `swash`, `depth`. The flat
+looks set the CTA ends to `accent`, `swash: transparent` and `depth: 'none'`, so they
+render exactly as before. Type: Fredoka 600 for display/title/heading/subheading/numeral/
+button, Nunito 500/600/700 for text (both OFL, `@expo-google-fonts/*`). Shape: cards 24pt,
+controls are pills (999), selected segments use the soft lamplight fill
+(`app/src/design/look.ts` `HARBOUR`). Contrast for both Harbour palettes is enforced by
+`app/src/theme-contrast.test.mjs`.
+
+---
+
 ## 1. Palette
 
 `Palette` interface changes:

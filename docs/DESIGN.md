@@ -10,6 +10,15 @@ equal weight with the aesthetic. Where they conflict, §11 says which wins and w
 
 ---
 
+> **2026-10: Harbour is the default look.** The app now dresses like gobelay.com: misty
+> sky ground, lamplit cards with soft sea shadows, Fredoka headings, a lantern-amber
+> gradient pill for the one primary action, cloud pills for the rest, and a swash under a
+> hero heading's key word. Layout and navigation are unchanged (Harbour reuses Current's
+> shape switches). The "no gradients / no pills / flat" rules below still hold for the
+> Current and Fieldwork looks. Values: [DESIGN-TOKENS.md §0](./DESIGN-TOKENS.md).
+
+---
+
 ## 0. 2026 Premium Redesign — Grok Bot Inspiration
 
 **Context:** September 2026 redesign inspired by Grok Bot's premium dark aesthetic while
