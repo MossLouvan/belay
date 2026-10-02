@@ -38,9 +38,12 @@ run('npm', ['ci', '--omit=dev', '--omit=optional', '--ignore-scripts', '--no-aud
 // and dist/index.js resolves dist/node_modules first anyway.
 renameSync(join(out, 'node_modules'), join(out, 'dist', 'node_modules'));
 
-const helpers = ['BelayHostMac', 'TetherHostMac', 'BelayHost.exe', 'TetherHost.exe'];
+const helpers = ['BelayHostMac', 'TetherHostMac', 'BelayHost.exe', 'TetherHost.exe', 'belay-net', 'belay-net.exe'];
 const staged = helpers.filter((name) => existsSync(join(server, 'native', name)));
 for (const name of staged) cpSync(join(server, 'native', name), join(out, 'native', name));
+if (!staged.some((n) => n.startsWith('belay-net'))) {
+  console.warn('[stage] no belay-net tunnel sidecar in server/native — the packaged app will not reach the computer from outside the LAN (npm run build:tunnel in server/).');
+}
 if (staged.length === 0) {
   console.error('[stage] no native helper in server/native — build it first (bash native/build-mac.sh or native/build.ps1).');
   console.error('[stage] staging without it: the app will run, but Screen and input will be off.');
