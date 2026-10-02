@@ -28,20 +28,22 @@ export interface ConnectionSummary {
 }
 
 /**
- * Short name for the path in use. MagicDNS is a Tailscale hostname — naming
- * the DNS scheme instead of the network would mean nothing to anyone.
+ * Short name for the path in use. A tailnet or MagicDNS address reads as
+ * "Private network": Belay should not look reliant on any one VPN vendor, and
+ * naming the DNS scheme would mean nothing to anyone. Detection is unchanged;
+ * only the words are vendor-neutral.
  */
 export function kindLabel(kind: AddressKind): string {
-  if (kind === 'lan') return 'LAN';
+  if (kind === 'lan') return 'Wi-Fi';
   if (kind === 'relay') return 'Relay';
-  return 'Tailscale';
+  return 'Private network';
 }
 
 /** The same path, in words a screen reader can say. */
 export function kindSpoken(kind: AddressKind): string {
   if (kind === 'lan') return 'your local network';
   if (kind === 'relay') return 'a relay';
-  return 'Tailscale';
+  return 'a private network';
 }
 
 /**
