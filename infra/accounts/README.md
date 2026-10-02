@@ -27,6 +27,7 @@ npm run dev       # wrangler dev, local D1 (run migrate:local first)
 
 - Session routes (incl. `POST /auth/logout`): `Authorization: Bearer <session>`
 - `POST /hosts/heartbeat`: `Authorization: Bearer <hostCredential>`
+- `POST /hosts/link`: `Authorization: Bearer <session>` (a signed-in computer links itself; returns `hostCredential` once)
 - `GET /claims/:code`: `X-Host-Secret: <hostSecret>`
 
 ## Deploy (owner, one-time)

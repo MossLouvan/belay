@@ -18,6 +18,7 @@
 | POST | /claims/:code/accept | session | phone → `{device}` (links the host to the account). 404 for unknown, expired OR already-taken codes; 409 `device_exists` if the account already has a host with that nodeId and a live credential (DELETE /devices/:id first). Limited 10/10 min per account |
 | GET | /claims/:code | `X-Host-Secret` | host polls → `{status:'pending'|'claimed'|'expired', claimedBy?, hostCredential?}`. `claimedBy` = masked email of the linking account (`us***@example.com`) |
 | POST | /hosts/heartbeat | host credential | `{}` → `{allowedNodeIds:[...phone nodeIds on the account], relayUrls:[...]}` |
+| POST | /hosts/link | session | computer signed in to the account links itself, no QR: `{nodeId, name, platform, ts, sig}` (same proof of possession as POST /claims) → `{device, hostCredential, linkedBy}`. `hostCredential` is returned ONCE (only its hash is stored); `linkedBy` = masked email. 409 `device_exists` if the account already has a host with that nodeId and a live credential; a half-linked row (claim accepted, never polled) is replaced. Limited 60/min per IP and 10/10 min per account |
 
 - Session and host credentials: 32 random bytes base64url, stored SHA-256 hashed in D1, shown once. Sessions last 90 days with sliding expiry and an absolute maximum of 365 days from creation.
 - `nodeId` encoding everywhere in this API: the 32-byte Ed25519 public key as exactly 64 lowercase hex chars (iroh's `NodeId` `Display`). Base32 is not accepted; clients must use the hex form.
@@ -39,3 +40,5 @@
 
 ### Out of scope here
 Android tunnel FFI (follows the iOS FFI once proven), the installer app (separate change), and billing.
+
+- Computer sign-in (2026-10-02): the computer may link itself with `POST /hosts/link` instead of a claim QR. Belay.app signs in (email code; Apple/Google via the system browser when configured), hands the session to the host over the app→host IPC exactly once, the host signs the nodeId proof with the sidecar and calls `/hosts/link`, persists `hostCredential` at 0600 (same file as the claim path) before any other call, and the session is discarded: it is never written to disk and the computer keeps no user session. The claim QR stays as the alternative. A linked computer appears in `GET /devices` for every phone on the account; phone-side pairing rules are unchanged (see the pairing clarification above).
