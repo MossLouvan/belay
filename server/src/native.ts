@@ -400,8 +400,10 @@ class NativeHost {
   up(button: string, x?: number, y?: number, screen?: number, window?: string) {
     return this.send({ cmd: 'up', button, x, y, screen, window });
   }
-  click(button: string, x?: number, y?: number, double = false, screen?: number, mods?: number[], window?: string) {
-    return this.send({ cmd: 'click', button, x, y, double, screen, mods, window });
+  click(button: string, x?: number, y?: number, double = false, screen?: number, mods?: number[], window?: string, count = 1) {
+    // `count` 2 is the second click of a double-tap; dropped when 1 so old
+    // helpers see the wire message they always did.
+    return this.send({ cmd: 'click', button, x, y, double, screen, mods, window, count: count === 2 ? 2 : undefined });
   }
 
   /**

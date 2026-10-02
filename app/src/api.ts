@@ -688,8 +688,11 @@ export const api = {
   // `screen` is the monitor the coordinates are normalized against (an index
   // from ScreenInfo.screens). Left undefined it is dropped by JSON.stringify,
   // so old hosts see the exact requests they always did (primary monitor).
-  click: (x: number, y: number, button = 'left', double = false, screen?: number, mods?: string[]) =>
-    post('/input/click', { x, y, button, double, screen, mods }),
+  // `count` 2 marks the second click of a double-tap sequence (macOS posts it
+  // with clickState 2; Windows recognises the pair by its own timing). Left
+  // undefined for a lone click, so old hosts see exactly what they always did.
+  click: (x: number, y: number, button = 'left', double = false, screen?: number, mods?: string[], count?: 1 | 2) =>
+    post('/input/click', { x, y, button, double, screen, mods, count: count === 2 ? 2 : undefined }),
   move: (x: number, y: number, screen?: number) => post('/input/move', { x, y, screen }),
   scroll: (dy: number, dx = 0) => post('/input/scroll', { dy, dx }),
   drag: (x1: number, y1: number, x2: number, y2: number, screen?: number) =>

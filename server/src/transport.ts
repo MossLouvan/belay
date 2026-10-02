@@ -60,7 +60,10 @@ export function transportAllowed(socket: TransportFacts): boolean {
  * each receives the sockets the sniffer hands it as if it had accepted them.
  */
 export function createPolyglotServer(plain: HttpServer, secure: HttpsServer): NetServer {
-  return createNetServer((socket: Socket) => {
+  // TCP_NODELAY: this listener owns the handle, so the HTTP servers' own
+  // noDelay never reaches it, and a click or a frame tail would otherwise
+  // sit in Nagle's buffer waiting for the previous ACK.
+  return createNetServer({ noDelay: true }, (socket: Socket) => {
     // A peer that connects and resets before the first byte would otherwise
     // raise an unhandled 'error' on a socket nobody owns yet.
     socket.on('error', () => { /* handed-off sockets get the http server's handler */ });

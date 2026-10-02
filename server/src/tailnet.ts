@@ -170,8 +170,22 @@ async function selfIdentity(): Promise<SelfIdentity | null> {
   return self;
 }
 
+/**
+ * `tailscale whois` is a CLI spawn (tens of ms, more on Windows) and /health
+ * asked it on every call. A peer's identity does not change inside a minute,
+ * so one answer per IP is kept that long — the same window as `selfCache`.
+ */
+const WHOIS_CACHE_MS = 60 * 1000;
+const whoisCache = new Map<string, { peer: Whois | null; at: number }>();
+
 export async function whois(ip: string): Promise<Whois | null> {
-  try { return parseWhois(await run(['whois', '--json', ip])); } catch { return null; }
+  const now = Date.now();
+  const hit = whoisCache.get(ip);
+  if (hit && now - hit.at < WHOIS_CACHE_MS) return hit.peer;
+  let peer: Whois | null = null;
+  try { peer = parseWhois(await run(['whois', '--json', ip])); } catch { peer = null; }
+  whoisCache.set(ip, { peer, at: now });
+  return peer;
 }
 
 /**
