@@ -187,6 +187,16 @@ export function pipeInput(data: string): string {
   return data.replace(/\r\n?/g, '\n');
 }
 
+/**
+ * A pty's line discipline turns the child's `\n` into `\r\n`; a pipe has no
+ * line discipline, so the client's cursor never returns to column 0 and every
+ * line after the first starts where the last one ended (#87). Done here, once,
+ * so the client treats both modes identically.
+ */
+export function pipeOutput(data: string): string {
+  return data.replace(/\r?\n/g, '\r\n');
+}
+
 export async function createTerminal(cols: number, rows: number): Promise<TermSession> {
   const pty = await loadPty();
   const { file, args } = resolveShell();
@@ -221,8 +231,8 @@ export async function createTerminal(cols: number, rows: number): Promise<TermSe
   });
   const dataCbs: ((d: string) => void)[] = [];
   const exitCbs: (() => void)[] = [];
-  child.stdout?.on('data', (b) => dataCbs.forEach((cb) => cb(b.toString())));
-  child.stderr?.on('data', (b) => dataCbs.forEach((cb) => cb(b.toString())));
+  child.stdout?.on('data', (b) => dataCbs.forEach((cb) => cb(pipeOutput(b.toString()))));
+  child.stderr?.on('data', (b) => dataCbs.forEach((cb) => cb(pipeOutput(b.toString()))));
   child.on('exit', () => exitCbs.forEach((cb) => cb()));
   // A shell that cannot be spawned at all must surface to the user, not vanish.
   child.on('error', (err) => {
