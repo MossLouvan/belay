@@ -27,6 +27,9 @@ Pod::Spec.new do |s|
   # Produced by scripts/build-ios-client.sh, which must be run on a Mac before
   # this will link.
   s.vendored_frameworks = 'lib/BelayClient.xcframework'
+  # The tunnel (iroh) watches network changes through SystemConfiguration;
+  # a bare static library cannot name the frameworks it needs, so this must.
+  s.frameworks = 'SystemConfiguration', 'Security', 'CoreFoundation'
 
   # Swift only. The C header is NOT a source file: it is declared by
   # include/module.modulemap and imported as `BelayClientFFI`. Compiling it
