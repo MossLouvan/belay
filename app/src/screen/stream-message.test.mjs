@@ -25,6 +25,15 @@ test('an error carries its text, or a default when the host sent none', () => {
   if (blank?.type === 'error') assert.ok(blank.error.length > 0);
 });
 
+test('a host notice (lid-closed battery warning) carries its text and is not an error', () => {
+  assert.deepEqual(parseStreamMessage(JSON.stringify({ type: 'notice', message: 'Battery at 20%' })), {
+    type: 'notice',
+    message: 'Battery at 20%',
+  });
+  assert.equal(parseStreamMessage(JSON.stringify({ type: 'notice', message: '' })), null);
+  assert.equal(parseStreamMessage(JSON.stringify({ type: 'notice' })), null);
+});
+
 test('anything unrecognised is null, never a throw', () => {
   for (const junk of [null, undefined, 42, 'not json', '{"broken', '[]', '{"type":"frame"}', JSON.stringify({ type: 'bwpOffer' })]) {
     assert.equal(parseStreamMessage(junk), null, `must ignore ${String(junk)}`);

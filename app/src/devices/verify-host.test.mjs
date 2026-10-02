@@ -74,3 +74,44 @@ test('hasProofSecret needs both halves', () => {
   assert.equal(hasProofSecret({ id: 'x', deviceId: 'd' }), false);
   assert.equal(hasProofSecret({ id: 'x', secret: 's' }), false);
 });
+
+// Item 11 (cut-latency): the TLS pin already proves the peer holds the host's
+// private key, so the HMAC round trip is skipped ONLY when the link is https,
+// not Tailscale/loopback, and the caller attests the native layer enforced
+// the pin for this host:port. Everything else still challenges.
+test('a natively pinned https link skips the challenge', async () => {
+  let asked = false;
+  const spy = async (...args) => { asked = true; return genuine(...args); };
+  const verdict = await verifyHost(
+    { device: paired, url: 'https://192.168.1.5:8787', reportedHostId: 'mac-uuid', pinEnforced: true },
+    spy, bytes,
+  );
+  assert.deepEqual(verdict, { ok: true, adoptId: undefined });
+  assert.equal(asked, false, 'no /challenge round trip');
+});
+
+test('plain http, Tailscale, and an unenforced pin all keep the challenge', async () => {
+  const cases = [
+    { url: 'http://100.101.1.1:8787', pinEnforced: true },
+    { url: 'https://mac.tail1234.ts.net:8787', pinEnforced: true },
+    { url: 'https://192.168.1.5:8787', pinEnforced: false },
+    { url: 'https://192.168.1.5:8787' },
+  ];
+  for (const c of cases) {
+    let asked = false;
+    const spy = async (...args) => { asked = true; return genuine(...args); };
+    const ok = await verifyHost({ device: paired, reportedHostId: 'mac-uuid', ...c }, spy, bytes);
+    assert.deepEqual(ok, { ok: true, adoptId: undefined }, c.url);
+    assert.equal(asked, true, `${c.url} must still challenge`);
+    const bad = await verifyHost({ device: paired, reportedHostId: 'mac-uuid', ...c }, impostor, bytes);
+    assert.deepEqual(bad, { ok: false, problem: 'identity' }, c.url);
+  }
+});
+
+test('a mismatched host id still fails on a pinned link, before any challenge', async () => {
+  const verdict = await verifyHost(
+    { device: paired, url: 'https://192.168.1.5:8787', reportedHostId: 'other', pinEnforced: true },
+    genuine, bytes,
+  );
+  assert.deepEqual(verdict, { ok: false, problem: 'identity' });
+});

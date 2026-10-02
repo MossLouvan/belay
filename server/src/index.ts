@@ -20,7 +20,9 @@ import { URL } from 'node:url';
 import {
   loadState, addDevice, findDevice, findDeviceById, touchDevice, setHostName, getHostName, listDevices,
   revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, stateFilePath, Device, PairedDevice,
+  getLidClosedMode, setLidClosedMode, getLidSavedAction, setLidSavedAction,
 } from './state.js';
+import { createLidController, lidDepsFor, LID_POLL_MS } from './lid-host.js';
 import { ensureTlsIdentity } from './tls-cert.js';
 import { createPolyglotServer, transportAllowed, PLAINTEXT_REFUSED, PLAINTEXT_REFUSED_STATUS } from './transport.js';
 import { isValidNonce, proveDevice } from './device-proof.js';
@@ -84,6 +86,7 @@ import { productEnv } from './env.js';
 import { webrtcEnabled } from './webrtc/flag.js';
 import {
   virtualDisplayEnabled,
+  clampVirtualDisplayRequest,
   parseVirtualDisplayRequest,
   resolveVirtualRequest,
   sameRequest,
@@ -196,6 +199,25 @@ if (nativeBuilt) {
 } else {
   console.warn(`[native] helper not built — screen/input disabled. To fix, ${buildNativeHint()}`);
 }
+
+// Lid-closed mode (lid-host.ts). `start()` forces normal sleep back on, so a
+// host that crashed while armed cannot leave the machine never-sleeping. The
+// battery warning goes to every open screen socket as a `notice`.
+const screenSockets = new Set<WebSocket>();
+const lid = createLidController(lidDepsFor({
+  getEnabled: getLidClosedMode,
+  setEnabled: setLidClosedMode,
+  getSavedLidAction: getLidSavedAction,
+  setSavedLidAction: setLidSavedAction,
+  onWarn: (message) => {
+    for (const ws of screenSockets) {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'notice', message }));
+    }
+  },
+}));
+void lid.start();
+// Cheap when idle: tick() runs no probe unless the mode is on and could be armed.
+setInterval(() => void lid.tick(), LID_POLL_MS).unref();
 
 // The certificate every LAN client pins (tls-cert.ts). Minted beside the
 // state file on first run; its fingerprint rides in the pairing QR and /pair.
@@ -575,13 +597,32 @@ app.get('/screen/info', auth, async (_req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-// ---- Virtual display driver (opt-in, BELAY_VIRTUAL_DISPLAY) ---------------
+// ---- Lid-closed mode -------------------------------------------------------
+//
+// One switch, persisted in host state. Only a paired device may flip it, and
+// on macOS the first enable raises the one-time admin prompt (lid-host.ts).
+
+app.get('/lid-mode', auth, (_req, res) => { res.json(lid.status()); });
+
+app.post('/lid-mode', auth, async (req, res) => {
+  const enabled = req.body?.enabled;
+  if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be a boolean' }); return; }
+  try {
+    const reply = await lid.setEnabled(enabled);
+    if (!reply.ok) { res.status(403).json({ error: reply.error, ...lid.status() }); return; }
+    res.json({ ok: true, ...lid.status() });
+  } catch (e: unknown) {
+    res.status(500).json({ error: `could not change lid-closed mode: ${messageOf(e)}` });
+  }
+});
+
+// ---- Virtual display driver (on by default; BELAY_VIRTUAL_DISPLAY=0 to off) --
 //
 // Create/destroy a driver-backed display at the client's exact resolution and
 // refresh, so the host renders what the client can actually show — the
 // Parsec-style headless / resolution-match enabler. Routes are registered
 // unconditionally so a client always gets a *reason* rather than a bare 404,
-// but with the flag off nothing past the refusal runs and the native helper
+// but with the feature off nothing past the refusal runs and the native helper
 // is never asked. Backend status and build steps: docs/VIRTUAL-DISPLAY.md.
 //
 // Auth on every verb: creating a display changes the host's desktop topology,
@@ -594,9 +635,10 @@ app.get('/screen/virtual-display', auth, async (_req, res) => {
   }
   try {
     const reply = await native.virtualDisplayStatus();
-    // `available` = the flag is on AND the native backend actually exists on
-    // this host (macOS with the private API present). It is what the phone gates
-    // its "true resolution" option on; `active` is whether one is up right now.
+    // `available` = the feature is on AND the native backend actually exists on
+    // this host (macOS with the private API present; Windows with the driver).
+    // It is what the phone gates its "true resolution" option on; `active` is
+    // whether one is up right now.
     res.json({
       enabled: true,
       available: reply?.supported === true,
@@ -1601,6 +1643,11 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
 
   const featureOn = virtualDisplayEnabled();
   let desired: VirtualDisplayRequest | null = null; // what the phone last asked for
+  // Lid-closed mode: with the lid shut there is no panel to capture, so the
+  // host makes a display at the stream's own size until the lid opens. The
+  // phone's explicit choice always wins over this.
+  let lidReq: VirtualDisplayRequest | null = null;
+  let lastAspect = 16 / 9; // source aspect of the last frame, for the lid display
   let activeReq: VirtualDisplayRequest | null = null; // what is actually up
   let virtualUp = false;
   // Serialize reconciles so two quick config messages cannot interleave a
@@ -1609,7 +1656,8 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
 
   const reconcileVirtual = (): void => {
     reconciling = reconciling.then(async () => {
-      if (sameRequest(desired, activeReq)) return; // nothing to do
+      const wanted = phoneOrLidRequest();
+      if (sameRequest(wanted, activeReq)) return; // nothing to do
       // Tear down whatever is up before creating the next mode (or when going
       // back to physical). Destroy is idempotent, so this is always safe.
       if (virtualUp) {
@@ -1617,11 +1665,11 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
         virtualUp = false;
       }
       activeReq = null;
-      if (desired && featureOn) {
+      if (wanted && featureOn) {
         try {
-          await native.virtualDisplayCreate(desired.width, desired.height, desired.refreshHz);
+          await native.virtualDisplayCreate(wanted.width, wanted.height, wanted.refreshHz);
           virtualUp = true;
-          activeReq = desired;
+          activeReq = wanted;
         } catch (e: unknown) {
           // Graceful fallback: the host cannot make this display (old macOS,
           // Windows without the driver, helper too old). Keep streaming the
@@ -1638,6 +1686,8 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
     }).catch(() => { /* a reconcile never rejects the chain */ });
   };
 
+  const phoneOrLidRequest = (): VirtualDisplayRequest | null => desired ?? lidReq;
+
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
@@ -1649,14 +1699,31 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
       if (!sameRequest(next, desired)) { desired = next; reconcileVirtual(); }
     } catch { /* ignore malformed control messages */ }
   });
+
+  // Lid-closed mode: this stream counts towards arming, and follows the lid.
+  screenSockets.add(ws);
+  lid.streamStarted();
+  const unsubscribeLid = lid.subscribe((closed) => {
+    lidReq = closed
+      ? clampVirtualDisplayRequest({ width: params.width, height: params.width / lastAspect })
+      : null;
+    reconcileVirtual();
+  });
+
   const teardown = () => {
+    if (!alive) return; // 'close' follows 'error'; count the stream down once
     alive = false;
+    screenSockets.delete(ws);
+    unsubscribeLid();
+    lid.streamEnded();
     // A streamer that outlived its socket would keep capturing the desktop and
     // sending it to a client that is gone.
     stopBwp();
     // Free the virtual display on disconnect: a display that outlived the phone
     // that asked for it would rearrange the host owner's desktop for nobody.
-    if (virtualUp || desired) { desired = null; reconcileVirtual(); }
+    desired = null;
+    lidReq = null;
+    reconcileVirtual(); // queues behind any create in flight, so nothing leaks
   };
   ws.on('close', teardown);
   ws.on('error', teardown);
@@ -1687,6 +1754,7 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
           params.width, params.quality, false, params.screen, mode.virtual !== null,
         );
         if (!alive) break;
+        if (frame.sw > 0 && frame.sh > 0 && mode.virtual === null) lastAspect = frame.sw / frame.sh;
         sendFrame(ws, frame, binary);
       } catch (e: unknown) {
         if (alive && ws.readyState === ws.OPEN) {
@@ -1996,5 +2064,10 @@ process.on('uncaughtException', (error: unknown) => {
   if (!listening) process.exit(1);
 });
 
-process.on('SIGINT', () => { native.stop(); process.exit(0); });
-process.on('SIGTERM', () => { native.stop(); process.exit(0); });
+// Normal sleep is restored before the process goes: an exit while armed must
+// not leave the machine never-sleeping.
+const shutdown = (): void => {
+  void lid.stop().finally(() => { native.stop(); process.exit(0); });
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

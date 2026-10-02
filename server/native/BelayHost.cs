@@ -357,8 +357,8 @@ static class BelayHost
                     // person sitting at it (server/src/input-floor.ts).
                     case "idle": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "idleMs", Native.IdleMs() } }); break;
                     case "webrtc": DoWebrtc(stdout, idObj, c); break;
-                    // Virtual display driver (opt-in; Node gates it behind
-                    // BELAY_VIRTUAL_DISPLAY). Needs the BelayVDD driver from
+                    // Virtual display driver (on by default; BELAY_VIRTUAL_DISPLAY=0
+                    // switches it off in Node). Needs the BelayVDD driver from
                     // native/win-display/ installed — without it the handler
                     // throws a message that says so. See docs/VIRTUAL-DISPLAY.md.
                     case "virtualdisplay": Reply(stdout, BelayVirtualDisplay.Handle(idObj, c)); break;

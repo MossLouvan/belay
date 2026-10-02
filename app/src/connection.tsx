@@ -17,7 +17,7 @@ import {
 } from './devices/model';
 import { forgetDevice, revokeAtVerifiedHost } from './devices/forget';
 import { isUnresolved } from './devices/token-resolve';
-import { pinAddresses, randomBytes } from './devices/pinning';
+import { pinAddresses, pinEnforced, randomBytes } from './devices/pinning';
 import { verifyHost } from './devices/verify-host';
 import type { TrustProblem } from './devices/verify-host';
 import { loadStore, saveStore } from './devices/storage';
@@ -178,7 +178,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     // proof, or a pairing too old to be verified on this link all stop here —
     // see devices/verify-host.ts.
     const trust = await verifyHost(
-      { device, url: winner.url, reportedHostId: winner.hostId },
+      { device, url: winner.url, reportedHostId: winner.hostId, pinEnforced: pinEnforced(winner.url, device.fingerprint) },
       challengeHost,
       randomBytes,
     );
@@ -258,7 +258,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       return revokeAtVerifiedHost(device, {
         connectedHost: connection?.hostId === device.id ? connection.host : null,
         checkHost: (url) => checkHost(url),
-        verify: (input) => verifyHost(input, challengeHost, randomBytes),
+        verify: (input) => verifyHost({ ...input, pinEnforced: pinEnforced(input.url, input.device.fingerprint) }, challengeHost, randomBytes),
         revoke: revokeSelf,
       });
     });

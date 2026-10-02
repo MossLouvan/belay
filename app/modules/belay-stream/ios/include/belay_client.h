@@ -51,6 +51,10 @@ void *belay_client_open(const char *bind,
 // The bound local UDP port, which the host needs in order to send. 0 if unknown.
 uint16_t belay_client_local_port(void *handle);
 
+// Block until a datagram is waiting or timeout_ms passes. Returns 1 if one is
+// waiting (call belay_client_next_frame), 0 on timeout, negative on error.
+int belay_client_wait(void *handle, uint32_t timeout_ms);
+
 // Pull the next event. Never blocks. Returns a BELAY_FRAME_* value, or a
 // negative BELAY_ERR_* code. BELAY_FRAME_NONE means nothing was ready, which is
 // the normal case between frames and not an error.

@@ -26,27 +26,27 @@ import {
 
 // ---- flag ------------------------------------------------------------------
 
-test('the flag is off by default', () => {
-  assert.equal(virtualDisplayEnabled({}), false);
+test('the feature is on by default', () => {
+  assert.equal(virtualDisplayEnabled({}), true);
 });
 
-test('the flag accepts the usual truthy spellings', () => {
-  for (const v of ['1', 'true', 'on', 'yes', 'TRUE', ' On ']) {
-    assert.equal(virtualDisplayEnabled({ BELAY_VIRTUAL_DISPLAY: v }), true, v);
+test('the usual falsy spellings switch it off', () => {
+  for (const v of ['0', 'false', 'off', 'no', ' OFF ']) {
+    assert.equal(virtualDisplayEnabled({ BELAY_VIRTUAL_DISPLAY: v }), false, v);
   }
 });
 
-test('the flag rejects everything else', () => {
-  for (const v of ['0', 'false', 'off', 'no', '', 'enable']) {
-    assert.equal(virtualDisplayEnabled({ BELAY_VIRTUAL_DISPLAY: v }), false, JSON.stringify(v));
+test('anything else leaves it on', () => {
+  for (const v of ['1', 'true', 'on', 'yes', '', 'maybe']) {
+    assert.equal(virtualDisplayEnabled({ BELAY_VIRTUAL_DISPLAY: v }), true, JSON.stringify(v));
   }
 });
 
 test('the legacy TETHER_ prefix still works, and BELAY_ wins over it', () => {
-  assert.equal(virtualDisplayEnabled({ TETHER_VIRTUAL_DISPLAY: '1' }), true);
+  assert.equal(virtualDisplayEnabled({ TETHER_VIRTUAL_DISPLAY: '0' }), false);
   assert.equal(
-    virtualDisplayEnabled({ BELAY_VIRTUAL_DISPLAY: '0', TETHER_VIRTUAL_DISPLAY: '1' }),
-    false,
+    virtualDisplayEnabled({ BELAY_VIRTUAL_DISPLAY: '1', TETHER_VIRTUAL_DISPLAY: '0' }),
+    true,
   );
 });
 

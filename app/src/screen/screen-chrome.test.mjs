@@ -160,10 +160,10 @@ test('the record key runs start, stop, review', () => {
 });
 
 test('the panel state covers the stage until any picture exists, or when capture is blocked', () => {
-  assert.equal(panelStateShown({ captureBlocked: false, frameUri: null, bwp: null }), true);
-  assert.equal(panelStateShown({ captureBlocked: false, frameUri: 'data:', bwp: null }), false);
-  assert.equal(panelStateShown({ captureBlocked: false, frameUri: null, bwp: { port: 1 } }), false, 'H.264 is a picture');
-  assert.equal(panelStateShown({ captureBlocked: true, frameUri: 'data:', bwp: null }), true);
+  assert.equal(panelStateShown({ captureBlocked: false, hasFrame: false, bwp: null }), true);
+  assert.equal(panelStateShown({ captureBlocked: false, hasFrame: true, bwp: null }), false);
+  assert.equal(panelStateShown({ captureBlocked: false, hasFrame: false, bwp: { port: 1 } }), false, 'H.264 is a picture');
+  assert.equal(panelStateShown({ captureBlocked: true, hasFrame: true, bwp: null }), true);
 });
 
 test('the crosshair shows in trackpad mode or after a pad touch, only over a picture', () => {

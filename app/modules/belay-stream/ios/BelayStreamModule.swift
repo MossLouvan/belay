@@ -41,6 +41,13 @@ public class BelayStreamModule: Module {
             // One prop rather than a start() method with five arguments: React
             // re-renders, and a declarative source means a re-render with the
             // same values is a no-op instead of restarting the stream.
+            /// Opt in to `onCursor` events. Off by default: the native loop
+            /// would otherwise post to the main queue at up to 120 Hz for a
+            /// listener nothing attaches.
+            Prop("cursorEvents") { (view: BelayStreamView, on: Bool?) in
+                view.cursorEvents = on ?? false
+            }
+
             Prop("source") { (view: BelayStreamView, source: BwpSourceRecord?) in
                 guard let source, source.isUsable else {
                     view.stop()

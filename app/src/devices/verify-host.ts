@@ -52,6 +52,14 @@ export interface TrustInput {
   readonly url: string;
   /** The id that address reported in /health, if any. */
   readonly reportedHostId?: string;
+  /**
+   * The caller attests the NATIVE pin layer holds this device's fingerprint
+   * for `url`'s host:port (pinning.ts `pinEnforced`). Only then did the https
+   * answer prove the peer holds the host's private key, which is what lets
+   * the HMAC challenge be skipped. The JS pin table alone proves nothing on
+   * web or Expo Go, where the browser or system decides.
+   */
+  readonly pinEnforced?: boolean;
 }
 
 /** Ask `url` to prove itself for `deviceId`; resolves the proof, or null on any failure. */
@@ -83,7 +91,7 @@ export async function verifyHost(
   challenge: Challenge,
   randomBytes: (n: number) => Uint8Array,
 ): Promise<TrustVerdict> {
-  const { device, url, reportedHostId } = input;
+  const { device, url, reportedHostId, pinEnforced } = input;
 
   const identity = checkHostIdentity(device.id, reportedHostId);
   if (identity === 'mismatch') return { ok: false, problem: 'identity' };
@@ -94,6 +102,11 @@ export async function verifyHost(
   if (isHttps(url) && !device.fingerprint) return { ok: false, problem: 'needs-repair' };
 
   if (hasProofSecret(device)) {
+    // An enforced TLS pin on a public link already proved identity: skip the
+    // /challenge round trip. Tailscale and loopback keep it — a .ts.net name
+    // can carry a publicly valid certificate, so the pin is not the only way
+    // that handshake could have passed.
+    if (isHttps(url) && !isPrivateLink(url) && pinEnforced === true) return { ok: true, adoptId };
     const nonce = nonceHex(randomBytes);
     const proof = await challenge(url, device.deviceId, nonce);
     if (!proofMatches(device.secret, nonce, proof)) return { ok: false, problem: 'identity' };

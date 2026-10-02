@@ -75,6 +75,8 @@ pub struct Reassembler {
     delivered: Option<u32>,
     /// Newest keyframe id seen, for the supersede rule.
     newest_keyframe: Option<u32>,
+    /// A delta frame completed with a hole before it (see `take_gap`).
+    gap: bool,
     stats: ReassemblyStats,
 }
 
@@ -93,6 +95,14 @@ impl Reassembler {
 
     pub fn stats(&self) -> ReassemblyStats {
         self.stats
+    }
+
+    /// Whether a delta frame was delivered whose predecessor never arrived at
+    /// all — a whole frame lost, which no fragment-level drop ever reports.
+    /// The decoder will reference a frame it does not have, so the caller
+    /// should ask for a keyframe. Cleared on read; a keyframe never counts.
+    pub fn take_gap(&mut self) -> bool {
+        std::mem::take(&mut self.gap)
     }
 
     pub fn push(&mut self, header: &Header, payload: &[u8]) -> Accepted {
@@ -173,6 +183,11 @@ impl Reassembler {
             let mut payload = Vec::with_capacity(done.frag_count as usize * MAX_PAYLOAD);
             for part in done.parts.into_iter() {
                 payload.extend_from_slice(&part.expect("complete frame has every part"));
+            }
+            if let Some(d) = self.delivered {
+                if !done.keyframe && header.frame_id != d.wrapping_add(1) {
+                    self.gap = true;
+                }
             }
             self.delivered = Some(header.frame_id);
             self.stats.frames_completed += 1;
@@ -353,5 +368,54 @@ mod tests {
         r.push(&hdr(1, 0, 4, 1, false), b"a");
         let bad = r.push(&hdr(1, 1, 9, 2, false), b"b");
         assert_eq!(bad, Accepted::Dropped(DropReason::TooManyFragments));
+    }
+}
+
+#[cfg(test)]
+mod gap_tests {
+    use super::*;
+    use crate::packet::flags;
+
+    fn hdr(frame_id: u32, key: bool) -> Header {
+        Header {
+            channel: Channel::Video,
+            flags: if key { flags::KEYFRAME } else { 0 },
+            sequence: frame_id,
+            frame_id,
+            frag_index: 0,
+            frag_count: 1,
+            send_us: 0,
+        }
+    }
+
+    /// A delta frame that follows a hole cannot be decoded against the frame
+    /// the sender actually referenced; only a keyframe repairs that, and the
+    /// transport is the first to know a whole frame went missing.
+    #[test]
+    fn a_missing_frame_before_a_delta_frame_is_a_gap() {
+        let mut r = Reassembler::new();
+        r.push(&hdr(1, true), b"k");
+        assert!(!r.take_gap());
+        r.push(&hdr(2, false), b"d");
+        assert!(!r.take_gap(), "consecutive frames are not a gap");
+        r.push(&hdr(4, false), b"d");
+        assert!(r.take_gap(), "frame 3 never arrived");
+        assert!(!r.take_gap(), "reported once");
+    }
+
+    #[test]
+    fn a_keyframe_after_a_hole_is_not_a_gap() {
+        let mut r = Reassembler::new();
+        r.push(&hdr(1, true), b"k");
+        r.push(&hdr(5, true), b"k");
+        assert!(!r.take_gap(), "a keyframe needs no reference");
+    }
+
+    #[test]
+    fn frame_ids_wrap() {
+        let mut r = Reassembler::new();
+        r.push(&hdr(u32::MAX, true), b"k");
+        r.push(&hdr(0, false), b"d");
+        assert!(!r.take_gap());
     }
 }

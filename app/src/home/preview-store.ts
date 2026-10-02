@@ -85,21 +85,23 @@ function commit(next: Preview): void {
  * A decoded frame from the live screen stream. Called at the frame rate.
  *
  * `base64` is the raw JPEG payload the socket delivered, not a data URI: the
- * byte cost is measured from it, and the URI is built once here rather than
- * per render.
+ * byte cost is measured from it, and the URI is built once here — and
+ * returned, so the stream draws the same string instead of building a
+ * second 100 KB copy per frame.
  */
-export function rememberStreamFrame(hostId: string | undefined, base64: string, now = Date.now()): void {
-  if (!hostId || base64.length === 0) return;
+export function rememberStreamFrame(hostId: string | undefined, base64: string, now = Date.now()): string {
+  const uri = JPEG_URI_PREFIX + base64;
+  if (!hostId || base64.length === 0) return uri;
   const frame: Preview = {
     hostId,
-    uri: JPEG_URI_PREFIX + base64,
+    uri,
     bytes: base64Bytes(base64),
     capturedAt: now,
     source: 'stream',
   };
   pending = Object.freeze({ ...pending, [hostId]: frame });
-  if (!maySample(publishedAt[hostId] ?? 0, now)) return;
-  publish(hostId, now);
+  if (maySample(publishedAt[hostId] ?? 0, now)) publish(hostId, now);
+  return uri;
 }
 
 /**
