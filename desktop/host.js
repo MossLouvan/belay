@@ -223,7 +223,13 @@ export function startHost({ openViewer }) {
     ]));
   };
 
-  const trayIcon = nativeImage.createFromPath(join(__dirname, 'build', 'icon.png')).resize({ width: 18, height: 18 });
+  // A template image (black + alpha, *Template.png with an @2x): macOS tints
+  // it for light/dark menu bars and the highlighted state. On Windows and
+  // Linux the tray wants colour, so the app icon stays there.
+  const trayIcon = process.platform === 'darwin'
+    ? nativeImage.createFromPath(join(__dirname, 'build', 'trayTemplate.png'))
+    : nativeImage.createFromPath(join(__dirname, 'build', 'icon.png')).resize({ width: 18, height: 18 });
+  if (process.platform === 'darwin') trayIcon.setTemplateImage(true);
   tray = new Tray(trayIcon);
   tray.on('click', () => { if (process.platform !== 'darwin') openHostWindow(); });
   refreshTray();

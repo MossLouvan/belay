@@ -19,7 +19,7 @@ export default {
   appId: 'com.gobelay.app',
   productName: 'Belay',
   directories: { output: 'release', buildResources: 'build' },
-  files: ['main.js', 'host.js', 'preload.cjs', 'preload-host.cjs', 'src/**', 'renderer/**', 'build/icon.png', 'package.json'],
+  files: ['main.js', 'host.js', 'preload.cjs', 'preload-host.cjs', 'src/**', 'renderer/**', 'build/icon.png', 'build/trayTemplate.png', 'build/trayTemplate@2x.png', 'package.json'],
   // The staged host (scripts/stage-host.mjs) sits beside the app, outside the
   // asar, because it spawns a native helper and loads node_modules by path.
   // The stage script puts the deps at host/dist/node_modules: electron-builder
