@@ -12,6 +12,7 @@
     "build:native:win": "powershell -NoProfile -ExecutionPolicy Bypass -File native/build.ps1",
     "build:stream:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-stream-windows.ps1",
     "build:native:mac": "bash native/build-mac.sh",
+    "build:tunnel": "cargo build --release --manifest-path ../crates/belay-net-tunnel/Cargo.toml && node -e \"const fs=require('node:fs');const e=process.platform==='win32'?'.exe':'';fs.copyFileSync('../crates/belay-net-tunnel/target/release/belay-net'+e,'native/belay-net'+e)\"",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/*.test.ts src/*.test.mjs",

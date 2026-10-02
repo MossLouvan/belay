@@ -26,6 +26,9 @@ use std::ffi::{c_char, c_int, c_void, CStr};
 use std::net::SocketAddr;
 
 use belay_net::{Event, Session};
+
+mod tunnel;
+pub use tunnel::*;
 use belay_wire::congestion::BitratePreset;
 use belay_wire::crypto::Direction;
 use belay_wire::cursor::CursorSample;
@@ -92,7 +95,7 @@ pub struct BelayClient {
     last_frame: Vec<u8>,
 }
 
-fn hex_decode(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn hex_decode(s: &str) -> Option<Vec<u8>> {
     if s.len() % 2 != 0 || s.is_empty() {
         return None;
     }
@@ -106,7 +109,7 @@ fn hex_decode(s: &str) -> Option<Vec<u8>> {
 ///
 /// # Safety
 /// `p` must be null or a valid NUL-terminated C string.
-unsafe fn cstr(p: *const c_char) -> Option<&'static str> {
+pub(crate) unsafe fn cstr(p: *const c_char) -> Option<&'static str> {
     if p.is_null() {
         return None;
     }

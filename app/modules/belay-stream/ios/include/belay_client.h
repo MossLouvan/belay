@@ -51,10 +51,6 @@ void *belay_client_open(const char *bind,
 // The bound local UDP port, which the host needs in order to send. 0 if unknown.
 uint16_t belay_client_local_port(void *handle);
 
-// Block until a datagram is waiting or timeout_ms passes. Returns 1 if one is
-// waiting (call belay_client_next_frame), 0 on timeout, negative on error.
-int belay_client_wait(void *handle, uint32_t timeout_ms);
-
 // Pull the next event. Never blocks. Returns a BELAY_FRAME_* value, or a
 // negative BELAY_ERR_* code. BELAY_FRAME_NONE means nothing was ready, which is
 // the normal case between frames and not an error.
@@ -67,6 +63,11 @@ uint64_t belay_client_bitrate(void *handle);
 // continue (display layer failed, delta frame with no reference). Sent on the
 // next belay_client_next_frame; repeated calls before then cost one datagram.
 // Returns BELAY_OK or BELAY_ERR_ARGS.
+/* Block until a datagram is waiting or `timeout_ms` passes. Returns 1 when
+ * something is waiting, 0 on timeout, or a negative error code. Call instead
+ * of sleeping between empty `belay_client_next_frame` calls. */
+int belay_client_wait(void *handle, uint32_t timeout_ms);
+
 int belay_client_request_keyframe(void *handle);
 
 // Send one input report (a gamepad frame, at most BELAY_INPUT_MAX_LEN bytes)
@@ -82,6 +83,40 @@ double belay_client_rtt_ms(void *handle);
 
 // Release the handle. Safe with NULL. Calling twice is not safe.
 void belay_client_close(void *handle);
+
+// ---- tunnel (crates/belay-client/src/tunnel.rs) -----------------------------
+//
+// Reach the host from anywhere: an iroh endpoint whose bi-streams are piped to
+// the host's TLS port. Unlike the stream handle, a tunnel handle IS
+// thread-safe.
+
+typedef struct {
+    int    connected;   // non-zero while a QUIC connection to that host is open
+    double rtt_ms;      // smoothed RTT, 0 when not connected
+    int    direct;      // non-zero when the selected path is direct (not relayed)
+} BelayTunnelStats;
+
+// Start a tunnel endpoint with this phone's 32-byte iroh secret key (64 hex
+// chars, kept in the Keychain). `relay_urls` is comma-separated; NULL or empty
+// means n0's public relays (development only). NULL on failure.
+void *belay_tunnel_start(const char *secret_hex, const char *relay_urls);
+
+// This phone's node id (64 lowercase hex) for POST /devices. Writes a
+// NUL-terminated string into `out` (cap must be >= 65) and returns its length,
+// or BELAY_ERR_ARGS.
+int belay_tunnel_node_id(void *handle, char *out, size_t cap);
+
+// A 127.0.0.1 TCP port forwarding to the host with that node id; the app
+// connects to https://127.0.0.1:<port> with the host's pinned certificate.
+// Returns the port, or a negative BELAY_ERR_* code. Idempotent per node id.
+int belay_tunnel_dial(void *handle, const char *node_id);
+
+// Stats for the forwarder to `node_id`. BELAY_OK, BELAY_ERR_ARGS, or
+// BELAY_ERR_SESSION when that node id was never dialed.
+int belay_tunnel_stats(void *handle, const char *node_id, BelayTunnelStats *out);
+
+// Close every forwarder and the endpoint. Safe with NULL. Not twice.
+void belay_tunnel_close(void *handle);
 
 #ifdef __cplusplus
 }
