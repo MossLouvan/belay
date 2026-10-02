@@ -27,6 +27,8 @@ interface Ctx {
   /** Store a fresh session from any of the three sign-in routes. */
   signIn: (result: SessionResult) => Promise<void>;
   signOut: () => Promise<void>;
+  /** DELETE /devices/:id — unlinks a computer from the account. */
+  removeDevice: (id: string) => Promise<void>;
   /** DELETE /me, then forget everything local. */
   deleteAccount: () => Promise<void>;
   refreshDevices: () => Promise<void>;
@@ -35,7 +37,7 @@ interface Ctx {
 const noop = async () => undefined;
 const AccountContext = createContext<Ctx>({
   ready: false, account: null, devices: [], api: createAccountsApi({ session: () => null }),
-  signIn: noop, signOut: noop, deleteAccount: noop, refreshDevices: noop,
+  signIn: noop, signOut: noop, removeDevice: noop, deleteAccount: noop, refreshDevices: noop,
 });
 
 export function AccountProvider({ children }: { children: React.ReactNode }) {
@@ -94,14 +96,25 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     await Promise.all([registerPhone().catch(() => undefined), refreshDevices()]);
   }, [registerPhone, refreshDevices]);
 
+  /** Delete the session server-side, then locally. Offline still signs out here. */
+  const signOut = useCallback(async () => {
+    await api.logout().catch(() => undefined);
+    await forgetLocally();
+  }, [api, forgetLocally]);
+
+  const removeDevice = useCallback(async (id: string) => {
+    await api.removeDevice(id);
+    await refreshDevices();
+  }, [api, refreshDevices]);
+
   const deleteAccount = useCallback(async () => {
     await api.deleteMe();
     await forgetLocally();
   }, [api, forgetLocally]);
 
   const value = useMemo<Ctx>(() => ({
-    ready, account, devices, api, signIn, signOut: forgetLocally, deleteAccount, refreshDevices,
-  }), [ready, account, devices, api, signIn, forgetLocally, deleteAccount, refreshDevices]);
+    ready, account, devices, api, signIn, signOut, removeDevice, deleteAccount, refreshDevices,
+  }), [ready, account, devices, api, signIn, signOut, removeDevice, deleteAccount, refreshDevices]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }

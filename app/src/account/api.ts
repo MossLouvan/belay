@@ -55,9 +55,9 @@ const MESSAGES: Readonly<Record<string, string>> = {
   invalid_email: 'That does not look like an email address.',
   unauthorized: 'Your session has ended. Sign in again.',
   no_session: 'Sign in to continue.',
-  claim_not_found: 'That code is not one your computer is showing. Scan it again.',
-  claim_expired: 'That code has expired. Restart Belay on the computer and scan again.',
-  claim_claimed: 'That computer is already linked to an account.',
+  // Accept failures are a uniform 404 for unknown, taken and expired codes.
+  claim_not_found: 'That code did not work. It may have expired or been used — restart Belay on the computer and scan the new code.',
+  already_linked: 'This computer is already linked — remove it first.',
   invalid_token: 'Sign-in could not be verified. Try again.',
   network: 'Could not connect to Belay. Check your internet connection.',
 };
@@ -86,9 +86,13 @@ export interface AccountsDeps {
 export interface AccountsApi {
   startEmail(email: string): Promise<void>;
   verifyEmail(email: string, code: string): Promise<SessionResult>;
+  /** A server-issued nonce: sha256(nonce) goes to Apple, the raw nonce to /auth/apple. */
+  nonce(): Promise<string>;
   signInApple(identityToken: string, nonce: string): Promise<SessionResult>;
   signInGoogle(idToken: string): Promise<SessionResult>;
   me(): Promise<Account>;
+  /** Deletes the session server-side. */
+  logout(): Promise<void>;
   deleteMe(): Promise<void>;
   /** Upserts by nodeId on the server, so calling it again is harmless. */
   registerPhone(name: string, nodeId: string, platform?: string): Promise<AccountDevice>;
@@ -145,15 +149,25 @@ export function createAccountsApi(deps: AccountsDeps): AccountsApi {
   return {
     startEmail: (email) => call('POST', '/auth/email/start', { body: { email: normalizeEmail(email) } }),
     verifyEmail: (email, code) => call('POST', '/auth/email/verify', { body: { email: normalizeEmail(email), code } }),
+    nonce: async () => (await call<{ nonce: string }>('POST', '/auth/nonce')).nonce,
     signInApple: (identityToken, nonce) => call('POST', '/auth/apple', { body: { identityToken, nonce } }),
     signInGoogle: (idToken) => call('POST', '/auth/google', { body: { idToken } }),
     me: async () => (await call<{ account: Account }>('GET', '/me', { auth: true })).account,
+    logout: () => call('POST', '/auth/logout', { auth: true }),
     deleteMe: () => call('DELETE', '/me', { auth: true }),
     registerPhone: async (name, nodeId, platform) =>
       (await call<{ device: AccountDevice }>('POST', '/devices', { auth: true, body: { kind: 'phone', name, nodeId, ...(platform ? { platform } : {}) } })).device,
     listDevices: async () => (await call<{ devices: AccountDevice[] }>('GET', '/devices', { auth: true })).devices ?? [],
     removeDevice: (id) => call('DELETE', `/devices/${encodeURIComponent(id)}`, { auth: true }),
-    acceptClaim: async (code) =>
-      (await call<{ device: AccountDevice }>('POST', `/claims/${encodeURIComponent(normalizeClaimCode(code))}/accept`, { auth: true })).device,
+    acceptClaim: async (code) => {
+      try {
+        return (await call<{ device: AccountDevice }>('POST', `/claims/${encodeURIComponent(normalizeClaimCode(code))}/accept`, { auth: true })).device;
+      } catch (e: unknown) {
+        // 409: this account already has that computer. 404: unknown, taken or expired code.
+        if (e instanceof AccountsError && e.status === 409) throw new AccountsError('already_linked', 409, MESSAGES.already_linked);
+        if (e instanceof AccountsError && e.status === 404) throw new AccountsError('claim_not_found', 404, MESSAGES.claim_not_found);
+        throw e;
+      }
+    },
   };
 }

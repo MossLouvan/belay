@@ -4,7 +4,6 @@
 import { Platform } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { sha256, toHex, utf8 } from '../devices/hmac';
-import { randomBytes } from '../devices/pinning';
 
 export interface AppleCredential {
   readonly identityToken: string;
@@ -18,8 +17,8 @@ export async function appleSignInAvailable(): Promise<boolean> {
   return AppleAuthentication.isAvailableAsync().catch(() => false);
 }
 
-export async function signInWithApple(): Promise<AppleCredential | null> {
-  const nonce = toHex(randomBytes(32));
+/** `nonce` is server-issued (POST /auth/nonce): Apple gets its sha256, the server gets it raw. */
+export async function signInWithApple(nonce: string): Promise<AppleCredential | null> {
   try {
     const credential = await AppleAuthentication.signInAsync({
       requestedScopes: [AppleAuthentication.AppleAuthenticationScope.EMAIL],

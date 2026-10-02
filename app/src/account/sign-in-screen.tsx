@@ -51,7 +51,7 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
   }, [onSignedIn]);
 
   const onApple = useCallback(() => attempt(async () => {
-    const cred = await signInWithApple();
+    const cred = await signInWithApple(await api.nonce());
     if (!cred) return false;
     await signIn(await api.signInApple(cred.identityToken, cred.nonce));
     return true;

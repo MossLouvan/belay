@@ -53,15 +53,19 @@ test('email verify returns the session and account', async () => {
 
 test('apple and google sign-in post the contract bodies', async () => {
   const { fetch, calls } = mockFetch(
+    { body: { nonce: 'server-nonce' } },
     { body: { session: 's', account: { id: 'a' } } },
     { body: { session: 's', account: { id: 'a' } } },
   );
-  await api(fetch, null).signInApple('jwt', 'nonce');
+  assert.equal(await api(fetch, null).nonce(), 'server-nonce');
+  assert.equal(calls[0].url, `${DEFAULT_ACCOUNTS_URL}/auth/nonce`);
+  assert.equal(calls[0].init.method, 'POST');
+  await api(fetch, null).signInApple('jwt', 'server-nonce');
   await api(fetch, null).signInGoogle('idtok');
-  assert.equal(calls[0].url, `${DEFAULT_ACCOUNTS_URL}/auth/apple`);
-  assert.deepEqual(calls[0].body, { identityToken: 'jwt', nonce: 'nonce' });
-  assert.equal(calls[1].url, `${DEFAULT_ACCOUNTS_URL}/auth/google`);
-  assert.deepEqual(calls[1].body, { idToken: 'idtok' });
+  assert.equal(calls[1].url, `${DEFAULT_ACCOUNTS_URL}/auth/apple`);
+  assert.deepEqual(calls[1].body, { identityToken: 'jwt', nonce: 'server-nonce' });
+  assert.equal(calls[2].url, `${DEFAULT_ACCOUNTS_URL}/auth/google`);
+  assert.deepEqual(calls[2].body, { idToken: 'idtok' });
 });
 
 test('session routes carry the bearer session', async () => {
@@ -79,7 +83,7 @@ test('a session route without a session fails before any request', async () => {
 
 test('register phone, accept claim and delete account use the contract paths', async () => {
   const device = { id: 'd1', kind: 'phone', name: 'iPhone', platform: 'ios', nodeId: 'n1', lastSeenAt: null };
-  const { fetch, calls } = mockFetch({ body: { device } }, { body: { device } }, { status: 204 }, { status: 204 });
+  const { fetch, calls } = mockFetch({ body: { device } }, { body: { device } }, { status: 204 }, { status: 204 }, { status: 204 });
   const a = api(fetch);
   assert.deepEqual(await a.registerPhone('iPhone', 'n1', 'ios'), device);
   assert.deepEqual(calls[0].body, { kind: 'phone', name: 'iPhone', nodeId: 'n1', platform: 'ios' });
@@ -91,6 +95,27 @@ test('register phone, accept claim and delete account use the contract paths', a
   assert.equal(calls[2].url, `${DEFAULT_ACCOUNTS_URL}/me`);
   await a.removeDevice('d1');
   assert.equal(calls[3].url, `${DEFAULT_ACCOUNTS_URL}/devices/d1`);
+  await a.logout();
+  assert.equal(calls[4].url, `${DEFAULT_ACCOUNTS_URL}/auth/logout`);
+  assert.equal(calls[4].init.headers.authorization, `Bearer ${SESSION}`);
+});
+
+test('accepting a claim: 409 is "already linked", 404 is one friendly message for any bad code', async () => {
+  const { fetch } = mockFetch(
+    { status: 409, body: { error: 'conflict', code: 'device_exists' } },
+    { status: 404, body: { error: 'not found', code: 'claim_not_found' } },
+    { status: 404, body: { error: 'expired', code: 'claim_expired' } },
+  );
+  const a = api(fetch);
+  await assert.rejects(a.acceptClaim('ABCDEFGH'), (e) => {
+    assert.equal(e.code, 'already_linked');
+    assert.match(e.message, /already linked — remove it first/);
+    return true;
+  });
+  const first = await a.acceptClaim('ABCDEFGH').catch((e) => e);
+  const second = await a.acceptClaim('ABCDEFGH').catch((e) => e);
+  assert.equal(first.code, 'claim_not_found');
+  assert.equal(first.message, second.message, 'unknown, taken and expired read the same');
 });
 
 test('the {error, code} envelope becomes a typed error with a friendly message', async () => {
@@ -110,7 +135,7 @@ test('friendly messages cover the codes a person can act on', () => {
   assert.match(friendlyMessage('code_expired', 400), /new code|expired/i);
   assert.match(friendlyMessage('too_many_attempts', 429), /new code|too many/i);
   assert.match(friendlyMessage('rate_limited', 429), /wait|moment/i);
-  assert.match(friendlyMessage('claim_expired', 410), /computer|again/i);
+  assert.match(friendlyMessage('claim_not_found', 404), /computer|scan/i);
   assert.match(friendlyMessage('unauthorized', 401), /sign in/i);
   // Unknown code: fall back on the status, then on the server's own text.
   assert.match(friendlyMessage('something_new', 503), /unavailable|try again/i);
