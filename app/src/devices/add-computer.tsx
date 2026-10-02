@@ -10,7 +10,8 @@ import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
 import { useTheme } from '../theme';
-import { Label, Rule } from '../ui';
+import { Button, Label, Rule } from '../ui';
+import { useAccount } from '../account/store';
 import { AddressEntry } from '../connect/address-entry';
 import { addComputerRoute } from './add-computer-route';
 
@@ -28,7 +29,14 @@ interface AddComputerProps {
 
 export function AddComputer({ heading = true, testID = 'add-computer', onNavigate }: AddComputerProps) {
   const theme = useTheme();
+  const { account } = useAccount();
   const [address, setAddress] = useState('');
+
+  /** The claim QR an unlinked host shows. Signed out, sign in first and come back here. */
+  const onLink = useCallback(() => {
+    onNavigate?.();
+    router.push(account ? '/link' : '/sign-in?next=/link');
+  }, [account, onNavigate]);
 
   const onSubmit = useCallback(() => {
     const route = addComputerRoute(address);
@@ -58,6 +66,14 @@ export function AddComputer({ heading = true, testID = 'add-computer', onNavigat
         onSubmit={onSubmit}
         busy={false}
         onScan={onScan}
+      />
+      <Button
+        label="Scan to link a computer"
+        testID="scan-to-link"
+        variant="secondary"
+        fullWidth
+        accessibilityHint="Reads the QR code Belay shows on an unlinked computer and adds it to your account"
+        onPress={onLink}
       />
     </View>
   );

@@ -14,12 +14,19 @@ import { useTheme } from '../theme';
 import { parsePairLink } from './pair-link';
 import type { ParsedPairLink } from './pair-link';
 
-export interface ScanStepProps {
-  onScanned: (link: ParsedPairLink) => void;
+export interface ScanStepProps<T = ParsedPairLink> {
+  onScanned: (link: T) => void;
   onCancel: () => void;
+  /** What a QR must decode to. Defaults to the pairing link; the account's claim link is the other. */
+  parse?: (raw: string) => T | null;
+  heading?: string;
+  cancelLabel?: string;
 }
 
-export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
+export function ScanStep<T = ParsedPairLink>({
+  onScanned, onCancel, parse = parsePairLink as unknown as (raw: string) => T | null,
+  heading = 'Scan to connect', cancelLabel = 'Type the address instead',
+}: ScanStepProps<T>) {
   const theme = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
   const [sawUnknownCode, setSawUnknownCode] = useState(false);
@@ -35,7 +42,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
   const onBarcode = useCallback((result: { data: string }) => {
     if (handled.current) return;
 
-    const link = parsePairLink(result.data);
+    const link = parse(result.data);
     if (!link) {
       // Some other QR drifted through frame. Say so once rather than flashing
       // an error on every frame, and keep scanning.
@@ -47,7 +54,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
     setSawUnknownCode(false);
     handled.current = true;
     onScanned(link);
-  }, [onScanned]);
+  }, [onScanned, parse]);
 
   if (!permission) {
     // Still reading the current permission state.
@@ -57,7 +64,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
   if (!permission.granted) {
     return (
       <View style={{ gap: theme.space.md }}>
-        <Heading>Scan to connect</Heading>
+        <Heading>{heading}</Heading>
         <Txt>
           Belay needs the camera to read the pairing code shown on your computer.
           It is only used while this screen is open.
@@ -70,7 +77,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
               onPress={() => void requestPermission()}
             />
           </View>
-          <Button label="Type the address instead" variant="ghost" onPress={onCancel} />
+          <Button label={cancelLabel} variant="ghost" onPress={onCancel} />
         </Row>
         {!permission.canAskAgain ? (
           <Caption>
@@ -85,7 +92,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
   return (
     <View style={{ gap: theme.space.md }}>
       <View style={{ gap: theme.space.xs }}>
-        <Heading>Scan to connect</Heading>
+        <Heading>{heading}</Heading>
         <Caption>Point the camera at the code shown in your computer's terminal.</Caption>
       </View>
 
@@ -111,7 +118,7 @@ export function ScanStep({ onScanned, onCancel }: ScanStepProps) {
         />
       ) : null}
 
-      <Button label="Type the address instead" variant="ghost" fullWidth onPress={onCancel} />
+      <Button label={cancelLabel} variant="ghost" fullWidth onPress={onCancel} />
     </View>
   );
 }

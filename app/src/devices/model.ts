@@ -48,6 +48,13 @@ export interface SavedDevice {
   readonly deviceId?: string;
   readonly secret?: string;
   readonly fingerprint?: string;
+  /**
+   * The computer's tunnel node id, once it is linked to the Belay account
+   * (account/claim-link.ts). The connection race adds `tunnel:<nodeId>` as a
+   * candidate when the tunnel FFI lands; until then it only de-duplicates the
+   * computers list against GET /devices.
+   */
+  readonly nodeId?: string;
   readonly addedAt: number;
   readonly lastConnectedAt?: number;
   /** Address that worked most recently — tried first next time. */
@@ -310,6 +317,7 @@ function isSavedDevice(value: unknown): value is SavedDevice {
     && typeof d.label === 'string'
     && typeof d.token === 'string' && d.token.length > 0
     && optionalString(d.deviceId) && optionalString(d.secret) && optionalString(d.fingerprint)
+    && optionalString(d.nodeId)
     && Array.isArray(d.addresses)
     && d.addresses.every(isHostAddress);
 }
