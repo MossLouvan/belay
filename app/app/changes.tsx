@@ -21,6 +21,8 @@ import {
   LedgerRow, Rule, Section, Skeleton, EmptyState,
 } from '../src/ui';
 import { useTheme } from '../src/theme';
+import { useConnection } from '../src/connection';
+import { hostSettled } from '../src/connection-gate';
 import { fetchChanges } from '../src/changes/changes-api';
 import type { ProjectChanges } from '../src/changes/changes-api';
 import { kindWord, countBadge } from '../src/changes/diff-format';
@@ -52,7 +54,15 @@ export default function Changes() {
     }
   }, [sessionId]);
 
-  useEffect(() => { void load(); }, [load]);
+  // On a reload or deep link the saved connection is still racing when this
+  // mounts; a load fired then fails "not connected" and would never re-run
+  // (#85). Wait for the attempt to settle, and re-check on every reconnect.
+  const { ready, phase: connPhase } = useConnection();
+  const settled = hostSettled(ready, connPhase);
+  useEffect(() => { if (settled) void load(); }, [load, settled, connPhase]);
+
+  // Opened by URL there is no history, so a bare back() is a dead button (#84).
+  const leave = () => { if (router.canGoBack()) router.back(); else router.replace('/agent'); };
 
   const margin = theme.layout.margin;
 
@@ -83,7 +93,7 @@ export default function Changes() {
         <EmptyState
           title="No session"
           message="This screen shows what a Claude session changed, and no session was given."
-          action={{ label: 'Go back', onPress: () => router.back() }}
+          action={{ label: 'Go back', onPress: leave }}
         />
       </Screen>
     );

@@ -388,7 +388,7 @@ export default function ScreenTab() {
           the desktop and brings its own copy of the bar, so without this the
           app mounts two tablists at once — ambiguous to a screen reader, and
           to anything looking for `nav-files`. */}
-      {focused && !immersive && !gaming.enabled ? <AppearanceNav /> : null}
+      {focused && !immersive && !gaming.enabled ? <AppearanceNav selected="screen" /> : null}
 
       {/* Gated on `ready`, not just the flag: a stop that failed leaves
           nothing to send, and a sheet promising to send nothing would lie. */}
