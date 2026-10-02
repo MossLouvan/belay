@@ -7,7 +7,7 @@
 // by the account (tunnel-identity.ts); a dial on a build without it simply
 // fails, which the race reads as a dead candidate.
 
-import { dialTunnel, isTunnelAvailable, tunnelStats } from '../../modules/belay-stream/src/tunnel';
+import { dialTunnel, isTunnelAvailable, tunnelLastError, tunnelStats } from '../../modules/belay-stream/src/tunnel';
 import { getTunnelIdentity } from '../account/tunnel-identity';
 import type { ConnectionPath } from './tunnel-candidate';
 
@@ -30,4 +30,18 @@ export function tunnelPort(nodeId: string): Promise<number> {
 export async function tunnelPath(nodeId: string): Promise<ConnectionPath> {
   const stats = await tunnelStats(nodeId).catch(() => ({ connected: false, direct: false, rttMs: 0 }));
   return stats.direct ? 'direct' : 'relay';
+}
+
+/**
+ * Why the tunnel behind `https://127.0.0.1:<port>` last failed (the Rust
+ * forwarder's own words: connect timed out, refused by the computer, ...), or
+ * null when `url` is not one of our tunnel ports or nothing failed.
+ */
+export async function tunnelErrorFor(url: string): Promise<string | null> {
+  const m = /^https:\/\/127\.0\.0\.1:(\d+)(\/|$)/.exec(url);
+  if (!m) return null;
+  for (const [nodeId, port] of ports) {
+    if ((await port.catch(() => -1)) === Number(m[1])) return tunnelLastError(nodeId);
+  }
+  return null;
 }

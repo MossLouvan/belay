@@ -75,6 +75,20 @@ public final class BelayTunnelModule: Module {
             }
         }
 
+        /// Why the forwarder to `nodeId` last failed, or nil (never dialed, or
+        /// nothing failed since the last good dial).
+        AsyncFunction("lastError") { (nodeId: String, promise: Promise) in
+            self.queue.async {
+                guard let h = self.handle else {
+                    promise.resolve(nil)
+                    return
+                }
+                var buf = [CChar](repeating: 0, count: 512)
+                let n = belay_tunnel_last_error(h, nodeId, &buf, buf.count)
+                promise.resolve(n > 0 ? String(cString: buf) : nil)
+            }
+        }
+
         AsyncFunction("close") { (promise: Promise) in
             self.queue.async {
                 belay_tunnel_close(self.handle)

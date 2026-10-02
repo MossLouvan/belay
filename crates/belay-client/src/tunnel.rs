@@ -159,6 +159,42 @@ pub unsafe extern "C" fn belay_tunnel_stats(
     BELAY_OK
 }
 
+/// The forwarder's most recent dial or stream failure (connect timed out,
+/// refused by the host, ...), so the app can say why instead of "can't
+/// reach". Writes a NUL-terminated UTF-8 string into `out`, truncated to fit,
+/// and returns its length: 0 when there is no error since the last good dial.
+/// BELAY_ERR_ARGS for a bad handle/id/pointer, BELAY_ERR_SESSION when that
+/// node id was never dialed.
+///
+/// # Safety
+/// `handle` must be live; `node_id` a valid C string; `out` must point at
+/// `cap` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn belay_tunnel_last_error(
+    handle: *mut c_void,
+    node_id: *const c_char,
+    out: *mut c_char,
+    cap: usize,
+) -> c_int {
+    let Some(t) = (handle as *const BelayTunnel).as_ref() else { return BELAY_ERR_ARGS };
+    if out.is_null() || cap == 0 {
+        return BELAY_ERR_ARGS;
+    }
+    let Some(id) = cstr(node_id).and_then(|s| s.trim().parse::<EndpointId>().ok()) else {
+        return BELAY_ERR_ARGS;
+    };
+    let Ok(map) = t.forwarders.lock() else { return BELAY_ERR_SESSION };
+    let Some(f) = map.get(&id) else { return BELAY_ERR_SESSION };
+    let msg = f.last_error().unwrap_or_default();
+    let mut n = msg.len().min(cap - 1);
+    while !msg.is_char_boundary(n) {
+        n -= 1;
+    }
+    std::ptr::copy_nonoverlapping(msg.as_ptr(), out as *mut u8, n);
+    *out.add(n) = 0;
+    n as c_int
+}
+
 /// Close every forwarder and the endpoint. Safe with NULL; not twice.
 ///
 /// # Safety
@@ -223,11 +259,17 @@ mod tests {
         assert!(port > 1024, "{port}");
         assert_eq!(unsafe { belay_tunnel_dial(h, peer.as_ptr()) }, port, "dial is idempotent per node id");
 
+        let mut err = [0 as c_char; 256];
+        assert_eq!(unsafe { belay_tunnel_last_error(h, peer.as_ptr(), err.as_mut_ptr(), err.len()) }, 0, "no error before any dial");
+        assert_eq!(err[0], 0);
+
         let mut st = BelayTunnelStats::default();
         assert_eq!(unsafe { belay_tunnel_stats(h, peer.as_ptr(), &mut st) }, BELAY_OK);
         assert_eq!(st.connected, 0, "nothing connected before the first TCP client");
         let other = CString::new(SecretKey::generate().public().to_string()).unwrap();
         assert_eq!(unsafe { belay_tunnel_stats(h, other.as_ptr(), &mut st) }, BELAY_ERR_SESSION);
+        assert_eq!(unsafe { belay_tunnel_last_error(h, other.as_ptr(), err.as_mut_ptr(), err.len()) }, BELAY_ERR_SESSION);
+        assert_eq!(unsafe { belay_tunnel_last_error(h, peer.as_ptr(), err.as_mut_ptr(), 0) }, BELAY_ERR_ARGS);
 
         unsafe { belay_tunnel_close(h) };
         unsafe { belay_tunnel_close(std::ptr::null_mut()) };
