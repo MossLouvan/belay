@@ -59,7 +59,7 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
     w: 720,
     q: 35,
     fps: 30,
-    hint: 'Softer picture, highest frame rate. Best on cellular or a slow Tailscale hop.',
+    hint: 'Softer picture, highest frame rate. Best on cellular or a slow connection.',
     bwpPreset: 'data-saver',
     bwpFps: 60,
   },

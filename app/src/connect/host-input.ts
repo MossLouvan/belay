@@ -50,7 +50,7 @@ const CREDENTIALS_HINT =
 export function resolveHost(input: string): HostResolution {
   const trimmed = input.trim();
   if (!trimmed) {
-    return { ok: false, reason: 'Type the address from your Tailscale app, e.g. 100.101.102.103' };
+    return { ok: false, reason: 'Type the computer\'s address, e.g. 192.168.1.20' };
   }
 
   // Detect pair links first: belay://pair?... or tether: — paste-to-pair.

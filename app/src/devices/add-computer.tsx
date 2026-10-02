@@ -1,5 +1,7 @@
-// "Add a computer" from the computer list: the same address field as the
-// connect screen, not a copy of it.
+// "Add a computer" from the computer list. The way in is the claim QR Belay
+// shows on an unlinked computer (app/link.tsx). Connecting by address is the
+// advanced door, folded away: the same address field as the connect screen,
+// not a copy of it.
 //
 // The list owns no pairing state, so the field here only collects the text;
 // Connect hands it to the connect screen (`/?add=1&address=…`), which checks
@@ -10,7 +12,7 @@ import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
 import { useTheme } from '../theme';
-import { Button, Label, Rule } from '../ui';
+import { Button, Caption, Label, Rule, TrackLabel } from '../ui';
 import { useAccount } from '../account/store';
 import { AddressEntry } from '../connect/address-entry';
 import { addComputerRoute } from './add-computer-route';
@@ -31,6 +33,7 @@ export function AddComputer({ heading = true, testID = 'add-computer', onNavigat
   const theme = useTheme();
   const { account } = useAccount();
   const [address, setAddress] = useState('');
+  const [advanced, setAdvanced] = useState(false);
 
   /** The claim QR an unlinked host shows. Signed out, sign in first and come back here. */
   const onLink = useCallback(() => {
@@ -60,21 +63,29 @@ export function AddComputer({ heading = true, testID = 'add-computer', onNavigat
           <Rule bleed={theme.layout.margin} />
         </View>
       ) : null}
-      <AddressEntry
-        value={address}
-        onChangeText={setAddress}
-        onSubmit={onSubmit}
-        busy={false}
-        onScan={onScan}
-      />
+      <Caption>Open Belay on the computer. It shows a QR code (and a code to type) until it is linked.</Caption>
       <Button
         label="Scan to link a computer"
         testID="scan-to-link"
-        variant="secondary"
         fullWidth
         accessibilityHint="Reads the QR code Belay shows on an unlinked computer and adds it to your account"
         onPress={onLink}
       />
+      <TrackLabel
+        label="Advanced: connect by address"
+        active={advanced}
+        onPress={() => setAdvanced((open) => !open)}
+        testID="add-advanced"
+      />
+      {advanced ? (
+        <AddressEntry
+          value={address}
+          onChangeText={setAddress}
+          onSubmit={onSubmit}
+          busy={false}
+          onScan={onScan}
+        />
+      ) : null}
     </View>
   );
 }

@@ -319,8 +319,8 @@ export default function Devices() {
                 ? `${lanOnly[0].label} only works on your home network`
                 : 'Some computers only work on your home network'}
               message={
-                'Their addresses change, and this phone cannot ask for the new one from ' +
-                'outside. Install Tailscale on both to reach them from anywhere.'
+                'They were added by address. Open Belay on the computer and scan its QR code ' +
+                'from Add computer to reach it from anywhere.'
               }
             />
           ) : null}

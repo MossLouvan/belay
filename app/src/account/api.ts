@@ -138,7 +138,9 @@ export function createAccountsApi(deps: AccountsDeps): AccountsApi {
     if (res.status === 204) return undefined as T;
     const json = await res.json().catch(() => null) as Record<string, unknown> | null;
     if (!res.ok) {
-      const code = res.status === 401 ? 'unauthorized' : typeof json?.code === 'string' ? json.code : `http_${res.status}`;
+      // A 401 on a session route means the session; on a signed-out route
+      // (a wrong or expired email code) the server's own code says what.
+      const code = res.status === 401 && opts.auth ? 'unauthorized' : typeof json?.code === 'string' ? json.code : `http_${res.status}`;
       const serverText = typeof json?.error === 'string' ? json.error : undefined;
       throw new AccountsError(code, res.status, friendlyMessage(code, res.status, serverText));
     }

@@ -170,11 +170,14 @@ test('anything starting 100. reads as Tailscale while typing, even outside the /
   assert.equal(addressFeedback('100.1.2.3').tone, 'good');
 });
 
-test('an IP heading somewhere else is told where Tailscale addresses start', () => {
-  assert.deepEqual(addressFeedback('192.'), { tone: 'warn', text: 'Tailscale addresses start with 100.' });
-  assert.deepEqual(addressFeedback('10.0'), { tone: 'warn', text: 'Tailscale addresses start with 100.' });
+// Connect by address is the advanced path, and a local IP is a fine answer
+// there: nothing may suggest a Tailscale address is required.
+test('a local IP is encouraged while typing and noted as same-network only', () => {
+  assert.deepEqual(addressFeedback('192.'), { tone: 'dim', text: `Keep going — four numbers, like ${EXAMPLE_TAILSCALE_ADDRESS}` });
+  assert.equal(addressFeedback('10.0').tone, 'dim');
   assert.equal(addressFeedback('192.168.1.20').tone, 'warn');
-  assert.match(addressFeedback('192.168.1.20').text, /start with 100\./);
+  assert.match(addressFeedback('192.168.1.20').text, /same network/);
+  for (const t of ['192.', '10.0', '192.168.1.20']) assert.doesNotMatch(addressFeedback(t).text, /Tailscale/);
 });
 
 test('a half-typed Tailscale address is encouraged, not corrected', () => {

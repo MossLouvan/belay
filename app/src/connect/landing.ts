@@ -54,21 +54,3 @@ export type PairDestination = '/(home)/screen' | '/(home)/system';
 export function postPairDestination(native: boolean | undefined): PairDestination {
   return native === false ? '/(home)/system' : '/(home)/screen';
 }
-
-/** Where the intro screens hand off to. */
-export type IntroHandoff = 'tailscale' | 'host';
-
-/**
- * The stage after "how it works": the address field, for everyone.
- *
- * The way in is copying the computer's 100.x address out of the Tailscale
- * app and typing it — so that field is the first thing a new user meets, not
- * a guided tour that ends at a QR scanner with "type it instead" as an
- * afterthought. The guided Tailscale setup stays one tap away on that screen
- * (the "Away from home" note opens by default on a first run) for anyone who
- * has no address to copy yet. The parameter survives so the day this fork
- * needs to care about history again, its callers already pass it.
- */
-export function afterHowItWorks(_hasRecentHosts: boolean): IntroHandoff {
-  return 'host';
-}

@@ -59,7 +59,7 @@ const BAD_IPV4 = (host: string): string =>
   `"${host}" is not a complete address — four numbers, each 0–255, like ${EXAMPLE_TAILSCALE_ADDRESS}.`;
 
 const BAD_ADDRESS = (input: string): string =>
-  `"${input}" is not an address. Copy the 100.x address from Tailscale, e.g. ${EXAMPLE_TAILSCALE_ADDRESS}.`;
+  `"${input}" is not an address. Type the computer's IP address, e.g. ${EXAMPLE_TAILSCALE_ADDRESS}.`;
 
 /** Every octet in range, four of them. */
 export function isIPv4(host: string): boolean {
@@ -178,9 +178,7 @@ export function addressFeedback(input: string): AddressFeedback | null {
   if (parsed.kind === 'empty') return null;
 
   if (looksLikeIPv4Draft(trimmed)) {
-    return trimmed.startsWith(TAILSCALE_PREFIX) || TAILSCALE_PREFIX.startsWith(trimmed)
-      ? { tone: 'dim', text: `Keep going — four numbers, like ${EXAMPLE_TAILSCALE_ADDRESS}` }
-      : { tone: 'warn', text: 'Tailscale addresses start with 100.' };
+    return { tone: 'dim', text: `Keep going — four numbers, like ${EXAMPLE_TAILSCALE_ADDRESS}` };
   }
   return { tone: 'bad', text: parsed.reason };
 }
@@ -194,7 +192,7 @@ function feedbackFor(parsed: Extract<ParsedAddress, { kind: 'ok' }>): AddressFee
     case 'lan':
       return parsed.host.startsWith(TAILSCALE_PREFIX)
         ? { tone: 'good', text: 'Looks like a Tailscale address' }
-        : { tone: 'warn', text: 'Local address — works on the same Wi-Fi only. Tailscale addresses start with 100.' };
+        : { tone: 'warn', text: 'Local address — works on the same network only' };
     case 'name':
       return { tone: 'dim', text: 'A computer name — works on the same Wi-Fi only' };
   }

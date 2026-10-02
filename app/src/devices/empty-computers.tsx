@@ -41,10 +41,10 @@ export function EmptyComputers({ onAdd, onOpenOptions }: EmptyComputersProps) {
             gap: theme.space.xs,
           }}
         >
-          <Txt variant="subheading">Install Belay on your computer</Txt>
+          <Txt variant="subheading">Put Belay on your computer</Txt>
           <Txt variant="body" tone="dim">
-            Get it at gobelay.com (or run npx belay-host), then add it here with the address
-            and code it shows. The phone remembers it after that.
+            Get it at gobelay.com and open it, then tap Add computer and scan the QR code it
+            shows. The phone remembers it after that.
           </Txt>
         </View>
         <AddComputerRow onPress={onAdd} testID="add-a-computer" />

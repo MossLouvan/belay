@@ -116,7 +116,7 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
       setRecent(list);
       // Skip intro screens if user has connected before (has recent hosts),
       // or came from the computer list to add another. First-time users see
-      // welcome → how it works → connect.
+      // the welcome ("put Belay on your computer", scan its QR) first.
       if (list.length > 0 || adding) {
         setStage(scanRequested ? 'scan' : 'host');
       }

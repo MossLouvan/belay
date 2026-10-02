@@ -34,3 +34,9 @@ export function parseClaimLink(raw: string): ParsedClaimLink | null {
   if (!CLAIM_CODE.test(code) || !NODE_ID.test(nodeId)) return null;
   return { code, nodeId };
 }
+
+/** The 8-character code the host prints beside the QR, as a person types it. */
+export function parseClaimCode(raw: string): string | null {
+  const code = normalizeClaimCode(raw);
+  return CLAIM_CODE.test(code) ? code : null;
+}

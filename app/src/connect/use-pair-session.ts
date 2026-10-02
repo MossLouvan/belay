@@ -166,7 +166,7 @@ export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>
           title: `Could not reach ${link.label}`,
           message:
             'The code scanned fine, but none of that computer\'s addresses answered ' +
-            'from this network. Check it is awake and on the same Wi-Fi, or use Tailscale.',
+            'from this network. Make sure Belay is open on the computer and it is awake, or go back and scan the QR code Belay shows to link it to your account.',
         });
         return;
       }

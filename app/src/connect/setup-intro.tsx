@@ -1,5 +1,8 @@
-// Setup intro screens — the beluga hero welcome + how it works, shown before
-// the connect flow on a fresh install.
+// Setup intro — the beluga hero "put Belay on your computer" screen, shown
+// once a fresh install is signed in and has no computer yet. The why lives on
+// the sign-in screen just before it; this screen is the one thing to do next:
+// open Belay on the computer and scan its QR. Connecting by address is the
+// quiet advanced door underneath.
 //
 // The welcome is the app's first frame, so it earns the one hero moment the
 // motion doctrine allows: the beluga mascot swims in its idle loop inside a
@@ -15,7 +18,7 @@
 // renders everything in place with no animation.
 
 import React, { useEffect } from 'react';
-import { View, Pressable } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import type { TextStyle } from 'react-native';
 import Animated, {
   Easing,
@@ -29,7 +32,10 @@ import { BelugaAvatar, Button, Txt, useReducedMotion } from '../ui';
 import { HERO_ENTRANCE, haloLayers } from './welcome-hero';
 
 interface WelcomeScreenProps {
-  onContinue: () => void;
+  /** Scan (or type) the claim code Belay shows on the computer. */
+  onLink: () => void;
+  /** The advanced door: connect by address and pairing code. */
+  onAdvanced: () => void;
 }
 
 /** Mascot width, pt. Generous — this screen is the beluga's stage. */
@@ -67,10 +73,10 @@ function useHeroEntrance(delayMs: number, reduced: boolean) {
 const NOOP = (): void => undefined;
 
 /**
- * Welcome screen — the beluga hero. Mascot swimming in a blue halo (tap for a
- * flip), "Welcome to Belay", one line of what the app is, one way forward.
+ * The beluga hero. Mascot swimming in a blue halo (tap for a flip), "Put Belay
+ * on your computer", one line of how, one way forward and one advanced door.
  */
-export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
+export function WelcomeScreen({ onLink, onAdvanced }: WelcomeScreenProps) {
   const theme = useTheme();
   const reduced = useReducedMotion();
 
@@ -94,14 +100,17 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
   };
 
   return (
-    <View
+    // Scrolls: in landscape the hero is taller than the screen, and the one
+    // button forward must never sit below an unscrollable fold.
+    <ScrollView
       testID="welcome-screen"
-      style={{
-        flex: 1,
+      style={{ flex: 1, backgroundColor: theme.colors.heroBg }}
+      contentContainerStyle={{
+        flexGrow: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: theme.colors.heroBg,
         paddingHorizontal: theme.layout.margin * 1.5,
+        paddingVertical: theme.space.xl,
         gap: theme.space.xl,
       }}
     >
@@ -148,186 +157,39 @@ export function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
       {/* Headline + one line of what this is. */}
       <Animated.View style={[{ alignItems: 'center', gap: theme.space.sm }, headlineStyle]}>
         <Txt variant="display" heading style={{ ...headlineType, textTransform: 'none', color: theme.colors.text }}>
-          Welcome to{' '}
+          Put{' '}
           <Txt variant="display" style={{ ...headlineType, textTransform: 'none', color: theme.colors.accent }}>
             Belay
           </Txt>
+          {' '}on your computer
         </Txt>
         <Txt
           variant="body"
           tone="dim"
-          style={{ textAlign: 'center', maxWidth: 300, fontSize: 16, lineHeight: 24 }}
+          style={{ textAlign: 'center', maxWidth: 320, fontSize: 16, lineHeight: 24 }}
         >
-          Control your computer from your phone. No cloud, no middleman.
-        </Txt>
-        <Txt variant="caption" tone="faint" style={{ textAlign: 'center', fontSize: 12 }}>
-          Your devices. Your workspace.
+          Get Belay for Mac or Windows at gobelay.com and open it. It shows a QR code: scan it here to link the computer.
         </Txt>
       </Animated.View>
 
       {/* The way forward — the screen's single solid accent. */}
       <Animated.View style={[{ width: '100%', maxWidth: 300, marginTop: theme.space.md }, ctaStyle]}>
         <Button
-          label="Get started"
-          onPress={onContinue}
+          label="Scan the QR code"
+          onPress={onLink}
           fullWidth
           size="lg"
           testID="welcome-continue"
         />
-      </Animated.View>
-    </View>
-  );
-}
-
-interface HowItWorksScreenProps {
-  onContinue: () => void;
-  onBack?: () => void;
-}
-
-/**
- * How it works — single screen explaining the concept, typography-first,
- * minimal list. Not a dense card wall, just clean vertical prose.
- */
-export function HowItWorksScreen({ onContinue, onBack }: HowItWorksScreenProps) {
-  const theme = useTheme();
-
-  const steps = [
-    {
-      label: '01',
-      title: 'Install Belay on your computer',
-      detail: 'Get it at gobelay.com, or run npx belay-host in a terminal. Leave it running.',
-    },
-    {
-      label: '02',
-      title: 'Enter the address and code it shows',
-      detail: 'On the same Wi-Fi, once. After that your phone remembers this computer.',
-    },
-    {
-      // Tailscale is the way in from outside the house — useful, but not a
-      // prerequisite, so it sits after the same-Wi-Fi path and says so.
-      label: '03',
-      title: 'Away from home? Optional',
-      detail: 'Install Tailscale on both devices and use the address it gives your computer. Belay can walk you through it.',
-    },
-    {
-      label: '04',
-      title: 'Control your computer',
-      detail: 'Screen, terminal, files, system — all from your phone.',
-    },
-  ];
-
-  return (
-    <View
-      testID="how-it-works-screen"
-      style={{
-        flex: 1,
-        justifyContent: 'center',
-        paddingHorizontal: theme.layout.margin * 1.5,
-        gap: theme.space.xxl,
-      }}
-    >
-      {/* Section headline */}
-      <View style={{ gap: theme.space.sm }}>
-        <Txt
-          variant="title"
-          style={{
-            fontSize: 32,
-            lineHeight: 36,
-            textTransform: 'none',
-            color: theme.colors.text,
-          }}
-        >
-          how it works
-        </Txt>
-        <Txt variant="caption" tone="dim" style={{ fontSize: 15, lineHeight: 22 }}>
-          Direct connection between your devices. Nothing routes through anyone else.
-        </Txt>
-      </View>
-
-      {/* Clean vertical step list */}
-      <View style={{ gap: theme.space.lg }}>
-        {steps.map((step) => (
-          <View
-            key={step.label}
-            style={{
-              flexDirection: 'row',
-              gap: theme.space.md,
-              alignItems: 'flex-start',
-            }}
-          >
-            {/* Mono ordinal in margin */}
-            <Txt
-              variant="label"
-              tone="accent"
-              style={{
-                width: 40,
-                marginTop: 2,
-              }}
-            >
-              {step.label}
-            </Txt>
-
-            {/* Content */}
-            <View style={{ flex: 1, gap: theme.space.xxs }}>
-              <Txt
-                variant="bodyStrong"
-                style={{
-                  fontSize: 16,
-                  lineHeight: 22,
-                }}
-              >
-                {step.title}
-              </Txt>
-              <Txt
-                variant="caption"
-                tone="dim"
-                style={{
-                  fontSize: 14,
-                  lineHeight: 20,
-                }}
-              >
-                {step.detail}
-              </Txt>
-            </View>
-          </View>
-        ))}
-      </View>
-
-      {/* CTAs */}
-      <View style={{ gap: theme.space.sm, marginTop: theme.space.lg }}>
         <Button
-          label="Continue"
-          onPress={onContinue}
+          label="Advanced: connect by address"
+          onPress={onAdvanced}
+          variant="ghost"
           fullWidth
-          size="lg"
-          testID="how-it-works-continue"
+          testID="welcome-advanced"
+          style={{ marginTop: theme.space.sm }}
         />
-        {onBack ? (
-          <Pressable
-            onPress={onBack}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            hitSlop={8}
-            style={({ pressed }) => ({
-              paddingVertical: theme.space.sm,
-              minHeight: 44,
-              justifyContent: 'center',
-              opacity: pressed ? theme.motion.pressOpacity : 1,
-            })}
-          >
-            <Txt
-              variant="body"
-              tone="dim"
-              style={{
-                textAlign: 'center',
-                fontSize: 15,
-              }}
-            >
-              ← Back
-            </Txt>
-          </Pressable>
-        ) : null}
-      </View>
-    </View>
+      </Animated.View>
+    </ScrollView>
   );
 }

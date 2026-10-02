@@ -25,7 +25,7 @@ export interface ScanStepProps<T = ParsedPairLink> {
 
 export function ScanStep<T = ParsedPairLink>({
   onScanned, onCancel, parse = parsePairLink as unknown as (raw: string) => T | null,
-  heading = 'Scan to connect', cancelLabel = 'Type the address instead',
+  heading = 'Scan to connect', cancelLabel = 'Connect by address instead',
 }: ScanStepProps<T>) {
   const theme = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
@@ -66,7 +66,7 @@ export function ScanStep<T = ParsedPairLink>({
       <View style={{ gap: theme.space.md }}>
         <Heading>{heading}</Heading>
         <Txt>
-          Belay needs the camera to read the pairing code shown on your computer.
+          Belay needs the camera to read the QR code shown on your computer.
           It is only used while this screen is open.
         </Txt>
         <Row gap="sm">
@@ -93,7 +93,7 @@ export function ScanStep<T = ParsedPairLink>({
     <View style={{ gap: theme.space.md }}>
       <View style={{ gap: theme.space.xs }}>
         <Heading>{heading}</Heading>
-        <Caption>Point the camera at the code shown in your computer's terminal.</Caption>
+        <Caption>Point the camera at the QR code Belay shows on your computer.</Caption>
       </View>
 
       {/* The viewfinder is a window into the camera the way the terminal is a
@@ -114,7 +114,7 @@ export function ScanStep<T = ParsedPairLink>({
         <Banner
           status="warn"
           title="That code is not a Belay code"
-          message="Start the host agent on your computer — it prints the code to scan."
+          message="Open Belay on your computer — it shows the code to scan."
         />
       ) : null}
 

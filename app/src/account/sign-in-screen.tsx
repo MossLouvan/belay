@@ -13,7 +13,6 @@ import { Brand } from '../connect/brand';
 import { CodeInput } from '../connect/code-input';
 import { errorMessage } from '../connect/pair-flow';
 import { useAccount } from './store';
-import { isTunnelAvailable } from '../../modules/belay-stream/src/tunnel';
 import { GOOGLE_SIGN_IN_ENABLED, appleSignInAvailable, signInWithApple, signInWithGoogle } from './providers';
 
 type Stage = 'pick' | 'email' | 'code';
@@ -34,6 +33,8 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [appleAvailable, setAppleAvailable] = useState(false);
+  /** Set when "Send a new code" went through, so the tap visibly did something. */
+  const [resent, setResent] = useState(false);
 
   useEffect(() => { appleSignInAvailable().then(setAppleAvailable); }, []);
 
@@ -69,11 +70,12 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
     if (!EMAIL_SHAPE.test(email.trim())) { setError('Enter your email address.'); return; }
     void attempt(async () => {
       await api.startEmail(email);
+      setResent(stage === 'code');
       setCode('');
       setStage('code');
       return false;
     });
-  }, [attempt, api, email]);
+  }, [attempt, api, email, stage]);
 
   const onVerify = useCallback(() => {
     if (code.length !== CODE_LENGTH) { setError(`Enter all ${CODE_LENGTH} digits.`); return; }
@@ -83,7 +85,7 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
     });
   }, [attempt, api, signIn, email, code]);
 
-  const back = useCallback((to: Stage) => { setError(null); setStage(to); }, []);
+  const back = useCallback((to: Stage) => { setError(null); setResent(false); setStage(to); }, []);
 
   return (
     <Screen scroll padding="page" contentStyle={{ justifyContent: 'center', flexGrow: 1 }}>
@@ -93,10 +95,12 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
         {stage === 'pick' ? (
           <View style={{ gap: theme.space.sm }}>
             <View style={{ gap: theme.space.xs, marginBottom: theme.space.sm }}>
-              <Heading>Sign in to Belay</Heading>
-              <Txt tone="dim">{isTunnelAvailable()
-                ? 'Your account links your phone to your computers, so they can find each other from anywhere.'
-                : 'Your account links your phone to your computers.'}</Txt>
+              {/* First frame of a fresh install: say why, in two lines, not a tour. */}
+              <Heading>The control room for your AI agents</Heading>
+              <Txt tone="dim" testID="sign-in-why">
+                See and approve what your coding agents do, and control your computer, at your desk or anywhere.
+              </Txt>
+              <Txt tone="dim">Sign in so your phone and computers can find each other.</Txt>
             </View>
             {appleAvailable ? (
               <Button
@@ -135,7 +139,7 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
           <View style={{ gap: theme.space.md }}>
             <View style={{ gap: theme.space.xs }}>
               <Heading>Enter the code</Heading>
-              <Caption>{`Sent to ${email.trim()}. It expires in 10 minutes.`}</Caption>
+              <Caption testID="code-sent">{`${resent ? 'New code sent' : 'Sent'} to ${email.trim()}. It expires in 10 minutes.`}</Caption>
             </View>
             <CodeInput
               value={code} onChange={(next) => { setCode(next); setError(null); }} onSubmit={onVerify}
