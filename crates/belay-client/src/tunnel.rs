@@ -14,7 +14,7 @@ use std::ffi::{c_char, c_int, c_void};
 use std::sync::{Mutex, OnceLock};
 
 use belay_net_tunnel::iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey};
-use belay_net_tunnel::Forwarder;
+use belay_net_tunnel::{relay_mode, Forwarder};
 use tokio::runtime::Runtime;
 
 use crate::{cstr, hex_decode, BELAY_ERR_ARGS, BELAY_ERR_BIND, BELAY_ERR_IO, BELAY_ERR_SESSION, BELAY_OK};
@@ -62,8 +62,8 @@ fn parse_relays(csv: Option<&str>) -> Vec<RelayUrl> {
 }
 
 /// Start a tunnel endpoint. `secret_hex` is the phone's 32-byte iroh secret
-/// key as 64 hex chars; `relay_urls` is comma-separated (null/empty = n0 public
-/// relays, development only). Returns an opaque handle or NULL.
+/// key as 64 hex chars; `relay_urls` is comma-separated (null/empty = no relay
+/// at all, never n0's public ones). Returns an opaque handle or NULL.
 ///
 /// # Safety
 /// Pointer arguments must be null or valid NUL-terminated C strings.
@@ -74,7 +74,7 @@ pub unsafe extern "C" fn belay_tunnel_start(secret_hex: *const c_char, relay_url
     let Ok(bytes) = <[u8; 32]>::try_from(bytes.as_slice()) else { return std::ptr::null_mut() };
     let relays = parse_relays(cstr(relay_urls));
     let Some(rt) = runtime() else { return std::ptr::null_mut() };
-    let Ok(endpoint) = rt.block_on(belay_net_tunnel::bind(SecretKey::from_bytes(&bytes), &relays)) else {
+    let Ok(endpoint) = rt.block_on(belay_net_tunnel::bind(SecretKey::from_bytes(&bytes), relay_mode(&relays))) else {
         return std::ptr::null_mut();
     };
     Box::into_raw(Box::new(BelayTunnel { endpoint, relays, forwarders: Mutex::new(HashMap::new()) })) as *mut c_void
@@ -189,6 +189,14 @@ mod tests {
         let short = CString::new("abcd").unwrap();
         assert!(unsafe { belay_tunnel_start(short.as_ptr(), std::ptr::null()) }.is_null());
         assert!(unsafe { belay_tunnel_start(std::ptr::null(), std::ptr::null()) }.is_null());
+    }
+
+    #[test]
+    fn empty_relay_list_means_no_relay() {
+        use belay_net_tunnel::iroh::RelayMode;
+        for csv in [None, Some(""), Some(" , bogus")] {
+            assert_eq!(relay_mode(&parse_relays(csv)), RelayMode::Disabled, "{csv:?}");
+        }
     }
 
     #[test]

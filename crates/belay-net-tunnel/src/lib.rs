@@ -94,16 +94,21 @@ impl AllowList {
     }
 }
 
-/// Bind a tunnel endpoint with the given identity.
-///
-/// `relays` empty means n0's public relays (development only; see
-/// infra/relay/README.md for production).
-pub async fn bind(secret: SecretKey, relays: &[RelayUrl]) -> Result<Endpoint, iroh::endpoint::BindError> {
-    let relay_mode = if relays.is_empty() {
-        RelayMode::Default
+/// The relay configuration for a list of relay URLs: exactly those relays,
+/// or NO relay when the list is empty. An empty list never means n0's public
+/// relays; a caller that wants those for development says `RelayMode::Default`
+/// explicitly (the sidecar's BELAY_NET_DEV_PUBLIC_RELAYS=1).
+pub fn relay_mode(relays: &[RelayUrl]) -> RelayMode {
+    if relays.is_empty() {
+        RelayMode::Disabled
     } else {
         RelayMode::custom(relays.iter().cloned())
-    };
+    }
+}
+
+/// Bind a tunnel endpoint with the given identity and relays (see
+/// [`relay_mode`]; infra/relay/README.md for production).
+pub async fn bind(secret: SecretKey, relay_mode: RelayMode) -> Result<Endpoint, iroh::endpoint::BindError> {
     Endpoint::builder(presets::N0)
         .secret_key(secret)
         .alpns(vec![ALPN.to_vec()])
@@ -370,6 +375,13 @@ mod tests {
         let (list, bad) = AllowList::parse([padded.as_str()]);
         assert!(bad.is_empty());
         assert!(list.allows(&a));
+    }
+
+    #[test]
+    fn no_relays_means_no_relay_not_public_ones() {
+        assert_eq!(relay_mode(&[]), RelayMode::Disabled);
+        let r: RelayUrl = "https://relay.example".parse().unwrap();
+        assert_eq!(relay_mode(&[r.clone()]), RelayMode::custom([r]));
     }
 
     #[test]

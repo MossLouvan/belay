@@ -3,7 +3,7 @@
 //
 // The sidecar owns the tunnel keypair (~/.belay/net-key, 0600) and the QUIC
 // sockets; this module owns nothing but the process. Line protocol:
-//   stdout  `ready <nodeId>` once, `sig <base64url>` per `sign`
+//   stdout  `ready <nodeId>` once, `sig <base64url>` or `sig-refused` per `sign`
 //   stdin   `allow <id> <id>...` replaces the allow-list, `sign <message>`
 // The key never crosses this boundary: the host asks the sidecar to sign the
 // claim proof and sees only the signature.
@@ -36,10 +36,14 @@ export function tunnelAvailable(): boolean {
   return tunnelBinaryPath() !== null;
 }
 
-export type SidecarLine = { readonly type: 'ready'; readonly nodeId: string } | { readonly type: 'sig'; readonly sig: string };
+export type SidecarLine =
+  | { readonly type: 'ready'; readonly nodeId: string }
+  | { readonly type: 'sig'; readonly sig: string }
+  | { readonly type: 'sig-refused' };
 
 /** One stdout line, or null for anything that is not protocol. */
 export function parseSidecarLine(line: string): SidecarLine | null {
+  if (/^sig-refused\s*$/.test(line)) return { type: 'sig-refused' };
   const m = /^(ready|sig)\s+(\S+)\s*$/.exec(line);
   if (!m) return null;
   if (m[1] === 'ready') return /^[0-9a-f]{64}$/.test(m[2]) ? { type: 'ready', nodeId: m[2] } : null;
@@ -77,7 +81,8 @@ export function startTunnel(opts: TunnelOptions): Tunnel {
   let failures = 0;
   let startedAt = 0;
   let restartTimer: NodeJS.Timeout | null = null;
-  const pendingSigs: Array<(sig: string) => void> = [];
+  /** Answers in order; null is `sig-refused`. */
+  const pendingSigs: Array<(sig: string | null) => void> = [];
   let resolveReady!: (id: string) => void;
   const nodeId = new Promise<string>((r) => { resolveReady = r; });
 
@@ -96,7 +101,7 @@ export function startTunnel(opts: TunnelOptions): Tunnel {
       const msg = parseSidecarLine(line);
       if (!msg) { console.warn(`[tunnel] unexpected line: ${line}`); return; }
       if (msg.type === 'ready') { resolveReady(msg.nodeId); write(`allow ${allow.join(' ')}`); }
-      else pendingSigs.shift()?.(msg.sig);
+      else pendingSigs.shift()?.(msg.type === 'sig' ? msg.sig : null);
     });
     createInterface({ input: p.stderr }).on('line', (line) => console.log(`[tunnel] ${line}`));
     p.on('exit', (code) => {
@@ -130,7 +135,10 @@ export function startTunnel(opts: TunnelOptions): Tunnel {
         if (i >= 0) pendingSigs.splice(i, 1);
         reject(new Error('sign: sidecar did not answer'));
       }, SIGN_TIMEOUT_MS);
-      const done = (sig: string) => { clearTimeout(timer); resolve(sig); };
+      const done = (sig: string | null) => {
+        clearTimeout(timer);
+        if (sig === null) reject(new Error('sign: sidecar refused to sign')); else resolve(sig);
+      };
       pendingSigs.push(done);
       write(`sign ${message}`);
     }),

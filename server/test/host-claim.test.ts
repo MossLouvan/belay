@@ -146,15 +146,15 @@ test('a cache older than 72 h is not replayed', async () => {
   assert.deepEqual(s.calls, ['heartbeat cred'], 'the link itself is kept; only the stale list is dropped');
 });
 
-test('a 401 heartbeat empties the allow-list and its cache immediately', async () => {
+test('a 401 heartbeat empties the allow-list and its cache immediately, keeping the relays', async () => {
   const s = script([
     () => new AccountsError(401, 'revoked'),
     () => ({ claimCode: 'AGAIN', hostSecret: 'c', expiresAt: 1_000_000 + 600_000 }),
   ], 'stale-cred', { allowedNodeIds: ['n1'], relayUrls: ['r'], at: 999_999 });
   const seen: unknown[] = [];
   await run(s, 2, (ids, relays) => seen.push([ids, relays]));
-  assert.deepEqual(seen, [[['n1'], ['r']], [[], []]], 'cache replayed at start, then revoked');
-  assert.deepEqual(s.store.cache, { allowedNodeIds: [], relayUrls: [], at: 1_000_000 });
+  assert.deepEqual(seen, [[['n1'], ['r']], [[], ['r']]], 'cache replayed at start, then revoked; the relays are kept');
+  assert.deepEqual(s.store.cache, { allowedNodeIds: [], relayUrls: ['r'], at: 1_000_000 });
 });
 
 test('a credential-less "claimed" while holding none re-claims', async () => {

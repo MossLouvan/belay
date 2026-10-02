@@ -144,9 +144,12 @@ async function step(state: LinkState, deps: HostLinkDeps, nowMs: number): Promis
         if (next.kind === 'unlinked') {
           deps.store.clearCredential();
           // Revoked means revoked now: the sidecar admits nobody, and a restart
-          // cannot replay yesterday's list.
-          deps.store.writeCache({ allowedNodeIds: [], relayUrls: [], at: nowMs });
-          deps.onAllowList([], []);
+          // cannot replay yesterday's list. The relays stay: an empty set would
+          // restart the sidecar with no relay, and it must never fall back to
+          // public ones.
+          const relayUrls = deps.store.readCache()?.relayUrls ?? [];
+          deps.store.writeCache({ allowedNodeIds: [], relayUrls, at: nowMs });
+          deps.onAllowList([], relayUrls);
           deps.show.line('  This computer is no longer linked to an account — scan the new code to link it again.');
           return [next, 0];
         }

@@ -92,7 +92,11 @@ journalctl -u iroh-relay -f
 
 ## 5. Point Belay at it
 - Accounts service: return `relayUrls: ["https://relay.gobelay.com"]` from `/hosts/heartbeat`
-  (the host passes it to `belay-net` as `BELAY_NET_RELAYS`; a changed list restarts the sidecar).
+  (the host passes it to `belay-net` as `BELAY_NET_RELAYS`; a changed list restarts the sidecar;
+  a 401 keeps the last list rather than clearing it).
+- No relay list (empty or unset `BELAY_NET_RELAYS`) means **no relay** — direct paths only.
+  Belay never falls back to n0's public relays. For local development only, set
+  `BELAY_NET_DEV_PUBLIC_RELAYS=1` on the sidecar to use them.
 - Phone: pass the same list to `startTunnel(secretHex, relayUrls)`.
 - Check: `curl -sI https://relay.gobelay.com/` answers; metrics on `:9090/metrics` (bind it to
   localhost or firewall it — it is on by default).

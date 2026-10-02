@@ -14,6 +14,8 @@ const NODE = 'ab'.repeat(32);
 test('parseSidecarLine accepts only the two protocol lines', () => {
   assert.deepEqual(parseSidecarLine(`ready ${NODE}`), { type: 'ready', nodeId: NODE });
   assert.deepEqual(parseSidecarLine('sig abc-_XYZ'), { type: 'sig', sig: 'abc-_XYZ' });
+  assert.deepEqual(parseSidecarLine('sig-refused'), { type: 'sig-refused' });
+  assert.equal(parseSidecarLine('sig-refused x'), null);
   assert.equal(parseSidecarLine('ready not-hex'), null);
   assert.equal(parseSidecarLine('sig with=padding'), null);
   assert.equal(parseSidecarLine('[belay-net] allow-list: 2'), null);
@@ -30,7 +32,8 @@ function fakeSidecar(dir: string): string {
     process.stdout.write('ready ${NODE}\\n');
     createInterface({ input: process.stdin }).on('line', (l) => {
       appendFileSync(process.env.FAKE_LOG, l + '\\n');
-      if (l.startsWith('sign ')) process.stdout.write('sig SIG_' + l.slice(5).replace(/[^A-Za-z0-9]/g, '_') + '\\n');
+      if (l.startsWith('sign belay-claim:')) process.stdout.write('sig SIG_' + l.slice(5).replace(/[^A-Za-z0-9]/g, '_') + '\\n');
+      else if (l.startsWith('sign ')) process.stdout.write('sig-refused\\n');
       if (l === 'allow die') process.exit(3);
     });
     process.stdin.on('end', () => process.exit(0));
@@ -54,6 +57,11 @@ test('the supervisor reports the node id, signs, forwards the allow-list and re-
   try {
     assert.equal(await t.nodeId, NODE);
     assert.equal(await t.sign(`belay-claim:v1:${NODE}:1`), `SIG_belay_claim_v1_${NODE}_1`);
+    // A refusal answers at once, and does not consume the next sign's slot.
+    const t0 = Date.now();
+    await assert.rejects(t.sign('not-a-claim'), /refused/);
+    assert.ok(Date.now() - t0 < 2000, 'rejected immediately, not on the 10 s timeout');
+    assert.equal(await t.sign(`belay-claim:v1:${NODE}:2`), `SIG_belay_claim_v1_${NODE}_2`);
     t.setAllowList(['n1', 'n2']);
     const { readFileSync } = await import('node:fs');
     await until(() => readFileSync(log, 'utf8').includes('allow n1 n2'));
