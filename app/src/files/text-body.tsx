@@ -10,7 +10,8 @@
 // buttons keep their contrast.
 
 import React, { useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Platform, ScrollView, Text, View } from 'react-native';
+import type { TextStyle } from 'react-native';
 import { useTheme } from '../theme';
 import { Button, Caption, MachinePanel } from '../ui';
 
@@ -28,6 +29,11 @@ export interface TextBodyProps {
 }
 
 export const countLines = (content: string): number => content.split('\n').length;
+
+// react-native-web renders numberOfLines={1} as `white-space: nowrap`, which
+// collapses runs of spaces and indentation (#89). `pre` keeps the single line
+// and every space.
+const PRE_LINE: TextStyle | null = Platform.OS === 'web' ? ({ whiteSpace: 'pre' } as TextStyle) : null;
 
 export function TextBody({ content, wrap, font }: TextBodyProps) {
   const theme = useTheme();
@@ -60,7 +66,7 @@ export function TextBody({ content, wrap, font }: TextBodyProps) {
         <ScrollView horizontal showsHorizontalScrollIndicator style={{ flex: 1 }}>
           <View>
             {shown.map((line, index) => (
-              <Text key={index} selectable numberOfLines={1} style={codeStyle}>
+              <Text key={index} selectable numberOfLines={1} ellipsizeMode="clip" style={[codeStyle, PRE_LINE]}>
                 {line.length > 0 ? line : ' '}
               </Text>
             ))}
