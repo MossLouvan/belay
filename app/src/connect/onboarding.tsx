@@ -7,18 +7,20 @@
 // to run is machine voice, so it is plain mono on the page.
 
 import React, { useCallback, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Linking, Pressable, View } from 'react-native';
 import { useTheme } from '../theme';
-import { Button, Caption, Label, Mono, Row, Rule, Section, Txt } from '../ui';
+import { Button, Caption, Label, Row, Rule, Section, Txt } from '../ui';
 
 interface StepProps {
   index: number;
   title: string;
   detail: string;
+  /** A web page to open — tappable, and selectable so it can be copied. */
+  url?: string;
   code?: string;
 }
 
-function Step({ index, title, detail, code }: StepProps) {
+function Step({ index, title, detail, url, code }: StepProps) {
   const theme = useTheme();
   return (
     <Row align="flex-start" gap="sm">
@@ -28,17 +30,33 @@ function Step({ index, title, detail, code }: StepProps) {
         <Txt variant="caption" tone="dim">
           {detail}
         </Txt>
-        {code ? <Mono style={{ marginTop: theme.space.xxs }}>{code}</Mono> : null}
+        {url ? (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`Open ${url}`}
+            testID="setup-site-link"
+            onPress={() => void Linking.openURL(url).catch(() => undefined)}
+            style={({ pressed }) => ({ marginTop: theme.space.xxs, opacity: pressed ? theme.motion.pressOpacity : 1 })}
+          >
+            <Txt variant="mono" selectable style={{ color: theme.colors.accent }}>{url}</Txt>
+          </Pressable>
+        ) : null}
+        {code ? <Txt variant="mono" selectable style={{ marginTop: theme.space.xxs }}>{code}</Txt> : null}
       </View>
     </Row>
   );
 }
 
+/** Where the computer half of Belay comes from. */
+export const HOST_SITE_URL = 'https://gobelay.com';
+export const HOST_INSTALL_COMMAND = 'npx belay-host';
+
 const STEPS: readonly Omit<StepProps, 'index'>[] = [
   {
-    title: 'Start the host agent on your computer',
-    detail: 'It is the small program that lets Belay in. Leave it running.',
-    code: 'cd server && npm start',
+    title: 'Install Belay on your computer',
+    detail: 'Get it from the site, or run this one line in a terminal. Leave it running — it shows an address and a code.',
+    url: HOST_SITE_URL,
+    code: HOST_INSTALL_COMMAND,
   },
   {
     // The Screen tab is black until this is granted, and macOS never prompts
@@ -49,13 +67,13 @@ const STEPS: readonly Omit<StepProps, 'index'>[] = [
       'System Settings › Privacy & Security › Screen Recording — switch on the app running the host agent (Terminal, or your code editor), then start it again. Without it the Screen tab stays black; Agent, Terminal, Files and System still work.',
   },
   {
-    title: 'Copy the address from the Tailscale app',
-    detail:
-      'Find your computer in Tailscale and copy its address — it starts with 100. Over Tailscale no code is needed. On home Wi-Fi the address the host prints works too.',
+    title: 'On the same Wi-Fi, enter the address and code it shows',
+    detail: 'One time only. After that your phone remembers this computer.',
   },
   {
-    title: 'On home Wi-Fi, enter the 6-digit code it shows',
-    detail: 'One time only. After that your phone remembers this computer.',
+    title: 'Away from home? Optional',
+    detail:
+      'Install Tailscale on both devices and use the address it gives your computer — it starts with 100. and works from anywhere. No code is needed over Tailscale.',
   },
 ];
 

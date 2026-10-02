@@ -34,6 +34,7 @@ import { DeviceCard } from '../src/devices/device-card';
 import { DevicesHeader } from '../src/devices/devices-header';
 import { EmptyComputers } from '../src/devices/empty-computers';
 import { ThemeToggle } from '../src/settings/theme-toggle';
+import { SupportLinks } from '../src/settings/support-links';
 import { AppearanceNav } from '../src/home/appearance-nav';
 import { useDevicePreviews } from '../src/home/use-device-previews';
 import { forgetPreview } from '../src/home/preview-store';
@@ -135,6 +136,7 @@ export default function Devices() {
             </Caption>
             <ThemeToggle testID="appearance-picker" />
           </View>
+          <SupportLinks testID="support-links" />
           {activeUrl && phase === 'connected' ? (
             <Caption testID="connected-over">{`Connected over ${describeUrl(activeUrl)}.`}</Caption>
           ) : null}

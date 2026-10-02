@@ -12,6 +12,7 @@ import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
 import { Txt } from '../ui';
 import { haptic } from '../ui/haptics';
+import { LABS } from '../labs';
 
 interface PillProps {
   readonly label: string;
@@ -64,14 +65,14 @@ export function StageActions({ audioOn, audioLabel, onToggleAudio, onToggleFulls
   const audioTint = audioOn ? theme.colors.accent : theme.colors.textDim;
   return (
     <View style={{ flexDirection: 'row', gap: 12 }}>
-      <Pill
+      {LABS ? <Pill
         testID="quick-audio"
         label={audioLabel}
         icon={audioOn
           ? <IconVolume size={20} strokeWidth={2} color={audioTint} />
           : <IconVolumeOff size={20} strokeWidth={2} color={audioTint} />}
         onPress={onToggleAudio}
-      />
+      /> : null}
       <Pill
         testID="stage-fullscreen"
         label="Fullscreen"

@@ -65,7 +65,7 @@ function CapabilityNote({ native }: { native: boolean }) {
       testID="native-warning"
       status="warn"
       title="Screen control is unavailable on this computer"
-      message="The host agent's capture and input helper is not built, so the Screen tab will stay blank. Terminal, Files and System all work. Run the host's build:native step to enable it."
+      message="Belay on that computer was installed without its screen helper, so the Screen tab will stay blank. Terminal, Files and System all work. Reinstall Belay on the computer to enable it."
       style={{ marginTop: theme.space.md }}
     />
   );
