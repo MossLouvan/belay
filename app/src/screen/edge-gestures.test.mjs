@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { detectEdgeZone, detectEdgeGesture, edgeGestureToAction } from './edge-gestures.ts';
-import { GESTURE, KEYS, keyFor, modsFor } from './model.ts';
+import { GESTURE, KEYS, keyAvailable, keyFor, modsFor } from './model.ts';
 
 const STAGE_W = 400;
 const STAGE_H = 800;
@@ -146,6 +146,20 @@ test('AppExpose maps correctly: macOS only, no Windows binding', () => {
   assert.ok(spec);
   assert.equal(spec.key, undefined, 'AppExpose has no Windows key');
   assert.equal(spec.mods, undefined);
+  // ...and the Mac key must not leak through as a bare Down on Windows (#80).
+  assert.equal(keyFor(spec, false), '');
+  assert.equal(keyAvailable(spec, false), false);
+  assert.equal(keyAvailable(spec, true), true);
+});
+
+test('NotifyCenter is unavailable on a Mac host, where Win+A would be ⌘A (#80)', () => {
+  const spec = KEYS.find((key) => key.id === 'NotifyCenter');
+  assert.equal(keyAvailable(spec, true), false);
+  assert.equal(keyAvailable(spec, false), true);
+  // Every other key is available everywhere.
+  for (const other of KEYS.filter((key) => !['AppExpose', 'NotifyCenter'].includes(key.id))) {
+    assert.ok(keyAvailable(other, true) && keyAvailable(other, false), other.id);
+  }
 });
 
 // --- integration with swipe detection --------------------------------------

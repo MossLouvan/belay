@@ -62,13 +62,14 @@ async function selectedMode(page: Page): Promise<string> {
  */
 async function withControls(page: Page, act: () => Promise<void>) {
   await expect(async () => {
-    const tab = page.getByTestId('controls-tab');
-    if (await tab.count()) await tab.click({ timeout: 2000 });
+    if (!(await page.getByTestId('pointer-mode').isVisible())) {
+      await page.getByTestId('stream-beluga-avatar').click({ timeout: 2000 });
+    }
     await act();
   }).toPass({ timeout: 20000 });
 }
 
-test('landscape defaults to pad, with a top-left tab that opens the controls', async ({ page }) => {
+test('landscape defaults to pad, with a floating mascot that opens the controls', async ({ page }) => {
   test.setTimeout(180000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -91,20 +92,21 @@ test('landscape defaults to pad, with a top-left tab that opens the controls', a
     // Pad mode draws the visible cursor over the picture.
     await expect(page.getByTestId('crosshair')).toBeAttached();
 
-    // The bar auto-hides after 4s; the tab is the visible way back.
-    const tab = page.getByTestId('controls-tab');
+    // The bar auto-hides after 4s; the floating mascot is the visible way back.
+    const tab = page.getByTestId('stream-beluga-avatar');
     await expect(tab).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId('pointer-mode')).toBeHidden({ timeout: 20000 });
     await page.screenshot({ path: `../docs/screenshots/landscape-hidden-${appearance.toLowerCase()}.png` });
 
-    // --- it stays out of the picture's way ----------------------------------
+    // --- it stays out of the picture's way: top-right, one touch target -----
     const tabBox = (await tab.boundingBox())!;
-    expect(tabBox.x).toBeLessThan(LANDSCAPE.width / 2);
+    expect(tabBox.x).toBeGreaterThan(LANDSCAPE.width / 2);
     expect(tabBox.y + tabBox.height).toBeLessThan(LANDSCAPE.height / 2);
     expect(tabBox.width * tabBox.height).toBeLessThan(0.05 * LANDSCAPE.width * LANDSCAPE.height);
-    // The centre of the screen — where a pad drag lives — is not the tab.
+    // The centre of the screen — where a pad drag lives — is not the mascot.
     const atCentre = await page.evaluate(([w, h]) => {
       const el = document.elementFromPoint(w / 2, h / 2);
-      return el?.closest('[data-testid="controls-tab"]') !== null ? 'tab' : 'stage';
+      return el?.closest('[data-testid="stream-beluga-avatar"]') !== null ? 'tab' : 'stage';
     }, [LANDSCAPE.width, LANDSCAPE.height]);
     expect(atCentre).toBe('stage');
 
@@ -120,10 +122,9 @@ test('landscape defaults to pad, with a top-left tab that opens the controls', a
     expect(Math.abs(after.x - before.x) + Math.abs(after.y - before.y)).toBeGreaterThan(10);
     await expect(tab).toBeVisible();
 
-    // --- the tab opens the controls -----------------------------------------
+    // --- a tap on the mascot opens the controls -----------------------------
     await tab.click();
     await expect(page.getByTestId('pointer-mode')).toBeVisible();
-    await expect(tab).toHaveCount(0);
     await page.screenshot({ path: `../docs/screenshots/landscape-controls-${appearance.toLowerCase()}.png` });
 
     // --- a mode he chose sideways is remembered, not fought -----------------
@@ -134,8 +135,7 @@ test('landscape defaults to pad, with a top-left tab that opens the controls', a
     await expect.poll(() => selectedMode(page)).toBe('touch');
     await page.getByTestId('sheet-close').click();
     await page.setViewportSize(LANDSCAPE);
-    await expect(page.getByTestId('controls-tab')).toBeVisible({ timeout: 20000 });
-    await page.getByTestId('controls-tab').click();
+    await withControls(page, async () => { await expect(page.getByTestId('pointer-mode')).toBeVisible({ timeout: 2000 }); });
     await expect.poll(() => selectedMode(page)).toBe('touch');
     await page.screenshot({ path: `../docs/screenshots/landscape-chosen-touch-${appearance.toLowerCase()}.png` });
   }

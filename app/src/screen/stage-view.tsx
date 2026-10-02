@@ -21,6 +21,7 @@ import type { CursorsState } from './cursors-store';
 import type { QualityPreset, Size } from './model';
 import { PanelState } from './panel-state';
 import { Crosshair, FILL, FullscreenGlyph, HUD, StageButton, StreamHud } from './parts';
+import { MASCOT_BUTTON_SIZE } from './mascot-button';
 import { crosshairShown } from './screen-chrome';
 import type { PermissionState, StreamState } from './stream';
 import { padMounted } from './trackpad';
@@ -51,6 +52,8 @@ export interface StageViewProps {
   readonly immersive: boolean;
   readonly fullscreen: boolean;
   readonly landscape: boolean;
+  /** Bottom of the immersive HUD block, so no-picture guidance starts under it (#76). */
+  readonly hudBottom: number;
   readonly connected: boolean;
   readonly hostName: string;
   readonly onRetry: () => void;
@@ -66,7 +69,7 @@ export interface StageViewProps {
 export function StageView(props: StageViewProps) {
   const {
     onBoxLayout, box, stage, stageOffset, aspect, viewport, stream, room, screenIndex, quality, pingMs, permissions,
-    mode, padCursor, showHud, showPanelState, gamingEnabled, immersive, fullscreen, landscape,
+    mode, padCursor, showHud, showPanelState, gamingEnabled, immersive, fullscreen, landscape, hudBottom,
     connected, hostName, onRetry, onHelp, onToggleFullscreen, children,
   } = props;
   const theme = useTheme();
@@ -229,7 +232,7 @@ export function StageView(props: StageViewProps) {
         // no picture — so the panel state is clipped to the thing it explains.
         <View
           pointerEvents="box-none"
-          style={immersive ? FILL : {
+          style={immersive ? { ...FILL, top: hudBottom } : {
             position: 'absolute', top: 0, left: 0, right: 0,
             height: stage.h > 0 ? stage.h : undefined,
             aspectRatio: stage.h > 0 ? undefined : aspect,
@@ -252,10 +255,15 @@ export function StageView(props: StageViewProps) {
       ) : null}
 
       {/* Portrait fullscreen: the Exit control pins to the safe area (not
-          the letterboxed stage), always visible, full size, one action.
+          the letterboxed stage), always visible, full size, one action —
+          beside the mascot button's top-right slot, not on top of it (#78).
           Landscape needs no exit — rotating back IS the exit. */}
       {!gamingEnabled && fullscreen && !landscape
-        ? stageControls({ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs, zIndex: 4 })
+        ? stageControls({
+          top: insets.top + theme.space.xs,
+          right: insets.right + theme.space.sm + MASCOT_BUTTON_SIZE + theme.space.xs,
+          zIndex: 4,
+        })
         : null}
 
       {children}

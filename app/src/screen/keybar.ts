@@ -13,6 +13,7 @@
 // local module; the KeySpec list is passed IN by the caller instead.
 
 // Type-only, and marked as such: erased before Node ever resolves it.
+import { keyAvailable } from './model.ts';
 import type { KeySpec } from './model';
 import type { StickyMod } from './mods';
 
@@ -36,8 +37,11 @@ export interface KeyBarPage {
  *
  * The plain `Win` KeySpec is deliberately absent: the Win/Cmd cap here is the
  * sticky modifier, which also covers "press Win alone" (tap it, tap it again).
+ *
+ * With `mac` given, caps the host has no chord for are left out (#80);
+ * without it every cap is listed, which is what the layout tests check.
  */
-export function buildKeyPages(keys: readonly KeySpec[]): readonly KeyBarPage[] {
+export function buildKeyPages(keys: readonly KeySpec[], mac?: boolean): readonly KeyBarPage[] {
   const byId = new Map(keys.map((spec) => [spec.id, spec]));
 
   const key = (id: string, glyph?: ArrowGlyph): KeyBarCell => {
@@ -53,7 +57,10 @@ export function buildKeyPages(keys: readonly KeySpec[]): readonly KeyBarPage[] {
     macLabel,
   });
 
-  return [
+  const offered = (cells: readonly KeyBarCell[]): readonly KeyBarCell[] =>
+    mac === undefined ? cells : cells.filter((cell) => cell.kind === 'mod' || keyAvailable(cell.spec, mac));
+
+  const pages: readonly KeyBarPage[] = [
     {
       top: [key('Esc'), key('Tab'), key('Enter'), key('Bksp')],
       bottom: [mod('ctrl', 'Ctrl', '⌃'), mod('alt', 'Alt', '⌥'), mod('shift', 'Shift', '⇧'), mod('win', 'Win', '⌘')],
@@ -85,6 +92,7 @@ export function buildKeyPages(keys: readonly KeySpec[]): readonly KeyBarPage[] {
       bottom: [key('Overview'), key('AppExpose'), key('NotifyCenter')],
     },
   ];
+  return pages.map((page) => ({ top: offered(page.top), bottom: offered(page.bottom) }));
 }
 
 export const cellsOf = (page: KeyBarPage): readonly KeyBarCell[] => [...page.top, ...page.bottom];
