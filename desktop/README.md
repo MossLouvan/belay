@@ -37,6 +37,58 @@ instead of racing it, and offers "Use Belay.app instead", which unloads the
 agent and parks its plist as `.plist.disabled` (`src/launch-agent.js`). A
 second launch of the app just shows the first one's window.
 
+## Sign in on the computer (no QR)
+
+Unlinked, the host window offers **Sign in to link this computer** above the
+claim QR. Signing in with the same account as the phone links this computer
+directly: the app (`src/account-signin.js`) gets a session from the accounts
+API, hands it to the host child once (`link-session` over the parent port),
+the host signs the `belay-claim:v1:` node proof with the sidecar and calls
+`POST /hosts/link`, stores the host credential at 0600 (same file as the claim
+path) and the session is dropped. It is never written to disk and never
+reaches the window. The window then says "Linked to us***@example.com", and the
+computer shows up in the phone's list by itself (`GET /devices`).
+
+Email code works out of the box. **Sign in with Apple** and **Sign in with
+Google** use the system browser and show only once configured, either in
+`SIGN_IN` at the top of `src/account-signin.js` (shipped builds) or with the
+`BELAY_*` variables below (local runs). None of these values is a secret
+kept on a server; they ship inside the app.
+
+Google (`BELAY_GOOGLE_CLIENT_ID`, `BELAY_GOOGLE_CLIENT_SECRET`):
+1. Google Cloud Console → the project that holds the iOS client → APIs &
+   Services → Credentials → Create credentials → OAuth client ID → type
+   **Desktop app**, name "Belay desktop". No redirect URI to register: desktop
+   clients accept any `http://127.0.0.1:<port>` loopback redirect.
+2. Copy the client ID and client secret into `SIGN_IN.googleClientId` /
+   `googleClientSecret`. (Google documents a desktop client's secret as not
+   confidential; PKCE protects the code.)
+3. Add the client ID to `GOOGLE_AUDIENCES` in `infra/accounts/wrangler.toml`
+   and `npm run deploy` there, or `/auth/google` rejects its tokens.
+4. The OAuth consent screen must be published (or your account added as a
+   test user) with the `openid` and `email` scopes.
+
+Apple (`BELAY_APPLE_SERVICES_ID`, optional `BELAY_APPLE_REDIRECT_URL`):
+1. developer.apple.com → Certificates, Identifiers & Profiles → Identifiers →
+   **+** → **Services IDs**, e.g. `com.mosslouvan.belay.signin`, description
+   "Belay desktop sign-in". Register it.
+2. Open it, tick **Sign in with Apple** → Configure: primary App ID
+   `com.mosslouvan.belay` (so accounts match the iPhone app's: Apple's `sub`
+   is the same across one team), Domains `gobelay.com`, Return URLs
+   `https://gobelay.com/auth/desktop-callback`. Save, then Continue → Save.
+3. Publish `desktop/oauth/apple-callback.html` on the site at
+   `/auth/desktop-callback` (Cloudflare Pages: as
+   `auth/desktop-callback/index.html` or with a `_redirects` rewrite). It reads
+   the fragment Apple returns and forwards the id_token to the app's one-shot
+   127.0.0.1 listener; it stores nothing.
+4. Put the Services ID in `SIGN_IN.appleServicesId`, and add it to
+   `APPLE_AUDIENCE` in `infra/accounts/wrangler.toml` (comma-separated after
+   the bundle id), then `npm run deploy` there.
+
+No email address is requested from Apple (that would force `form_post`, which a
+static page cannot read); a first-time Apple user on the computer who signed up
+on the phone with Apple still lands in the same account by `sub`.
+
 ## The viewer role
 
 ```

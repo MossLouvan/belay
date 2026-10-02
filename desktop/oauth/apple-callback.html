@@ -1,0 +1,30 @@
+<!doctype html>
+<!-- Deploy at https://gobelay.com/auth/desktop-callback (desktop/README.md,
+     "Sign in on the computer"). Sign in with Apple only redirects to https,
+     so Belay.app sends Apple here with response_mode=fragment; this page hands
+     the id_token to the app's one-shot 127.0.0.1 listener, whose port is the
+     first part of `state`. Nothing is stored or sent anywhere else. -->
+<meta charset="utf-8" />
+<meta name="referrer" content="no-referrer" />
+<title>Belay</title>
+<body style="font: 16px -apple-system, system-ui, sans-serif; padding: 3em; text-align: center">
+<p id="m">Returning to Belay…</p>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname); // drop the token from the address bar
+    var state = p.get('state') || '';
+    var m = /^(\d{4,5})\.[A-Za-z0-9_-]{43}$/.exec(state);
+    var port = m ? Number(m[1]) : 0;
+    var token = p.get('id_token') || '';
+    var error = p.get('error') || '';
+    if (port < 1024 || port > 65535 || (!/^[A-Za-z0-9_.-]{20,8192}$/.test(token) && !error)) {
+      document.getElementById('m').textContent = 'This sign-in link is not valid. Start again from Belay on your computer.';
+      return;
+    }
+    var q = new URLSearchParams({ state: state });
+    if (error) q.set('error', error.slice(0, 64)); else q.set('id_token', token);
+    location.replace('http://127.0.0.1:' + port + '/apple?' + q);
+  })();
+</script>
+</body>

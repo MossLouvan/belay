@@ -40,3 +40,7 @@
 .perm[data-granted="true"] [data-role="request"],
 .perm[data-granted="true"] [data-role="open"] { display: none; }
 .perm[data-granted="true"] .badge { color: var(--accent); border-color: var(--accent-dim); }
+
+.signin-providers .button { flex: 1; }
+#signin form .input { flex: 1; min-width: 0; }
+#signin-msg:empty { display: none; }
