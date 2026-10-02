@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.mosslouvan.belay'
+version = '0.1.0'
+
+android {
+  namespace 'expo.modules.belaypin'
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+  }
+}
+
+dependencies {
+  // OkHttp is `api` from react-android; this is the pin layer's only extra
+  // import and it ships with React Native, so nothing new is pulled in.
+  compileOnly 'com.facebook.react:react-android'
+}

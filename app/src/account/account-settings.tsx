@@ -11,6 +11,7 @@ import { useTheme } from '../theme';
 import { errorMessage } from '../connect/pair-flow';
 import { useConnection } from '../connection';
 import { useAccount } from './store';
+import { isTunnelAvailable } from '../../modules/belay-stream/src/tunnel';
 
 export interface AccountRowsProps {
   /** Closes the sheet these rows live in, before another sheet or screen opens. */
@@ -34,7 +35,7 @@ export function AccountRows({ onLeave, onRequestDelete }: AccountRowsProps) {
       <View style={{ gap: theme.space.sm }}>
         <Label>Account</Label>
         <Rule />
-        <Caption>Sign in to link computers and reach them from anywhere.</Caption>
+        <Caption>{isTunnelAvailable() ? 'Sign in to link computers and reach them from anywhere.' : 'Sign in to link your computers.'}</Caption>
         <Button label="Sign in" testID="options-sign-in" fullWidth onPress={() => { onLeave(); router.push('/sign-in?next=/devices'); }} />
       </View>
     );
