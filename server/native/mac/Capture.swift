@@ -51,7 +51,18 @@ import ScreenCaptureKit
 /// latest picture, never a backlog.
 final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
     private static let queueDepth = 5
-    private static let maxFramesPerSecond: Int32 = 30
+    /// The JPEG pull path's rate; the H.264 push path asks for its own.
+    static let defaultFramesPerSecond: Int32 = 30
+
+    /// What a stream was started with. The JPEG path captures at the display's
+    /// native pixel size and scales on the CPU; the H.264 path has
+    /// ScreenCaptureKit scale on the GPU to the encoder's size, so the output
+    /// size and rate are part of the stream's identity.
+    struct Output: Equatable {
+        let width: Int
+        let height: Int
+        let fps: Int32
+    }
 
     let displayID: CGDirectDisplayID
 
@@ -60,6 +71,7 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private var latest: CMSampleBuffer?
     private var pixelSize: (width: Int, height: Int) = (0, 0)
+    private(set) var output: Output?
     private var stopReason: String?
     private var frameArrived = DispatchSemaphore(value: 0)
     private var sawFirstFrame = false
@@ -67,12 +79,10 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Monotonic (not wall clock) so a clock adjustment cannot fake staleness.
     private var lastFrameUptimeNanos: UInt64 = 0
 
-    #if BELAY_WEBRTC_BUILD
-    /// HARDWARE-GATED push seam (docs/PERFORMANCE-PLAN.md §2): when the WebRTC
-    /// transport is connected, every arriving CVPixelBuffer is pushed straight
-    /// into the encoder instead of waiting to be pulled — this is what turns
-    /// capture from a polled RPC into a push source. Set/cleared under `lock`
-    /// by WebRTCSession; called on the SCStream sample queue.
+    /// Push seam: when an encoder is attached, every arriving CVPixelBuffer is
+    /// handed to it on the SCStream sample queue — capture becomes a push
+    /// source instead of a polled RPC. Set/cleared under `lock`. The JPEG pull
+    /// path keeps working alongside it from the same frames.
     private var encoderSink: ((CVPixelBuffer, Double) -> Void)?
 
     func setEncoderSink(_ sink: ((CVPixelBuffer, Double) -> Void)?) {
@@ -80,7 +90,11 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
         encoderSink = sink
         lock.unlock()
     }
-    #endif
+
+    var currentEncoderSink: ((CVPixelBuffer, Double) -> Void)? {
+        lock.lock(); defer { lock.unlock() }
+        return encoderSink
+    }
 
     init(displayID: CGDirectDisplayID) {
         self.displayID = displayID
@@ -100,15 +114,15 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
         return pixelSize.width != geometry.pixelWidth || pixelSize.height != geometry.pixelHeight
     }
 
-    func start(display: SCDisplay, geometry: DisplayGeometry, timeout: TimeInterval) throws {
+    func start(display: SCDisplay, geometry: DisplayGeometry, output: Output? = nil, timeout: TimeInterval) throws {
         let config = SCStreamConfiguration()
-        config.width = max(1, geometry.pixelWidth)
-        config.height = max(1, geometry.pixelHeight)
+        config.width = max(1, output?.width ?? geometry.pixelWidth)
+        config.height = max(1, output?.height ?? geometry.pixelHeight)
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = true
         config.scalesToFit = false
         config.queueDepth = DisplayStream.queueDepth
-        config.minimumFrameInterval = CMTime(value: 1, timescale: DisplayStream.maxFramesPerSecond)
+        config.minimumFrameInterval = CMTime(value: 1, timescale: output?.fps ?? DisplayStream.defaultFramesPerSecond)
         if #available(macOS 14.0, *) { config.captureResolution = .best }
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -121,7 +135,8 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
 
         lock.lock()
         self.stream = stream
-        self.pixelSize = (config.width, config.height)
+        self.pixelSize = (geometry.pixelWidth, geometry.pixelHeight)
+        self.output = output
         self.stopReason = nil
         self.sawFirstFrame = false
         self.latest = nil
@@ -141,6 +156,9 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
         latest = nil
         lastFrameUptimeNanos = 0
         pixelSize = (0, 0)
+        // A frame still in flight on the sample queue must not reach an
+        // encoder that a replacement stream (different size) now owns.
+        encoderSink = nil
         lock.unlock()
         running?.stopCapture(completionHandler: { _ in })
     }
@@ -185,21 +203,16 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
         let first = !sawFirstFrame
         sawFirstFrame = true
         let signal = frameArrived
-        #if BELAY_WEBRTC_BUILD
         let sink = encoderSink
-        #endif
         lock.unlock()
         if first { signal.signal() }
-        #if BELAY_WEBRTC_BUILD
         // Push path: hand the raw pixel buffer to the encoder with the sample's
-        // own presentation timestamp (ms) — the capture stamp latency.ts uses
-        // for glass-to-glass. Runs on the sample queue; the encoder is
-        // thread-safe and VideoToolbox does its own async work.
+        // own presentation timestamp (ms). Runs on the sample queue; the
+        // encoder is thread-safe and VideoToolbox does its own async work.
         if let sink, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
             let ptsMs = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds * 1000.0
             sink(pixelBuffer, ptsMs)
         }
-        #endif
     }
 
     // MARK: - SCStreamDelegate
@@ -313,27 +326,24 @@ final class CaptureEngine {
         streams.removeAll()
     }
 
-    #if BELAY_WEBRTC_BUILD
-    /// HARDWARE-GATED: attach the WebRTC encoder as a push sink on one display's
-    /// stream (starting the stream if needed). Returns the pixel geometry the
-    /// stream captures at, which is what the encoder session must be sized to.
-    /// Mirrors the selection precedence of `frames`: an index picks that entry
-    /// of Displays.active(), absent falls back to the primary.
-    func attachEncoderSink(screen: Int?, sink: @escaping (CVPixelBuffer, Double) -> Void) throws -> DisplayGeometry {
+    /// Attach an encoder as the push sink on one display's stream, (re)starting
+    /// the stream so ScreenCaptureKit delivers frames already scaled to
+    /// `output` on the GPU at `output.fps`. The JPEG pull path keeps working
+    /// from the same (now smaller) frames: it composites whatever size the
+    /// stream produces.
+    func attachEncoderSink(to geometry: DisplayGeometry, output: DisplayStream.Output,
+                           sink: @escaping (CVPixelBuffer, Double) -> Void) throws {
         try Permissions.require(.screenRecording)
-        let geometry = try Displays.at(screen, in: Displays.active()) ?? Displays.primary()
         let available = try shareableDisplays()
-        let stream = try ensureStream(for: geometry, available: available)
+        let stream = try ensureStream(for: geometry, available: available, output: output)
         stream.setEncoderSink(sink)
-        return geometry
     }
 
-    /// Detach any encoder sinks (transport closed / bye). The streams keep
-    /// running for the JPEG pull path — detaching must not black the fallback.
+    /// Detach every encoder sink. The streams keep running for the JPEG pull
+    /// path — detaching must not black the fallback.
     func detachEncoderSinks() {
         streams.values.forEach { $0.setEncoderSink(nil) }
     }
-    #endif
 
     private static func isStalled(_ stream: DisplayStream) -> Bool {
         guard let age = stream.frameAge else { return false }
@@ -355,16 +365,26 @@ final class CaptureEngine {
         }
     }
 
-    private func ensureStream(for geometry: DisplayGeometry, available: [CGDirectDisplayID: SCDisplay]) throws -> DisplayStream {
-        if let existing = streams[geometry.id], existing.isRunning, !existing.isStale(for: geometry), !Self.isStalled(existing) {
+    /// `output` nil means "any": the JPEG path accepts whatever the stream is
+    /// producing, so it never fights an attached encoder over the size. A
+    /// restart for any reason (stall, resolution change) keeps the previous
+    /// output and encoder sink, so the H.264 session survives it.
+    private func ensureStream(for geometry: DisplayGeometry, available: [CGDirectDisplayID: SCDisplay],
+                              output: DisplayStream.Output? = nil) throws -> DisplayStream {
+        let existing = streams[geometry.id]
+        if let existing, existing.isRunning, !existing.isStale(for: geometry), !Self.isStalled(existing),
+           output == nil || output == existing.output {
             return existing
         }
-        streams[geometry.id]?.stop()
+        let inheritedSink = existing?.currentEncoderSink
+        existing?.stop()
         guard let scDisplay = available[geometry.id] else {
             throw HostError(.display, "display \(geometry.id) is no longer shareable")
         }
         let stream = DisplayStream(displayID: geometry.id)
-        try stream.start(display: scDisplay, geometry: geometry, timeout: Self.startTimeout)
+        stream.setEncoderSink(inheritedSink)
+        try stream.start(display: scDisplay, geometry: geometry, output: output ?? existing?.output,
+                         timeout: Self.startTimeout)
         streams[geometry.id] = stream
         return stream
     }

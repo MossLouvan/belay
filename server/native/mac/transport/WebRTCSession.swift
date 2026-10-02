@@ -199,7 +199,9 @@ final class WebRTCVerb {
         guard encoder == nil, let t = transport, let sid = sessionId else { return }
         do {
             var pendingSink: ((CVPixelBuffer, Double) -> Void)?
-            let geometry = try capture.attachEncoderSink(screen: nil) { pixelBuffer, ptsMs in
+            let geometry = try Displays.primary()
+            let output = DisplayStream.Output(width: geometry.pixelWidth, height: geometry.pixelHeight, fps: 60)
+            try capture.attachEncoderSink(to: geometry, output: output) { pixelBuffer, ptsMs in
                 pendingSink?(pixelBuffer, ptsMs)
             }
             let enc = try VideoEncoder(

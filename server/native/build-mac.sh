@@ -25,7 +25,9 @@ if ! command -v swiftc >/dev/null 2>&1; then
 fi
 
 shopt -s nullglob
-sources=("$src_dir"/*.swift)
+# mac/encode/ (VideoToolbox H.264 for the screen socket) ships by default;
+# mac/transport/ (WebRTC) stays opt-in below.
+sources=("$src_dir"/*.swift "$src_dir"/encode/*.swift)
 shopt -u nullglob
 if [ ${#sources[@]} -eq 0 ]; then
   echo "error: no Swift sources found in $src_dir" >&2
@@ -39,22 +41,22 @@ trap 'rm -rf "$work"' EXIT
 # the one display fact CoreGraphics does not expose.
 common_flags=(-O -swift-version 5 -framework ScreenCaptureKit -framework CoreGraphics
               -framework ImageIO -framework ApplicationServices -framework CoreMedia
-              -framework CoreVideo -framework UniformTypeIdentifiers -framework AppKit)
+              -framework CoreVideo -framework UniformTypeIdentifiers -framework AppKit
+              -framework VideoToolbox)
 
 # ── WebRTC path (opt-in, HARDWARE-GATED) ─────────────────────────────────────
-# The default build deliberately globs only the top-level mac/*.swift, so
-# mac/encode/ (VideoEncoder.swift) and mac/transport/ (libdatachannel shim) are
-# EXCLUDED and the shipping helper is unchanged. Set BELAY_WEBRTC_BUILD=1 to
-# fold them in — this path is NOT yet verified (it needs a prebuilt static
-# libdatachannel archive and has not been compiled end-to-end; see
-# docs/WEBRTC-SLICE.md). It is wired here so enabling it is a build-flag change,
-# not a script rewrite.
+# The default build globs mac/*.swift and mac/encode/ (the VideoToolbox
+# encoder, used by the shipping H.264-over-WebSocket path). mac/transport/
+# (the libdatachannel shim) is EXCLUDED. Set BELAY_WEBRTC_BUILD=1 to fold it
+# in — this path is NOT yet verified (it needs a prebuilt static libdatachannel
+# archive and has not been compiled end-to-end; see docs/WEBRTC-SLICE.md). It
+# is wired here so enabling it is a build-flag change, not a script rewrite.
 if [ "${BELAY_WEBRTC_BUILD:-}" = "1" ]; then
-  echo "note: BELAY_WEBRTC_BUILD=1 — folding in the hardware-gated WebRTC encoder/transport (UNVERIFIED)" >&2
+  echo "note: BELAY_WEBRTC_BUILD=1 — folding in the hardware-gated WebRTC transport (UNVERIFIED)" >&2
   shopt -s nullglob
-  sources+=("$src_dir"/encode/*.swift "$src_dir"/transport/*.swift)
+  sources+=("$src_dir"/transport/*.swift)
   shopt -u nullglob
-  # VideoEncoder needs VideoToolbox; the transport shim needs libdatachannel and
+  # The transport shim needs libdatachannel and
   # its deps (libjuice/usrsctp/srtp2 + OpenSSL's libcrypto/libssl), a C++
   # runtime, and the bridging header that exposes belay_transport.h to Swift.
   # Vendor libdatachannel as a static build under mac/transport/vendor/ — run
@@ -73,7 +75,6 @@ if [ "${BELAY_WEBRTC_BUILD:-}" = "1" ]; then
   # The C++ shim is compiled separately per-arch by clang++ (swiftc does not
   # compile C++ sources) and handed to swiftc as an object file to link.
   common_flags+=(-D BELAY_WEBRTC_BUILD
-                 -framework VideoToolbox
                  -import-objc-header "$src_dir/transport/belay-bridging.h"
                  -L "$LIBDATACHANNEL_ROOT/lib"
                  -ldatachannel-static -ljuice-static -lusrsctp -lsrtp2

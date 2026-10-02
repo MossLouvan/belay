@@ -156,6 +156,21 @@ export function decodeBinaryFrame(payload: unknown): DecodedBinaryFrame | null {
   return { w, h, sw, sh, meta, jpeg: wire.slice(jpegStart, jpegStart + jpegLen) };
 }
 
+/**
+ * Which codec the payload is. A frame with no tag is JPEG — every host before
+ * the codec tag sent nothing else — and an unknown tag is treated as JPEG too,
+ * which decodes to nothing rather than to a crash. The `jpeg` field name is
+ * historical: for an `h264` frame it holds one Annex-B access unit.
+ */
+export type FrameCodec = 'jpeg' | 'h264';
+
+export const frameCodecOf = (frame: Pick<DecodedBinaryFrame, 'meta'> | null): FrameCodec =>
+  frame?.meta?.codec === 'h264' ? 'h264' : 'jpeg';
+
+/** True when an H.264 frame carries an IDR (meta `key`); JPEG is never a keyframe. */
+export const isKeyframe = (frame: Pick<DecodedBinaryFrame, 'meta'> | null): boolean =>
+  frameCodecOf(frame) === 'h264' && frame?.meta?.key === true;
+
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 /**

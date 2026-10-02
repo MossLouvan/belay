@@ -39,6 +39,10 @@ private let virtualRefreshRange = 24...240
 private let webrtc = WebRTCVerb(replies: replies, capture: capture, input: input)
 #endif
 private let audio = SystemAudioCapture(replies: replies)
+// H.264 over the screen socket (encode/H264Session.swift): frames leave on
+// file descriptor 3, never on stdout.
+private let h264 = H264Session(capture: capture)
+private let h264FpsRange = 1...120
 
 private func run() {
     // Without this the process is killed outright the moment stdout closes —
@@ -77,6 +81,7 @@ private func run() {
     #if BELAY_WEBRTC_BUILD
     webrtc.stop() // close the peer + encoder before the capture streams they feed
     #endif
+    h264.stop()
     capture.stopAll()
     // Releasing the reference removes the display; a crash would too (the OS
     // tears it down with the owning process), but exiting cleanly means the
@@ -111,6 +116,10 @@ private func handle(_ command: Command) throws {
     case "audiostart": try handleAudioStart(command)
     case "audiostop": audio.stop(); replies.ok(id: command.id)
     case "audiostatus": handleAudioStatus(command)
+    case "h264start": try handleH264Start(command)
+    case "h264stop": h264.stop(); replies.ok(id: command.id)
+    case "h264key": h264.requestKeyframe(); replies.ok(id: command.id)
+    case "h264status": replies.ok(id: command.id, h264.status())
     case "ping": replies.ok(id: command.id, ["pong": true])
     case "webrtc":
         #if BELAY_WEBRTC_BUILD
@@ -155,22 +164,12 @@ private func handleInfo(_ command: Command) throws {
     ])
 }
 
-private func handleCapture(_ command: Command) throws {
-    let width = try command.int("w", default: defaultCaptureWidth, clampedTo: captureWidthRange)
-    let quality = try command.int("q", default: defaultCaptureQuality, clampedTo: captureQualityRange)
-    let wantsVirtual = try command.bool("virtual")
-    let wantsVirtualDisplay = try command.bool("virtualdisplay")
-
-    // Precedence: the driver-backed virtual display (the client's exact
-    // resolution, aspect-matched, no letterbox) wins when asked for; then
-    // `virtual` (the whole desktop union); otherwise the `screen` index selects
-    // one physical display, falling back to the primary. The physical paths are
-    // byte-for-byte what they were — this only adds a new highest-priority case.
-    let screen = try command.int("screen")
-    let all = try Displays.active()
-    let targets: [DisplayGeometry]
-    let bounds: CGRect
-    if wantsVirtualDisplay {
+/// The one display a `screen`/`virtualdisplay` request names. The driver-backed
+/// virtual display (the client's exact resolution) wins when asked for;
+/// otherwise the `screen` index selects a physical display, falling back to
+/// the primary.
+private func selectedDisplay(_ command: Command) throws -> DisplayGeometry {
+    if try command.bool("virtualdisplay") {
         // The Node side only sets this after a successful create, but the
         // display can still vanish (helper restart, API drift); a clear error
         // lets the stream fall back rather than capturing the wrong screen.
@@ -178,14 +177,21 @@ private func handleCapture(_ command: Command) throws {
             throw HostError(.capture,
                 "no virtual display is active; create one before capturing it")
         }
-        let geo = Displays.geometry(of: vid)
-        targets = [geo]
-        bounds = geo.bounds
-    } else {
-        let selected = try Displays.at(screen, in: all) ?? Displays.primary()
-        targets = wantsVirtual ? all : [selected]
-        bounds = wantsVirtual ? Displays.virtualBounds(all) : selected.bounds
+        return Displays.geometry(of: vid)
     }
+    return try Displays.at(try command.int("screen"), in: Displays.active()) ?? Displays.primary()
+}
+
+private func handleCapture(_ command: Command) throws {
+    let width = try command.int("w", default: defaultCaptureWidth, clampedTo: captureWidthRange)
+    let quality = try command.int("q", default: defaultCaptureQuality, clampedTo: captureQualityRange)
+    // Precedence: one display as `selectedDisplay` resolves it, unless
+    // `virtual` asks for the whole desktop union (physical displays only).
+    let wantsUnion = try command.bool("virtual") && !(try command.bool("virtualdisplay"))
+    let all = try Displays.active()
+    let selected = try selectedDisplay(command)
+    let targets = wantsUnion ? all : [selected]
+    let bounds = wantsUnion ? Displays.virtualBounds(all) : selected.bounds
 
     let tiles = try capture.frames(for: targets)
     let composited = try ImageOutput.composite(
@@ -212,6 +218,19 @@ private func handleCapture(_ command: Command) throws {
         payload["warning"] = "frame is \(Int((age * 1000).rounded())) ms old — the desktop may simply be idle, "
             + "as ScreenCaptureKit delivers no frames while nothing changes"
     }
+    replies.ok(id: command.id, payload)
+}
+
+/// Start (or retune) hardware H.264 of one display. Frames leave on fd 3 from
+/// here on; the reply carries the encoded and source sizes. Idempotent: a
+/// second start re-sizes the running session and its first frame is an IDR.
+private func handleH264Start(_ command: Command) throws {
+    let width = try command.int("w", default: defaultCaptureWidth, clampedTo: captureWidthRange)
+    let quality = try command.int("q", default: defaultCaptureQuality, clampedTo: captureQualityRange)
+    let fps = try command.int("fps", default: 30, clampedTo: h264FpsRange)
+    let geometry = try h264.start(display: try selectedDisplay(command), width: width, fps: fps, quality: quality)
+    var payload = H264Session.payload(geometry)
+    payload["fps"] = fps
     replies.ok(id: command.id, payload)
 }
 
