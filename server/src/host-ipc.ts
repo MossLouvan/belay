@@ -31,20 +31,38 @@ export function postToApp(message: Record<string, unknown>): void {
 
 let nextRequestId = 1;
 const pending = new Map<number, (reply: unknown) => void>();
+let commandHandler: ((message: Record<string, unknown>) => void) | null = null;
 let listening = false;
+
+/** One listener on the port: replies (numeric `id`) settle requests, the rest are commands. */
+function listen(port: ParentPort): void {
+  if (listening) return;
+  listening = true;
+  port.on('message', ({ data }) => {
+    if (!data || typeof data !== 'object') return;
+    const id = (data as { id?: unknown }).id;
+    if (typeof id === 'number') {
+      const resolve = pending.get(id);
+      if (resolve) { pending.delete(id); resolve(data); }
+      return;
+    }
+    commandHandler?.(data as Record<string, unknown>);
+  });
+}
+
+/** Commands Belay.app sends unprompted (e.g. "Pair another phone"). No-op outside the app. */
+export function onAppMessage(handler: (message: Record<string, unknown>) => void): void {
+  const port = parentPort();
+  if (!port) return;
+  commandHandler = handler;
+  listen(port);
+}
 
 /** One round trip to the app; the reply carries the same `id`. */
 export function requestFromApp(message: Record<string, unknown>, timeoutMs = 10_000): Promise<unknown> {
   const port = parentPort();
   if (!port) return Promise.reject(new Error('not running under Belay.app'));
-  if (!listening) {
-    listening = true;
-    port.on('message', ({ data }) => {
-      const id = (data as { id?: unknown } | null)?.id;
-      const resolve = typeof id === 'number' ? pending.get(id) : undefined;
-      if (resolve && typeof id === 'number') { pending.delete(id); resolve(data); }
-    });
-  }
+  listen(port);
   const id = nextRequestId++;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { pending.delete(id); reject(new Error('Belay.app did not answer')); }, timeoutMs);

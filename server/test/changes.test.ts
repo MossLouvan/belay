@@ -11,7 +11,7 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 
-import { collectChanges, capDiff, parseStatus, parseNumstat, DIFF_CAP } from '../src/changes.js';
+import { collectChanges, changesForCwd, capDiff, parseStatus, parseNumstat, DIFF_CAP } from '../src/changes.js';
 
 const HOME = homedir();
 let sandbox = '';   // inside home: repos under test
@@ -195,4 +195,30 @@ test('capDiff cuts on the last full line under the cap', () => {
   const capped = capDiff(text, 10);
   assert.deepEqual(capped, { text: 'aaaa\nbbbb\n', truncated: true });
   assert.deepEqual(capDiff(text, 100), { text, truncated: false });
+});
+
+// ---- by folder, for done notices from plain terminal sessions (#127) --------
+
+test('changesForCwd serves a known session folder', async () => {
+  const dir = await makeRepo('by-cwd');
+  await writeFile(join(dir, 'kept.txt'), 'one\nTWO\nthree\n');
+  const out = await changesForCwd(dir, ['/elsewhere', dir]);
+  assert.ok(out);
+  assert.equal(out.files[0]?.path, 'kept.txt');
+  assert.ok(await changesForCwd(`${dir}/`, [dir]), 'a trailing slash is the same folder');
+});
+
+test('changesForCwd answers null for any folder no session ran in — not an oracle', async () => {
+  const dir = await makeRepo('not-a-session');
+  // A real repo inside the roots, a folder outside them, and one that does not
+  // exist all get the same null: the route reveals nothing about the path.
+  assert.equal(await changesForCwd(dir, []), null);
+  assert.equal(await changesForCwd(outside, [dir]), null);
+  assert.equal(await changesForCwd(join(sandbox, 'nope'), [dir]), null);
+  assert.equal(await changesForCwd(`${dir}/../not-a-session/..`, [dir]), null);
+  for (const bad of ['', undefined, 42, ['x']]) assert.equal(await changesForCwd(bad, [dir, '']), null);
+});
+
+test('a known folder that drifted outside the roots is still refused by confinement', async () => {
+  await assert.rejects(changesForCwd(outside, [outside]), /outside the allowed folders/);
 });

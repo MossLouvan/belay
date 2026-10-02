@@ -28,13 +28,14 @@ export interface BannerInfo {
 // default renders roughly twice as tall and wraps.
 // Under Belay.app the same link also goes to the app, which draws it in a
 // window (host-ipc.ts); the terminal copy still prints for the log file.
-const terminalSinks = {
+// `expiresInSec` rides along so the window can drop the code when it dies.
+const terminalSinks = (expiresInSec: number) => ({
   qr: (link: string) => {
     qrcode.generate(link, { small: true });
-    postToApp({ type: 'pairing', link, modules: qrModules(link) });
+    postToApp({ type: 'pairing', link, modules: qrModules(link), expiresInSec });
   },
   line: (text: string) => console.log(text),
-};
+});
 
 /**
  * Reprint the QR and the code together after a rotation.
@@ -54,7 +55,7 @@ export function reprintPairingCode(
   console.log('');
   console.log('  Advanced: new pairing code — scan this in the Belay app (Connect by address):');
   console.log('');
-  emitPairingCode(info, code, expiresInSec, terminalSinks);
+  emitPairingCode(info, code, expiresInSec, terminalSinks(expiresInSec));
   console.log('');
 }
 
@@ -136,7 +137,7 @@ export function printBanner(info: BannerInfo): void {
 
     // The QR and the manual code line come from the one shared emitter, so this
     // boot display and the later rotation display can never disagree.
-    emitPairingCode(info, info.pairingCode.code, info.pairingCode.expiresInSec, terminalSinks);
+    emitPairingCode(info, info.pairingCode.code, info.pairingCode.expiresInSec, terminalSinks(info.pairingCode.expiresInSec));
   } else {
     lines.push(`  Paired devices: ${info.deviceCount}. Use the app to connect.`);
   }
