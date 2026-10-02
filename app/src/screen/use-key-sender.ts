@@ -6,7 +6,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { api } from '../api';
 import { haptic } from '../ui';
-import { keyFor, KEYS, messageOf, modsFor } from './model';
+import { keyAvailable, keyFor, KEYS, messageOf, modsFor } from './model';
 import type { KeySpec } from './model';
 import { activeMods, IDLE_MODS, modNamesForHost, releaseLatched, tapMod } from './mods';
 import type { ModsState, StickyMod } from './mods';
@@ -58,7 +58,8 @@ export function useKeySender({ isMac, reportError }: KeySenderInputs): KeySender
   const onSwipe = useCallback(
     (direction: SwipeDirection) => {
       const spec = KEYS.find((key) => key.id === SWIPE_ACTION_ID[direction]);
-      if (!spec) return;
+      // Deliberately unbound on this host (App Exposé on Windows): send nothing.
+      if (!spec || !keyAvailable(spec, isMac)) return;
       api
         .key(keyFor(spec, isMac), modsFor(spec, isMac))
         .catch((e: unknown) => reportError(`Desktop switch failed — ${messageOf(e)}`));
@@ -68,6 +69,7 @@ export function useKeySender({ isMac, reportError }: KeySenderInputs): KeySender
 
   const sendKey = useCallback(
     (spec: KeySpec) => {
+      if (!keyAvailable(spec, isMac)) return Promise.resolve();
       haptic('light');
       const base = modsFor(spec, isMac);
       const latched = modNamesForHost(activeMods(modsRef.current), isMac).filter((m) => !base.includes(m));

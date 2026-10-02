@@ -216,6 +216,12 @@ export interface KeySpec {
   readonly label: string;
   /** Optional: a few chords are macOS-only (macKey with no Windows key). */
   readonly key?: string;
+  /**
+   * A chord that exists on one platform only. Everywhere else the cap is not
+   * offered and the gesture that maps to it sends nothing — the alternative
+   * was Notify pressing ⌘A on a Mac and App Windows a bare ↓ on Windows (#80).
+   */
+  readonly only?: 'mac' | 'windows';
   readonly mods?: readonly string[];
   /** Label and modifiers used when the host reports macOS. */
   readonly macLabel?: string;
@@ -302,12 +308,12 @@ export const KEYS: readonly KeySpec[] = Object.freeze([
 
   // 3-finger down: App Exposé on Mac (shows windows of current app), unbound
   // on Windows (Win+D is destructive toggle). Triggered by 3-finger swipe down.
-  { id: 'AppExpose', label: 'App Windows', macKey: 'down', macMods: ['rawctrl'], action: 'Show windows of current app' },
+  { id: 'AppExpose', label: 'App Windows', only: 'mac', macKey: 'down', macMods: ['rawctrl'], action: 'Show windows of current app' },
 
   // 2-finger edge gesture: Notification Center / Action Center. Triggered by
   // 2-finger swipe down from top edge. Windows only — macOS has no default
   // hotkey for NC (user must configure one in System Settings).
-  { id: 'NotifyCenter', label: 'Notify', key: 'a', mods: ['win'], action: 'Open action center' },
+  { id: 'NotifyCenter', label: 'Notify', only: 'windows', key: 'a', mods: ['win'], action: 'Open action center' },
 ]);
 
 /** Modifiers to send for a key, honouring the macOS variant when relevant. */
@@ -318,9 +324,14 @@ export const modsFor = (spec: KeySpec, mac: boolean): string[] => [
 export const labelFor = (spec: KeySpec, mac: boolean): string =>
   mac && spec.macLabel ? spec.macLabel : spec.label;
 
-/** The key name to send, honouring a chord that moves keys across platforms. */
+/** Whether this host has a chord for the key at all (see KeySpec.only). */
+export const keyAvailable = (spec: KeySpec, mac: boolean): boolean =>
+  spec.only === undefined || (spec.only === 'mac') === mac;
+
+/** The key name to send, honouring a chord that moves keys across platforms.
+ *  Empty when the host has no chord for it — callers check `keyAvailable`. */
 export const keyFor = (spec: KeySpec, mac: boolean): string =>
-  (mac && spec.macKey ? spec.macKey : spec.key) ?? spec.macKey ?? '';
+  (mac && spec.macKey ? spec.macKey : spec.key) ?? '';
 
 // --- macOS permission copy --------------------------------------------------
 

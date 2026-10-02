@@ -23,6 +23,8 @@ export interface MascotLatch {
   readonly keepUpright: () => Promise<void>;
   /** The spoken contract on the avatar, naming what the next tap does. */
   readonly mascotLabel: string;
+  /** Pinned upright right now (the Menu's "Keep the view upright" row). */
+  readonly upright: boolean;
 }
 
 export function useMascotLatch(): MascotLatch {
@@ -53,5 +55,5 @@ export function useMascotLatch(): MascotLatch {
   );
   const mascotLabel = mascotAccessibilityLabel(orientationLock);
 
-  return { onMascotPress, keepUpright, mascotLabel };
+  return { onMascotPress, keepUpright, mascotLabel, upright: orientationLock === 'portrait' };
 }
