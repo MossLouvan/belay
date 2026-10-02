@@ -57,6 +57,18 @@ public final class BelayPinModule: Module {
             }
         }
 
+        /// 'granted' | 'denied' | 'unknown' for the Local Network permission
+        /// (LocalNetworkCheck.swift). Short deadline: asked after a failure.
+        AsyncFunction("localNetworkStatus") { (promise: Promise) in
+            LocalNetworkCheck.run(timeout: 3) { promise.resolve($0) }
+        }
+
+        /// Same check, held open long enough for the first-run system prompt
+        /// it raises to be answered. Resolves with what the person chose.
+        AsyncFunction("triggerLocalNetworkPrompt") { (promise: Promise) in
+            LocalNetworkCheck.run(timeout: 30) { promise.resolve($0) }
+        }
+
         Function("randomHex") { (bytes: Int) -> String in
             var buffer = [UInt8](repeating: 0, count: max(0, min(bytes, 1024)))
             let status = SecRandomCopyBytes(kSecRandomDefault, buffer.count, &buffer)

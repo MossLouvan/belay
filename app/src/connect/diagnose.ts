@@ -12,6 +12,8 @@ import { prettyHost } from './host-input';
 export interface Diagnosis {
   readonly title: string;
   readonly message: string;
+  /** iOS Local Network permission is off: show Open Settings (local-network.ts). */
+  readonly localNetwork?: boolean;
 }
 
 /** Fetch rejections differ per runtime; these are the shapes we actually see. */

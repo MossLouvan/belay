@@ -16,6 +16,7 @@ import type { PairingDeadEnd } from './dead-end';
 import { detectDeadEnd } from './dead-end';
 import type { Diagnosis } from './diagnose';
 import { diagnoseHostFailure } from './diagnose';
+import { localNetworkDiagnosis, primeLocalNetwork } from './local-network-permission';
 import { forgetHost, loadRecentHosts, prettyHost, rememberHost, resolveHost } from './host-input';
 import type { TailnetOutcome } from './tailnet';
 import { TAILNET_PROBE_ATTEMPTS, planTailnetUpgrade, readTailnetProbe, tailnetUrlFrom } from './tailnet';
@@ -177,6 +178,7 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
     checkSeq.current = seq;
     setBusy(true);
     try {
+      await primeLocalNetwork([resolved.url]);
       // A typed https address arrives with no fingerprint to pin, so read the
       // one the host presents and pin THAT — then show it on the code screen
       // for the user to compare with the host's own banner. Without it the
@@ -185,9 +187,13 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
       if (/^https:/i.test(resolved.url) && pinningAvailable) {
         const seen = await probeFingerprint(resolved.url);
         if (!live.current || seq !== checkSeq.current) return;
+        // With Local Network off the probe fails too, and blaming the
+        // certificate sends the user looking in the wrong place.
+        const blocked = seen ? null : await localNetworkDiagnosis([resolved.url]);
+        if (!live.current || seq !== checkSeq.current) return;
         if (!seen) {
           setBusy(false);
-          setHostError({
+          setHostError(blocked ?? {
             title: 'Could not read that computer\'s certificate',
             message: 'Nothing answered over a secure connection at that address. Check the computer is running the Belay host and is on this network, or scan its pairing code instead.',
           });
@@ -203,7 +209,9 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
       setBusy(false);
 
       if (!result.ok) {
-        setHostError(diagnoseHostFailure(resolved.url, result.error));
+        const blocked = await localNetworkDiagnosis([resolved.url], result.error);
+        if (!live.current || seq !== checkSeq.current) return;
+        setHostError(blocked ?? diagnoseHostFailure(resolved.url, result.error));
         return;
       }
 

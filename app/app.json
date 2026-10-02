@@ -16,6 +16,9 @@
       "bundleIdentifier": "com.mosslouvan.belay",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Belay finds your computer on this network so it can connect directly and fast.",
+        "NSBonjourServices": [
+          "_belay._tcp"
+        ],
         "ITSAppUsesNonExemptEncryption": true,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true

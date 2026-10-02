@@ -19,6 +19,8 @@ import { Screen, Caption, Txt, Button, Row, Sheet, haptic } from '../src/ui';
 import { useAgentAttention } from '../src/agent/attention-store';
 import { fleetLine } from '../src/agent/fleet-line';
 import { StatusNotice } from '../src/devices/notice';
+import { localNetworkDiagnosis } from '../src/connect/local-network-permission';
+import { LocalNetworkNotice } from '../src/connect/local-network-notice';
 import { useTheme } from '../src/theme';
 import { useLook } from '../src/design/use-look';
 import { useConnection } from '../src/connection';
@@ -75,6 +77,14 @@ export default function Devices() {
   /** True once the user asks Belay to keep re-attempting a dead connection. */
   const [keepTrying, setKeepTrying] = useState(false);
   const reconnectAttempts = useAutoReconnect(keepTrying, phase, reconnect);
+  /** The active computer is unreachable because iOS Local Network permission is off. */
+  const [localNetworkOff, setLocalNetworkOff] = useState(false);
+  useEffect(() => {
+    if (!active || phase !== 'unreachable') { setLocalNetworkOff(false); return; }
+    let alive = true;
+    void localNetworkDiagnosis(active.addresses.map((a) => a.url)).then((d) => { if (alive) setLocalNetworkOff(d !== null); });
+    return () => { alive = false; };
+  }, [active, phase]);
 
   // Stand down the moment the machine answers, and whenever the active computer
   // changes out from under the loop — the old target's retries mean nothing to
@@ -269,6 +279,8 @@ export default function Devices() {
                 action={{ label: 'Try again', onPress: () => void reconnect() }}
               />
             )
+          ) : active && phase === 'unreachable' && localNetworkOff ? (
+            <LocalNetworkNotice onRetry={() => void reconnect()} />
           ) : active && (phase === 'unreachable' || (keepTrying && phase === 'connecting')) ? (
             keepTrying ? (
               <StatusNotice
