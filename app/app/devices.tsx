@@ -41,6 +41,7 @@ import { forgetPreview } from '../src/home/preview-store';
 import { useAccount } from '../src/account/store';
 import { mergeComputers } from '../src/account/merge-devices';
 import { LinkedSection } from '../src/account/linked-section';
+import { PairRequestCards } from '../src/devices/pair-request-card';
 import type { ConnectionPath } from '../src/devices/tunnel-candidate';
 import { AccountRows, DeleteAccountSheet } from '../src/account/account-settings';
 
@@ -291,6 +292,9 @@ export default function Devices() {
               />
             )
           ) : null}
+
+          {/* A phone on the account asking to join the connected computer. */}
+          <PairRequestCards />
 
           <View style={{ gap: theme.space.sm }}>
             {devices.map((device) => (

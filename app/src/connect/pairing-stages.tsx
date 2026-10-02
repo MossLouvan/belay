@@ -15,6 +15,7 @@ import { Brand } from './brand';
 import { HostStep } from './host-step';
 import { NoCodeStep } from './no-code-step';
 import { AwayFromHomeNote, SetupSteps } from './onboarding';
+import { ApprovalStep } from './approval-step';
 import { PairStep } from './pair-step';
 import { ScanStep } from './scan';
 import { SuccessNotice } from './success-notice';
@@ -136,6 +137,16 @@ export function PairingStages({ session, check, adding, onOpenGuide }: PairingSt
             codeUnlikely={Boolean(check.deadEnd)}
           />
         </>
+      ) : null}
+
+      {stage === 'approval' && host ? (
+        <ApprovalStep
+          hostName={host.name}
+          error={session.approvalError}
+          busy={busy}
+          onAskAgain={() => void session.tryAccountPairing(host.url)}
+          onCancel={session.cancelApproval}
+        />
       ) : null}
 
       {stage === 'success' && host ? <SuccessNotice name={host.name} /> : null}

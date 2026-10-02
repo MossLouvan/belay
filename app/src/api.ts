@@ -91,7 +91,7 @@ export class UnauthorizedError extends Error {
  * one; aborting actually cancels it. An external signal is honoured too, so a
  * caller that is racing several requests can cancel the losers.
  */
-async function fetchWithTimeout(
+export async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   path: string,
@@ -153,6 +153,11 @@ export interface HostCheck {
    */
   codeOnRequest?: boolean;
   /**
+   * True when a phone on the computer's account pairs with POST /pair/account
+   * (the first one at once, later ones with one tap) instead of a code.
+   */
+  accountTrust?: boolean;
+  /**
    * True when the host can stream H.264 over UDP (BWP). Absent from hosts
    * older than the flag, which are asked anyway — see screen/bwp-policy.ts.
    */
@@ -198,6 +203,7 @@ export async function checkHost(host: string, signal?: AbortSignal): Promise<Hos
       reachableFromAnywhere: j.reachableFromAnywhere === true,
       pairing: j.pairing === 'tailnet' ? 'tailnet' : 'code',
       codeOnRequest: j.codeOnRequest === true,
+      accountTrust: j.accountTrust === true,
       bwp: readBwpCapability(j),
     };
   } catch (e: unknown) {
@@ -259,11 +265,18 @@ export async function pair(host: string, code: string, deviceName: string): Prom
   );
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((j as { error?: string }).error || 'pairing failed');
+  return readPairResult(host, j);
+}
+
+/** The body /pair (and /pair/account) answers with, as a PairResult. */
+export function readPairResult(host: string, j: Record<string, unknown>): PairResult {
   const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+  const token = str(j.token);
+  if (!token) throw new Error('the computer did not send a device token');
   return {
     host,
-    token: j.token,
-    hostName: j.name || 'PC',
+    token,
+    hostName: str(j.name) ?? 'PC',
     deviceId: str(j.deviceId),
     secret: str(j.secret),
     fingerprint: str(j.fingerprint),
@@ -804,6 +817,8 @@ export const api = {
   agentDiscovered: () => get<{ sessions: DiscoveredSession[] }>('/agent/discovered'),
   /** Asks and notices from terminal sessions; 404 on hosts without hooks. */
   agentHooks: () => get<HookList>('/agent/hooks'),
+  /** One tap on "Allow <phone>?" (account trust); 404 when it expired. */
+  approvePhone: (pendingId: string, allow: boolean) => post<{ ok: boolean }>('/devices/approve', { pendingId, allow }),
   /** Answer a terminal session's ask; `choice` is one of the ask's choice ids. */
   agentHookDecide: (id: string, allow: boolean, choice?: string) =>
     post<{ ok: boolean }>(`/agent/hooks/${encodeURIComponent(id)}/decide`, { allow, choice }),

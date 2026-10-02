@@ -35,6 +35,8 @@ import {
   attentionRetryMs, applyAttentionPush, applyDiscoveredPush, parseAttentionMessage, parseDiscoveredPush,
 } from './attention';
 import { applyHooksPush, parseHooksPush } from './hook-model';
+import { parsePairRequestsPush } from './pair-requests';
+import type { PairRequestRow } from './pair-requests';
 
 export interface AttentionState {
   /** Latest session list; null until the first successful fetch. */
@@ -53,6 +55,11 @@ export interface AttentionState {
    * socket: an ask lands here the moment the terminal session raises it.
    */
   readonly hooks: HookList | null;
+  /**
+   * Phones on this account asking to join the connected computer (account
+   * trust), each waiting for one tap. Pushed only; empty on older hosts.
+   */
+  readonly pairRequests: readonly PairRequestRow[];
   /** When `sessions` was last refreshed — the "now" its countdowns tick from. */
   readonly fetchedAt: number;
   /** Last fetch failure; empty while the host answers. */
@@ -62,7 +69,7 @@ export interface AttentionState {
 }
 
 const EMPTY: AttentionState = Object.freeze({
-  sessions: null, discovered: null, hooks: null, fetchedAt: 0, error: '', openId: null,
+  sessions: null, discovered: null, hooks: null, pairRequests: [], fetchedAt: 0, error: '', openId: null,
 });
 const NO_HOOKS: HookList = Object.freeze({ permissions: [], notices: [] }) as HookList;
 let state: AttentionState = EMPTY;
@@ -171,6 +178,15 @@ export async function decideHook(id: string, allow: boolean, choice?: string): P
   }
   if (!ok) void refreshHooks();
   return ok;
+}
+
+/**
+ * One tap on "Allow <phone>?". Dropped locally at once; the push agrees. A
+ * 404 (it lapsed, or Belay.app answered first) is not an error to show.
+ */
+export async function answerPairRequest(id: string, allow: boolean): Promise<void> {
+  setState({ pairRequests: state.pairRequests.filter((r) => r.id !== id) });
+  try { await api.approvePhone(id, allow); } catch { /* lapsed or already answered; the push resyncs */ }
 }
 
 /** Clear a done / terminal-prompt notice from the list. */
@@ -289,6 +305,9 @@ async function openSocket(gen: number): Promise<void> {
       }
       if (merged.needsFetch) void refreshDiscovered();
     }
+    // Phones asking to join this computer (account trust).
+    const pairRequests = parsePairRequestsPush(raw);
+    if (pairRequests && JSON.stringify(pairRequests) !== JSON.stringify(state.pairRequests)) setState({ pairRequests });
     // And the terminal-session asks, on hosts with hooks.
     const hookRows = parseHooksPush(raw);
     if (!hookRows) return;

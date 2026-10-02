@@ -4,7 +4,7 @@
 // code screen (pair-over-tunnel.ts). The account proves which node to dial;
 // the host's own /pair still issues the token.
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { IconLink } from '@tabler/icons-react-native';
 import { Button, ListItem, Section } from '../ui';
@@ -23,6 +23,13 @@ export interface LinkedSectionProps {
 // linked computer, so Pair there would only ever fail as "not reachable yet"
 // (#152). Say what is actually true and offer the route that does work.
 const NO_TUNNEL = 'Pairing through Belay\'s tunnel needs the iPhone or Android app. Here, use Add computer and pair by address on the same network.';
+
+/**
+ * Linked computers this run has already tried to pair by itself. Once each:
+ * Cancel on the waiting screen means "not now", not "ask again on the next
+ * render".
+ */
+const autoStarted = new Set<string>();
 
 const UNREACHABLE = 'Belay could not reach that computer through the tunnel yet. Check it is awake and online; a just-linked computer admits this phone within a minute.';
 
@@ -53,6 +60,16 @@ export function LinkedSection({ devices }: LinkedSectionProps) {
       setBusy(null);
     }
   }, []);
+
+  // Signed in (or just linked on the computer) and a computer is waiting on
+  // this account: start pairing it without a tap. With account trust that is
+  // no code at all; a quiet failure leaves the Pair button for later.
+  const first = devices[0];
+  useEffect(() => {
+    if (!first || !isTunnelAvailable() || autoStarted.has(first.nodeId)) return;
+    autoStarted.add(first.nodeId);
+    void startPairingOverTunnel(first.nodeId);
+  }, [first]);
 
   if (devices.length === 0) return null;
   const tunnel = isTunnelAvailable();

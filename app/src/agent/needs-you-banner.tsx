@@ -29,6 +29,7 @@ import { askSummary, countdown, expiryUrgent, waitingSessions } from './attentio
 import { setOpenSession, useAgentAttention } from './attention-store';
 import { hookTitle, orderedHookAsks } from './hook-model';
 import { HOOK_EXPIRY_LABEL } from './hook-ask-card';
+import { PairRequestCards } from '../devices/pair-request-card';
 
 /** What the band shows: a Belay session's ask, or a terminal session's. */
 interface BandAsk {
@@ -40,7 +41,20 @@ interface BandAsk {
   readonly count: number;
 }
 
+/**
+ * A phone on the account asking to join this computer rides the band too, on
+ * every tab including Agent: it has no other surface to wait on.
+ */
 export function NeedsYouBanner() {
+  return (
+    <>
+      <PairRequestCards />
+      <SessionBand />
+    </>
+  );
+}
+
+function SessionBand() {
   const theme = useTheme();
   const router = useRouter();
   const pathname = usePathname();
