@@ -9,16 +9,20 @@
 // `cols`/`rows` are derived from the measured viewport (`src/terminal-geometry`)
 // and a `resize` is sent whenever they change — a wrong size makes anything
 // that draws a full screen render garbage.
+//
+// The shell itself — socket, screen buffer, history — lives in
+// `src/terminal/session-store`, not here: the bottom bar replaces this route
+// on every tab switch, and a shell owned by the route died with it (#90).
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   FlatList,
   Keyboard,
   NativeScrollEvent,
   NativeSyntheticEvent,
-  Platform,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../../src/connection';
@@ -28,14 +32,17 @@ import { Banner, Button, IconButton, Row, Rule, Txt, StatusBadge } from '../../s
 import type { GlassStateProps } from '../../src/ui';
 import { useKeyboardShown } from '../../src/ui/keyboard-lift';
 import { useTheme } from '../../src/theme';
-import { ANSI_RAMPS, clearTermState, createTermState, feed } from '../../src/terminal-ansi';
-import type { TermLine, TermOptions, TermState } from '../../src/terminal-ansi';
+import { ANSI_RAMPS } from '../../src/terminal-ansi';
+import type { TermLine } from '../../src/terminal-ansi';
 import { KeyBar } from '../../src/terminal-keys';
 import { TerminalOutput } from '../../src/terminal-output';
 import { useTerminalGeometry, DEFAULT_GEOMETRY } from '../../src/terminal-geometry';
 import type { Geometry } from '../../src/terminal-geometry';
-import { EMPTY_OUTPUT, FLUSH_MS, drainOutput, parseServerMessage, pushOutput } from '../../src/terminal-session';
-import type { OutputBuffer, ServerMessage } from '../../src/terminal-session';
+import type { ServerMessage } from '../../src/terminal-session';
+import {
+  clearTerm, ensureTermSession, getTermSession, postTerm, pushTermHistory, reopenTermSession, sendTerm,
+  setTermCompletionHandler, setTermGeometry, subscribeTermSession,
+} from '../../src/terminal/session-store';
 import { applyCandidate, parseCompletion } from '../../src/terminal/complete';
 import { planTab, trackPrimed } from '../../src/terminal/primed';
 import { CandidateRow } from '../../src/terminal/candidate-row';
@@ -44,13 +51,16 @@ import { ToolPanel } from '../../src/home/panel';
 
 // --- constants ---------------------------------------------------------------
 
-/** Lines of scrollback kept in memory. ~1500 short lines is a few MB at worst. */
-const MAX_SCROLLBACK = 1500;
 const LINE_HEIGHT_RATIO = 1.45;
 const RESIZE_DEBOUNCE_MS = 200;
 /** How close to the bottom still counts as "following" the output. */
 const FOLLOW_SLACK_PX = 24;
-const MAX_HISTORY = 50;
+/**
+ * Below this window height (a phone in landscape) the title row and the pipe
+ * banner are dropped so the transcript keeps rows to show (#91); the pipe
+ * fact moves into the status badge.
+ */
+const SHORT_VIEWPORT_PX = 500;
 /** Longer than the host's own completion ceiling plus a network round trip, so
     a reply that will ever come is never abandoned — but a host agent built
     before completion existed (which ignores the request entirely) releases the
@@ -64,9 +74,6 @@ type FontKey = 'sm' | 'md' | 'lg';
 const FONT_SIZES: Readonly<Record<FontKey, number>> = { sm: 11, md: 12.5, lg: 15 };
 const NEXT_FONT: Readonly<Record<FontKey, FontKey>> = { sm: 'md', md: 'lg', lg: 'sm' };
 const FONT_NAMES: Readonly<Record<FontKey, string>> = { sm: 'small', md: 'medium', lg: 'large' };
-
-type Status = 'connecting' | 'open' | 'closed' | 'exited' | 'error';
-type ShellMode = 'pty' | 'pipe';
 
 // --- screen ------------------------------------------------------------------
 
@@ -89,26 +96,20 @@ function TerminalTab() {
   // field itself carries a trailing dismiss while the keyboard is up, the
   // same idiom as the Screen tab's TYPE row.
   const keyboardUp = useKeyboardShown();
+  const short = useWindowDimensions().height < SHORT_VIEWPORT_PX;
 
-  const [term, setTerm] = useState<TermState>(createTermState);
-  const [status, setStatus] = useState<Status>('connecting');
-  const [mode, setMode] = useState<ShellMode | null>(null);
-  const [error, setError] = useState('');
+  const { term, status, mode, error, history } = useSyncExternalStore(subscribeTermSession, getTermSession, getTermSession);
   const [input, setInput] = useState('');
   const [fontKey, setFontKey] = useState<FontKey>('md');
   const [following, setFollowing] = useState(true);
-  const [session, setSession] = useState(0);
   const [candidates, setCandidates] = useState<readonly string[] | null>(null);
   const [completing, setCompleting] = useState(false);
   const [tabNotice, setTabNotice] = useState('');
   const [showHelp, setShowHelp] = useState(false);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const bufferRef = useRef<OutputBuffer>(EMPTY_OUTPUT);
   const geometryRef = useRef<Geometry>(DEFAULT_GEOMETRY);
   const followingRef = useRef(true);
   const listRef = useRef<FlatList<TermLine>>(null);
-  const historyRef = useRef<readonly string[]>([]);
   const historyIndex = useRef<number>(-1);
   const inputRef = useRef('');
   /** Whether the shell's line buffer is believed to hold text — the ledger
@@ -143,121 +144,44 @@ function TerminalTab() {
 
   // --- session ---------------------------------------------------------------
 
-  const flush = useCallback(() => {
-    const { text, next } = drainOutput(bufferRef.current);
-    bufferRef.current = next;
-    if (text.length === 0) return;
-    const options: TermOptions = { ...geometryRef.current, maxLines: MAX_SCROLLBACK };
-    setTerm((prev) => feed(prev, text, options));
+  /** The upgrade URL needs a single-use ticket first, so opening is async. */
+  const openShell = useCallback(() => {
+    const { cols, rows } = geometryRef.current;
+    return wsUrl('/ws/terminal', { cols, rows }).then((url) => new WebSocket(url));
   }, []);
 
+  // Keyed on the host: a tab round trip or a reconnect to the same computer
+  // finds the shell still running; a different computer gets a fresh one.
+  const host = connection?.host ?? null;
   useEffect(() => {
-    if (!connection) return undefined;
-    setStatus('connecting');
-    setError('');
-    setMode(null);
-    // A fresh shell starts at an empty prompt, whatever the last one held.
-    primedRef.current = false;
+    if (host === null) return;
+    ensureTermSession(host, openShell);
+  }, [host, openShell]);
 
-    // The upgrade URL now needs a single-use ticket fetched over HTTP first, so
-    // opening is asynchronous. `cancelled` guards the gap: the effect can be
-    // torn down while that request is in flight, and a socket opened afterwards
-    // would have no cleanup attached to it.
-    let cancelled = false;
-    let socket: WebSocket | null = null;
-
-    const openSocket = async (): Promise<void> => {
-      let opened: WebSocket;
-      try {
-        const { cols, rows } = geometryRef.current;
-        opened = new WebSocket(await wsUrl('/ws/terminal', { cols, rows }));
-      } catch (e: unknown) {
-        if (cancelled) return;
-        setStatus('error');
-        setError(e instanceof Error ? e.message : 'could not open a terminal session');
-        return;
-      }
-      if (cancelled) { opened.close(); return; }
-
-      socket = opened;
-      wsRef.current = opened;
-      attach(opened);
-    };
-
-    const attach = (socket: WebSocket): void => {
-      socket.onopen = () => setStatus('open');
-    socket.onmessage = (event: MessageEvent) => {
-      const msg = parseServerMessage(event.data);
-      if (!msg) return;
-      if (msg.type === 'ready') {
-        setMode(msg.mode === 'pipe' ? 'pipe' : 'pty');
-      } else if (msg.type === 'data' && msg.data !== undefined) {
-        bufferRef.current = pushOutput(bufferRef.current, msg.data);
-      } else if (msg.type === 'completion') {
-        // Routed through a ref: this closure is created once per session, but
-        // the handler needs the render-current input and pending state.
-        completionHandler.current(msg);
-      } else if (msg.type === 'exit') {
-        bufferRef.current = pushOutput(bufferRef.current, '\r\n');
-        setStatus('exited');
-      }
-    };
-    socket.onerror = () => {
-      setError('the terminal connection failed');
-      setStatus((s) => (s === 'exited' ? s : 'error'));
-    };
-    socket.onclose = () => setStatus((s) => (s === 'exited' || s === 'error' ? s : 'closed'));
-    };
-
-    void openSocket();
-
-    const timer = setInterval(flush, FLUSH_MS);
+  // Routed through a ref: the store holds one handler, but the dance needs
+  // the render-current input and pending state.
+  useEffect(() => {
+    setTermCompletionHandler((msg) => completionHandler.current(msg));
     return () => {
-      cancelled = true;
-      clearInterval(timer);
-      // A dance cannot outlive its shell: the reply channel is gone, so the
-      // wait would only ever end in the timeout notice.
+      setTermCompletionHandler(() => {});
+      // A dance cannot outlive this screen: the reply would land nowhere.
       if (pendingCompletion.current) {
         clearTimeout(pendingCompletion.current.timer);
         pendingCompletion.current = null;
       }
-      setCompleting(false);
-      setCandidates(null);
-      if (!socket) return;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.onclose = null;
-      socket.close();
-      if (wsRef.current === socket) wsRef.current = null;
     };
-  }, [connection, flush, session]);
+  }, []);
 
   const send = useCallback((data: string) => {
-    const socket = wsRef.current;
-    if (!socket || socket.readyState !== 1) return;
-    try {
-      socket.send(JSON.stringify({ type: 'data', data }));
-      // Every keystroke that reaches the shell updates the primed ledger —
-      // the key bar's letters and arrows included, since an up-arrow can pull
-      // a whole history line into the shell's buffer without this screen
-      // typing a thing.
-      primedRef.current = trackPrimed(primedRef.current, data);
-    } catch {
-      setError('could not reach the shell — try reconnecting');
-    }
+    // Every keystroke that reaches the shell updates the primed ledger —
+    // the key bar's letters and arrows included, since an up-arrow can pull
+    // a whole history line into the shell's buffer without this screen
+    // typing a thing.
+    if (sendTerm(data)) primedRef.current = trackPrimed(primedRef.current, data);
   }, []);
 
   /** Sends an arbitrary control message; `send` above stays keystrokes-only. */
-  const post = useCallback((message: object): boolean => {
-    const socket = wsRef.current;
-    if (!socket || socket.readyState !== 1) return false;
-    try {
-      socket.send(JSON.stringify(message));
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
+  const post = useCallback((message: object): boolean => postTerm(message), []);
 
   // --- tab completion --------------------------------------------------------
   //
@@ -371,16 +295,12 @@ function TerminalTab() {
   }, []);
 
   // Resize is debounced: rotation and font changes fire a burst of layouts.
+  // The parser wraps at the new width at once; the host hears about it after
+  // the burst settles. A socket that closed mid-debounce is handled by onclose.
   useEffect(() => {
-    const socket = wsRef.current;
-    if (!socket || status !== 'open') return undefined;
-    const timer = setTimeout(() => {
-      try {
-        socket.send(JSON.stringify({ type: 'resize', ...geometry }));
-      } catch {
-        // A socket that closed mid-debounce is handled by onclose.
-      }
-    }, RESIZE_DEBOUNCE_MS);
+    setTermGeometry(geometry);
+    if (status !== 'open') return undefined;
+    const timer = setTimeout(() => postTerm({ type: 'resize', ...geometry }), RESIZE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [geometry, status]);
 
@@ -421,10 +341,7 @@ function TerminalTab() {
       return — the way a line already parked at the prompt by TYPE gets run. */
   const runInput = useCallback(() => {
     const command = input;
-    if (command.length > 0) {
-      const next = [...historyRef.current.filter((h) => h !== command), command];
-      historyRef.current = next.slice(-MAX_HISTORY);
-    }
+    if (command.length > 0) pushTermHistory(command);
     historyIndex.current = -1;
     setInput('');
     setCandidates(null);
@@ -433,27 +350,26 @@ function TerminalTab() {
   }, [input, send]);
 
   const recallHistory = useCallback((direction: -1 | 1) => {
-    const history = historyRef.current;
     if (history.length === 0) return;
     const current = historyIndex.current === -1 ? history.length : historyIndex.current;
     const next = Math.max(0, Math.min(history.length, current + direction));
     historyIndex.current = next >= history.length ? -1 : next;
     setInput(next >= history.length ? '' : history[next]);
-  }, []);
+  }, [history]);
 
   const clearScreen = useCallback(() => {
-    bufferRef.current = EMPTY_OUTPUT;
-    setTerm(clearTermState);
+    clearTerm();
     setFollowing(true);
     // Ctrl+L makes a real pty redraw its prompt; a piped shell ignores it.
     if (mode === 'pty') send('\x0c');
   }, [mode, send]);
 
   const reconnect = useCallback(() => {
-    bufferRef.current = EMPTY_OUTPUT;
-    setTerm(createTermState());
-    setSession((n) => n + 1);
-  }, []);
+    // A fresh shell starts at an empty prompt, whatever the last one held.
+    primedRef.current = false;
+    setCandidates(null);
+    reopenTermSession(openShell);
+  }, [openShell]);
 
   // When the app-wide link comes back, a shell that died with it reopens by
   // itself, so the disconnected banner dismisses without a tap. Edge-triggered
@@ -478,7 +394,7 @@ function TerminalTab() {
   // actually open. Connection state is never restated here: the device pill
   // in the same row is the one voice for the link (one voice per fact), and
   // shell-level states live on the glass itself.
-  const shellLabel = mode === 'pipe' ? 'shell' : mode === 'pty' ? 'pty' : 'ready';
+  const shellLabel = mode === 'pipe' ? (short ? 'shell, no TTY' : 'shell') : mode === 'pty' ? 'pty' : 'ready';
   // What the machine panel says when the transcript is not the story —
   // empty, waiting, exited, dropped — in the one shared GlassState anatomy
   // (docs/DESIGN.md §11.4, "faults live on the glass"). A dropped socket is
@@ -522,21 +438,26 @@ function TerminalTab() {
           restated, no controls but the sanctioned trailing overflow (§11.1),
           behind which lives the help sheet that writes the key bar down.
           Text size moved into the key bar (`Aa`) where it belongs. */}
-      <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
-        <Row justify="space-between" gap="sm">
-          <Txt variant="display" heading>
-            Terminal
-          </Txt>
-          <IconButton
-            testID="term-help"
-            accessibilityLabel="Terminal help"
-            variant="plain"
-            onPress={() => setShowHelp(true)}
-          >
-            <Txt variant="label" tone="dim">⋯</Txt>
-          </IconButton>
-        </Row>
-        <Row justify="space-between" gap="sm" style={{ marginTop: theme.space.xxs }}>
+      <View style={{ paddingHorizontal: theme.layout.margin, paddingTop: short ? theme.space.xs : theme.space.md, paddingBottom: short ? theme.space.xs : theme.space.md }}>
+        {/* In a short (landscape) window the title row goes: the lit tab in
+            the bar already names the screen, and every row here is a row the
+            transcript does not get (#91). */}
+        {short ? null : (
+          <Row justify="space-between" gap="sm">
+            <Txt variant="display" heading>
+              Terminal
+            </Txt>
+            <IconButton
+              testID="term-help"
+              accessibilityLabel="Terminal help"
+              variant="plain"
+              onPress={() => setShowHelp(true)}
+            >
+              <Txt variant="label" tone="dim">⋯</Txt>
+            </IconButton>
+          </Row>
+        )}
+        <Row justify="space-between" gap="sm" style={{ marginTop: short ? 0 : theme.space.xxs }}>
           {/* One connection voice: the device pill (trailing) owns the link
               story. The leading slot speaks only while the shell is open —
               the shell's own fact, which can never contradict the pill. In
@@ -553,11 +474,18 @@ function TerminalTab() {
               />
             ) : null}
           </Row>
-          <SwitchComputerLink />
+          <Row gap="xs">
+            <SwitchComputerLink />
+            {short ? (
+              <IconButton testID="term-help" accessibilityLabel="Terminal help" variant="plain" onPress={() => setShowHelp(true)}>
+                <Txt variant="label" tone="dim">⋯</Txt>
+              </IconButton>
+            ) : null}
+          </Row>
         </Row>
       </View>
 
-      {mode === 'pipe' ? (
+      {mode === 'pipe' && !short ? (
         <Banner
           testID="term-pipe-notice"
           status="warn"

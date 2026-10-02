@@ -311,6 +311,17 @@ static class BelayHost
 #endif
         Reply(stdout, new Dictionary<string, object> { { "id", 0 }, { "ok", true }, { "ready", true } });
 
+        // Input commands run on one worker thread so a click never waits
+        // behind a capture (Node writes commands as they come; this loop used
+        // to answer them strictly in order). One thread keeps input ordered
+        // among itself; replies are id-matched and Reply() locks stdout.
+        var inputQueue = new System.Collections.Concurrent.BlockingCollection<Action>();
+        var inputThread = new System.Threading.Thread(delegate() {
+            foreach (var work in inputQueue.GetConsumingEnumerable()) work();
+        });
+        inputThread.IsBackground = true;
+        inputThread.Start();
+
         string line;
         while ((line = Console.In.ReadLine()) != null)
         {
@@ -330,13 +341,13 @@ static class BelayHost
                     case "gamepaddetach": BelayHostGamepad.Detach(); Ok(stdout,idObj); break;
                     case "info": DoInfo(stdout, idObj); break;
                     case "capture": DoCapture(stdout, idObj, c); break;
-                    case "move": Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), TargetBounds(c)); Ok(stdout, idObj); break;
-                    case "down": MaybeMove(c); Native.Button(Str(Get(c, "button")), true); Ok(stdout, idObj); break;
-                    case "up": MaybeMove(c); Native.Button(Str(Get(c, "button")), false); Ok(stdout, idObj); break;
-                    case "click": DoClick(stdout, idObj, c); break;
-                    case "scroll": Native.Scroll(Int(Get(c, "dy")), Int(Get(c, "dx"))); Ok(stdout, idObj); break;
-                    case "key": DoKey(stdout, idObj, c); break;
-                    case "text": Native.TypeText(Str(Get(c, "text"))); Ok(stdout, idObj); break;
+                    case "move": OnInput(inputQueue, stdout, idObj, delegate() { Native.MoveAbsolute(Dbl(Get(c, "x")), Dbl(Get(c, "y")), TargetBounds(c)); Ok(stdout, idObj); }); break;
+                    case "down": OnInput(inputQueue, stdout, idObj, delegate() { MaybeMove(c); Native.Button(Str(Get(c, "button")), true); Ok(stdout, idObj); }); break;
+                    case "up": OnInput(inputQueue, stdout, idObj, delegate() { MaybeMove(c); Native.Button(Str(Get(c, "button")), false); Ok(stdout, idObj); }); break;
+                    case "click": OnInput(inputQueue, stdout, idObj, delegate() { DoClick(stdout, idObj, c); }); break;
+                    case "scroll": OnInput(inputQueue, stdout, idObj, delegate() { Native.Scroll(Int(Get(c, "dy")), Int(Get(c, "dx"))); Ok(stdout, idObj); }); break;
+                    case "key": OnInput(inputQueue, stdout, idObj, delegate() { DoKey(stdout, idObj, c); }); break;
+                    case "text": OnInput(inputQueue, stdout, idObj, delegate() { Native.TypeText(Str(Get(c, "text"))); Ok(stdout, idObj); }); break;
                     case "windows": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "windows", WindowList.All() } }); break;
                     case "capturewindow": DoCaptureWindow(stdout, idObj, c); break;
                     case "focuswindow": DoFocusWindow(stdout, idObj, c); break;
@@ -346,8 +357,8 @@ static class BelayHost
                     // person sitting at it (server/src/input-floor.ts).
                     case "idle": Reply(stdout, new Dictionary<string, object> { { "id", idObj }, { "ok", true }, { "idleMs", Native.IdleMs() } }); break;
                     case "webrtc": DoWebrtc(stdout, idObj, c); break;
-                    // Virtual display driver (opt-in; Node gates it behind
-                    // BELAY_VIRTUAL_DISPLAY). Needs the BelayVDD driver from
+                    // Virtual display driver (on by default; BELAY_VIRTUAL_DISPLAY=0
+                    // switches it off in Node). Needs the BelayVDD driver from
                     // native/win-display/ installed — without it the handler
                     // throws a message that says so. See docs/VIRTUAL-DISPLAY.md.
                     case "virtualdisplay": Reply(stdout, BelayVirtualDisplay.Handle(idObj, c)); break;
@@ -576,7 +587,9 @@ static class BelayHost
         if (srcBmp != null && srcW == w && srcH == h) return;
         if (srcGfx != null) srcGfx.Dispose();
         if (srcBmp != null) srcBmp.Dispose();
-        srcBmp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+        // Premultiplied 32bpp is GDI+'s native pixel layout: BitBlt lands
+        // without a 32→24 repack and DrawImage scales it on the fast path.
+        srcBmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
         srcGfx = Graphics.FromImage(srcBmp);
         srcW = w; srcH = h;
     }
@@ -677,6 +690,13 @@ static class BelayHost
         }
         for (int n = mods.Count - 1; n >= 0; n--) Native.Key(mods[n], false);
         Ok(w, id);
+    }
+
+    /// Queue an input command for the worker thread. The command dictionary is
+    /// owned by the closure from here on; the main loop never touches it again.
+    static void OnInput(System.Collections.Concurrent.BlockingCollection<Action> q, TextWriter w, object id, Action body)
+    {
+        q.Add(delegate() { try { body(); } catch (Exception e) { Err(w, id, e.Message); } });
     }
 
     internal static void Ok(TextWriter w, object id) { Reply(w, new Dictionary<string, object> { { "id", id }, { "ok", true } }); }

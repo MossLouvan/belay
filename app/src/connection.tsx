@@ -8,15 +8,16 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import {
   Connection, checkHost, challengeHost, setConnection as setClientConnection,
-  clearConnection as clearClientConnection, setRecoveryHandler,
+  clearConnection as clearClientConnection, setRecoveryHandler, revokeSelf,
 } from './api';
 import {
   DeviceStore, SavedDevice, emptyStore, activeDevice as pickActive,
-  upsertDevice, setActive, removeDevice, renameDevice, recordSuccess,
+  upsertDevice, setActive, renameDevice, recordSuccess,
   orderAddresses, adoptRealId, findDevice,
 } from './devices/model';
+import { forgetDevice, revokeAtVerifiedHost } from './devices/forget';
 import { isUnresolved } from './devices/token-resolve';
-import { pinAddresses, randomBytes } from './devices/pinning';
+import { pinAddresses, pinEnforced, randomBytes } from './devices/pinning';
 import { verifyHost } from './devices/verify-host';
 import type { TrustProblem } from './devices/verify-host';
 import { loadStore, saveStore } from './devices/storage';
@@ -164,6 +165,12 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
       setPhase('unreachable');
     };
 
+    // A silent re-race that finds nothing leaves the connection in place: the
+    // request that triggered it retries once more and fails honestly, and the
+    // panel on screen shows its own "lost contact" state instead of being
+    // unmounted by the (home) guard mid-render (#69). A plaintext refusal is
+    // still a real verdict — that needs a new pairing, not a retry.
+    if (!winner && opts?.silent && !plaintextRefused) return;
     if (!winner) { refuse(plaintextRefused ? 'needs-repair' : null); return; }
 
     // Something answered. Before the token goes anywhere: is it the computer
@@ -171,7 +178,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     // proof, or a pairing too old to be verified on this link all stop here —
     // see devices/verify-host.ts.
     const trust = await verifyHost(
-      { device, url: winner.url, reportedHostId: winner.hostId },
+      { device, url: winner.url, reportedHostId: winner.hostId, pinEnforced: pinEnforced(winner.url, device.fingerprint) },
       challengeHost,
       randomBytes,
     );
@@ -241,7 +248,20 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     // at 'connecting' forever (auto-reconnect waits out 'connecting', so it
     // never recovers either).
     if (wasActive) attemptRef.current += 1;
-    const next = removeDevice(store, id);
+    // Revoke this phone's token on that computer first (best effort, short
+    // deadline), so "un-paired from it" is true on both ends; an unreachable
+    // or unverified host is still forgotten locally (#83). The live connection
+    // already passed verifyHost; any other address must pass it now, exactly
+    // as connectTo does, before the token is sent there.
+    const next = await forgetDevice(store, id, (device) => {
+      if (device.fingerprint) pinAddresses(device.addresses.map((a) => a.url), device.fingerprint);
+      return revokeAtVerifiedHost(device, {
+        connectedHost: connection?.hostId === device.id ? connection.host : null,
+        checkHost: (url) => checkHost(url),
+        verify: (input) => verifyHost({ ...input, pinEnforced: pinEnforced(input.url, input.device.fingerprint) }, challengeHost, randomBytes),
+        revoke: revokeSelf,
+      });
+    });
     await commit(next);
 
     const stillActive = pickActive(next);
@@ -255,7 +275,7 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     }
     // Only re-race when we just removed the computer we were talking to.
     if (wasActive) await connectTo(stillActive, next);
-  }, [store, commit, connectTo]);
+  }, [store, connection, commit, connectTo]);
 
   const rename = useCallback(async (id: string, label: string) => {
     attemptRef.current += 1; // don't let an in-flight connect revert the rename

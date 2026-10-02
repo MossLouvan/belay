@@ -42,6 +42,9 @@ export const PAD_BOTTOM_PX = 8;
 /** A pad shorter than one touch target is not a pad. */
 export const PAD_MIN_PX = 44;
 
+/** The pill row's extent below the stage: its air plus the pills themselves. */
+export const PAD_PILLS_PX = 56;
+
 export interface PadMountInputs {
   /** The controller overlay owns every touch on the panel. */
   readonly gaming: boolean;
@@ -73,11 +76,14 @@ export interface PadRect {
  * Clamped, because `stageH + PAD_TOP_GAP_PX` is not bounded by the panel: with
  * the inline keyboard surface open the dock grows and the panel shrinks, and a
  * top below the bottom collapses the pad to nothing (or inverts it) exactly
- * when the user has a thumb on it. The clamp gives up the pill row's air
- * before it gives up a touchable pad; the pills are rendered after the pad and
- * still win their own touches.
+ * when the user has a thumb on it. The clamp gives up the pill row's AIR
+ * before it gives up a touchable pad — but never the pills themselves: once
+ * the stage is at its docked minimum (screen-chrome.ts dockedStageHeight) a
+ * 44pt pad would paint behind the Audio/Fullscreen pills (#75), so it stands
+ * down to zero height instead.
  */
 export const padRect = (boxH: number, stageH: number): PadRect => {
   const floor = Math.max(0, boxH - PAD_BOTTOM_PX - PAD_MIN_PX);
-  return { top: Math.min(stageH + PAD_TOP_GAP_PX, floor), bottom: PAD_BOTTOM_PX };
+  const top = Math.min(stageH + PAD_TOP_GAP_PX, floor);
+  return { top: top < stageH + PAD_PILLS_PX ? Math.max(0, boxH - PAD_BOTTOM_PX) : top, bottom: PAD_BOTTOM_PX };
 };

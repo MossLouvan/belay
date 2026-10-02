@@ -17,7 +17,9 @@ export interface FramePayload {
 
 export type StreamMessage =
   | { readonly type: 'frame'; readonly frame: FramePayload }
-  | { readonly type: 'error'; readonly error: string };
+  | { readonly type: 'error'; readonly error: string }
+  /** Advisory from the host that leaves the picture running (lid-closed battery warning). */
+  | { readonly type: 'notice'; readonly message: string };
 
 /**
  * Parses an untrusted socket payload. Returns null for anything unrecognised.
@@ -70,6 +72,9 @@ export function parseStreamMessage(raw: unknown): StreamMessage | null {
   if (msg.type === 'error') {
     const error = typeof msg.error === 'string' && msg.error ? msg.error : 'The host reported a capture error.';
     return { type: 'error', error };
+  }
+  if (msg.type === 'notice' && typeof msg.message === 'string' && msg.message) {
+    return { type: 'notice', message: msg.message };
   }
   return null;
 }

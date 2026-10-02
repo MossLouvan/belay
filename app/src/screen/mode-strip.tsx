@@ -17,7 +17,7 @@ import { Pressable, View } from 'react-native';
 import { IconDeviceGamepad2, IconKeyboard, IconPointer } from '@tabler/icons-react-native';
 import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
-import { Txt } from '../ui';
+import { Txt, tabSelected } from '../ui';
 import { LABS } from '../labs';
 
 type ModeId = 'dock-trackpad' | 'toggle-type' | 'dock-controller';
@@ -77,7 +77,7 @@ export function ModeStrip({ typeOpen, onTrackpad, onKeyboard, onController }: Mo
             testID={id}
             accessibilityRole="tab"
             accessibilityLabel={LABELS[id]}
-            accessibilityState={{ selected: active }}
+            {...tabSelected(active)}
             onPress={actions[id]}
             style={({ pressed }) => ({
               flex: 1,

@@ -22,7 +22,7 @@ import React from 'react';
 import { Pressable, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { getTheme, useTheme } from '../theme';
-import { Txt, haptic } from '../ui';
+import { Txt, haptic, tabSelected } from '../ui';
 import { HUD } from './parts';
 import { POINTER_MODE_OPTIONS } from './dock-modes';
 import { LABS } from '../labs';
@@ -103,7 +103,7 @@ export function ModeSwitch({ mode, onModeChange, floating = false, testID, style
             accessibilityRole="tab"
             accessibilityLabel={option.accessibilityLabel}
             accessibilityHint={option.hint}
-            accessibilityState={{ selected: active }}
+            {...tabSelected(active)}
             onPress={() => {
               haptic('selection');
               onModeChange(option.id);

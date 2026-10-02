@@ -65,6 +65,10 @@ public final class BelayStreamView: ExpoView {
 
     let onStatus = EventDispatcher()
     let onCursor = EventDispatcher()
+    /// Set from the `cursorEvents` prop. Nothing in the app attaches
+    /// `onCursor` today, so the default skips a 120 Hz main-queue dispatch
+    /// that no one receives.
+    var cursorEvents = false
 
     public required init(appContext: AppContext? = nil) {
         super.init(appContext: appContext)
@@ -296,9 +300,9 @@ public final class BelayStreamView: ExpoView {
                 let y = frame.cursor_y
                 let visible = frame.cursor_visible != 0
                 // Cursor arrives on its own channel at up to 120 Hz — far above
-                // the rate JS can usefully consume. It is dispatched rather
-                // than dropped because it is the single most latency-sensitive
-                // thing on screen, and the JS side coalesces.
+                // the rate JS can usefully consume. Only dispatched when JS
+                // asked for it (`cursorEvents`); the JS side coalesces.
+                guard cursorEvents else { break }
                 DispatchQueue.main.async { [weak self] in
                     self?.onCursor(["x": Int(x), "y": Int(y), "visible": visible])
                 }
@@ -308,10 +312,11 @@ public final class BelayStreamView: ExpoView {
                     self?.onStatus(["state": "bitrate", "bps": Int(bps)])
                 }
             case BELAY_FRAME_NONE:
-                // Nothing ready. Sleep briefly rather than spin: at 60fps a
-                // frame is 16ms away, and a busy-wait would cost battery for
-                // latency no one can perceive.
-                Thread.sleep(forTimeInterval: 0.002)
+                // Nothing ready. Block on the socket for up to 2 ms rather
+                // than sleep 2 ms: a frame wakes the loop the moment it lands
+                // instead of waiting out the rest of a sleep. The bound stays
+                // 2 ms so a parked input report still goes out within that.
+                _ = belay_client_wait(h, 2)
             default:
                 DispatchQueue.main.async { [weak self] in
                     self?.onStatus(["state": "error", "error": "the stream session failed"])

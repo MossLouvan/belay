@@ -131,7 +131,7 @@ impl Config {
         let monitor = field(json, "monitor").and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
         let keyframe_interval_s = field(json, "keyframeInterval")
             .and_then(|v| v.parse::<u32>().ok())
-            .unwrap_or(4)
+            .unwrap_or(30)
             .clamp(1, 30);
 
         let source = match field(json, "source") {

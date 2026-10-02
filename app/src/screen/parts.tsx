@@ -10,7 +10,7 @@
 // stage's message/banner/permission pieces with ./panel-state.tsx — the
 // machine panel itself is the empty and error state now (docs/DESIGN.md §9).
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Platform, Pressable, ScrollView, View } from 'react-native';
 import type {
   LayoutChangeEvent,
@@ -387,8 +387,9 @@ export function KeyCap({ spec, onPress, onRepeat, mac, glyph, sticky = false, la
   );
 }
 
-/** Built once from the model's key list; throws in dev if an id ever drifts. */
-const KEY_PAGES = buildKeyPages(KEYS);
+// Built once from the model's key list at load, so a drifted id throws in
+// dev; the rendered bar is rebuilt per host (platform-only caps drop out).
+buildKeyPages(KEYS);
 
 export interface KeyBarProps {
   mac: boolean;
@@ -415,6 +416,7 @@ export function KeyBar({ mac, mods, onKey, onRepeat, onMod, floating = false, te
   const [width, setWidth] = useState(0);
   const [page, setPage] = useState(0);
   const progress = useRef(new Animated.Value(0)).current;
+  const pages = useMemo(() => buildKeyPages(KEYS, mac), [mac]);
 
   useEffect(() => {
     if (reduced) {
@@ -440,7 +442,7 @@ export function KeyBar({ mac, mods, onKey, onRepeat, onMod, floating = false, te
   const pageWidth = Math.max(0, width - theme.space.xs * 2);
 
   const settle = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
-    setPage(pageIndexFor(event.nativeEvent.contentOffset.x, pageWidth, KEY_PAGES.length));
+    setPage(pageIndexFor(event.nativeEvent.contentOffset.x, pageWidth, pages.length));
   };
 
   const cell = (entry: KeyBarCell): React.JSX.Element =>
@@ -491,12 +493,12 @@ export function KeyBar({ mac, mods, onKey, onRepeat, onMod, floating = false, te
           // Web fires no momentum event; a throttled onScroll keeps the dots honest.
           onScroll={Platform.OS === 'web' ? settle : undefined}
           scrollEventThrottle={64}
-          accessibilityLabel={`Keyboard keys, ${KEY_PAGES.length} pages`}
+          accessibilityLabel={`Keyboard keys, ${pages.length} pages`}
           nestedScrollEnabled
           directionalLockEnabled
           keyboardShouldPersistTaps="handled"
         >
-          {KEY_PAGES.map((keyPage, index) => (
+          {pages.map((keyPage, index) => (
             <Column key={index} gap="xs" style={{ width: pageWidth }}>
               <Row gap="xs">{keyPage.top.map(cell)}</Row>
               <Row gap="xs">{keyPage.bottom.map(cell)}</Row>
@@ -512,7 +514,7 @@ export function KeyBar({ mac, mods, onKey, onRepeat, onMod, floating = false, te
         importantForAccessibility="no-hide-descendants"
         style={{ flexDirection: 'row', alignSelf: 'center', gap: 5, marginTop: theme.space.xs }}
       >
-        {KEY_PAGES.map((_, index) => (
+        {pages.map((_, index) => (
           <View
             key={index}
             style={{

@@ -194,8 +194,11 @@ export function SessionList({
       />
       <Rule bleed={margin} style={{ marginTop: theme.space.md, marginBottom: theme.space.lg }} />
 
-      {error ? (
-        <Banner testID="agent-error" status="bad" title="Could not read the host" message={error} action={{ label: 'Try again', onPress: () => void refresh() }} style={{ marginBottom: theme.space.md }} />
+      {/* The store swallows its own fetch failures into `pollError`, so a
+          failing /agent/sessions must surface here too, not just dim the
+          status line (#74). */}
+      {error || pollError ? (
+        <Banner testID="agent-error" status="bad" title="Could not read the host" message={error || pollError} action={{ label: 'Try again', onPress: () => void refresh() }} style={{ marginBottom: theme.space.md }} />
       ) : null}
 
       {unavailable ? (
@@ -266,7 +269,7 @@ export function SessionList({
           />
         }
       >
-        {sessions === null && !error ? (
+        {sessions === null && !error && !pollError ? (
           <Card flush>
             {Array.from({ length: 3 }, (_, i) => (
               <View key={i}>
@@ -535,15 +538,22 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
   const [error, setError] = useState('');
   const live = useRef(true);
 
-  useEffect(() => {
-    live.current = true;
+  // A failed scan keeps `projects` null: `[]` would read as a successful
+  // empty scan and show "No git repositories were found" under the error (#79).
+  const scan = useCallback(() => {
+    setError('');
     api.agentProjects()
       .then((r) => { if (live.current) setProjects(r.projects); })
-      .catch((e: unknown) => { if (live.current) { setProjects([]); setError(messageOf(e, 'could not list projects')); } });
+      .catch((e: unknown) => { if (live.current) setError(messageOf(e, 'could not list projects')); });
+  }, []);
+
+  useEffect(() => {
+    live.current = true;
+    scan();
     return () => {
       live.current = false;
     };
-  }, []);
+  }, [scan]);
 
   const create = useCallback(async (cwd: string) => {
     const target = cwd.trim();
@@ -593,7 +603,15 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
         onCreated={created}
       />
 
-      {error ? <Banner testID="agent-picker-error" status="bad" message={error} style={{ marginBottom: theme.space.md }} /> : null}
+      {error ? (
+        <Banner
+          testID="agent-picker-error"
+          status="bad"
+          message={error}
+          action={projects === null ? { label: 'Try again', onPress: scan } : undefined}
+          style={{ marginBottom: theme.space.md }}
+        />
+      ) : null}
 
       <Input
         testID="agent-cwd"
@@ -618,7 +636,7 @@ export function ProjectPicker({ onCancel, onCreated }: { onCancel: () => void; o
       />
 
       <View style={{ marginTop: theme.space.lg }}>
-        {projects === null ? (
+        {projects === null ? error ? null : (
           <Card flush>
             {Array.from({ length: 4 }, (_, i) => (
               <View key={i}>

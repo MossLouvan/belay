@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import {
   agentBadge,
   crosshairShown,
+  DOCKED_STAGE_MIN_PX,
+  dockedStageHeight,
   dockAutoHides,
   headerTitle,
   hintVisible,
@@ -158,10 +160,10 @@ test('the record key runs start, stop, review', () => {
 });
 
 test('the panel state covers the stage until any picture exists, or when capture is blocked', () => {
-  assert.equal(panelStateShown({ captureBlocked: false, frameUri: null, bwp: null }), true);
-  assert.equal(panelStateShown({ captureBlocked: false, frameUri: 'data:', bwp: null }), false);
-  assert.equal(panelStateShown({ captureBlocked: false, frameUri: null, bwp: { port: 1 } }), false, 'H.264 is a picture');
-  assert.equal(panelStateShown({ captureBlocked: true, frameUri: 'data:', bwp: null }), true);
+  assert.equal(panelStateShown({ captureBlocked: false, hasFrame: false, bwp: null }), true);
+  assert.equal(panelStateShown({ captureBlocked: false, hasFrame: true, bwp: null }), false);
+  assert.equal(panelStateShown({ captureBlocked: false, hasFrame: false, bwp: { port: 1 } }), false, 'H.264 is a picture');
+  assert.equal(panelStateShown({ captureBlocked: true, hasFrame: true, bwp: null }), true);
 });
 
 test('the crosshair shows in trackpad mode or after a pad touch, only over a picture', () => {
@@ -181,4 +183,18 @@ test('only iOS floats the type row', () => {
 test('the performance summary names the ceiling or Auto', () => {
   assert.equal(performanceSummary({ fps: 60, bitrateMbps: 0, audioEnabled: false, codec: 'h264' }), '60 Hz • Auto • H264');
   assert.equal(performanceSummary({ fps: 120, bitrateMbps: 8, audioEnabled: true, codec: 'hevc' }), '120 Hz • 8 Mbps • HEVC');
+});
+
+test('the docked stage keeps a usable minimum before it gives up the pad (#75)', () => {
+  // Plenty of room: the pills and a roomy pad take their usual 160.
+  assert.equal(dockedStageHeight(600), 440);
+  // Keyboard row open on a 390x844: the panel is 189 tall. The old maths
+  // left a 29px sliver; now the pad yields and the stage keeps its minimum.
+  assert.equal(dockedStageHeight(189), 189 - 56);
+  assert.ok(dockedStageHeight(189) >= DOCKED_STAGE_MIN_PX - 56 + 29, 'taller than the old sliver');
+  // Enough room for the minimum plus the pills: the minimum wins over the pad.
+  assert.equal(dockedStageHeight(DOCKED_STAGE_MIN_PX + 56 + 20), DOCKED_STAGE_MIN_PX);
+  // Too short for even the minimum: whatever is above the pills, never negative.
+  assert.equal(dockedStageHeight(96), 40);
+  assert.equal(dockedStageHeight(0), 1);
 });

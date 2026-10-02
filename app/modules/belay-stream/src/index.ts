@@ -65,6 +65,8 @@ export interface BelayStreamViewProps extends ViewProps {
   readonly source: BwpSource | null;
   readonly onStatus?: (e: { nativeEvent: StreamStatus }) => void;
   readonly onCursor?: (e: { nativeEvent: CursorEvent }) => void;
+  /** Opt in to `onCursor`; off by default so the native loop never dispatches to a missing listener. */
+  readonly cursorEvents?: boolean;
 }
 
 interface BelayStreamNativeModule {

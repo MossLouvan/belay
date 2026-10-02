@@ -15,12 +15,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BelayStreamView } from '../../modules/belay-stream/src';
 import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
+import { useFrameUri } from './frame-store';
 import { StageActions } from './stage-actions';
 import { RemoteCursors } from './cursors-overlay';
 import type { CursorsState } from './cursors-store';
 import type { QualityPreset, Size } from './model';
 import { PanelState } from './panel-state';
 import { Crosshair, FILL, FullscreenGlyph, HUD, StageButton, StreamHud } from './parts';
+import { MASCOT_BUTTON_SIZE } from './mascot-button';
 import { crosshairShown } from './screen-chrome';
 import type { PermissionState, StreamState } from './stream';
 import { padMounted } from './trackpad';
@@ -51,6 +53,8 @@ export interface StageViewProps {
   readonly immersive: boolean;
   readonly fullscreen: boolean;
   readonly landscape: boolean;
+  /** Bottom of the immersive HUD block, so no-picture guidance starts under it (#76). */
+  readonly hudBottom: number;
   readonly connected: boolean;
   readonly hostName: string;
   readonly onRetry: () => void;
@@ -63,10 +67,27 @@ export interface StageViewProps {
   readonly children?: ReactNode;
 }
 
+/**
+ * The JPEG leaf. The only component that re-renders per frame: it subscribes
+ * to the frame store itself, so the stage, dock and HUD around it do not.
+ */
+function FrameImage() {
+  const uri = useFrameUri();
+  if (!uri) return null;
+  return (
+    <Image
+      source={{ uri }}
+      accessibilityIgnoresInvertColors
+      style={{ width: '100%', height: '100%' }}
+      resizeMode="cover"
+    />
+  );
+}
+
 export function StageView(props: StageViewProps) {
   const {
     onBoxLayout, box, stage, stageOffset, aspect, viewport, stream, room, screenIndex, quality, pingMs, permissions,
-    mode, padCursor, showHud, showPanelState, gamingEnabled, immersive, fullscreen, landscape,
+    mode, padCursor, showHud, showPanelState, gamingEnabled, immersive, fullscreen, landscape, hudBottom,
     connected, hostName, onRetry, onHelp, onToggleFullscreen, children,
   } = props;
   const theme = useTheme();
@@ -88,7 +109,7 @@ export function StageView(props: StageViewProps) {
     </View>
   );
 
-  const hasPicture = Boolean(stream.bwp || stream.frameUri);
+  const hasPicture = Boolean(stream.bwp || stream.hasFrame);
 
   return (
     // ALWAYS flex-start (top-aligned) — centering the PANEL creates black
@@ -164,13 +185,8 @@ export function StageView(props: StageViewProps) {
               onStatus={(e) => stream.onBwpStatus(e.nativeEvent)}
               style={{ width: '100%', height: '100%' }}
             />
-          ) : stream.frameUri ? (
-            <Image
-              source={{ uri: stream.frameUri }}
-              accessibilityIgnoresInvertColors
-              style={{ width: '100%', height: '100%' }}
-              resizeMode="cover"
-            />
+          ) : stream.hasFrame ? (
+            <FrameImage />
           ) : null}
           {crosshairShown({ gaming: gamingEnabled, mode, padCursor, hasPicture }) ? (
             <Crosshair x={viewport.cursorX} y={viewport.cursorY} color={theme.colors.accent} />
@@ -178,7 +194,7 @@ export function StageView(props: StageViewProps) {
           {/* Collaborators' cursors ride INSIDE the zoom transform, so a
               remote pointer stays on the pixel it is pointing at however far
               this user has zoomed in. */}
-          {!gamingEnabled && stream.frameUri ? (
+          {!gamingEnabled && stream.hasFrame ? (
             <RemoteCursors
               cursors={room.cursors}
               selfId={room.selfId}
@@ -229,7 +245,7 @@ export function StageView(props: StageViewProps) {
         // no picture — so the panel state is clipped to the thing it explains.
         <View
           pointerEvents="box-none"
-          style={immersive ? FILL : {
+          style={immersive ? { ...FILL, top: hudBottom } : {
             position: 'absolute', top: 0, left: 0, right: 0,
             height: stage.h > 0 ? stage.h : undefined,
             aspectRatio: stage.h > 0 ? undefined : aspect,
@@ -252,10 +268,15 @@ export function StageView(props: StageViewProps) {
       ) : null}
 
       {/* Portrait fullscreen: the Exit control pins to the safe area (not
-          the letterboxed stage), always visible, full size, one action.
+          the letterboxed stage), always visible, full size, one action —
+          beside the mascot button's top-right slot, not on top of it (#78).
           Landscape needs no exit — rotating back IS the exit. */}
       {!gamingEnabled && fullscreen && !landscape
-        ? stageControls({ top: insets.top + theme.space.xs, right: insets.right + theme.space.xs, zIndex: 4 })
+        ? stageControls({
+          top: insets.top + theme.space.xs,
+          right: insets.right + theme.space.sm + MASCOT_BUTTON_SIZE + theme.space.xs,
+          zIndex: 4,
+        })
         : null}
 
       {children}

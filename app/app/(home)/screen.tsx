@@ -46,8 +46,8 @@ import { useViewport } from '../../src/screen/viewport';
 import { useRemoteCursors } from '../../src/screen/cursors-store';
 import { LABS } from '../../src/labs';
 import { KeyBar, NoticeArea } from '../../src/screen/parts';
-import { ControlsTab, EdgeRevealStrip } from '../../src/screen/edge-reveal';
-import { controlsTabVisible } from '../../src/screen/controls-tab';
+import { EdgeRevealStrip } from '../../src/screen/edge-reveal';
+import { FloatingMascot } from '../../src/screen/floating-mascot';
 import { useScreenBack } from '../../src/screen/use-screen-back';
 import { PAD_CURSOR_LINGER_MS } from '../../src/screen/trackpad';
 import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
@@ -63,7 +63,7 @@ import { HelpSheet } from '../../src/screen/help-sheet';
 import { ImmersiveHud } from '../../src/screen/immersive-hud';
 import { QualitySheet } from '../../src/screen/quality-sheet';
 import type { BwpPreference } from '../../src/screen/bwp-policy';
-import { hintVisible, immersiveStageOffset, panelStateShown, typeRowFloats } from '../../src/screen/screen-chrome';
+import { dockedStageHeight, hintVisible, immersiveStageOffset, panelStateShown, typeRowFloats } from '../../src/screen/screen-chrome';
 import { ScreenHeader } from '../../src/screen/screen-header';
 import { MonitorSheet, ScreenMenuSheet } from '../../src/screen/screen-menu-sheet';
 import { StageView } from '../../src/screen/stage-view';
@@ -100,6 +100,10 @@ export default function ScreenTab() {
   const sheets = useScreenSheets();
   const [audioStatus, setAudioStatus] = useState<HostAudioStatus>({ phase: 'off' });
   const [box, setBox] = useState<Size>(EMPTY_SIZE);
+  // The immersive HUD's measured height: the mascot button keeps off it and
+  // the no-picture guidance starts under it (#76).
+  const [hudHeight, setHudHeight] = useState(0);
+  const hudBottom = insets.top + theme.space.xs + hudHeight;
 
   // The tab navigator keeps every visited route mounted, so `connection` alone
   // would leave the frame socket, the 15s info poll and the per-second stats
@@ -139,7 +143,10 @@ export default function ScreenTab() {
     () => aspectOf(stream.stats, facts.info, { width: stream.bwpWidth, height: stream.bwpHeight }),
     [facts.info, stream.stats, stream.bwpWidth, stream.bwpHeight],
   );
-  const stage = useMemo(() => fitBox(immersive ? box : { w: box.w, h: Math.max(1, box.h - 160) }, aspect), [box, aspect, immersive]);
+  const stage = useMemo(
+    () => fitBox(immersive ? box : { w: box.w, h: dockedStageHeight(box.h) }, aspect),
+    [box, aspect, immersive],
+  );
   const stageRef = useRef<Size>(EMPTY_SIZE);
   stageRef.current = stage;
 
@@ -157,6 +164,8 @@ export default function ScreenTab() {
   // Transient toast for one-shot input failures.
   const toast = useTransient<string>(STREAM.toastMs);
   const reportError = toast.show;
+  // Host advisories (the lid-closed battery warning) use the same strip.
+  useEffect(() => { if (stream.notice) reportError(stream.notice); }, [stream.notice, reportError]);
 
   const tools = useToolsHint();
   const typing = useTypeRow(reportError);
@@ -221,7 +230,7 @@ export default function ScreenTab() {
 
   const showPanelState = panelStateShown({
     captureBlocked: permissions.captureBlocked,
-    frameUri: stream.frameUri,
+    hasFrame: stream.hasFrame,
     bwp: stream.bwp,
   });
   const noticeArea = <NoticeArea permissions={permissions} actionError={toast.value} onHelp={openHelp} />;
@@ -327,6 +336,7 @@ export default function ScreenTab() {
         immersive={immersive}
         fullscreen={fullscreen}
         landscape={landscape}
+        hudBottom={hudBottom}
         connected={Boolean(connection)}
         hostName={connection?.hostName || 'The computer'}
         onRetry={recheck}
@@ -339,8 +349,7 @@ export default function ScreenTab() {
         {/* Input errors still matter while immersive; they float over the top edge. */}
         {immersive && !gaming.enabled ? (
           <ImmersiveHud
-            mascotLabel={mascot.mascotLabel}
-            onMascotPress={mascot.onMascotPress}
+            onHeight={setHudHeight}
             recordingStatus={record.recording.status}
             onStopRecording={record.stopRecording}
             onReviewRecording={record.openRecordSheet}
@@ -367,11 +376,17 @@ export default function ScreenTab() {
         <EdgeRevealStrip testID="edge-reveal" bottomInset={insets.bottom} onReveal={dock.dockHide.poke} disabled={dock.dockShown} />
       ) : null}
 
-      {/* ...and the SEEN half of that reveal: a tab on the top-left edge that
-          brings the bar back on one tap. The swipe alone was undiscoverable
-          sideways (src/screen/controls-tab.ts). */}
-      {controlsTabVisible({ immersive, gaming: gaming.enabled, dockShown: dock.dockShown }) ? (
-        <ControlsTab testID="controls-tab" topInset={insets.top} leftInset={insets.left} onReveal={dock.dockHide.poke} />
+      {/* ...and the SEEN half of that reveal: the beluga, floating over the
+          picture. Tap brings the bar back; drag parks it on either edge
+          (src/screen/floating-mascot.tsx). The swipe alone was undiscoverable. */}
+      {immersive && !gaming.enabled ? (
+        <FloatingMascot
+          testID="stream-beluga-avatar"
+          landscape={landscape}
+          hudBottom={hudBottom}
+          accessibilityLabel="Belay mascot — tap to show the controls"
+          onPress={dock.dockHide.poke}
+        />
       ) : null}
 
       {/* The type-to-PC row, floating on the keyboard's top edge (iOS). */}
@@ -389,7 +404,7 @@ export default function ScreenTab() {
           the desktop and brings its own copy of the bar, so without this the
           app mounts two tablists at once — ambiguous to a screen reader, and
           to anything looking for `nav-files`. */}
-      {focused && !immersive && !gaming.enabled ? <AppearanceNav /> : null}
+      {focused && !immersive && !gaming.enabled ? <AppearanceNav selected="screen" /> : null}
 
       {/* Gated on `ready`, not just the flag: a stop that failed leaves
           nothing to send, and a sheet promising to send nothing would lie. */}
@@ -442,6 +457,8 @@ export default function ScreenTab() {
         onToggleHud={sheets.toggleHud}
         onToggleAudio={sheets.toggleAudio}
         onOpenHelp={sheets.fromMenu('help')}
+        upright={mascot.upright}
+        onToggleUpright={mascot.onMascotPress}
       />
 
       <MonitorSheet

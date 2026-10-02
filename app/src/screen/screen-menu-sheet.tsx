@@ -24,6 +24,9 @@ export interface ScreenMenuSheetProps {
   readonly onToggleHud: () => void;
   readonly onToggleAudio: () => void;
   readonly onOpenHelp: () => void;
+  /** The orientation latch, which used to be the immersive mascot's tap. */
+  readonly upright: boolean;
+  readonly onToggleUpright: () => void;
 }
 
 export function ScreenMenuSheet({
@@ -39,6 +42,8 @@ export function ScreenMenuSheet({
   onToggleHud,
   onToggleAudio,
   onOpenHelp,
+  upright,
+  onToggleUpright,
 }: ScreenMenuSheetProps) {
   return (
     <Sheet visible={visible} onClose={onClose} title="Screen options" testID="screen-menu-sheet">
@@ -79,6 +84,14 @@ export function ScreenMenuSheet({
           accessibilityHint="Plays the computer's system audio through this phone's speaker"
           onPress={onToggleAudio}
         /> : null}
+        <ListItem
+          testID="toggle-upright"
+          title="Keep the view upright"
+          subtitle={upright ? 'Pinned to portrait' : 'Rotates with the phone'}
+          selected={upright}
+          accessibilityHint="Pins the app to portrait until you turn this off"
+          onPress={onToggleUpright}
+        />
         <ListItem
           testID="screen-help"
           title="Controls & permissions"

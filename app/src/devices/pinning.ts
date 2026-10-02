@@ -72,6 +72,17 @@ export function pinnedFingerprint(url: string): string | undefined {
 }
 
 /**
+ * Whether the native layer is enforcing `fingerprint` for `url` right now —
+ * the one fact verify-host.ts may skip the HMAC challenge on. False on web
+ * and Expo Go (no native module), for http, and for a fingerprint the native
+ * side would have refused to store (it only keeps 64 hex digits).
+ */
+export function pinEnforced(url: string, fingerprint: string | undefined): boolean {
+  if (!pinningAvailable || !fingerprint || !/^[0-9a-f]{64}$/i.test(fingerprint)) return false;
+  return pinnedFingerprint(url) === fingerprint;
+}
+
+/**
  * What certificate a host presents, before anything is trusted.
  *
  * Only for a typed pairing: the QR carries the fingerprint, but an address
