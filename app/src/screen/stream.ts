@@ -15,6 +15,9 @@ import { ReattachLink, shouldReattachOnForeground } from '../foreground';
 import { buildConfigMessage, messageOf, QualityPreset, STREAM, VirtualRequest } from './model';
 import { PROBE_INTERVAL_MS, shouldProbeDuringBackoff } from './retry';
 import { parseStreamMessage, type FramePayload } from './stream-message';
+import { isBinaryFramePayload } from './frame-codec';
+import { setFrameUri } from './frame-store';
+import { newestWins } from './newest-wins';
 
 export type Phase = 'idle' | 'connecting' | 'live' | 'stalled' | 'reconnecting' | 'error';
 
@@ -49,7 +52,12 @@ export const EMPTY_STATS: StreamStats = Object.freeze({
 
 export interface StreamState {
   readonly phase: Phase;
-  readonly frameUri: string | null;
+  /**
+   * Whether a JPEG frame has ever arrived. The frame itself lives in
+   * ./frame-store and is drawn by a leaf `<Image>` — keeping a 100 KB data
+   * URI in React state re-rendered the whole route at the frame rate.
+   */
+  readonly hasFrame: boolean;
   readonly stats: StreamStats;
   readonly error: string | null;
   /**
@@ -209,7 +217,7 @@ export function useScreenStream(
   bwpOptions: BwpOptions = DEFAULT_BWP_OPTIONS,
 ): StreamState {
   const [phase, setPhase] = useState<Phase>('idle');
-  const [frameUri, setFrameUri] = useState<string | null>(null);
+  const [hasFrame, setHasFrame] = useState(false);
   const [stats, setStats] = useState<StreamStats>(EMPTY_STATS);
   const [error, setError] = useState<string | null>(null);
   const [retryingSinceMs, setRetryingSinceMs] = useState<number | null>(null);
@@ -401,14 +409,15 @@ export function useScreenStream(
       c.height = frame.h;
       c.sourceWidth = frame.sw;
       c.sourceHeight = frame.sh;
-      setFrameUri(`data:image/jpeg;base64,${frame.data}`);
       // The seam the Computers list reads: every decoded frame is offered to
       // the preview store, which keeps only the newest and publishes one every
       // few seconds (see src/home/preview-store.ts). Offering is a pointer
       // write, so this costs nothing at the frame rate — and it means tapping
       // back lands on a card showing the desktop that was on the glass a
-      // moment ago instead of an empty tile.
-      rememberStreamFrame(getConnection()?.hostId, frame.data);
+      // moment ago instead of an empty tile. It builds the data URI once and
+      // hands it back, so the leaf <Image> draws the same string.
+      setFrameUri(rememberStreamFrame(getConnection()?.hostId, frame.data));
+      setHasFrame(true);
       // Reset the backoff only once a real frame arrives — not on socket open,
       // which an accept-then-immediately-close host also triggers, pinning the
       // retry at the 1s floor forever. The outage clock stops for the same
@@ -420,7 +429,16 @@ export function useScreenStream(
       setError((prev) => (prev === null ? prev : null));
     };
 
+    // Binary frames are handled newest-wins per animation frame: a payload
+    // superseded before the tick is never base64-encoded (see ./newest-wins).
+    const offerFrame = newestWins<unknown>((raw) => {
+      if (disposed) return;
+      const msg = parseStreamMessage(raw);
+      if (msg?.type === 'frame') onFrame(msg.frame);
+    });
+
     const onMessage = (event: { data: unknown }): void => {
+      if (isBinaryFramePayload(event.data)) { offerFrame(event.data); return; }
       // BWP messages first: while the stream is up the host sends no frames at
       // all, so falling through to the frame parser would only ever fail.
       const bwpMsg = parseBwpMessage(event.data);
@@ -764,7 +782,7 @@ export function useScreenStream(
 
   return {
     phase,
-    frameUri,
+    hasFrame,
     stats,
     error,
     retryingSinceMs,

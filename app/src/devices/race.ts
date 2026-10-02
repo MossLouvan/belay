@@ -31,9 +31,11 @@ export const PROBE_TIMEOUT_MS = 4000;
  *
  * Not zero: staggering means the usually-correct first choice normally wins
  * outright and the others are cancelled before they cost anything. Not large
- * either, because a dead first candidate must not add noticeable latency.
+ * either, because a dead first candidate must not add noticeable latency: a
+ * LAN /health answers in well under 75 ms, so a longer wait only ever delays
+ * the tunnel when the phone is away from home.
  */
-export const PROBE_STAGGER_MS = 250;
+export const PROBE_STAGGER_MS = 75;
 
 export interface ProbeResult {
   readonly url: string;
