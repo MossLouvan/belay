@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  onPoll, onHeartbeatFailure, runHostLink, claimLink, LinkState, LinkStore, LinkShow, ALLOW_CACHE_MAX_AGE_MS,
+  onPoll, onHeartbeatFailure, runHostLink, claimLink, linkWithSession, LinkState, LinkStore, LinkShow, ALLOW_CACHE_MAX_AGE_MS,
 } from '../src/host-claim.js';
 import { AccountsError, AccountsClient } from '../src/accounts-client.js';
 
@@ -63,6 +63,7 @@ function script(steps: Array<() => unknown>, cred: string | null = null, cache: 
       createClaim: (b) => next('createClaim', b.nodeId, b.ts, b.sig),
       pollClaim: (c, s) => next('poll', c, s),
       heartbeat: (c) => next('heartbeat', c),
+      linkHost: (session, b) => next('linkHost', session, b.nodeId, b.name, b.platform, b.ts, b.sig),
     },
   };
 }
@@ -169,4 +170,41 @@ test('a credential-less "claimed" while holding none re-claims', async () => {
   await run(s, 3);
   assert.equal(s.calls.filter((c) => c.startsWith('createClaim')).length, 2);
   assert.equal(s.store.cred, null);
+});
+
+const linkDeps = (s: Script) => ({
+  client: s.client, store: s.store, nodeId: 'ab'.repeat(32), name: 'mac', platform: 'darwin',
+  sign: async (m: string) => `sig(${m})`, now: () => 1_000_000,
+});
+
+test('sign-in link: signs the node proof, links once with the session, persists the credential, never the session', async () => {
+  const s = script([() => ({ hostCredential: 'cred-L', maskedEmail: 'm***@gmail.com' })]);
+  const out = await linkWithSession(linkDeps(s), 'SESSION');
+  assert.deepEqual(out, { maskedEmail: 'm***@gmail.com' });
+  assert.deepEqual(s.calls, [
+    `linkHost SESSION ${'ab'.repeat(32)} mac darwin 1000 sig(belay-claim:v1:${'ab'.repeat(32)}:1000)`,
+    'write cred-L',
+  ]);
+  assert.equal(s.store.cred, 'cred-L');
+  assert.ok(!JSON.stringify(s.store).includes('SESSION'), 'the session is not stored');
+});
+
+test('sign-in link refuses when already linked, and a failed link writes nothing', async () => {
+  const linked = script([], 'cred');
+  await assert.rejects(linkWithSession(linkDeps(linked), 'SESSION'), /already linked/);
+  assert.deepEqual(linked.calls, []);
+  const failing = script([() => new AccountsError(409, 'already linked as device x', 'device_exists')]);
+  await assert.rejects(linkWithSession(linkDeps(failing), 'SESSION'), (e: unknown) => e instanceof AccountsError && e.status === 409);
+  assert.equal(failing.store.cred, null);
+});
+
+test('the link loop picks up a credential written by sign-in while it was claiming', async () => {
+  const s = script([
+    () => ({ claimCode: 'X', hostSecret: 'x', expiresAt: 1_000_000 + 600_000 }),
+    () => { s.store.cred = 'cred-L'; return { status: 'pending' }; },
+    () => ({ allowedNodeIds: ['ab'.repeat(32)], relayUrls: [] }),
+  ]);
+  await run(s, 4);
+  assert.deepEqual(s.calls.slice(1), ['poll X x', 'heartbeat cred-L']);
+  assert.equal(s.show.linkedCount, 1, 'Belay.app drops the claim QR');
 });

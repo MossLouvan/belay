@@ -5,7 +5,7 @@ import { HttpError, errorResponse, json } from './http.js';
 import { acceptClaim, createClaim, pollClaim } from './routes/claims.js';
 import { createDevice, deleteDevice, listDevices } from './routes/devices.js';
 import { emailStart, emailVerify } from './routes/email.js';
-import { heartbeat } from './routes/hosts.js';
+import { heartbeat, linkHost } from './routes/hosts.js';
 import { deleteMe, getMe, logout } from './routes/me.js';
 import { appleAuth, googleAuth, issueNonce } from './routes/oidc.js';
 
@@ -27,6 +27,7 @@ const routes: ReadonlyArray<readonly [method: string, pattern: RegExp, handler: 
   ['POST', /^\/v1\/claims\/([^/]+)\/accept$/, acceptClaim],
   ['GET', /^\/v1\/claims\/([^/]+)$/, pollClaim],
   ['POST', /^\/v1\/hosts\/heartbeat$/, heartbeat],
+  ['POST', /^\/v1\/hosts\/link$/, linkHost],
 ];
 
 function decodeParam(raw: string): string {

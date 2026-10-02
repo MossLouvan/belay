@@ -106,3 +106,10 @@ test('missing fields are 400', async () => {
   assert.equal((await a.call('POST', '/v1/auth/apple', { body: { identityToken: 'x' } })).body.code, 'bad_request');
   assert.equal((await a.call('POST', '/v1/auth/google', { body: {} })).body.code, 'bad_request');
 });
+
+test('apple: APPLE_AUDIENCE may list the Services ID used by desktop web sign-in', async () => {
+  const a = app({ APPLE_AUDIENCE: 'com.mosslouvan.belay, com.mosslouvan.belay.signin' });
+  const { nonce } = (await a.call('POST', '/v1/auth/nonce')).body;
+  const identityToken = await sign({ iss: APPLE.issuers[0], aud: 'com.mosslouvan.belay.signin', sub: 'apple-web', exp, nonce: await sha256Hex(nonce) });
+  assert.equal((await a.call('POST', '/v1/auth/apple', { body: { identityToken, nonce } })).status, 200);
+});

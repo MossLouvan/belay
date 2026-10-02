@@ -33,6 +33,27 @@
       </div>
     </section>
 
+    <section class="stack" id="signin" hidden>
+      <p class="subheading"><span class="step">2</span>Sign in to link this computer</p>
+      <p class="caption">Use the same account as on your phone. No code to scan.</p>
+      <div class="row signin-providers">
+        <button class="button" type="button" id="signin-apple" hidden>Sign in with Apple</button>
+        <button class="button" type="button" id="signin-google" hidden>Sign in with Google</button>
+      </div>
+      <form class="row" id="signin-email-form">
+        <input class="input" type="email" id="signin-email" placeholder="you@example.com" autocomplete="email" maxlength="254" required aria-label="Email" />
+        <button class="button primary" type="submit" id="signin-email-send">Email me a code</button>
+      </form>
+      <form class="row" id="signin-code-form" hidden>
+        <input class="input mono" id="signin-code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required aria-label="6-digit code" />
+        <button class="button primary" type="submit" id="signin-code-send">Link this computer</button>
+      </form>
+      <button class="track-label" type="button" id="signin-back" hidden>Use a different email</button>
+      <p class="caption" id="signin-msg" role="status"></p>
+    </section>
+
+    <p class="caption" id="linked-to" role="status" hidden></p>
+
     <section class="stack" id="link-section">
       <p class="subheading" id="link-heading"><span class="step">2</span>Scan this code in Belay</p>
       <p class="caption" id="link-caption">Tap <strong>Scan</strong> in the app to link this Mac to your account.</p>

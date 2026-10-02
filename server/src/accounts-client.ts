@@ -1,6 +1,7 @@
 // The accounts service, as the host sees it (openspec/changes/belay-network/design.md).
 //
-// Three calls: mint a claim, poll it, heartbeat. The interface exists so
+// Four calls: mint a claim, poll it, heartbeat, and link with a signed-in
+// session (Belay.app's sign-in, used once). The interface exists so
 // host-claim.ts can be tested against a scripted client; the fetch one is
 // the only real implementation. Every response is shape-checked here, because
 // a credential or a node id that is "probably a string" is how a typo in the
@@ -31,12 +32,16 @@ export interface ClaimPoll {
   readonly hostCredential?: string;
   readonly maskedEmail?: string;
 }
+/** POST /hosts/link: the credential is in this one answer only. Persist it first. */
+export interface LinkResult { readonly hostCredential: string; readonly maskedEmail?: string }
 export interface Heartbeat { readonly allowedNodeIds: readonly string[]; readonly relayUrls: readonly string[] }
 
 export interface AccountsClient {
   createClaim(body: ClaimRequest): Promise<Claim>;
   pollClaim(code: string, hostSecret: string): Promise<ClaimPoll>;
   heartbeat(hostCredential: string): Promise<Heartbeat>;
+  /** `session` is a user session held only for this call (never stored). */
+  linkHost(session: string, body: ClaimRequest): Promise<LinkResult>;
 }
 
 /** A non-2xx answer. `status` is what the state machine keys on (401, 404). */
@@ -76,8 +81,18 @@ export function parsePoll(json: unknown): ClaimPoll {
   return {
     status,
     ...(typeof o.hostCredential === 'string' && o.hostCredential ? { hostCredential: o.hostCredential } : {}),
-    ...(typeof o.maskedEmail === 'string' && o.maskedEmail ? { maskedEmail: o.maskedEmail } : {}),
+    ...(typeof o.claimedBy === 'string' && o.claimedBy ? { maskedEmail: o.claimedBy } : {}),
   };
+}
+
+/** Credentials are 32 random bytes, base64url: anything else is not written to disk. */
+const CREDENTIAL_RE = /^[A-Za-z0-9_-]{20,128}$/;
+
+export function parseLink(json: unknown): LinkResult {
+  const o = (json ?? {}) as Record<string, unknown>;
+  const hostCredential = o.hostCredential;
+  if (typeof hostCredential !== 'string' || !CREDENTIAL_RE.test(hostCredential)) throw new Error('accounts: hostCredential missing from link response');
+  return { hostCredential, ...(typeof o.linkedBy === 'string' && o.linkedBy ? { maskedEmail: o.linkedBy } : {}) };
 }
 
 /** An iroh node id as the sidecar prints it: 32 bytes, lowercase hex. */
@@ -112,5 +127,7 @@ export function fetchAccountsClient(baseUrl: string = accountsUrl()): AccountsCl
       parsePoll(await call(`${baseUrl}/claims/${encodeURIComponent(code)}`, { method: 'GET', headers: { 'X-Host-Secret': hostSecret } })),
     heartbeat: async (hostCredential) =>
       parseHeartbeat(await call(`${baseUrl}/hosts/heartbeat`, { method: 'POST', body: '{}', headers: { authorization: `Bearer ${hostCredential}` } })),
+    linkHost: async (session, body) =>
+      parseLink(await call(`${baseUrl}/hosts/link`, { method: 'POST', body: JSON.stringify(body), headers: { authorization: `Bearer ${session}` } })),
   };
 }

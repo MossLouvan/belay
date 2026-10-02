@@ -27,6 +27,7 @@ npm run dev       # wrangler dev, local D1 (run migrate:local first)
 
 - Session routes (incl. `POST /auth/logout`): `Authorization: Bearer <session>`
 - `POST /hosts/heartbeat`: `Authorization: Bearer <hostCredential>`
+- `POST /hosts/link`: `Authorization: Bearer <session>` (a signed-in computer links itself; returns `hostCredential` once)
 - `GET /claims/:code`: `X-Host-Secret: <hostSecret>`
 
 ## Deploy (owner, one-time)
@@ -39,7 +40,9 @@ Nothing in this repo creates cloud resources. All ids and secrets are placeholde
 3. **Migrate**: `npm run migrate` (`wrangler d1 migrations apply belay-accounts --remote`).
 4. **Vars** in `wrangler.toml`: `GOOGLE_AUDIENCES` = comma-separated Google
    OAuth client ids (iOS + Android + any web client), `RELAY_URLS` = your iroh
-   relay URLs. `APPLE_AUDIENCE` is the bundle id `com.mosslouvan.belay`.
+   relay URLs. `APPLE_AUDIENCE` is the bundle id `com.mosslouvan.belay`, plus
+   (comma-separated) the Services ID once Sign in with Apple on the desktop is
+   set up (desktop/README.md).
 5. **Secrets** (each prompts for the value, nothing lands in git):
    ```
    npx wrangler secret put RESEND_API_KEY   # from resend.com -> API Keys

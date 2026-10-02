@@ -1,6 +1,8 @@
 // Linking this computer to a Belay account, and staying linked.
 //
-// Unlinked: mint a claim, show its QR, poll until a signed-in phone scans it.
+// Unlinked: mint a claim, show its QR, poll until a signed-in phone scans it
+// — or Belay.app signs in on this computer and hands linkWithSession() a
+// session for one POST /hosts/link; the loop notices the credential it wrote.
 // Linked: heartbeat every minute; the answer is the allow-list the tunnel
 // sidecar admits (tunnel.ts) and the relays to use. Two things are easy to
 // get wrong and are therefore pinned down as pure functions with tests:
@@ -115,6 +117,14 @@ export async function runHostLink(deps: HostLinkDeps): Promise<void> {
 }
 
 async function step(state: LinkState, deps: HostLinkDeps, nowMs: number): Promise<[LinkState, number]> {
+  if (state.kind !== 'linked') {
+    // Linked by sign-in (linkWithSession) since the last step.
+    const cred = deps.store.readCredential();
+    if (cred) {
+      deps.show.linked?.();
+      return [{ kind: 'linked', hostCredential: cred }, 0];
+    }
+  }
   switch (state.kind) {
     case 'unlinked': {
       const ts = Math.floor(nowMs / 1000);
@@ -161,6 +171,23 @@ async function step(state: LinkState, deps: HostLinkDeps, nowMs: number): Promis
       }
     }
   }
+}
+
+export type SessionLinkDeps = Pick<HostLinkDeps, 'client' | 'store' | 'nodeId' | 'name' | 'platform' | 'sign' | 'now'>;
+
+/**
+ * Belay.app signed in on this computer: link it with that session, once. The
+ * session is only an argument here — never stored, never logged. The
+ * credential is written before returning, exactly like the claim path, and
+ * runHostLink picks it up on its next step.
+ */
+export async function linkWithSession(deps: SessionLinkDeps, session: string): Promise<{ maskedEmail?: string }> {
+  if (deps.store.readCredential()) throw new Error('this computer is already linked');
+  const ts = Math.floor((deps.now ?? Date.now)() / 1000);
+  const sig = await deps.sign(claimMessage(deps.nodeId, ts));
+  const res = await deps.client.linkHost(session, { nodeId: deps.nodeId, name: deps.name, platform: deps.platform, ts, sig });
+  deps.store.writeCredential(res.hostCredential);
+  return res.maskedEmail ? { maskedEmail: res.maskedEmail } : {};
 }
 
 function showClaim(deps: HostLinkDeps, code: string): void {
