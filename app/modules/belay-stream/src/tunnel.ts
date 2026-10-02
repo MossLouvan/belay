@@ -19,6 +19,7 @@ interface BelayTunnelNativeModule {
   start(secretHex: string, relayUrls: string[]): Promise<string>;
   dial(nodeId: string): Promise<number>;
   stats(nodeId: string): Promise<TunnelStats>;
+  lastError?(nodeId: string): Promise<string | null>;
   close(): Promise<void>;
 }
 
@@ -58,6 +59,12 @@ export function dialTunnel(nodeId: string): Promise<number> {
 export function tunnelStats(nodeId: string): Promise<TunnelStats> {
   if (!native) return Promise.resolve({ connected: false, rttMs: 0, direct: false });
   return native.stats(nodeId);
+}
+
+/** Why the tunnel to `nodeId` last failed (connect timed out, refused, ...), or null. */
+export function tunnelLastError(nodeId: string): Promise<string | null> {
+  if (!native?.lastError) return Promise.resolve(null);
+  return native.lastError(nodeId).catch(() => null);
 }
 
 export function closeTunnel(): Promise<void> {

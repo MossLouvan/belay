@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
-use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey, Watcher};
 use iroh_mdns_address_lookup::MdnsAddressLookup;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
@@ -151,7 +151,36 @@ pub async fn bind(secret: SecretKey, relay_mode: RelayMode) -> Result<Endpoint, 
         },
         Err(e) => eprintln!("[belay-net] local discovery unavailable: {e}"),
     }
+    tokio::spawn(log_home_relay(endpoint.clone()));
     Ok(endpoint)
+}
+
+/// One stderr line whenever the home relay's state changes: connected, or
+/// down with iroh's last error. Repeats of the same state are not logged, so
+/// a relay that stays down costs one line, not one per retry.
+async fn log_home_relay(endpoint: Endpoint) {
+    let mut watcher = endpoint.home_relay_status();
+    let mut last = String::new();
+    loop {
+        let line = watcher
+            .get()
+            .iter()
+            .map(|r| match (r.is_connected(), r.last_error()) {
+                (true, _) => format!("{} connected", r.url()),
+                (false, Some(e)) => format!("{} down: {e:#}", r.url()),
+                (false, None) => format!("{} connecting", r.url()),
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        if !line.is_empty() && line != last {
+            eprintln!("[belay-net] home relay: {line}");
+            last = line;
+        }
+        tokio::select! {
+            r = watcher.updated() => if r.is_err() { return },
+            _ = endpoint.closed() => return,
+        }
+    }
 }
 
 /// Copy both directions between a QUIC bi-stream and a TCP socket until
@@ -248,8 +277,17 @@ impl Host {
             let secret = secret.clone();
             tokio::spawn(async move {
                 let _permit = permit;
-                let Ok(accepting) = incoming.accept() else { return };
-                let Ok(conn) = accepting.await else { return };
+                let conn = match incoming.accept() {
+                    Ok(accepting) => accepting.await,
+                    Err(e) => Err(e.into()),
+                };
+                let conn = match conn {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("[belay-net] incoming handshake failed: {e:#}");
+                        return;
+                    }
+                };
                 host.connection(conn, target, &secret).await;
             });
         }
@@ -258,9 +296,11 @@ impl Host {
     async fn connection(&self, conn: Connection, target: SocketAddr, secret: &StreamSecret) {
         let remote = conn.remote_id();
         if !self.allows(&remote) {
+            eprintln!("[belay-net] refused {} (not on the allow-list)", remote.fmt_short());
             conn.close(CLOSE_NOT_ALLOWED.into(), b"not allowed");
             return;
         }
+        eprintln!("[belay-net] accepted {} ({})", remote.fmt_short(), if conn.paths().iter().any(|p| p.is_ip()) { "direct" } else { "relay" });
         self.track(&conn);
         let streams = Arc::new(Semaphore::new(MAX_STREAMS_PER_CONNECTION));
         let header = stream_header(secret, &remote);
@@ -275,7 +315,13 @@ impl Host {
             let header = header.clone();
             tokio::spawn(async move {
                 let _permit = permit;
-                let Ok(mut tcp) = TcpStream::connect(target).await else { return };
+                let mut tcp = match TcpStream::connect(target).await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("[belay-net] host listener {target} unreachable: {e}");
+                        return;
+                    }
+                };
                 if tcp.write_all(header.as_bytes()).await.is_err() {
                     return;
                 }
@@ -305,38 +351,84 @@ pub fn stats_of(conn: &Connection) -> Stats {
     }
 }
 
+/// The most recent failure a forwarder hit, for the app to show instead of a
+/// bare "can't reach". Cleared by the next successful dial.
+type LastError = Arc<Mutex<Option<String>>>;
+
+fn note(slot: &LastError, msg: String) {
+    eprintln!("[belay-net] {msg}");
+    if let Ok(mut s) = slot.lock() {
+        *s = Some(msg);
+    }
+}
+
+/// Bind 127.0.0.1:`port`, retrying until it works: the forwarder's port is
+/// what the app already holds, so a new port would be no better than none.
+async fn relisten(port: u16, last: &LastError) -> TcpListener {
+    loop {
+        match TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await {
+            Ok(l) => return l,
+            Err(e) => {
+                note(last, format!("local port {port} could not be reopened: {e}"));
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+}
+
 /// Phone side: a 127.0.0.1 TCP listener that turns each accepted connection
 /// into one bi-stream to `remote`. One QUIC connection is shared and redialed
 /// on demand when it drops.
 pub struct Forwarder {
     pub local_port: u16,
     conn: Arc<tokio::sync::Mutex<Option<Connection>>>,
+    last_error: LastError,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl Forwarder {
     pub async fn start(endpoint: Endpoint, remote: EndpointAddr) -> io::Result<Forwarder> {
-        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
+        let mut listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
         let local_port = listener.local_addr()?.port();
         let conn: Arc<tokio::sync::Mutex<Option<Connection>>> = Arc::default();
-        let shared = conn.clone();
+        let last_error = LastError::default();
+        let (shared, last) = (conn.clone(), last_error.clone());
         let streams = Arc::new(Semaphore::new(MAX_STREAMS_PER_CONNECTION));
         let task = tokio::spawn(async move {
-            while let Ok((tcp, _)) = listener.accept().await {
+            loop {
+                let tcp = match listener.accept().await {
+                    Ok((tcp, _)) => tcp,
+                    Err(e) => {
+                        // iOS reclaims a suspended app's listening sockets
+                        // (TN2277): accept fails from then on. Reopen the
+                        // same port rather than leave the app a dead one.
+                        note(&last, format!("local listener failed: {e}; reopening port {local_port}"));
+                        drop(listener);
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        listener = relisten(local_port, &last).await;
+                        continue;
+                    }
+                };
                 let Ok(permit) = streams.clone().acquire_owned().await else { return };
-                let endpoint = endpoint.clone();
-                let remote = remote.clone();
-                let shared = shared.clone();
+                let (endpoint, remote, shared, last) = (endpoint.clone(), remote.clone(), shared.clone(), last.clone());
                 tokio::spawn(async move {
                     let _permit = permit;
-                    let Some(conn) = connected(&endpoint, remote, &shared).await else { return };
-                    if let Ok((send, recv)) = conn.open_bi().await {
-                        let _ = pipe(send, recv, tcp).await;
+                    let Some(conn) = connected(&endpoint, remote, &shared, &last).await else { return };
+                    match conn.open_bi().await {
+                        Ok((send, recv)) => {
+                            let _ = pipe(send, recv, tcp).await;
+                        }
+                        Err(e) => note(&last, format!("stream to {} failed: {e:#}", conn.remote_id().fmt_short())),
                     }
                 });
             }
         });
-        Ok(Forwarder { local_port, conn, task })
+        Ok(Forwarder { local_port, conn, last_error, task })
+    }
+
+    /// The most recent dial or stream failure, if any since the last good dial.
+    pub fn last_error(&self) -> Option<String> {
+        self.last_error.lock().ok().and_then(|s| s.clone())
     }
 
     pub async fn stats(&self) -> Stats {
@@ -367,6 +459,7 @@ async fn connected(
     endpoint: &Endpoint,
     remote: EndpointAddr,
     slot: &tokio::sync::Mutex<Option<Connection>>,
+    last: &LastError,
 ) -> Option<Connection> {
     let mut guard = slot.lock().await;
     if let Some(c) = guard.as_ref() {
@@ -374,9 +467,32 @@ async fn connected(
             return Some(c.clone());
         }
     }
-    let c = endpoint.connect(remote, ALPN).await.ok()?;
-    *guard = Some(c.clone());
-    Some(c)
+    let id = remote.id.fmt_short();
+    match endpoint.connect(remote, ALPN).await {
+        Ok(c) => {
+            let s = stats_of(&c);
+            eprintln!("[belay-net] connected to {id} ({})", if s.direct { "direct" } else { "relay" });
+            if let Ok(mut e) = last.lock() {
+                *e = None;
+            }
+            // How it ended (refused by the host, revoked, timed out) is the
+            // one thing the phone cannot otherwise learn: open_bi succeeds
+            // locally before the host has had its say.
+            let (watch, last) = (c.clone(), last.clone());
+            tokio::spawn(async move {
+                let why = watch.closed().await;
+                if !matches!(why, iroh::endpoint::ConnectionError::LocallyClosed) {
+                    note(&last, format!("connection to {id} closed: {why:#}"));
+                }
+            });
+            *guard = Some(c.clone());
+            Some(c)
+        }
+        Err(e) => {
+            note(last, format!("connect to {id} failed: {e:#}"));
+            None
+        }
+    }
 }
 
 #[cfg(test)]

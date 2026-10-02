@@ -98,7 +98,7 @@ typedef struct {
 
 // Start a tunnel endpoint with this phone's 32-byte iroh secret key (64 hex
 // chars, kept in the Keychain). `relay_urls` is comma-separated; NULL or empty
-// means n0's public relays (development only). NULL on failure.
+// means no relay at all (never n0's public ones). NULL on failure.
 void *belay_tunnel_start(const char *secret_hex, const char *relay_urls);
 
 // This phone's node id (64 lowercase hex) for POST /devices. Writes a
@@ -114,6 +114,11 @@ int belay_tunnel_dial(void *handle, const char *node_id);
 // Stats for the forwarder to `node_id`. BELAY_OK, BELAY_ERR_ARGS, or
 // BELAY_ERR_SESSION when that node id was never dialed.
 int belay_tunnel_stats(void *handle, const char *node_id, BelayTunnelStats *out);
+
+// The forwarder's last dial/stream failure as NUL-terminated UTF-8 (truncated
+// to fit `cap`). Returns its length, 0 when there is none since the last good
+// dial, BELAY_ERR_ARGS, or BELAY_ERR_SESSION when that node id was never dialed.
+int belay_tunnel_last_error(void *handle, const char *node_id, char *out, size_t cap);
 
 // Close every forwarder and the endpoint. Safe with NULL. Not twice.
 void belay_tunnel_close(void *handle);

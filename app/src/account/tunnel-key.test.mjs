@@ -46,5 +46,8 @@ test('relay URLs come from config, comma separated, with a production default', 
   assert.deepEqual(parseRelayUrls(undefined), DEFAULT_RELAY_URLS);
   assert.deepEqual(parseRelayUrls('  '), DEFAULT_RELAY_URLS);
   assert.deepEqual(parseRelayUrls('https://a.example, https://b.example,'), ['https://a.example', 'https://b.example']);
-  assert.deepEqual(parseRelayUrls('ftp://nope'), DEFAULT_RELAY_URLS, 'only https relays are accepted');
+  assert.deepEqual(parseRelayUrls('ftp://nope'), DEFAULT_RELAY_URLS, 'only http(s) relays are accepted');
+  // A dev relay (iroh-relay --dev) is plain http; dropping it sent the phone
+  // to the production relay instead of the one the host homes on.
+  assert.deepEqual(parseRelayUrls('http://192.168.0.81:3340'), ['http://192.168.0.81:3340']);
 });

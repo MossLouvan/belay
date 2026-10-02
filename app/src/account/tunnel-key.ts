@@ -29,8 +29,14 @@ export async function loadOrCreateTunnelSecret(
   return secret;
 }
 
-/** `EXPO_PUBLIC_RELAY_URLS`: comma-separated https URLs; the default when unset or empty. */
+/**
+ * `EXPO_PUBLIC_RELAY_URLS`: comma-separated relay URLs; the default when unset
+ * or empty. Plain http is kept: a development relay (`iroh-relay --dev`) has
+ * no TLS, and the host's sidecar takes the same URL from the accounts service.
+ * Dropping it silently sent the phone to the production relay, where the host
+ * is not homed. The relay never sees plaintext either way (QUIC end to end).
+ */
 export function parseRelayUrls(env: string | undefined): readonly string[] {
-  const urls = (env ?? '').split(',').map((u) => u.trim()).filter((u) => /^https:\/\//i.test(u));
+  const urls = (env ?? '').split(',').map((u) => u.trim()).filter((u) => /^https?:\/\/./i.test(u));
   return urls.length > 0 ? urls : DEFAULT_RELAY_URLS;
 }

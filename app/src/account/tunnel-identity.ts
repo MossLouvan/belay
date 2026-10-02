@@ -21,7 +21,7 @@ const SECRET_KEY = 'belay.tunnel.secret';
 /** The placeholder node id for builds without the native tunnel. */
 const PLACEHOLDER_KEY = 'belay.tunnel.nodeId';
 
-/** Comma-separated https relay URLs; the production relay when unset. */
+/** Comma-separated relay URLs; the production relay when unset. */
 export const RELAY_URLS = parseRelayUrls(process.env.EXPO_PUBLIC_RELAY_URLS);
 
 export interface TunnelIdentity {

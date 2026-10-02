@@ -6,13 +6,13 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use belay_net_tunnel::{bind, stream_header, AllowList, Forwarder, Host, StreamSecret, ALPN, STREAM_HEADER_PREFIX};
+use belay_net_tunnel::{bind, relay_mode, stream_header, AllowList, Forwarder, Host, StreamSecret, ALPN, STREAM_HEADER_PREFIX};
 
 fn secret() -> StreamSecret {
     StreamSecret::parse(&"c3".repeat(32)).unwrap()
 }
 use iroh::endpoint::presets;
-use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, SecretKey, TransportAddr};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey, TransportAddr};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -113,6 +113,10 @@ async fn stranger_gets_no_bytes_from_the_host() {
     assert!(matches!(n, Ok(Ok(0))) || n.is_err() && buf.is_empty(), "stranger must get nothing back, got {buf:?}");
     assert!(buf.is_empty());
     assert!(seen.lock().unwrap().is_empty(), "no stream ever reached the host");
+    // The phone can say why instead of a bare "can't reach".
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let why = fwd.last_error().expect("the refusal is recorded");
+    assert!(why.contains("not allowed"), "{why}");
     fwd.close().await;
     ep.close().await;
 }
@@ -161,4 +165,43 @@ async fn phone_finds_host_by_node_id_alone_with_no_relay() {
     assert!(fwd.stats().await.connected);
     fwd.close().await;
     ep.close().await;
+}
+
+/// The phone off the Wi-Fi: no IP transports and no discovery of any kind,
+/// only the host's node id and the relay URL it was built with, which is a
+/// plain-http dev relay (`iroh-relay --dev`). The host is homed on that same
+/// relay. Bytes must make it there and back through the relay alone.
+#[tokio::test]
+async fn phone_reaches_host_through_a_plain_http_relay_alone() {
+    let mut cfg = iroh_relay::server::ServerConfig::default();
+    cfg.relay = Some(iroh_relay::server::RelayConfig::new((std::net::Ipv4Addr::LOCALHOST, 0)));
+    let relay = iroh_relay::server::Server::spawn(cfg).await.unwrap();
+    let url: RelayUrl = format!("http://{}", relay.http_addr().unwrap()).parse().unwrap();
+
+    let phone_key = SecretKey::generate();
+    let (target, seen) = echo_server().await;
+    let host = Host::new(AllowList::from_ids([phone_key.public()]));
+    let ep = bind(SecretKey::generate(), relay_mode(std::slice::from_ref(&url))).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), ep.online()).await.expect("host homes on the dev relay");
+    tokio::spawn(host.clone().serve(ep.clone(), target, secret()));
+
+    let phone_ep = Endpoint::builder(presets::Minimal)
+        .secret_key(phone_key.clone())
+        .alpns(vec![ALPN.to_vec()])
+        .relay_mode(relay_mode(std::slice::from_ref(&url)))
+        .clear_ip_transports()
+        .bind()
+        .await
+        .unwrap();
+    // Exactly what belay_tunnel_dial hands the forwarder.
+    let hint = EndpointAddr::new(ep.id()).with_relay_url(url.clone());
+    let fwd = Forwarder::start(phone_ep, hint).await.unwrap();
+    assert_eq!(round_trip(fwd.local_port, b"over the relay").await, b"over the relay");
+    let stats = fwd.stats().await;
+    assert!(stats.connected && !stats.direct, "must have gone through the relay: {stats:?}");
+    assert_eq!(fwd.last_error(), None);
+    assert_eq!(*seen.lock().unwrap(), vec![stream_header(&secret(), &phone_key.public()).trim_end().to_string()]);
+    fwd.close().await;
+    ep.close().await;
+    relay.shutdown().await.unwrap();
 }

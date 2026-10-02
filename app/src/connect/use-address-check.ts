@@ -11,6 +11,7 @@ import type { RefObject } from 'react';
 import { Platform } from 'react-native';
 import { checkHost, requestPairingCode } from '../api';
 import { pinAddresses, pinningAvailable, probeFingerprint } from '../devices/pinning';
+import { tunnelErrorFor } from '../devices/tunnel';
 import { haptic } from '../ui';
 import type { PairingDeadEnd } from './dead-end';
 import { detectDeadEnd } from './dead-end';
@@ -190,10 +191,12 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
         // With Local Network off the probe fails too, and blaming the
         // certificate sends the user looking in the wrong place.
         const blocked = seen ? null : await localNetworkDiagnosis([resolved.url]);
+        // Through the tunnel, the forwarder knows why (timed out, refused).
+        const tunnelWhy = seen || blocked ? null : await tunnelErrorFor(resolved.url);
         if (!live.current || seq !== checkSeq.current) return;
         if (!seen) {
           setBusy(false);
-          setHostError(blocked ?? {
+          setHostError(blocked ?? (tunnelWhy ? diagnoseHostFailure(resolved.url, tunnelWhy) : null) ?? {
             title: 'Could not read that computer\'s certificate',
             message: 'Nothing answered over a secure connection at that address. Check the computer is running the Belay host and is on this network, or scan its pairing code instead.',
           });
@@ -210,8 +213,9 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
 
       if (!result.ok) {
         const blocked = await localNetworkDiagnosis([resolved.url], result.error);
+        const tunnelWhy = blocked ? null : await tunnelErrorFor(resolved.url);
         if (!live.current || seq !== checkSeq.current) return;
-        setHostError(blocked ?? diagnoseHostFailure(resolved.url, result.error));
+        setHostError(blocked ?? diagnoseHostFailure(resolved.url, tunnelWhy ?? result.error));
         return;
       }
 
