@@ -8,11 +8,18 @@ import type { AgentSessionMeta, AgentStatus, DiscoveredSession } from '../api';
 /**
  * While the /ws/attention socket is down (host restarting, radio flapping, a
  * host too old to have the route), the store falls back to polling the list —
- * and each fallback tick also retries the socket. Ten seconds, not the old
- * three: the poll is now the degraded path, not the product, and a dead link
- * should not be hammered.
+ * and each fallback tick also retries the socket. The first retry is fast:
+ * the host withdraws a terminal ask after a couple of seconds with no phone
+ * on the socket (#122), so a blip must be bridged in well under that. Later
+ * retries back off to the old slow poll so a dead link is not hammered.
  */
-export const ATTENTION_RETRY_MS = 10000;
+export const ATTENTION_RETRY_MIN_MS = 500;
+export const ATTENTION_RETRY_MAX_MS = 10000;
+
+/** 500 ms, 1 s, 2 s, … capped — `attempt` counts failures since the last open. */
+export function attentionRetryMs(attempt: number): number {
+  return Math.min(ATTENTION_RETRY_MAX_MS, ATTENTION_RETRY_MIN_MS * 2 ** Math.max(0, attempt));
+}
 
 /**
  * The sessions blocked on a human, soonest-to-expire first so the one about

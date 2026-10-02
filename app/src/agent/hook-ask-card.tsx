@@ -25,12 +25,14 @@ export interface HookAskCardProps {
   readonly now: number;
   /** Other terminal asks queued behind this one. */
   readonly stackedCount: number;
+  /** Desk layout: compact Deny/Allow. */
+  readonly compact?: boolean;
   readonly onAnswer: (allow: boolean, choiceId?: string) => void;
   /** Open the session's live transcript. */
   readonly onOpen: () => void;
 }
 
-export function HookAskCard({ item, now, stackedCount, onAnswer, onOpen }: HookAskCardProps) {
+export function HookAskCard({ item, now, stackedCount, compact, onAnswer, onOpen }: HookAskCardProps) {
   const theme = useTheme();
   const title = hookTitle(item);
   return (
@@ -45,12 +47,12 @@ export function HookAskCard({ item, now, stackedCount, onAnswer, onOpen }: HookA
         }}
         style={({ pressed }) => ({ opacity: pressed ? theme.motion.pressOpacity : 1 })}
       >
-        <Row justify="space-between" gap="sm">
-          <Row gap="xs" style={{ flexShrink: 1 }}>
-            <Micro testID={`agent-hook-tag-${item.id}`}>TERMINAL</Micro>
-            <Txt variant="label" tone="dim" numberOfLines={1} style={{ flexShrink: 1 }}>{title}</Txt>
-          </Row>
-          <Txt variant="monoSmall" tone="faint" numberOfLines={1} style={{ flexShrink: 1 }}>{item.cwd}</Txt>
+        {/* The project name tells two sessions apart, so it never shrinks;
+            the path gives way, truncated from the left (#120). */}
+        <Row gap="xs">
+          <Micro testID={`agent-hook-tag-${item.id}`}>TERMINAL</Micro>
+          <Txt variant="label" tone="dim" numberOfLines={1} style={{ flexShrink: 0, maxWidth: '60%' }}>{title}</Txt>
+          <Txt variant="monoSmall" tone="faint" numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, textAlign: 'right' }}>{item.cwd}</Txt>
         </Row>
       </Pressable>
       <ApprovalCard
@@ -59,6 +61,7 @@ export function HookAskCard({ item, now, stackedCount, onAnswer, onOpen }: HookA
         onAnswer={onAnswer}
         expiryLabel={HOOK_EXPIRY_LABEL}
         stackedCount={stackedCount}
+        compact={compact}
       />
     </View>
   );

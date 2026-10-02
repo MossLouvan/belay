@@ -9,7 +9,8 @@ import { api } from '../api';
 import type { AgentProject } from '../api';
 import { useTheme } from '../theme';
 import { Banner, Button, Caption, Column, Input, ListItem, Sheet, Txt, haptic } from '../ui';
-import { mapCreateError, previewPath, suggestParents, validateProjectName } from './new-project';
+import { useConnection } from '../connection';
+import { mapCreateError, pathPlaceholder, previewPath, suggestParents, validateProjectName } from './new-project';
 
 const messageOf = (e: unknown, fallback: string): string => (e instanceof Error ? e.message : fallback);
 
@@ -26,6 +27,7 @@ export function NewProjectSheet({
   onCreated: (project: AgentProject) => void;
 }) {
   const theme = useTheme();
+  const platform = useConnection().active?.platform;
   const [name, setName] = useState('');
   const [parent, setParent] = useState<string | null>(null);
   const [customParent, setCustomParent] = useState('');
@@ -112,7 +114,7 @@ export function NewProjectSheet({
               testID="agent-new-project-custom-parent"
               value={customParent}
               onChangeText={setCustomParent}
-              placeholder={'C:\\Users\\you\\code or ~/code'}
+              placeholder={pathPlaceholder(platform, 'code')}
               mono
               autoFocus
               accessibilityLabel="Custom parent folder path"

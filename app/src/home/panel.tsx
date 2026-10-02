@@ -11,9 +11,9 @@
 // than a grab handle that only says "a sheet" and only on iOS. On iOS the
 // panel is still a native sheet, so swipe-down keeps working alongside it.
 //
-// It also floats the cross-surface "needs you" band over the panel's bottom
-// edge, so an agent blocked on an approval can still reach you inside Terminal
-// or Files.
+// It also lays the cross-surface "needs you" band inline directly above the
+// tab bar — never over it (#119) — so an agent blocked on an approval can
+// still reach you inside Terminal or Files while every tab stays tappable.
 //
 // Keyboard: every tool panel gets its avoidance from here, once, rather than
 // each screen bringing its own KeyboardAvoidingView and its own hand-tuned
@@ -93,7 +93,7 @@ export function ToolPanel({ children, tab, testID }: ToolPanelProps) {
         <KeyboardAvoider style={{ overflow: 'hidden' }}>{children}</KeyboardAvoider>
       </SafeAreaInsetsContext.Provider>
       {/* Approvals must reach you in every tool, not only on the desktop. */}
-      <NeedsYouBanner bottom={0} />
+      <NeedsYouBanner />
       <AppearanceNav selected={tab} />
     </View>
   );

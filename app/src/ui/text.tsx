@@ -53,6 +53,8 @@ export interface TxtProps {
   color?: string;
   align?: TextStyle['textAlign'];
   numberOfLines?: number;
+  /** Where a truncated line loses text — 'head' keeps a path's leaf visible. */
+  ellipsizeMode?: 'head' | 'middle' | 'tail' | 'clip';
   selectable?: boolean;
   style?: StyleProp<TextStyle>;
   testID?: string;
@@ -72,6 +74,7 @@ export function Txt({
   color,
   align,
   numberOfLines,
+  ellipsizeMode,
   selectable,
   style,
   testID,
@@ -100,6 +103,7 @@ export function Txt({
       accessibilityRole={heading ? 'header' : undefined}
       accessibilityLabel={accessibilityLabel}
       numberOfLines={numberOfLines}
+      ellipsizeMode={ellipsizeMode}
       adjustsFontSizeToFit={adjustsFontSizeToFit}
       minimumFontScale={minimumFontScale}
       selectable={selectable}

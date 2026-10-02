@@ -32,7 +32,7 @@ import { AppState } from 'react-native';
 import { api, getConnection, wsUrl } from '../api';
 import type { AgentSessionMeta, DiscoveredSession, HookList } from '../api';
 import {
-  ATTENTION_RETRY_MS, applyAttentionPush, applyDiscoveredPush, parseAttentionMessage, parseDiscoveredPush,
+  attentionRetryMs, applyAttentionPush, applyDiscoveredPush, parseAttentionMessage, parseDiscoveredPush,
 } from './attention';
 import { applyHooksPush, parseHooksPush } from './hook-model';
 
@@ -187,6 +187,8 @@ let holders = 0;
 let socket: WebSocket | null = null;
 let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 let appStateSub: { remove: () => void } | null = null;
+// Socket failures since it last opened — drives the 500 ms-first backoff (#122).
+let retryAttempt = 0;
 // Bumped whenever the lifecycle stops or restarts, so an async socket open
 // (the ticket fetch takes a round trip) that resolves after its world ended
 // discards itself instead of resurrecting a dead loop.
@@ -216,6 +218,7 @@ function stopLoops(): void {
 /** Fresh generation: fetch once now, then live on the push socket. */
 function start(): void {
   generation += 1;
+  retryAttempt = 0;
   const gen = generation;
   void refreshAttention();
   void refreshDiscovered();
@@ -238,7 +241,7 @@ function scheduleFallback(gen: number): void {
     void refreshDiscovered();
     void refreshHooks();
     void openSocket(gen);
-  }, ATTENTION_RETRY_MS);
+  }, attentionRetryMs(retryAttempt++));
 }
 
 async function openSocket(gen: number): Promise<void> {
@@ -262,6 +265,7 @@ async function openSocket(gen: number): Promise<void> {
     // The push channel is live: cancel the fallback and sync the full rows
     // once, so titles/expiries are current from the first pushed summary.
     if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; }
+    retryAttempt = 0;
     void refreshAttention();
     void refreshDiscovered();
     void refreshHooks();

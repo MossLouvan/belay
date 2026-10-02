@@ -66,6 +66,9 @@ function HoldAllowButton({ onAllow, testID }: { onAllow: () => void; testID: str
   );
 }
 
+/** Two ~160 pt buttons and their gap — the desk layout's cap (#129). */
+const COMPACT_BUTTONS_WIDTH = 328;
+
 export interface ApprovalCardProps {
   readonly pending: PendingApproval;
   /** Ticking clock from the session view, so one interval serves the screen. */
@@ -83,11 +86,13 @@ export interface ApprovalCardProps {
    * (the session view); pass a number when the card stands elsewhere.
    */
   readonly stackedCount?: number;
+  /** Desk layout (#129): Deny/Allow capped and right-aligned, not full width. */
+  readonly compact?: boolean;
 }
 
 const DEFAULT_EXPIRY_LABEL = 'auto-denies in';
 
-export function ApprovalCard({ pending, now, onAnswer, expiryLabel = DEFAULT_EXPIRY_LABEL, stackedCount }: ApprovalCardProps) {
+export function ApprovalCard({ pending, now, onAnswer, expiryLabel = DEFAULT_EXPIRY_LABEL, stackedCount, compact = false }: ApprovalCardProps) {
   const theme = useTheme();
   const [showInput, setShowInput] = useState(false);
   const [showChoices, setShowChoices] = useState(false);
@@ -185,7 +190,7 @@ export function ApprovalCard({ pending, now, onAnswer, expiryLabel = DEFAULT_EXP
         />
       )}
 
-      <Row gap="xs">
+      <Row gap="xs" style={compact ? { alignSelf: 'flex-end', width: COMPACT_BUTTONS_WIDTH } : undefined}>
         <Button testID="agent-deny" label="Deny" variant="danger" size="sm" onPress={() => onAnswer(false)} style={{ flex: 1 }} />
         {danger ? (
           <HoldAllowButton testID="agent-allow" onAllow={() => onAnswer(true)} />

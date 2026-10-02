@@ -5,7 +5,7 @@
 // the list, the badge and the transcript view. No React, no react-native, so
 // `hook-model.test.mjs` runs it in plain Node — same contract as model.ts.
 
-import type { DiscoveredSession, HookList, HookNotice, HookPermission } from '../api';
+import type { DiscoveredSession, HookChanges, HookList, HookNotice, HookPermission } from '../api';
 import { projectName } from './model.ts';
 
 /** One pushed hook row — id and kind are all the badge needs. */
@@ -100,9 +100,19 @@ export function discoveredFromHook(item: HookPermission | HookNotice): Discovere
   };
 }
 
+/** "3 files · +41 −7" — what a finished turn changed; empty when unknown. */
+export function changesLine(changes: HookChanges | undefined): string {
+  if (!changes) return '';
+  if (changes.files === 0) return 'no file changes';
+  const counts = [changes.insertions ? `+${changes.insertions}` : '', changes.deletions ? `−${changes.deletions}` : '']
+    .filter(Boolean).join(' ');
+  return [`${changes.files} ${changes.files === 1 ? 'file' : 'files'}`, counts].filter(Boolean).join(' · ');
+}
+
 /** The one-line notice row: "done" / "waiting at the terminal", with the tail. */
 export function noticeLine(notice: HookNotice, max = 90): { readonly label: string; readonly text: string } {
-  const label = notice.kind === 'done' ? 'done' : 'prompt waiting at the terminal';
+  const changed = notice.kind === 'done' ? changesLine(notice.changes) : '';
+  const label = notice.kind === 'done' ? ['done', changed].filter(Boolean).join(' · ') : 'prompt waiting at the terminal';
   const text = notice.text.replace(/\s+/g, ' ').trim();
   return { label, text: text.length > max ? text.slice(0, max - 1) + '…' : text };
 }

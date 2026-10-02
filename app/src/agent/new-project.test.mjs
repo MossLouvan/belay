@@ -135,3 +135,11 @@ test('a real server complaint passes through untouched', () => {
   assert.equal(mapCreateError('a folder named "app" already exists there'), 'a folder named "app" already exists there');
   assert.equal(mapCreateError('that folder is not writable'), 'that folder is not writable');
 });
+
+test('pathPlaceholder: the host platform picks the example path', async () => {
+  const { pathPlaceholder } = await import('./new-project.ts');
+  assert.equal(pathPlaceholder('darwin', 'project'), '~/project');
+  assert.equal(pathPlaceholder('win32', 'project'), 'C:\\Users\\you\\project');
+  assert.equal(pathPlaceholder('other', 'code'), 'C:\\Users\\you\\code or ~/code');
+  assert.equal(pathPlaceholder(undefined, 'code'), 'C:\\Users\\you\\code or ~/code');
+});
