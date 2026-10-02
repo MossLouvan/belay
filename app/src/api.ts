@@ -463,9 +463,9 @@ export interface ScreenInfo {
 
 /**
  * What GET /screen/virtual-display reports. The phone gates its true-resolution
- * picker on `available`: the BELAY_VIRTUAL_DISPLAY flag is on AND the host's
- * native backend actually exists (macOS with the private API). `active` is
- * whether one is up right now. A host with the flag off answers 403, which
+ * picker on `available`: the host's native backend actually exists (macOS with
+ * the private API, Windows with the driver). `active` is whether one is up
+ * right now. A host that switched the feature off answers 403, which
  * `virtualDisplayStatus` maps to all-false — the option simply does not appear.
  */
 export interface AutostartStatus {
@@ -483,6 +483,15 @@ export interface VirtualDisplayStatus {
   enabled: boolean;
   available: boolean;
   active: boolean;
+}
+
+/** GET/POST /lid-mode: "Keep running with the lid closed". Older hosts 404 the GET. */
+export type LidModeState = 'off' | 'ready' | 'awake' | 'battery-low';
+export interface LidModeStatus {
+  readonly supported: boolean;
+  readonly enabled: boolean;
+  readonly status: LidModeState;
+  readonly lidClosed: boolean;
 }
 
 export interface FileEntry { name: string; path: string; dir: boolean; size: number; mtime: number; }
@@ -699,6 +708,9 @@ export const api = {
   discoverHosts: () => get<DiscoverHostsReply>('/discover/hosts'),
   /** Rename this computer on the host, so every phone sees the new name. */
   setLabel: (label: string) => post<{ ok: boolean; label: string }>('/label', { label }),
+  lidMode: () => get<LidModeStatus>('/lid-mode'),
+  /** On macOS the first enable raises an admin prompt on the host; a cancel answers 403 with the reason. */
+  setLidMode: (enabled: boolean) => post<LidModeStatus>('/lid-mode', { enabled }),
   /** Start-at-login on the host (its scripts/autostart-*). Older hosts 404 the GET. */
   autostartStatus: () => get<AutostartStatus>('/autostart'),
   autostartEnable: () => post<AutostartReply>('/autostart/enable', {}),

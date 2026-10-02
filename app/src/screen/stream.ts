@@ -52,6 +52,8 @@ export interface StreamState {
   readonly frameUri: string | null;
   readonly stats: StreamStats;
   readonly error: string | null;
+  /** The host's latest advisory (e.g. the lid-closed battery warning); the picture keeps running. */
+  readonly notice: string | null;
   /**
    * When the current outage began (epoch ms), or null while the picture is
    * healthy. The panel phrases this as elapsed time ("Still trying · 9m") —
@@ -212,6 +214,7 @@ export function useScreenStream(
   const [frameUri, setFrameUri] = useState<string | null>(null);
   const [stats, setStats] = useState<StreamStats>(EMPTY_STATS);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [retryingSinceMs, setRetryingSinceMs] = useState<number | null>(null);
   const [generation, setGeneration] = useState(0);
   const [bwp, setBwp] = useState<BwpSource | null>(null);
@@ -490,6 +493,7 @@ export function useScreenStream(
         setPhase('error');
         return;
       }
+      if (msg.type === 'notice') { setNotice(msg.message); return; }
       onFrame(msg.frame);
     };
 
@@ -767,6 +771,7 @@ export function useScreenStream(
     frameUri,
     stats,
     error,
+    notice,
     retryingSinceMs,
     retry,
     bwp,
