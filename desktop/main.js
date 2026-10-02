@@ -34,6 +34,13 @@ import { startHost } from './host.js';
 const pins = createPinStore();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// One Belay per user: a second launch (double-clicking the .app again while
+// it sits in the menu bar) hands over to the first copy, which shows its
+// window. Without this the second copy would find its own port busy and
+// tell the user someone else is running Belay.
+if (!app.requestSingleInstanceLock()) app.quit();
+
 // Keep the controller's 4 ms hidden-window timer running. Unlike disabling
 // backgroundThrottling, this preserves visibilityState and the rAF fallback.
 app.commandLine.appendSwitch('disable-background-timer-throttling');
@@ -250,6 +257,7 @@ app.whenReady().then(() => {
   // viewer (connect window) stays one menu entry away — a Mac can still open
   // another computer's displays as windows, host or not.
   const openHostWindow = startHost({ openViewer: createConnectWindow });
+  app.on('second-instance', () => openHostWindow());
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) openHostWindow();

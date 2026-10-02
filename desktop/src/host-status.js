@@ -2,6 +2,13 @@
 // link carries, how a QR matrix becomes an SVG, and when to switch the login
 // item on. No Electron here, so test/host-status.test.mjs runs them bare.
 
+/**
+ * Where the phone app comes from — the first thing the window points at.
+ * ponytail: gobelay.com/get until the App Store listing is live; swap for the
+ * apps.apple.com URL (or the TestFlight invite) here and nowhere else.
+ */
+export const PHONE_APP_URL = 'https://gobelay.com/get';
+
 /** The code and identity inside a `belay://pair` (or legacy `tether://`) link. */
 export function parsePairing(link) {
   let url;
@@ -39,7 +46,7 @@ export function statusLine(state) {
       const n = state.devices ?? 0;
       return n === 0 ? 'Running · not linked yet' : `Running · ${n} phone${n === 1 ? '' : 's'}`;
     }
-    case 'busy': return `Another Belay host is on port ${state.port}`;
+    case 'busy': return `Belay is already running on port ${state.port}`;
     case 'stopped': return 'Stopped';
     default: return 'Starting…';
   }

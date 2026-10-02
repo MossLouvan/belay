@@ -73,7 +73,9 @@ test('no page carries inline styles, per the renderer CSP', () => {
 // A script that reads an element the page no longer has throws at module
 // evaluation, before the stream ever connects — a black window with no error
 // anyone sees. So every id the renderer scripts look up must be in its page.
-const PAGE_SCRIPTS = Object.freeze({ 'display.html': ['display.js', 'gamepad.js'], 'seamless.html': ['seamless.js'], 'connect.html': ['connect.js'] });
+const PAGE_SCRIPTS = Object.freeze({
+  'display.html': ['display.js', 'gamepad.js'], 'seamless.html': ['seamless.js'], 'connect.html': ['connect.js'], 'host.html': ['host.js'],
+});
 export const idsLookedUp = (js) => new Set([...js.matchAll(/getElementById\('([^']+)'\)/g)].map(([, id]) => id));
 export const idsDefined = (html) => new Set([...html.matchAll(/\sid="([^"]+)"/g)].map(([, id]) => id));
 

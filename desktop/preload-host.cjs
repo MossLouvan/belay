@@ -13,4 +13,6 @@ contextBridge.exposeInMainWorld('belayHost', {
   relaunch: () => ipcRenderer.invoke('host:relaunch'),
   openLogs: () => ipcRenderer.invoke('host:openLogs'),
   openViewer: () => ipcRenderer.invoke('host:viewer'),
+  /** Stop the developer LaunchAgent so this app can have the port. */
+  takeOver: () => ipcRenderer.invoke('host:takeOver'),
 });
