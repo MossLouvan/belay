@@ -18,7 +18,7 @@ import { hostname } from 'node:os';
 import { URL } from 'node:url';
 
 import {
-  loadState, addDevice, getTrustFirstPhoneUntil, openFirstPhoneWindow, findDevice, findDeviceById, touchDevice, setHostName, getHostName, listDevices,
+  loadState, addDevice, getTrustFirstPhoneUntil, openFirstPhoneWindow, openFirstPhoneWindowIfNoPhones, findDevice, findDeviceById, touchDevice, setHostName, getHostName, listDevices,
   revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, stateFilePath, Device, PairedDevice,
   getLidClosedMode, setLidClosedMode, getLidSavedAction, setLidSavedAction,
 } from './state.js';
@@ -2254,9 +2254,10 @@ function startTunnelHost(): void {
             postToApp({ type: 'claim', link, modules: qrModules(link) });
           },
           linked: () => {
-            // Just linked (claim QR or sign-in): the first phone may connect
-            // without a tap for the next 15 minutes, and never again by itself.
-            openFirstPhoneWindow();
+            // Just linked (claim QR or sign-in): with no phone paired yet, the
+            // first phone may connect without a tap for the next 15 minutes,
+            // and never again by itself.
+            openFirstPhoneWindowIfNoPhones();
             postToApp({ type: 'claim', link: null });
           },
           line: (text) => console.log(text),
@@ -2304,7 +2305,7 @@ async function linkFromApp(session: unknown): Promise<void> {
   try {
     const { maskedEmail } = await linkBySession(session);
     console.log(`  Linked to ${maskedEmail ?? 'your Belay account'} (signed in on this computer).`);
-    openFirstPhoneWindow();
+    openFirstPhoneWindowIfNoPhones();
     postToApp({ type: 'claim', link: null });
     announceDevices();
     reply({ ok: true, ...(maskedEmail ? { maskedEmail } : {}) });

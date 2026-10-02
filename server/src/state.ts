@@ -363,6 +363,15 @@ export function openFirstPhoneWindow(now: number = Date.now()): void {
   save();
 }
 
+/**
+ * Linking opens the window only for a computer with no phone yet: an
+ * account linked on top of existing pairings must not let a stranger's
+ * phone in untapped. "Let a phone connect" and --reset-pairing still open it.
+ */
+export function openFirstPhoneWindowIfNoPhones(now: number = Date.now()): void {
+  if (state.devices.length === 0) openFirstPhoneWindow(now);
+}
+
 // Constant-time comparison of hashes so a token cannot be recovered by timing
 // the check. Every hash is the same length, so the length check is only a
 // guard against a malformed entry.
@@ -421,13 +430,15 @@ export function revokeDevice(tokenPrefix: string): boolean {
   const before = state.devices.length;
   const devices = state.devices.filter((d) => !d.tokenHash.startsWith(tokenPrefix));
   if (devices.length === before) return false;
-  state = { ...state, devices };
+  // Every revoke closes the first-phone window: removing phones never
+  // leaves one open (or opens one).
+  state = { ...state, devices, trustFirstPhoneUntil: 0 };
   // true only if the removal is durable; a failed write means the token could
   // come back on restart, and the caller should surface that rather than lie.
   return save();
 }
 
 export function revokeAll(): boolean {
-  state = { ...state, devices: [] };
+  state = { ...state, devices: [], trustFirstPhoneUntil: 0 };
   return save();
 }

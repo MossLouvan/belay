@@ -13,6 +13,7 @@ import { router } from 'expo-router';
 import { checkHost, pair } from '../api';
 import type { PairResult } from '../api';
 import { askToJoin, waitForApproval } from '../account/account-pair';
+import { clearTunnelIntent } from '../account/tunnel-intent';
 import { buildSavedDevice } from '../devices/from-host';
 import { pinAddresses, pinnedFingerprint } from '../devices/pinning';
 import type { SavedDevice } from '../devices/model';
@@ -150,6 +151,9 @@ export function usePairSession(
       setStage('code');
       setPairError(diagnosePairFailure(hostUrl, errorMessage(e)));
       setCode('');
+    } finally {
+      // The dial is spent either way (account/tunnel-intent.ts).
+      clearTunnelIntent();
     }
   }, [finishPairing]);
 
@@ -181,6 +185,8 @@ export function usePairSession(
       setStage('approval');
       setApprovalError({ title: 'Could not add this phone', message: errorMessage(e) });
       return true;
+    } finally {
+      clearTunnelIntent();
     }
   }, [finishPairing, tunnelNodeId, accountTrust]);
 

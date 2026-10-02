@@ -32,3 +32,26 @@ export function tunnelIntentFor(
   if (!accountNodeIds.includes(current.nodeId)) return null;
   return { nodeId: current.nodeId, trust: current.trust };
 }
+
+/** What the connect screen holds on to once it has matched the dial. */
+export interface HeldTunnel {
+  readonly address: string;
+  readonly nodeId: string;
+  readonly trust: boolean;
+}
+
+/**
+ * The shared intent is cleared once a pairing attempt resolves and when the
+ * connect screen goes, so it never outlives the dial. The screen that
+ * matched it keeps its own copy for that same address, so a code fallback
+ * after a failed trust attempt still saves the computer under its node id.
+ */
+export function holdTunnelIntent(
+  address: string | null,
+  accountNodeIds: readonly string[],
+  held: HeldTunnel | null,
+): HeldTunnel | null {
+  const fresh = tunnelIntentFor(address, accountNodeIds);
+  if (fresh && address) return { address, ...fresh };
+  return held && held.address === address ? held : null;
+}

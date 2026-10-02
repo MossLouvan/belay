@@ -15,14 +15,15 @@
 // src/connect/pair-flow.ts. Sibling files inside app/ would register as
 // routes, which is why none of it lives here.
 
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Animated } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useConnection } from '../src/connection';
 import { useAccount } from '../src/account/store';
 import { signInRequired } from '../src/account/gate';
 import { mergeComputers } from '../src/account/merge-devices';
-import { tunnelIntentFor } from '../src/account/tunnel-intent';
+import { clearTunnelIntent, holdTunnelIntent } from '../src/account/tunnel-intent';
+import type { HeldTunnel } from '../src/account/tunnel-intent';
 import { useTheme } from '../src/theme';
 import { KeyboardAvoider } from '../src/ui';
 import { connectLanding } from '../src/connect/landing';
@@ -48,7 +49,14 @@ export default function Connect() {
   // loopback port, and the saved computer must carry the node id instead.
   // Read from memory, never the URL (account/tunnel-intent.ts), and only for
   // the exact port startPairingOverTunnel dialled, for a node on the account.
-  const tunnel = useMemo(() => tunnelIntentFor(arrivedAddress, accountDevices.map((d) => d.nodeId)), [arrivedAddress, accountDevices]);
+  // The shared intent is cleared after each attempt and on unmount; this
+  // screen keeps the copy it matched (holdTunnelIntent).
+  const heldTunnel = useRef<HeldTunnel | null>(null);
+  const tunnel = useMemo(() => {
+    heldTunnel.current = holdTunnelIntent(arrivedAddress, accountDevices.map((d) => d.nodeId), heldTunnel.current);
+    return heldTunnel.current;
+  }, [arrivedAddress, accountDevices]);
+  useEffect(() => clearTunnelIntent, []);
   const tunnelNode = tunnel?.nodeId ?? null;
   // A computer linked to the account but not paired here yet still belongs on
   // the list (its Pair button), not back on "put Belay on your computer".
