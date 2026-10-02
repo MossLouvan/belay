@@ -35,12 +35,34 @@ pub const CLOSE_NOT_ALLOWED: u32 = 0x4003;
 
 /// First line of every TCP stream the host side pipes: who is on the other
 /// end of the tunnel, so the host can tag the socket `tunnel:<nodeId>` and
-/// keep per-phone pairing/replay/notification state. Only the sidecar speaks
-/// it; the host drops any connection to its tunnel listener without it.
-pub const STREAM_HEADER_PREFIX: &str = "belay-tunnel/1 ";
+/// keep per-phone pairing/replay/notification state.
+///
+/// The listener is a loopback port any local process could connect to, so
+/// the line also carries a per-launch secret the host handed this sidecar
+/// (env `BELAY_NET_STREAM_SECRET`, never argv). Without it a local process
+/// could claim to be any allow-listed phone. The old `belay-tunnel/1` line,
+/// which had no secret, is rejected by the host.
+pub const STREAM_HEADER_PREFIX: &str = "belay-tunnel/2 ";
 
-pub fn stream_header(id: &EndpointId) -> String {
-    format!("{STREAM_HEADER_PREFIX}{id}\n")
+/// The host's per-launch stream secret: 32 bytes as 64 lowercase hex.
+#[derive(Clone, PartialEq, Eq)]
+pub struct StreamSecret(String);
+
+impl StreamSecret {
+    pub fn parse(hex: &str) -> Option<StreamSecret> {
+        let ok = hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        ok.then(|| StreamSecret(hex.to_string()))
+    }
+}
+
+impl std::fmt::Debug for StreamSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StreamSecret(..)")
+    }
+}
+
+pub fn stream_header(secret: &StreamSecret, id: &EndpointId) -> String {
+    format!("{STREAM_HEADER_PREFIX}{} {id}\n", secret.0)
 }
 
 /// Concurrent bi-streams one connection may have open: a phone opens one per
@@ -204,20 +226,21 @@ impl Host {
     /// Accept tunnel connections forever, piping every bi-stream from an
     /// allowed peer to `target` (the host's tunnel listener), each stream
     /// prefixed with [`stream_header`].
-    pub async fn serve(self: Arc<Self>, endpoint: Endpoint, target: SocketAddr) {
+    pub async fn serve(self: Arc<Self>, endpoint: Endpoint, target: SocketAddr, secret: StreamSecret) {
         while let Some(incoming) = endpoint.accept().await {
             let Ok(permit) = self.conns.clone().acquire_owned().await else { return };
             let host = self.clone();
+            let secret = secret.clone();
             tokio::spawn(async move {
                 let _permit = permit;
                 let Ok(accepting) = incoming.accept() else { return };
                 let Ok(conn) = accepting.await else { return };
-                host.connection(conn, target).await;
+                host.connection(conn, target, &secret).await;
             });
         }
     }
 
-    async fn connection(&self, conn: Connection, target: SocketAddr) {
+    async fn connection(&self, conn: Connection, target: SocketAddr, secret: &StreamSecret) {
         let remote = conn.remote_id();
         if !self.allows(&remote) {
             conn.close(CLOSE_NOT_ALLOWED.into(), b"not allowed");
@@ -225,7 +248,7 @@ impl Host {
         }
         self.track(&conn);
         let streams = Arc::new(Semaphore::new(MAX_STREAMS_PER_CONNECTION));
-        let header = stream_header(&remote);
+        let header = stream_header(secret, &remote);
         while let Ok((send, recv)) = conn.accept_bi().await {
             // Re-checked per stream: the list may have changed since the
             // handshake, and set_allow's close may still be in flight.
@@ -385,13 +408,25 @@ mod tests {
     }
 
     #[test]
-    fn stream_header_is_one_line_of_prefix_and_64_hex() {
+    fn stream_header_is_v2_secret_then_node_id_on_one_line() {
         let a = id();
-        let h = stream_header(&a);
-        assert!(h.starts_with("belay-tunnel/1 "));
+        let secret = StreamSecret::parse(&"5a".repeat(32)).unwrap();
+        let h = stream_header(&secret, &a);
+        assert!(h.starts_with("belay-tunnel/2 "));
         assert!(h.ends_with('\n'));
-        let hex = &h["belay-tunnel/1 ".len()..h.len() - 1];
-        assert_eq!(hex.len(), 64);
-        assert!(hex.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
+        let rest: Vec<&str> = h["belay-tunnel/2 ".len()..h.len() - 1].split(' ').collect();
+        assert_eq!(rest.len(), 2);
+        assert_eq!(rest[0], "5a".repeat(32));
+        assert_eq!(rest[1].len(), 64);
+        assert!(rest[1].bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn stream_secret_is_exactly_64_lowercase_hex() {
+        assert!(StreamSecret::parse(&"0f".repeat(32)).is_some());
+        for bad in ["", "abc", &"0F".repeat(32), &"0f".repeat(31), &"0f".repeat(33), &"zz".repeat(32)] {
+            assert!(StreamSecret::parse(bad).is_none(), "{bad}");
+        }
+        assert_eq!(format!("{:?}", StreamSecret::parse(&"0f".repeat(32)).unwrap()), "StreamSecret(..)");
     }
 }

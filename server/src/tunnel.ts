@@ -56,6 +56,8 @@ export interface TunnelOptions {
   readonly relayUrls?: readonly string[];
   readonly keyPath?: string;
   readonly binary?: string;
+  /** Per-launch secret (tunnel-listener.ts newStreamSecret); env, never argv. */
+  readonly streamSecret: string;
 }
 
 export interface Tunnel {
@@ -92,6 +94,7 @@ export function startTunnel(opts: TunnelOptions): Tunnel {
     startedAt = Date.now();
     const env: NodeJS.ProcessEnv = {
       ...process.env, BELAY_NET_TARGET: `127.0.0.1:${opts.targetPort}`, BELAY_NET_RELAYS: relays.join(','),
+      BELAY_NET_STREAM_SECRET: opts.streamSecret,
       ...(opts.keyPath ? { BELAY_NET_KEY: opts.keyPath } : {}),
     };
     const p = spawn(binary, [], { env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams;

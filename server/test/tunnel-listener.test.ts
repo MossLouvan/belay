@@ -29,7 +29,8 @@ import { createHooksStore } from '../src/hooks-store.js';
 
 const NODE_A = 'ab'.repeat(32);
 const NODE_B = 'cd'.repeat(32);
-const header = (id: string) => `belay-tunnel/1 ${id}\n`;
+const SECRET = '5e'.repeat(32);
+const header = (id: string, secret = SECRET) => `belay-tunnel/2 ${secret} ${id}\n`;
 
 test('every loopback decision in the host says no to a tunnel address', () => {
   for (const addr of [tunnelRemoteAddress(NODE_A), TUNNEL_REMOTE_ADDRESS, 'tunnel:127.0.0.1', 'tunnel:::1']) {
@@ -43,13 +44,22 @@ test('every loopback decision in the host says no to a tunnel address', () => {
   }
 });
 
-test('the header accepts exactly belay-tunnel/1 + 64 lowercase hex', () => {
-  assert.equal(parseTunnelHeader(`belay-tunnel/1 ${NODE_A}`), NODE_A);
+test('the header accepts exactly belay-tunnel/2 + the launch secret + 64 lowercase hex', () => {
+  assert.equal(parseTunnelHeader(`belay-tunnel/2 ${SECRET} ${NODE_A}`, SECRET), NODE_A);
+  const other = '77'.repeat(32);
   for (const bad of [
-    '', 'GET / HTTP/1.1', `belay-tunnel/1 ${NODE_A.toUpperCase()}`, `belay-tunnel/1 ${NODE_A.slice(1)}`,
-    `belay-tunnel/1 ${NODE_A}0`, `belay-tunnel/2 ${NODE_A}`, `belay-tunnel/1  ${NODE_A}`, `belay-tunnel/1 ${NODE_A} `,
-    `belay-tunnel/1 ${NODE_A}\r`, NODE_A,
-  ]) assert.equal(parseTunnelHeader(bad), null, JSON.stringify(bad));
+    '', 'GET / HTTP/1.1',
+    // v1 carried no secret: any local process could forge it. Never accepted.
+    `belay-tunnel/1 ${NODE_A}`, `belay-tunnel/1 ${SECRET} ${NODE_A}`,
+    // Wrong, short, or missing secret.
+    `belay-tunnel/2 ${other} ${NODE_A}`, `belay-tunnel/2 ${SECRET.slice(1)} ${NODE_A}`, `belay-tunnel/2 ${NODE_A}`,
+    `belay-tunnel/2 ${SECRET.toUpperCase()} ${NODE_A}`,
+    `belay-tunnel/2 ${SECRET} ${NODE_A.toUpperCase()}`, `belay-tunnel/2 ${SECRET} ${NODE_A.slice(1)}`,
+    `belay-tunnel/2 ${SECRET} ${NODE_A}0`, `belay-tunnel/2 ${SECRET}  ${NODE_A}`, `belay-tunnel/2 ${SECRET} ${NODE_A} `,
+    `belay-tunnel/2 ${SECRET} ${NODE_A}\r`, NODE_A,
+  ]) assert.equal(parseTunnelHeader(bad, SECRET), null, JSON.stringify(bad));
+  // A listener without a usable secret admits nobody.
+  assert.equal(parseTunnelHeader(`belay-tunnel/2 ${SECRET} ${NODE_A}`, ''), null);
 });
 
 interface Harness {
@@ -79,7 +89,7 @@ async function harness(handshakeTimeoutMs?: number): Promise<Harness> {
   });
   const upgrades: string[] = [];
   const server = createTunnelListener({
-    app, tls,
+    app, tls, secret: SECRET,
     onUpgrade: (req, socket) => { upgrades.push(String(req.socket.remoteAddress)); socket.destroy(); },
     handshakeTimeoutMs,
   });
@@ -131,7 +141,10 @@ test('without a valid sidecar header the connection is dropped with nothing writ
     '\x16\x03\x01\x00\x05hello',
     header(NODE_A.toUpperCase()),
     header(NODE_A.slice(1)),
-    `belay-tunnel/1 ${NODE_A}\r\n`,
+    `belay-tunnel/2 ${SECRET} ${NODE_A}\r\n`,
+    // A local process that knows the protocol but not this launch's secret.
+    `belay-tunnel/1 ${NODE_A}\n`,
+    header(NODE_A, '77'.repeat(32)),
     'x'.repeat(200),
   ];
   for (const preamble of silent) assert.equal(await rawExchange(h.port, preamble), '', JSON.stringify(preamble.slice(0, 40)));
