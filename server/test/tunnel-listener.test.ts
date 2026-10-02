@@ -58,7 +58,7 @@ interface Harness {
   close(): void;
 }
 
-async function harness(): Promise<Harness> {
+async function harness(handshakeTimeoutMs?: number): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), 'belay-tunnel-'));
   const tls = ensureTlsIdentity(dir, () => {});
   const app = express();
@@ -81,6 +81,7 @@ async function harness(): Promise<Harness> {
   const server = createTunnelListener({
     app, tls,
     onUpgrade: (req, socket) => { upgrades.push(String(req.socket.remoteAddress)); socket.destroy(); },
+    handshakeTimeoutMs,
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as { port: number }).port;
@@ -134,6 +135,26 @@ test('without a valid sidecar header the connection is dropped with nothing writ
     'x'.repeat(200),
   ];
   for (const preamble of silent) assert.equal(await rawExchange(h.port, preamble), '', JSON.stringify(preamble.slice(0, 40)));
+  h.close();
+});
+
+test('a valid header followed by a stalled handshake is closed on the timeout, not held forever', async () => {
+  const h = await harness(200);
+  // Header then nothing, and header then the first ClientHello byte only:
+  // neither sender half-closes, so only the listener's own timer can end it.
+  for (const preamble of [header(NODE_A), `${header(NODE_A)}\x16`]) {
+    const t0 = Date.now();
+    await new Promise<void>((resolve, reject) => {
+      const s = netConnect(h.port, '127.0.0.1', () => s.write(preamble));
+      s.on('close', () => resolve()); s.on('error', reject);
+    });
+    assert.ok(Date.now() - t0 < 2000, `closed by the timeout: ${JSON.stringify(preamble)}`);
+  }
+  // A completed handshake is not timed out afterwards.
+  const socket = await tunnelTls(h.port, NODE_A);
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(socket.destroyed, false, 'established connections outlive the handshake timer');
+  socket.destroy();
   h.close();
 });
 

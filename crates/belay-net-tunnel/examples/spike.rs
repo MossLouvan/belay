@@ -47,7 +47,7 @@ async fn main() {
     // Server: echo every bi-stream, allow-listing the client.
     let client_key = SecretKey::generate();
     let allow = AllowList::from_ids([client_key.public()]);
-    let server = bind(SecretKey::generate(), &relays).await.expect("bind server");
+    let server = bind(SecretKey::generate(), relay_mode.clone()).await.expect("bind server");
     server.online().await;
     let server_addr = server.addr();
     println!("server {} addr {:?}", server.id(), server_addr);

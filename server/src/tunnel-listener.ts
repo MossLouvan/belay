@@ -60,6 +60,8 @@ export interface TunnelListenerDeps {
   readonly app: RequestListener;
   readonly tls: { readonly key: string | Buffer; readonly cert: string | Buffer };
   readonly onUpgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
+  /** Test hook: how long a peer may stall before or during the handshake. */
+  readonly handshakeTimeoutMs?: number;
 }
 
 /** Mark a socket as tunnel traffic from `nodeId`. Exported for the test. */
@@ -76,9 +78,10 @@ const refusal = (): string => {
 /** Read the header line; resolves with the node id and whatever followed, or null to drop. */
 function readHeader(socket: Socket, cb: (nodeId: string | null, rest: Buffer) => void): void {
   let buf = Buffer.alloc(0);
+  const onTimeout = () => done(null, buf);
   const done = (nodeId: string | null, rest: Buffer) => {
     socket.off('data', onData);
-    socket.setTimeout(0);
+    socket.setTimeout(0, onTimeout);
     socket.pause();
     cb(nodeId, rest);
   };
@@ -93,7 +96,7 @@ function readHeader(socket: Socket, cb: (nodeId: string | null, rest: Buffer) =>
   };
   // A peer that never finishes the line (a raw ClientHello has no newline)
   // must not hold a socket open forever.
-  socket.setTimeout(HEADER_TIMEOUT_MS, () => done(null, buf));
+  socket.setTimeout(HEADER_TIMEOUT_MS, onTimeout);
   socket.on('data', onData);
 }
 
@@ -107,6 +110,11 @@ export function createTunnelListener(deps: TunnelListenerDeps): NetServer {
     socket.on('error', () => { /* handed-off sockets get the http server's handler */ });
     readHeader(socket, (nodeId, rest) => {
       if (!nodeId) { socket.destroy(); return; }
+      // A valid header is not a licence to idle: a local process that sends
+      // one and then stalls (or never finishes the ClientHello) would hold a
+      // socket forever, since this TLSSocket has no tls.Server to time it out.
+      const onStall = () => socket.destroy();
+      socket.setTimeout(deps.handshakeTimeoutMs ?? HEADER_TIMEOUT_MS, onStall);
       if (rest.length > 0) socket.unshift(rest);
       const sniff = () => {
         const first = socket.read(1) as Buffer | null;
@@ -116,7 +124,7 @@ export function createTunnelListener(deps: TunnelListenerDeps): NetServer {
         const tls = new TLSSocket(socket, { isServer: true, secureContext });
         markRemote(tls, nodeId);
         tls.on('error', () => { /* a failed handshake closes the socket; nothing to do */ });
-        tls.once('secure', () => http.emit('connection', tls));
+        tls.once('secure', () => { socket.setTimeout(0, onStall); http.emit('connection', tls); });
       };
       sniff();
     });

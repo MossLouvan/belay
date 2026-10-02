@@ -7,7 +7,10 @@
 //!                     listener, 127.0.0.1:port). Required.
 //!   BELAY_NET_KEY     keypair file, created 0600 if missing. Default
 //!                     $HOME/.belay/net-key.
-//!   BELAY_NET_RELAYS  comma-separated relay URLs; empty = n0 public (dev).
+//!   BELAY_NET_RELAYS  comma-separated relay URLs; empty or unset = NO relay.
+//!   BELAY_NET_DEV_PUBLIC_RELAYS=1  development only: with no BELAY_NET_RELAYS,
+//!                     use n0's public relays instead of none. Production
+//!                     never falls back to public relays.
 //!
 //! stdout, first line: `ready <nodeId>` (nodeId is iroh's Display form: 64 hex)
 //! stdin, per line:    `allow <nodeId> <nodeId> ...`  replaces the allow-list
@@ -23,7 +26,7 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 use belay_net_tunnel::{bind, AllowList, Host};
-use iroh::{RelayUrl, SecretKey};
+use iroh::{RelayMode, RelayUrl, SecretKey};
 
 fn key_path() -> PathBuf {
     if let Some(p) = std::env::var_os("BELAY_NET_KEY") {
@@ -99,6 +102,16 @@ fn parse_relays(raw: &str) -> Vec<RelayUrl> {
             }
         })
         .collect()
+}
+
+/// Relays as configured, no relay when none are, and n0's public relays only
+/// on an explicit development opt-in.
+fn relay_mode(relays: &[RelayUrl], dev_public: bool) -> RelayMode {
+    if relays.is_empty() && dev_public {
+        RelayMode::Default
+    } else {
+        belay_net_tunnel::relay_mode(relays)
+    }
 }
 
 /// base64url without padding (RFC 4648 §5), the encoding the accounts
@@ -180,7 +193,11 @@ async fn main() {
         }
     };
     let relays = parse_relays(&std::env::var("BELAY_NET_RELAYS").unwrap_or_default());
-    let endpoint = match bind(key, &relays).await {
+    let dev_public = std::env::var("BELAY_NET_DEV_PUBLIC_RELAYS").is_ok_and(|v| v == "1");
+    if relays.is_empty() {
+        eprintln!("[belay-net] no relays configured: {}", if dev_public { "using n0 PUBLIC relays (dev)" } else { "relay disabled" });
+    }
+    let endpoint = match bind(key, relay_mode(&relays, dev_public)).await {
         Ok(ep) => ep,
         Err(e) => {
             eprintln!("[belay-net] bind: {e}");
@@ -251,6 +268,15 @@ mod tests {
             assert_eq!(apply_line(&format!("sign {msg}"), &host, &key).as_deref(), Some("sig-refused"), "{msg:?}");
         }
         assert_eq!(parse_line("sign "), Command::Unknown, "an empty message is not even a command");
+    }
+
+    #[test]
+    fn empty_relays_disable_relaying_unless_dev_opts_into_public() {
+        assert_eq!(relay_mode(&[], false), RelayMode::Disabled);
+        assert_eq!(relay_mode(&[], true), RelayMode::Default);
+        let r = parse_relays("https://relay.example, ,bogus");
+        assert_eq!(r.len(), 1);
+        assert_eq!(relay_mode(&r, true), RelayMode::custom(r.clone()), "the dev flag never overrides configured relays");
     }
 
     #[test]

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use belay_net_tunnel::{bind, stream_header, AllowList, Forwarder, Host, ALPN, STREAM_HEADER_PREFIX};
 use iroh::endpoint::presets;
-use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey, TransportAddr};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, SecretKey, TransportAddr};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -69,7 +69,7 @@ async fn round_trip(port: u16, msg: &[u8]) -> Vec<u8> {
 async fn setup(phone_id: EndpointId) -> (Arc<Host>, Endpoint, EndpointAddr, Arc<Mutex<Vec<String>>>) {
     let (target, seen) = echo_server().await;
     let host = Host::new(AllowList::from_ids([phone_id]));
-    let ep = bind(SecretKey::generate(), &[]).await.unwrap();
+    let ep = bind(SecretKey::generate(), RelayMode::Disabled).await.unwrap();
     let addr = ip_only(&ep);
     tokio::spawn(host.clone().serve(ep.clone(), target));
     (host, ep, addr, seen)

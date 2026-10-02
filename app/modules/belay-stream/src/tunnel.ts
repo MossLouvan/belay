@@ -42,7 +42,7 @@ function required(): BelayTunnelNativeModule {
  * Start the endpoint with this phone's secret key (64 hex chars from
  * SecureStore; generate it once with BelayPin.randomHex(32)). Resolves to this
  * phone's node id, the value to register with POST /devices. Relay URLs empty
- * = n0 public relays (development only).
+ * = no relay at all (never n0's public ones); the app passes RELAY_URLS.
  */
 export function startTunnel(secretHex: string, relayUrls: readonly string[] = []): Promise<string> {
   if (!/^[0-9a-f]{64}$/i.test(secretHex)) return Promise.reject(new Error('tunnel key must be 64 hex chars'));
