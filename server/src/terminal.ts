@@ -143,7 +143,7 @@ export function shellCwd(
   return process.cwd();
 }
 
-interface SpawnContext {
+export interface SpawnContext {
   readonly file: string;
   readonly args: readonly string[];
   readonly env: NodeJS.ProcessEnv;
@@ -223,10 +223,31 @@ export async function createTerminal(cols: number, rows: number): Promise<TermSe
   }
 
   // Fallback: pipe a shell. No TTY, but line-oriented interaction works.
-  const { env, cwd } = ctx;
+  return createPipeSession(ctx);
+}
+
+const CTRL_C = '\x03';
+const CTRL_D = '\x04';
+/**
+ * A no-op INT trap, so ^C kills the foreground command but not the shell. A
+ * trap (unlike an ignored signal) is reset to the default in every child the
+ * shell execs, so `sleep` still dies.
+ */
+const PIPE_SHELL_PRELUDE = 'trap : INT\n';
+
+/**
+ * The piped shell. With no pty there is no line discipline to turn ^C into
+ * SIGINT or ^D into end-of-file, so this does it (#142): the shell leads its
+ * own process group (`detached`), ^C signals that group, ^D closes stdin.
+ */
+export function createPipeSession(ctx: SpawnContext): TermSession {
+  const { file, args, env, cwd } = ctx;
+  // ponytail: Windows has no process groups; ^C/^D stay plain bytes there.
+  const posix = process.platform !== 'win32';
   const child: ChildProcess = spawnProc(file, [...args], {
     cwd,
     env,
+    detached: posix,
     windowsHide: true, // no-op on POSIX
   });
   const dataCbs: ((d: string) => void)[] = [];
@@ -241,15 +262,37 @@ export async function createTerminal(cols: number, rows: number): Promise<TermSe
     dataCbs.forEach((cb) => cb(message));
     exitCbs.forEach((cb) => cb());
   });
+  // Writing to a shell that already exited raises EPIPE on the stream.
+  child.stdin?.on('error', () => { /* the exit event reports it */ });
+
+  const writeRaw = (d: string) => { try { child.stdin?.write(d); } catch { /* closed */ } };
+  const interrupt = () => {
+    if (child.pid === undefined) return;
+    try { process.kill(-child.pid, 'SIGINT'); } catch { /* already gone */ }
+  };
+  if (posix) writeRaw(PIPE_SHELL_PRELUDE);
 
   return {
     mode: 'pipe',
-    write: (d) => { try { child.stdin?.write(pipeInput(d)); } catch { /* closed */ } },
+    write: (d) => {
+      if (!posix) return writeRaw(pipeInput(d));
+      for (const part of d.split(/(\x03|\x04)/)) {
+        if (part === CTRL_C) interrupt();
+        else if (part === CTRL_D) { try { child.stdin?.end(); } catch { /* closed */ } }
+        else if (part) writeRaw(pipeInput(part));
+      }
+    },
     resize: () => { /* not supported for piped shells */ },
     onData: (cb) => dataCbs.push(cb),
     onExit: (cb) => exitCbs.push(cb),
     pause: () => { try { child.stdout?.pause(); } catch { /* closed */ } },
     resume: () => { try { child.stdout?.resume(); } catch { /* closed */ } },
-    kill: () => { try { child.kill(); } catch { /* already gone */ } },
+    // The whole group, so a command still running in it dies with the shell.
+    kill: () => {
+      try {
+        if (posix && child.pid !== undefined) process.kill(-child.pid, 'SIGHUP');
+        else child.kill();
+      } catch { /* already gone */ }
+    },
   };
 }
