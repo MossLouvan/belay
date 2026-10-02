@@ -7,7 +7,7 @@
 // and quiet button, and its default tone/casing are load-bearing.
 
 import React from 'react';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 import type { StyleProp, TextStyle } from 'react-native';
 import { useTheme } from '../theme';
 import type { TypeVariant } from '../theme';
@@ -189,4 +189,21 @@ export function Caption({ children, style, numberOfLines, testID }: SimpleTextPr
       {children}
     </Txt>
   );
+}
+
+/**
+ * gobelay.com's painted swash: a soft amber band under one key word of a hero
+ * heading. Nest it inside a heading's text. Renders the words plain when the
+ * look has no swash (`swash` is transparent outside Harbour).
+ */
+export function Swash({ children }: { children: React.ReactNode }) {
+  const theme = useTheme();
+  const paint = theme.colors.swash;
+  if (paint === 'transparent') return <>{children}</>;
+  // ponytail: web paints the site's lower-third band; native paints a full
+  // highlighter band, since a true under-swash there needs measured inline views.
+  const style = (Platform.OS === 'web'
+    ? { backgroundImage: `linear-gradient(transparent 56%, ${paint} 56%, ${paint} 90%, transparent 90%)` }
+    : { backgroundColor: paint }) as TextStyle;
+  return <Text style={style}>{children}</Text>;
 }

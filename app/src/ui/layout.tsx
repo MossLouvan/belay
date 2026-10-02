@@ -130,6 +130,8 @@ export function Card({ children, style, padding = 'md', title, trailing, flush =
           borderWidth: look.cardBorder ? theme.layout.hairline : 0,
           borderColor: theme.colors.border,
           borderRadius: look.cardRadius,
+          // Harbour's soft depth; 'none' on the flat looks.
+          boxShadow: theme.colors.depth === 'none' ? undefined : theme.colors.depth,
           padding: flush ? 0 : theme.space[padding],
         },
         style,

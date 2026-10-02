@@ -18,10 +18,11 @@ export const THEME_PATH = resolve(here, '..', '..', 'app', 'src', 'theme.ts');
 
 /** Every export the desktop tokens are built from. */
 export const THEME_EXPORTS = Object.freeze([
-  'lightPalette', 'darkPalette', 'radius', 'space', 'font', 'type', 'layout', 'motion', 'easing',
+  'harbourPalette', 'harbourNightPalette', 'harbourFont', 'harbourType',
+  'radius', 'space', 'layout', 'motion', 'easing',
 ]);
 
-const THEME_URL = pathToFileURL(THEME_PATH).href;
+const APP_SRC_URL = pathToFileURL(dirname(THEME_PATH)).href + '/';
 
 const STUBS = Object.freeze({
   react: pathToFileURL(resolve(here, 'stubs', 'react.mjs')).href,
@@ -37,17 +38,24 @@ function registerStubs() {
     resolve(specifier, context, nextResolve) {
       const stub = STUBS[specifier];
       if (stub) return { url: stub, shortCircuit: true };
-      const resolved = nextResolve(specifier, context);
-      // The app package has no "type" field; say the theme is ESM TypeScript
+      // The app imports its own modules extensionless, as Metro allows
+      // (theme.ts → ./design/look); node needs the `.ts` spelled out.
+      const fromApp = context.parentURL?.startsWith(APP_SRC_URL) && specifier.startsWith('.');
+      const resolved = nextResolve(fromApp && !/\.[cm]?[jt]s$/.test(specifier) ? `${specifier}.ts` : specifier, context);
+      // The app package has no "type" field; say its TypeScript is ESM
       // outright so node does not warn while guessing.
-      return resolved.url === THEME_URL ? { ...resolved, format: 'module-typescript' } : resolved;
+      return resolved.url.startsWith(APP_SRC_URL) && resolved.url.endsWith('.ts')
+        ? { ...resolved, format: 'module-typescript' }
+        : resolved;
     },
   });
 }
 
 /**
- * The evaluated theme module: `lightPalette`, `darkPalette`, `radius`,
- * `space`, `font`, `type`, `layout`, `motion`, `easing`. Throws if the file
+ * The evaluated theme module. The desktop wears Harbour (gobelay.com's
+ * look, the app's default): `harbourPalette`/`harbourNightPalette` and
+ * `harbourFont`/`harbourType`, plus `radius`, `space`, `layout`, `motion`,
+ * `easing`. Throws if the file
  * is missing or no longer evaluates — a broken theme must break the build,
  * not silently freeze the desktop on stale tokens.
  */

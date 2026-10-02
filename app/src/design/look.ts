@@ -13,7 +13,7 @@
 
 import type { ColorScheme } from '../theme';
 
-export type LookName = 'current' | 'fieldwork';
+export type LookName = 'harbour' | 'current' | 'fieldwork';
 
 /** Shape switches for one appearance. Colour lives in the palette, not here. */
 export interface Look {
@@ -54,6 +54,9 @@ export interface Look {
   /** Device rows lead with a wide 16:10 preview tile (Fieldwork) rather than a
    *  square line glyph (Current). */
   readonly deviceThumbWide: boolean;
+  /** The welcome hero shows the full mascot (the beluga with its blue
+   *  carabiner collar) rather than the flat silhouette mark. */
+  readonly heroMascot: boolean;
 }
 
 const CURRENT: Look = Object.freeze({
@@ -72,6 +75,7 @@ const CURRENT: Look = Object.freeze({
   segmentSoft: false,
   headerAction: 'add',
   deviceThumbWide: false,
+  heroMascot: false,
 });
 
 const FIELDWORK: Look = Object.freeze({
@@ -90,18 +94,48 @@ const FIELDWORK: Look = Object.freeze({
   segmentSoft: true,
   headerAction: 'menu',
   deviceThumbWide: true,
+  heroMascot: false,
+});
+
+/**
+ * Harbour — gobelay.com's look. Current's layout (nothing moves), dressed
+ * the site's way: rounder cards, pill controls like the site's cloud and
+ * setup pills, and selected chips that warm to lamplight (the soft fill).
+ */
+const HARBOUR: Look = Object.freeze({
+  ...CURRENT,
+  name: 'harbour',
+  cardRadius: 24,
+  controlRadius: 999,
+  segmentSoft: true,
+  heroMascot: true,
 });
 
 export const looks: Readonly<Record<LookName, Look>> = Object.freeze({
+  harbour: HARBOUR,
   current: CURRENT,
   fieldwork: FIELDWORK,
 });
 
+export interface Appearance {
+  readonly look: LookName;
+  readonly scheme: ColorScheme;
+}
+
 /**
- * The appearance a colour scheme resolves to. The two are 1:1 by design —
- * `light` is Current's ground and `dark` is Fieldwork's — so a screen never
- * has to hold both a scheme and an appearance.
+ * The look and colour scheme a stored theme mode resolves to. Harbour has a
+ * day and a night; Current is light-only and Fieldwork dark-only, which is
+ * what the legacy `light`/`dark` modes always meant. `system` keeps its old
+ * meaning (Current or Fieldwork by the OS scheme). Unknown modes fall back to
+ * Harbour, the default.
  */
-export function lookFor(scheme: ColorScheme): Look {
-  return scheme === 'light' ? CURRENT : FIELDWORK;
+export function appearanceFor(mode: string, system: ColorScheme): Appearance {
+  switch (mode) {
+    case 'harbour': return { look: 'harbour', scheme: 'light' };
+    case 'harbour-night': return { look: 'harbour', scheme: 'dark' };
+    case 'current': case 'light': return { look: 'current', scheme: 'light' };
+    case 'fieldwork': case 'dark': return { look: 'fieldwork', scheme: 'dark' };
+    case 'system': return system === 'light' ? { look: 'current', scheme: 'light' } : { look: 'fieldwork', scheme: 'dark' };
+    default: return { look: 'harbour', scheme: 'light' };
+  }
 }

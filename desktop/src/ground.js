@@ -6,8 +6,8 @@
 // `darkFirst` mirrors the app's DARK_FIRST: when true the page windows
 // commit to the dark ground whatever the OS says, as the phone does.
 export const GROUND = Object.freeze({
-  light: '#F6F8FB',
-  dark: '#0A0A0C',
-  machine: '#000000',
+  light: '#ECE9E3',
+  dark: '#0E1C24',
+  machine: '#071117',
   darkFirst: true,
 });

@@ -8,14 +8,17 @@ import React from 'react';
 import { Animated } from 'react-native';
 import { useTheme } from '../theme';
 import { BelugaAvatar, Txt, useEntrance } from '../ui';
+import { useLook } from '../design/use-look';
 
 /** Beluga mark plus name, centered. Fades in with 8pt upward settle on mount. */
 export function Brand() {
   const theme = useTheme();
   const entrance = useEntrance();
+  // Harbour sets the lockup in its slate-navy ink, as gobelay.com does.
+  const ink = useLook().name === 'harbour' ? theme.colors.text : theme.colors.accentGraphic;
   return (
     <Animated.View style={[{ alignItems: 'center', gap: theme.space.md, paddingBottom: theme.space.lg }, entrance]}>
-      <BelugaAvatar size={40} color={theme.colors.accentGraphic} />
+      <BelugaAvatar size={40} color={ink} />
       <Txt
         variant="display"
         style={{
@@ -23,7 +26,7 @@ export function Brand() {
           lineHeight: 40,
           textTransform: 'none',
           letterSpacing: -1,
-          color: theme.colors.accentGraphic,
+          color: ink,
         }}
       >
         Belay

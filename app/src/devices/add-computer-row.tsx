@@ -33,6 +33,8 @@ export function AddComputerRow({ onPress, testID = 'show-add-computer' }: AddCom
       style={({ pressed }) => ({
         backgroundColor: theme.colors.surface,
         borderRadius: look.cardRadius,
+        // Harbour's soft depth; 'none' on the flat looks.
+        boxShadow: theme.colors.depth === 'none' ? undefined : theme.colors.depth,
         borderWidth: look.cardBorder ? theme.layout.hairline : 0,
         borderColor: theme.colors.border,
         flexDirection: 'row',
@@ -49,7 +51,8 @@ export function AddComputerRow({ onPress, testID = 'show-add-computer' }: AddCom
       ) : (
         <View
           style={{
-            width: 40, height: 40, borderRadius: 10,
+            // A round bubble under Harbour's pill controls, the square tile otherwise.
+            width: 40, height: 40, borderRadius: look.controlRadius >= 20 ? 20 : 10,
             backgroundColor: theme.colors.surfaceAlt,
             alignItems: 'center', justifyContent: 'center',
           }}

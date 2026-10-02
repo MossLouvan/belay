@@ -138,6 +138,7 @@ export function SegmentedControl<T extends string>({
               paddingHorizontal: theme.space.xs,
               borderRadius: look.controlRadius + 1,
               backgroundColor: selected ? activeFill : 'transparent',
+              boxShadow: selected && theme.colors.depth !== 'none' ? theme.colors.depth : undefined,
               opacity: optionDisabled ? 0.4 : pressed ? theme.motion.pressOpacity : 1,
             })}
           >

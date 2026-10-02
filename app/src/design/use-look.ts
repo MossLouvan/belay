@@ -1,12 +1,12 @@
 // The React half of ./look.ts, kept separate so the table stays importable by
 // `node --test` without pulling react-native into the process.
 
-import { lookFor, type Look } from './look';
-import { useColorScheme } from '../theme';
+import { looks, type Look } from './look';
+import { useAppearance } from '../theme';
 
-/** The appearance in effect: Current under the light scheme, Fieldwork dark. */
+/** The appearance in effect: Harbour (default), Current or Fieldwork. */
 export function useLook(): Look {
-  return lookFor(useColorScheme());
+  return looks[useAppearance().look];
 }
 
 export type { Look, LookName } from './look';

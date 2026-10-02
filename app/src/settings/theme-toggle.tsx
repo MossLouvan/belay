@@ -4,10 +4,12 @@
 import React, { useCallback } from 'react';
 import { StyleProp, ViewStyle } from 'react-native';
 import { SegmentOption, SegmentedControl } from '../ui';
-import { ThemeMode, useThemeMode, useTheme } from '../theme';
+import { ThemeMode, useAppearance } from '../theme';
 import { persistThemeMode } from './theme-mode';
 
 const OPTIONS: readonly SegmentOption<ThemeMode>[] = [
+  { value: 'harbour', label: 'Harbour' },
+  { value: 'harbour-night', label: 'Night' },
   { value: 'current', label: 'Current' },
   { value: 'fieldwork', label: 'Fieldwork' },
 ];
@@ -17,10 +19,11 @@ export interface ThemeToggleProps {
   testID?: string;
 }
 
-/** Three-way appearance control, wired to the persisted theme mode. */
+/** Four-way appearance control, wired to the persisted theme mode. */
 export function ThemeToggle({ style, testID }: ThemeToggleProps) {
-  const mode = useThemeMode();
-  const theme = useTheme();
+  const { look, scheme } = useAppearance();
+  // Legacy modes (system/light/dark) show as the look they resolve to.
+  const value: ThemeMode = look === 'harbour' ? (scheme === 'dark' ? 'harbour-night' : 'harbour') : look;
 
   const onChange = useCallback((next: ThemeMode) => {
     // Fire-and-forget: the mode applies synchronously, only the write is async.
@@ -30,7 +33,7 @@ export function ThemeToggle({ style, testID }: ThemeToggleProps) {
   return (
     <SegmentedControl
       options={OPTIONS}
-      value={theme.isDark ? 'fieldwork' : 'current'}
+      value={value}
       onChange={onChange}
       accessibilityLabel="Appearance"
       role="radio"

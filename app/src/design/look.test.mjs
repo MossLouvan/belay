@@ -1,17 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lookFor, looks } from './look.ts';
+import { appearanceFor, looks } from './look.ts';
 
-test('lookFor: light is Current, dark is Fieldwork', () => {
-  assert.equal(lookFor('light').name, 'current');
-  assert.equal(lookFor('dark').name, 'fieldwork');
+test('appearanceFor: Harbour is the default and has a day and a night', () => {
+  assert.deepEqual(appearanceFor('harbour', 'dark'), { look: 'harbour', scheme: 'light' });
+  assert.deepEqual(appearanceFor('harbour-night', 'light'), { look: 'harbour', scheme: 'dark' });
+  assert.deepEqual(appearanceFor('nonsense', 'dark'), { look: 'harbour', scheme: 'light' });
 });
 
-test('lookFor: returns the shared frozen table entry, never a fresh object', () => {
-  assert.equal(lookFor('light'), looks.current);
-  assert.equal(lookFor('dark'), looks.fieldwork);
-  assert.equal(Object.isFrozen(looks.current), true);
-  assert.equal(Object.isFrozen(looks.fieldwork), true);
+test('appearanceFor: legacy modes keep their meaning', () => {
+  assert.deepEqual(appearanceFor('current', 'dark'), { look: 'current', scheme: 'light' });
+  assert.deepEqual(appearanceFor('light', 'dark'), { look: 'current', scheme: 'light' });
+  assert.deepEqual(appearanceFor('fieldwork', 'light'), { look: 'fieldwork', scheme: 'dark' });
+  assert.deepEqual(appearanceFor('dark', 'light'), { look: 'fieldwork', scheme: 'dark' });
+  assert.deepEqual(appearanceFor('system', 'light'), { look: 'current', scheme: 'light' });
+  assert.deepEqual(appearanceFor('system', 'dark'), { look: 'fieldwork', scheme: 'dark' });
+});
+
+test('looks: every entry is frozen', () => {
+  for (const look of Object.values(looks)) assert.equal(Object.isFrozen(look), true, look.name);
+});
+
+test('looks: Harbour keeps Current\'s layout and changes only the dressing', () => {
+  const { harbour, current } = looks;
+  const dressing = new Set(['name', 'cardRadius', 'controlRadius', 'segmentSoft', 'heroMascot']);
+  for (const key of Object.keys(current)) {
+    if (!dressing.has(key)) assert.equal(harbour[key], current[key], key);
+  }
+  assert.equal(harbour.controlRadius, 999, 'pill controls');
+  assert.equal(harbour.heroMascot, true);
 });
 
 test('looks: the two appearances differ on every shape switch that has one', () => {
@@ -46,7 +63,8 @@ test('looks: the trackpad has exactly one treatment per appearance', () => {
 
 test('looks: radii are on the scale and controls are tighter than cards', () => {
   for (const look of Object.values(looks)) {
-    assert.equal(look.controlRadius < look.cardRadius, true, `${look.name} radii`);
+    // Harbour's controls are pills (999), the site's cloud and setup pills.
+    assert.equal(look.controlRadius < look.cardRadius || look.controlRadius === 999, true, `${look.name} radii`);
     assert.equal(look.cardRadius % 4, 0, `${look.name} card radius on the 4pt scale`);
     assert.equal(look.titleGap % 4, 0, `${look.name} title gap on the 4pt scale`);
     assert.equal(look.titleGap >= 0, true, `${look.name} title gap is not negative`);
