@@ -6,7 +6,7 @@
 // only as deprecated shims. New screens build on the Ledger primitives:
 // Section, LedgerRow, MeterSection, MachinePanel and Rule.
 
-export { Txt, Heading, Sub, Label, Micro, Mono, Caption } from './text';
+export { Txt, Heading, Sub, Label, Micro, Mono, Caption, Swash } from './text';
 export type { TxtProps, TextTone } from './text';
 
 export { Screen, SafeBottomSpacer, Card, Row, Column, Spacer, Divider } from './layout';

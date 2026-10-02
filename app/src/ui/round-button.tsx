@@ -57,7 +57,9 @@ export function RoundButton({
           borderRadius: ROUND_BUTTON_SIZE / 2,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: variant === 'filled' ? theme.colors.surfaceAlt : 'transparent',
+          // Harbour's bubble: the filled disc is raised on the cream card fill.
+          backgroundColor: variant === 'filled' ? (theme.colors.depth === 'none' ? theme.colors.surfaceAlt : theme.colors.surface) : 'transparent',
+          boxShadow: variant === 'filled' && theme.colors.depth !== 'none' ? theme.colors.depth : undefined,
           borderWidth: variant === 'outline' ? theme.layout.hairline : 0,
           borderColor: theme.colors.borderStrong,
           opacity: disabled ? 0.45 : pressed ? theme.motion.pressOpacity : 1,

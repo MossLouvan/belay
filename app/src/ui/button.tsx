@@ -9,7 +9,8 @@
 // surfaces do not squish (§10).
 
 import React, { useCallback } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import type { StyleProp, TextStyle, ViewStyle } from 'react-native';
 import { useTheme } from '../theme';
 import type { Palette } from '../theme';
@@ -39,16 +40,22 @@ const variantStyle = (variant: ButtonVariant, c: Palette): VariantStyle => {
     // disabled primary still reads as "the primary, currently unavailable".
     // Pressed, the fill deepens to `accentPress` (REVAMP-SPEC §5.10: "fills
     // darken under load") — a solid never turns translucent mid-press.
+    // The fill is `ctaBottom`: the flat looks set both CTA ends to `accent`,
+    // Harbour paints the lantern-amber gradient over it (<CtaFill>).
     primary: {
-      background: c.accent,
-      foreground: c.onAccent,
+      background: c.ctaBottom,
+      foreground: c.onCta,
       border: 'transparent',
       disabledBackground: c.accentDim,
       pressedBackground: c.accentPress,
     },
     danger: { background: c.bad, foreground: c.onDanger, border: 'transparent' },
     // Hairline-outlined in ink — the strongest non-accent button.
-    secondary: { background: 'transparent', foreground: c.text, border: c.borderStrong },
+    // Under a look with depth (Harbour) it is a soft cloud pill instead: the
+    // card fill, a quiet rule and the sea shadow.
+    secondary: c.depth === 'none'
+      ? { background: 'transparent', foreground: c.text, border: c.borderStrong }
+      : { background: c.surface, foreground: c.text, border: c.border },
     // `onAccentSoft`, not `accent`: the fill is translucent, so the label sits
     // on accentSoft composited over the host surface, where solid `accent`
     // falls under 4.5:1. See the `on*Soft` note in theme.ts.
@@ -74,6 +81,36 @@ interface SizeStyle {
 //
 // Height discipline per REVAMP-SPEC §5.10: sm 36 / md 44. The 44pt touch
 // target survives via hitSlop on any size shorter than `layout.minTouch`.
+/** Harbour's lantern glow and lift under the amber pill (site .setup-pill). */
+const CTA_GLOW = '0px 0px 22px -6px rgba(255, 203, 126, 0.7), 0px 14px 22px -14px rgba(150, 100, 40, 0.45)';
+
+/**
+ * The lantern-amber body of Harbour's primary pill: the top-to-bottom amber,
+ * then the site's sheen fading out above the words. Drawn behind the label,
+ * clipped to the pill, invisible to touch and assistive tech.
+ */
+function CtaFill({ top, bottom }: { top: string; bottom: string }) {
+  return (
+    <View pointerEvents="none" accessibilityElementsHidden style={[StyleSheet.absoluteFill, { borderRadius: 999, overflow: 'hidden' }]}>
+      <Svg width="100%" height="100%" preserveAspectRatio="none">
+        <Defs>
+          <LinearGradient id="belay-cta" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={top} />
+            <Stop offset="1" stopColor={bottom} />
+          </LinearGradient>
+          <LinearGradient id="belay-cta-sheen" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.55} />
+            <Stop offset="0.42" stopColor="#FFFFFF" stopOpacity={0.16} />
+            <Stop offset="0.52" stopColor="#FFFFFF" stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill="url(#belay-cta)" />
+        <Rect width="100%" height="100%" fill="url(#belay-cta-sheen)" />
+      </Svg>
+    </View>
+  );
+}
+
 const SIZES: Readonly<Record<ButtonSize, SizeStyle>> = {
   sm: { minHeight: 36, paddingHorizontal: 14, gap: 6 },
   md: { minHeight: 44, paddingHorizontal: 18, gap: 8 },
@@ -126,6 +163,9 @@ export function Button({
   const inactive = disabled || loading;
   const v = variantStyle(variant, theme.colors);
   const s = SIZES[size];
+  // Harbour's amber pill: a real gradient only when the look paints one.
+  const gradient = variant === 'primary' && !inactive && theme.colors.ctaTop !== theme.colors.ctaBottom;
+  const raised = theme.colors.depth !== 'none' && (variant === 'primary' || variant === 'secondary') && !inactive;
 
   const handlePress = useCallback(() => {
     if (inactive) return;
@@ -165,6 +205,7 @@ export function Button({
           borderColor: v.border,
           borderWidth: v.border === 'transparent' ? 0 : theme.layout.hairline,
           borderRadius: look.controlRadius,
+          boxShadow: raised ? (variant === 'primary' ? CTA_GLOW : theme.colors.depth) : undefined,
           minHeight: s.minHeight,
           paddingHorizontal: s.paddingHorizontal,
           paddingVertical: theme.space.sm,
@@ -187,7 +228,9 @@ export function Button({
       ]}
     >
       {({ pressed }) =>
-        loading ? (
+        <>
+        {gradient && !pressed ? <CtaFill top={theme.colors.ctaTop} bottom={theme.colors.ctaBottom} /> : null}
+        {loading ? (
           <ActivityIndicator color={v.foreground} accessibilityElementsHidden />
         ) : (
           <>
@@ -217,7 +260,8 @@ export function Button({
               </Text>
             )}
           </>
-        )
+        )}
+        </>
       }
     </Pressable>
   );

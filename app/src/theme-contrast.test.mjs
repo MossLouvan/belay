@@ -1,4 +1,4 @@
-// WCAG AA for the two shipped looks (#71). Text tokens must clear 4.5:1 on
+// WCAG AA for the shipped looks (#71) and Harbour, day and night. Text tokens must clear 4.5:1 on
 // every page backdrop they sit on; the danger button's ink must clear it on
 // its fill. Same maths as docs/DESIGN-TOKENS.md §9.
 import { test } from 'node:test';
@@ -32,7 +32,7 @@ const AA_TEXT = 4.5;
 const TEXT = ['text', 'textDim', 'textFaint'];
 const BACKDROPS = ['bg', 'surface', 'surfaceAlt'];
 
-for (const name of ['currentPalette', 'fieldworkPalette']) {
+for (const name of ['currentPalette', 'fieldworkPalette', 'harbourPalette', 'harbourNightPalette']) {
   const p = palette(name);
 
   test(`${name}: text tokens meet AA on every backdrop`, () => {
@@ -45,5 +45,40 @@ for (const name of ['currentPalette', 'fieldworkPalette']) {
   test(`${name}: danger button ink meets AA on its fill`, () => {
     const r = ratio(p.onDanger, p.bad);
     assert.ok(r >= AA_TEXT, `onDanger ${p.onDanger} on bad ${p.bad} = ${r.toFixed(2)}`);
+  });
+
+  test(`${name}: primary button ink meets AA on both ends of its fill`, () => {
+    for (const end of ['ctaTop', 'ctaBottom']) {
+      const r = ratio(p.onCta, p[end]);
+      assert.ok(r >= AA_TEXT, `onCta ${p.onCta} on ${end} ${p[end]} = ${r.toFixed(2)}`);
+    }
+  });
+
+  test(`${name}: accent and status text meet AA on every backdrop`, () => {
+    for (const t of ['accent', 'good', 'warn', 'bad']) for (const b of BACKDROPS) {
+      const r = ratio(p[t], p[b]);
+      assert.ok(r >= AA_TEXT, `${t} ${p[t]} on ${b} ${p[b]} = ${r.toFixed(2)}`);
+    }
+  });
+
+  test(`${name}: selected-chip ink meets AA on its fill`, () => {
+    const r = ratio(p.onAccentSoft, p.accentSoft);
+    assert.ok(r >= AA_TEXT, `onAccentSoft ${p.onAccentSoft} on accentSoft ${p.accentSoft} = ${r.toFixed(2)}`);
+  });
+}
+
+// Harbour-only pairs: the solid accent fill (segments, header +) and the
+// lagoon marks, which carry meaning as non-text UI (WCAG 1.4.11, 3:1).
+for (const name of ['harbourPalette', 'harbourNightPalette']) {
+  const p = palette(name);
+  test(`${name}: onAccent meets AA on the accent fill`, () => {
+    const r = ratio(p.onAccent, p.accent);
+    assert.ok(r >= AA_TEXT, `onAccent ${p.onAccent} on accent ${p.accent} = ${r.toFixed(2)}`);
+  });
+  test(`${name}: accentGraphic marks clear 3:1 on every backdrop`, () => {
+    for (const b of BACKDROPS) {
+      const r = ratio(p.accentGraphic, p[b]);
+      assert.ok(r >= 3, `accentGraphic ${p.accentGraphic} on ${b} ${p[b]} = ${r.toFixed(2)}`);
+    }
   });
 }

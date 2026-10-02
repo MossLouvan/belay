@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { IconBrandApple, IconBrandGoogle, IconMail } from '@tabler/icons-react-native';
 
-import { Banner, Button, Caption, Heading, Input, Screen, Txt, haptic } from '../ui';
+import { Banner, Button, Caption, Heading, Input, Screen, Swash, Txt, haptic } from '../ui';
 import { useTheme } from '../theme';
 import { Brand } from '../connect/brand';
 import { CodeInput } from '../connect/code-input';
@@ -96,7 +96,7 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
           <View style={{ gap: theme.space.sm }}>
             <View style={{ gap: theme.space.xs, marginBottom: theme.space.sm }}>
               {/* First frame of a fresh install: say why, in two lines, not a tour. */}
-              <Heading>The control room for your AI agents</Heading>
+              <Heading>The control room for your <Swash>AI agents</Swash></Heading>
               <Txt tone="dim" testID="sign-in-why">
                 See and approve what your coding agents do, and control your computer, at your desk or anywhere.
               </Txt>
@@ -105,7 +105,7 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
             {appleAvailable ? (
               <Button
                 label="Continue with Apple" testID="sign-in-apple" fullWidth size="lg" loading={busy}
-                icon={<IconBrandApple size={20} color={theme.colors.onAccent} />}
+                icon={<IconBrandApple size={20} color={theme.colors.onCta} />}
                 onPress={() => void onApple()}
               />
             ) : null}
@@ -119,7 +119,7 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
             <Button
               label="Continue with email" testID="sign-in-email" fullWidth size="lg"
               variant={appleAvailable ? 'secondary' : 'primary'} disabled={busy}
-              icon={<IconMail size={20} color={appleAvailable ? theme.colors.text : theme.colors.onAccent} />}
+              icon={<IconMail size={20} color={appleAvailable ? theme.colors.text : theme.colors.onCta} />}
               onPress={() => back('email')}
             />
           </View>

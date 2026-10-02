@@ -18,7 +18,7 @@
 // renders everything in place with no animation.
 
 import React, { useEffect } from 'react';
-import { ScrollView, View } from 'react-native';
+import { Image, ScrollView, View } from 'react-native';
 import type { TextStyle } from 'react-native';
 import Animated, {
   Easing,
@@ -28,7 +28,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
-import { BelugaAvatar, Button, Txt, useReducedMotion } from '../ui';
+import { BelugaAvatar, Button, Swash, Txt, useReducedMotion } from '../ui';
+import { useLook } from '../design/use-look';
 import { HERO_ENTRANCE, haloLayers } from './welcome-hero';
 
 interface WelcomeScreenProps {
@@ -40,6 +41,12 @@ interface WelcomeScreenProps {
 
 /** Mascot width, pt. Generous — this screen is the beluga's stage. */
 const MASCOT_SIZE = 40;
+
+/** Harbour's full mascot: the beluga with its blue carabiner collar, pt wide. */
+const HERO_MASCOT_WIDTH = 132;
+/** assets/beluga-cutout.png is 642×537. */
+const HERO_MASCOT_ASPECT = 537 / 642;
+const BELUGA_CUTOUT = require('../../assets/beluga-cutout.png');
 
 /** The one easing the app moves on (theme `easing.standard`), as a worklet. */
 const EASE_STANDARD = Easing.bezier(0.2, 0, 0, 1);
@@ -78,24 +85,29 @@ const NOOP = (): void => undefined;
  */
 export function WelcomeScreen({ onLink, onAdvanced }: WelcomeScreenProps) {
   const theme = useTheme();
+  const look = useLook();
   const reduced = useReducedMotion();
 
   const mascotStyle = useHeroEntrance(HERO_ENTRANCE.mascotDelayMs, reduced);
   const headlineStyle = useHeroEntrance(HERO_ENTRANCE.headlineDelayMs, reduced);
   const ctaStyle = useHeroEntrance(HERO_ENTRANCE.ctaDelayMs, reduced);
 
-  const halo = haloLayers(MASCOT_SIZE);
-  const stageSize = halo[0]?.diameter ?? MASCOT_SIZE;
+  const mascotSize = look.heroMascot ? HERO_MASCOT_WIDTH : MASCOT_SIZE;
+  const halo = haloLayers(mascotSize);
+  const stageSize = halo[0]?.diameter ?? mascotSize;
 
   // Sentence-case hero type: the display slot without the shouting — weight
   // 700 instead of 900, no uppercase. Shared between the two headline spans so
   // "Belay" differs from the rest by colour alone.
+  const ownDisplayFace = theme.font.display !== theme.font.sans;
   const headlineType: TextStyle = {
-    fontFamily: theme.font.sans,
+    // The display face: Fredoka under Harbour (one weight per family, so
+    // 'normal'), the UI face at 700 elsewhere.
+    fontFamily: theme.font.display,
     fontSize: 34,
     lineHeight: 40,
-    fontWeight: '700',
-    letterSpacing: -0.8,
+    fontWeight: ownDisplayFace ? 'normal' : '700',
+    letterSpacing: ownDisplayFace ? -0.3 : -0.8,
     textAlign: 'center',
   };
 
@@ -146,12 +158,23 @@ export function WelcomeScreen({ onLink, onAdvanced }: WelcomeScreenProps) {
 
         {/* The cutout floats straight on the glow — no ring, no porthole.
             The beluga's own rope collar is the only outline it needs. */}
-        <BelugaAvatar
-          size={MASCOT_SIZE}
-          onPress={NOOP}
-          accessibilityLabel="Belay's beluga mascot"
-          testID="welcome-beluga"
-        />
+        {look.heroMascot ? (
+          <Image
+            source={BELUGA_CUTOUT}
+            accessibilityLabel="Belay's beluga mascot"
+            accessibilityRole="image"
+            testID="welcome-beluga"
+            style={{ width: HERO_MASCOT_WIDTH, height: HERO_MASCOT_WIDTH * HERO_MASCOT_ASPECT }}
+            resizeMode="contain"
+          />
+        ) : (
+          <BelugaAvatar
+            size={MASCOT_SIZE}
+            onPress={NOOP}
+            accessibilityLabel="Belay's beluga mascot"
+            testID="welcome-beluga"
+          />
+        )}
       </Animated.View>
 
       {/* Headline + one line of what this is. */}
@@ -161,7 +184,7 @@ export function WelcomeScreen({ onLink, onAdvanced }: WelcomeScreenProps) {
           <Txt variant="display" style={{ ...headlineType, textTransform: 'none', color: theme.colors.accent }}>
             Belay
           </Txt>
-          {' '}on your computer
+          {' '}on your <Swash>computer</Swash>
         </Txt>
         <Txt
           variant="body"

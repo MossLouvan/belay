@@ -5,14 +5,12 @@
 // here and is restored once, from the root layout, before the first paint.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { setThemeMode, ThemeMode } from '../theme';
+import { MODES, setThemeMode, ThemeMode } from '../theme';
 
 // 'belay.*' since the bundle id moved and wiped the old container —
 // but the prefix is load-bearing again the moment a phone stores a choice
 // under it: renaming it later is a theme snapping back to default.
 const MODE_KEY = 'belay.themeMode';
-
-const MODES: readonly ThemeMode[] = ['system', 'light', 'dark', 'current', 'fieldwork'];
 
 const isThemeMode = (value: unknown): value is ThemeMode =>
   typeof value === 'string' && (MODES as readonly string[]).includes(value);

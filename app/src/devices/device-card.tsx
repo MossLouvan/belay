@@ -72,6 +72,8 @@ export function DeviceCard({
       style={{
         backgroundColor: theme.colors.surface,
         borderRadius: look.cardRadius,
+        // Harbour's soft depth; 'none' on the flat looks.
+        boxShadow: theme.colors.depth === 'none' ? undefined : theme.colors.depth,
         borderWidth: look.cardBorder ? theme.layout.hairline : 0,
         borderColor: theme.colors.border,
         overflow: 'hidden',

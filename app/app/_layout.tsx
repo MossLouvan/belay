@@ -11,6 +11,9 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
+// Harbour's faces (gobelay.com): Fredoka for headings, Nunito for text. Both OFL-1.1.
+import { Fredoka_600SemiBold } from '@expo-google-fonts/fredoka';
+import { Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold } from '@expo-google-fonts/nunito';
 import { ConnectionProvider, useConnection } from '../src/connection';
 import { AccountProvider, useAccount } from '../src/account/store';
 import { useTheme } from '../src/theme';
@@ -183,6 +186,10 @@ export default function RootLayout() {
     Outfit_500Medium,
     Outfit_600SemiBold,
     Outfit_700Bold,
+    Fredoka_600SemiBold,
+    Nunito_500Medium,
+    Nunito_600SemiBold,
+    Nunito_700Bold,
   });
 
   // Restore the saved appearance before the first paint so the app never
