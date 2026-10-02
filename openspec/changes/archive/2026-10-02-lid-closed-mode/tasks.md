@@ -1,0 +1,9 @@
+- [x] Pure lid policy module + parsers (ioreg, pmset batt, powercfg) with failing tests first
+- [x] macOS keep-awake via one-time sudoers rule (validated) + sudo -n pmset
+- [x] Windows keep-awake via saved/restored LIDACTION
+- [x] Release on mode off / 30 min idle / battery ≤20% on battery / host start / exit
+- [x] Battery-low warning pushed to the phone
+- [x] Virtual display on by default (env only as explicit off); auto create on lid close while armed+streaming, destroy on open/end
+- [x] Authenticated route GET/POST /lid-mode + state persistence
+- [x] App System tab "Lid closed" card; quality sheet virtual display not behind experimental flag
+- [x] docs/VIRTUAL-DISPLAY.md + SETUP.md updated
