@@ -74,13 +74,15 @@ export function TerminalOutput({
   // which is likewise a prop update rather than a remount.
   const keyExtractor = useCallback((_: TermLine, index: number) => String(index), []);
 
+  // Rows start below the content container's top padding; leaving it out
+  // put every computed offset `padding` short of the real row (#138).
   const getItemLayout = useCallback(
     (_: ArrayLike<TermLine> | null | undefined, index: number) => ({
       length: lineHeight,
-      offset: lineHeight * index,
+      offset: padding + lineHeight * index,
       index,
     }),
-    [lineHeight]
+    [lineHeight, padding]
   );
 
   // The cursor is a steady block in the graphic accent — the "streaming
@@ -106,7 +108,8 @@ export function TerminalOutput({
   );
 
   return (
-    <View style={{ flex: 1 }}>
+    // Clips the Latest pill to the transcript, however short it gets (#139).
+    <View style={{ flex: 1, overflow: 'hidden' }}>
       <Text
         aria-hidden
         accessibilityElementsHidden
@@ -173,7 +176,10 @@ export function TerminalOutput({
             right: theme.space.sm,
             bottom: theme.space.sm,
             paddingHorizontal: theme.space.md,
-            minHeight: theme.layout.minTouch,
+            // A height, not a minHeight, so the max can win: never taller
+            // than the transcript it sits in (landscape, #139).
+            height: theme.layout.minTouch,
+            maxHeight: '100%',
             justifyContent: 'center',
             borderRadius: theme.radius.xs,
             backgroundColor: theme.colors.accent,

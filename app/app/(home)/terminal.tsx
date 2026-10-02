@@ -20,6 +20,8 @@ import {
   Keyboard,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
+  ScrollView,
   TextInput,
   View,
   useWindowDimensions,
@@ -38,13 +40,16 @@ import { KeyBar } from '../../src/terminal-keys';
 import { TerminalOutput } from '../../src/terminal-output';
 import { useTerminalGeometry, DEFAULT_GEOMETRY } from '../../src/terminal-geometry';
 import type { Geometry } from '../../src/terminal-geometry';
+import type { LayoutChangeEvent, TextInputKeyPressEventData } from 'react-native';
 import type { ServerMessage } from '../../src/terminal-session';
 import {
-  clearTerm, ensureTermSession, getTermSession, postTerm, pushTermHistory, reopenTermSession, sendTerm,
+  clearTerm, echoTerm, ensureTermSession, getTermSession, postTerm, pushTermHistory, reopenTermSession, sendTerm,
   setTermCompletionHandler, setTermGeometry, subscribeTermSession,
 } from '../../src/terminal/session-store';
 import { applyCandidate, parseCompletion } from '../../src/terminal/complete';
 import { planTab, trackPrimed } from '../../src/terminal/primed';
+import { pipeEcho, runBytes, shellLines, typeBytes } from '../../src/terminal/shell-input';
+import { nextFollowing } from '../../src/terminal/follow';
 import { CandidateRow } from '../../src/terminal/candidate-row';
 import { TerminalHelpSheet } from '../../src/terminal/help-sheet';
 import { ToolPanel } from '../../src/home/panel';
@@ -53,8 +58,6 @@ import { ToolPanel } from '../../src/home/panel';
 
 const LINE_HEIGHT_RATIO = 1.45;
 const RESIZE_DEBOUNCE_MS = 200;
-/** How close to the bottom still counts as "following" the output. */
-const FOLLOW_SLACK_PX = 24;
 /**
  * Below this window height (a phone in landscape) the title row and the pipe
  * banner are dropped so the transcript keeps rows to show (#91); the pipe
@@ -74,6 +77,13 @@ type FontKey = 'sm' | 'md' | 'lg';
 const FONT_SIZES: Readonly<Record<FontKey, number>> = { sm: 11, md: 12.5, lg: 15 };
 const NEXT_FONT: Readonly<Record<FontKey, FontKey>> = { sm: 'md', md: 'lg', lg: 'sm' };
 const FONT_NAMES: Readonly<Record<FontKey, string>> = { sm: 'small', md: 'medium', lg: 'large' };
+/** The command field grows for a pasted snippet, up to this many lines. */
+const INPUT_MAX_LINES = 4;
+const INPUT_FONT_SIZE = 14;
+
+/** The full No-TTY banner is said once per app run; after that the status
+    pill carries the fact (#144). Module level: the route unmounts per tab. */
+let pipeNoticeShown = false;
 
 // --- screen ------------------------------------------------------------------
 
@@ -106,6 +116,7 @@ function TerminalTab() {
   const [completing, setCompleting] = useState(false);
   const [tabNotice, setTabNotice] = useState('');
   const [showHelp, setShowHelp] = useState(false);
+  const [pipeNotice] = useState(() => !pipeNoticeShown);
 
   const geometryRef = useRef<Geometry>(DEFAULT_GEOMETRY);
   const followingRef = useRef(true);
@@ -306,14 +317,22 @@ function TerminalTab() {
 
   // --- interaction -----------------------------------------------------------
 
+  const lastScrollY = useRef(0);
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const distance = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    setFollowing(distance <= FOLLOW_SLACK_PX);
+    const sample = { distance, y: contentOffset.y, lastY: lastScrollY.current };
+    lastScrollY.current = contentOffset.y;
+    setFollowing((current) => nextFollowing(current, sample));
   }, []);
 
+  // The underlying ScrollView's scrollToEnd measures the real content; the
+  // FlatList's own one trusts item layout, which knows nothing of the
+  // container's padding, and landed one row short every time (#138).
   const scrollToEnd = useCallback(() => {
-    listRef.current?.scrollToEnd({ animated: false });
+    const scroller = listRef.current?.getNativeScrollRef() as unknown as ScrollView | null | undefined;
+    if (scroller?.scrollToEnd) scroller.scrollToEnd({ animated: false });
+    else listRef.current?.scrollToEnd({ animated: false });
   }, []);
 
   const follow = useCallback(() => {
@@ -325,6 +344,14 @@ function TerminalTab() {
     if (followingRef.current) scrollToEnd();
   }, [scrollToEnd]);
 
+  // Following is an invariant over layout, not just over output: when the
+  // transcript itself gets shorter (candidate row, keyboard, banner, rotation)
+  // the end must stay in view (#138).
+  const onListLayout = useCallback((event: LayoutChangeEvent) => {
+    onOutputLayout(event);
+    if (followingRef.current) requestAnimationFrame(scrollToEnd);
+  }, [onOutputLayout, scrollToEnd]);
+
   /** TYPE, the field's primary action: exactly the field's text, no return.
       The bytes land in the shell's line buffer (or in vim, less, a prompt —
       wherever is reading), where tab can finish them or more typing can join
@@ -334,20 +361,33 @@ function TerminalTab() {
     setInput('');
     setCandidates(null);
     setFollowing(true);
-    send(input);
+    send(typeBytes(input));
   }, [input, send]);
 
   /** RUN: the field's text plus return. With the field empty it is just the
       return — the way a line already parked at the prompt by TYPE gets run. */
   const runInput = useCallback(() => {
     const command = input;
-    if (command.length > 0) pushTermHistory(command);
+    if (command.length > 0) shellLines(command).filter(Boolean).forEach(pushTermHistory);
     historyIndex.current = -1;
     setInput('');
     setCandidates(null);
     setFollowing(true);
-    send(`${command}\r`);
-  }, [input, send]);
+    // A piped shell never echoes; without this, output has no command above it.
+    if (mode === 'pipe' && status === 'open') echoTerm(pipeEcho(command));
+    send(runBytes(command));
+  }, [input, mode, send, status]);
+
+  // Multiline (so a paste keeps its newlines, #143), but Enter is still TYPE.
+  // react-native-web only submits a multiline field by blurring it, so the
+  // key is caught here instead; native submits via `submitBehavior`.
+  const onInputKey = useCallback((event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    if (Platform.OS !== 'web') return;
+    const native = event.nativeEvent as TextInputKeyPressEventData & { shiftKey?: boolean };
+    if (native.key !== 'Enter' || native.shiftKey) return;
+    (event as unknown as { preventDefault: () => void }).preventDefault();
+    typeInput();
+  }, [typeInput]);
 
   const recallHistory = useCallback((direction: -1 | 1) => {
     if (history.length === 0) return;
@@ -394,7 +434,13 @@ function TerminalTab() {
   // actually open. Connection state is never restated here: the device pill
   // in the same row is the one voice for the link (one voice per fact), and
   // shell-level states live on the glass itself.
-  const shellLabel = mode === 'pipe' ? (short ? 'shell, no TTY' : 'shell') : mode === 'pty' ? 'pty' : 'ready';
+  // The full No-TTY banner shows once; after that (and always in a short
+  // window) the pill carries the fact.
+  const showPipeBanner = mode === 'pipe' && !short && pipeNotice;
+  useEffect(() => {
+    if (showPipeBanner) pipeNoticeShown = true;
+  }, [showPipeBanner]);
+  const shellLabel = mode === 'pipe' ? (showPipeBanner ? 'shell' : 'shell, no TTY') : mode === 'pty' ? 'pty' : 'ready';
   // What the machine panel says when the transcript is not the story —
   // empty, waiting, exited, dropped — in the one shared GlassState anatomy
   // (docs/DESIGN.md §11.4, "faults live on the glass"). A dropped socket is
@@ -485,7 +531,7 @@ function TerminalTab() {
         </Row>
       </View>
 
-      {mode === 'pipe' && !short ? (
+      {showPipeBanner ? (
         <Banner
           testID="term-pipe-notice"
           status="warn"
@@ -518,7 +564,7 @@ function TerminalTab() {
         onFollow={follow}
         onRowWidth={onRowWidth}
         onProbeWidth={onProbeWidth}
-        onOutputLayout={onOutputLayout}
+        onOutputLayout={onListLayout}
         onScroll={onScroll}
         onContentSizeChange={onContentSizeChange}
       />
@@ -526,7 +572,7 @@ function TerminalTab() {
       {/* The panel's bottom hairline; the key bar and input dock sit under it
           back on the page surface. */}
       <Rule />
-      <View style={{ paddingTop: theme.space.xs, paddingBottom: theme.space.sm, gap: theme.space.xs }}>
+      <View style={{ paddingTop: short ? theme.space.xxs : theme.space.xs, paddingBottom: short ? theme.space.xxs : theme.space.sm, gap: short ? theme.space.xxs : theme.space.xs }}>
         {candidates ? (
           <CandidateRow candidates={candidates} onPick={pickCandidate} onDismiss={() => setCandidates(null)} />
         ) : null}
@@ -538,6 +584,7 @@ function TerminalTab() {
           ptyMode={mode !== 'pipe'}
           onFontCycle={() => setFontKey((k) => NEXT_FONT[k])}
           fontLabel={FONT_NAMES[fontKey]}
+          compact={short}
         />
 
         {completing || tabNotice ? (
@@ -567,9 +614,11 @@ function TerminalTab() {
               autoCorrect={false}
               autoComplete="off"
               spellCheck={false}
+              multiline
               returnKeyType="send"
               submitBehavior="submit"
               onSubmitEditing={typeInput}
+              onKeyPress={onInputKey}
               accessibilityLabel="Shell input"
               maxFontSizeMultiplier={1.4}
               style={{
@@ -583,8 +632,11 @@ function TerminalTab() {
                 // Clears the trailing dismiss so long input scrolls under the
                 // field's edge, not under the glyph.
                 paddingRight: keyboardUp ? theme.layout.minTouch : theme.space.md,
-                minHeight: theme.layout.minTouch,
-                fontSize: 14,
+                paddingVertical: theme.space.xs,
+                minHeight: short ? theme.layout.minTouch - theme.space.xs : theme.layout.minTouch,
+                maxHeight: Math.round(INPUT_FONT_SIZE * LINE_HEIGHT_RATIO) * (short ? 2 : INPUT_MAX_LINES) + theme.space.xs * 2,
+                textAlignVertical: 'center',
+                fontSize: INPUT_FONT_SIZE,
               }}
             />
             {/* The field's own way out of the keyboard, in the trailing spot
