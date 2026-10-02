@@ -36,6 +36,7 @@ import { isTrustedHost, isTrustedOrigin, pairRefusal } from './host-guard.js';
 import { configuredBind, bindBannerLine } from './bind.js';
 import { messageOf } from './errors.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
+import { FRAME_DRAIN_POLL_MS, frameBackedUp } from './frame-backpressure.js';
 import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-params.js';
 import { native, Frame, WindowFrame } from './native.js';
 import { encodeBinaryFrame } from './frame-codec.js';
@@ -129,17 +130,10 @@ function allowedOrigins(): readonly string[] {
 const MAX_INPUT_TEXT_UNITS = 4096;
 
 /**
- * Send-buffer ceiling for the screen stream, in bytes.
- *
- * Roughly two frames at the default width/quality. Above this the client is
- * consuming slower than the host is producing, so the next frame is dropped
- * instead of queued — the alternative is unbounded growth of the socket's
- * write buffer on a slow link, which is exactly the cellular case.
+ * Send-buffer ceiling for the terminal socket, in bytes. The screen stream
+ * has its own, tighter rule in frame-backpressure.ts.
  */
 const MAX_BUFFERED_BYTES = 256 * 1024;
-
-/** Pause when the send buffer is full, before re-checking. */
-const FRAME_DROP_BACKOFF_MS = 50;
 
 /** Pause after a capture failure, so a broken helper cannot spin the loop. */
 const CAPTURE_ERROR_BACKOFF_MS = 500;
@@ -794,8 +788,11 @@ app.post('/input/click', auth, async (req: AuthedRequest, res) => {
     const modVks = (Array.isArray(mods) ? mods : [])
       .map((m) => MOD_VK[String(m).toLowerCase()])
       .filter((v): v is number => !!v);
+    // `count: 2` is the second click of a double-tap the phone did not wait
+    // for; anything else is a lone click.
+    const count = req.body?.count === 2 ? 2 : 1;
     await withFloor(req, res, async () => {
-      await native.click(button, x, y, double, screenIndexOf(req.body?.screen), modVks, windowIdOf(req.body?.window));
+      await native.click(button, x, y, double, screenIndexOf(req.body?.screen), modVks, windowIdOf(req.body?.window), count);
       res.json({ ok: true });
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -1105,6 +1102,14 @@ registerAutostartRoutes(app, auth);
 // behind it never listen themselves but do get every upgrade.
 const plainServer = createServer(app);
 const secureServer = createHttpsServer({ key: tls.key, cert: tls.cert }, app);
+// Node drops an idle keep-alive connection after 5 s, so every pause longer
+// than that cost the phone a fresh TCP (+TLS) handshake on its next tap.
+// 65 s outlives any gap a human leaves between actions; headersTimeout must
+// stay above it or Node closes the socket for a slow first header instead.
+for (const s of [plainServer, secureServer]) {
+  s.keepAliveTimeout = 65_000;
+  s.headersTimeout = 66_000;
+}
 const server = createPolyglotServer(plainServer, secureServer);
 /**
  * A ceiling on any single frame a client can send.
@@ -1455,14 +1460,16 @@ function handleWindow(ws: WebSocket, url: URL) {
   const loop = async () => {
     while (alive && ws.readyState === ws.OPEN) {
       const started = Date.now();
+      // Backpressure before capture (frame-backpressure.ts): a frame nobody
+      // can send yet is wasted host CPU and stale on arrival.
+      if (frameBackedUp(ws.bufferedAmount)) {
+        await sleep(FRAME_DRAIN_POLL_MS);
+        continue;
+      }
       try {
         const frame = await native.captureWindow(window, params.width, params.quality);
         consecutiveErrors = 0;
         if (!alive) break;
-        if (ws.bufferedAmount > MAX_BUFFERED_BYTES) {
-          await sleep(FRAME_DROP_BACKOFF_MS);
-          continue;
-        }
         sendFrame(ws, frame, binary);
       } catch (e: unknown) {
         consecutiveErrors += 1;
@@ -1664,6 +1671,13 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
         await sleep(BWP_IDLE_POLL_MS);
         continue;
       }
+      // Backpressure before capture (frame-backpressure.ts): a link slower
+      // than the capture rate would otherwise grow the send buffer without
+      // bound, and a frame captured now would be stale by the time it left.
+      if (frameBackedUp(ws.bufferedAmount)) {
+        await sleep(FRAME_DRAIN_POLL_MS);
+        continue;
+      }
       try {
         // `selectCaptureMode` is the fallback gate: it only ever returns a
         // virtual mode while a display is genuinely up, so a create still in
@@ -1673,14 +1687,6 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
           params.width, params.quality, false, params.screen, mode.virtual !== null,
         );
         if (!alive) break;
-        // Backpressure: ws.send() returns immediately and buffers, so without
-        // this check a link slower than the capture rate grows the send buffer
-        // without bound until the host runs out of memory. Dropping the frame
-        // is correct for a live stream — a stale frame has no value.
-        if (ws.bufferedAmount > MAX_BUFFERED_BYTES) {
-          await sleep(FRAME_DROP_BACKOFF_MS);
-          continue;
-        }
         sendFrame(ws, frame, binary);
       } catch (e: unknown) {
         if (alive && ws.readyState === ws.OPEN) {

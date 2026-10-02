@@ -17,6 +17,9 @@
 //    program the user runs.
 
 import { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
+
+/** Seconds between forced keyframes; the streamer clamps to 1..30. */
+export const BWP_KEYFRAME_INTERVAL_S = 30;
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -257,6 +260,9 @@ export class BwpSession {
         preset: validPreset(req.preset),
         fps: validFps(req.fps),
         monitor: Math.max(0, Math.floor(Number(req.monitor) || 0)),
+        // Keyframes are the expensive frames; the client asks for one on loss
+        // (keyframeRequests), so the timer is only a backstop.
+        keyframeInterval: BWP_KEYFRAME_INTERVAL_S,
       });
 
       const child = spawn(exe, [], { windowsHide: true });
