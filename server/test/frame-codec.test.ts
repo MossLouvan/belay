@@ -19,7 +19,9 @@ import {
   bytesToBase64,
   decodeBinaryFrame,
   encodeBinaryFrame,
+  frameCodecOf,
   isBinaryFramePayload,
+  isKeyframe,
 } from '../src/frame-codec.js';
 
 const jpeg = (...bytes: number[]): Uint8Array => Uint8Array.from(bytes);
@@ -150,4 +152,13 @@ test('bytesToBase64 matches Buffer for every padding remainder', () => {
     const bytes = Uint8Array.from({ length: len }, (_, i) => (i * 7 + 3) % 256);
     assert.equal(bytesToBase64(bytes), Buffer.from(bytes).toString('base64'), `length ${len}`);
   }
+});
+
+test('a frame is JPEG unless its meta tags another codec', () => {
+  const plain = decodeBinaryFrame(encodeBinaryFrame({ w: 8, h: 8, sw: 8, sh: 8 }, jpeg(1)));
+  assert.equal(frameCodecOf(plain), 'jpeg');
+  const tagged = decodeBinaryFrame(encodeBinaryFrame({ w: 8, h: 8, sw: 8, sh: 8, meta: { codec: 'h264', key: true } }, jpeg(0, 0, 0, 1)));
+  assert.equal(frameCodecOf(tagged), 'h264');
+  assert.equal(isKeyframe(tagged), true);
+  assert.equal(isKeyframe(plain), false);
 });

@@ -63,6 +63,16 @@ public final class BelayStreamView: ExpoView {
     private static let liveLock = NSLock()
     private static weak var liveView: BelayStreamView?
 
+    /// Push mode (the `push` prop): no UDP session; access units arrive via
+    /// `push(_:)` from the screen WebSocket. Decoded on `pushQueue`, one
+    /// serial queue, so frames keep their order — H.264 deltas cannot be
+    /// reordered or skipped the way JPEG frames can.
+    private var pushMode = false
+    private let pushQueue = DispatchQueue(label: "belay.stream.push", qos: .userInteractive)
+    private var pushStream = H264Stream()
+    private var pushRecovery = StreamRecovery()
+    private var pushReportedLive = false
+
     let onStatus = EventDispatcher()
     let onCursor = EventDispatcher()
     /// Set from the `cursorEvents` prop. Nothing in the app attaches
@@ -149,8 +159,62 @@ public final class BelayStreamView: ExpoView {
         thread.start()
     }
 
+    /// Enter or leave push mode. Entering tears down any UDP session and
+    /// registers this view as the one `feedH264` reaches; the decoder starts
+    /// fresh, needing a keyframe, which the host sends first anyway.
+    func setPushMode(_ on: Bool) {
+        if on {
+            stop()
+            pushQueue.sync {
+                pushStream = H264Stream()
+                pushRecovery = StreamRecovery()
+                pushReportedLive = false
+            }
+            pushMode = true
+            BelayStreamView.setLive(self)
+            NSLog("[BelayStream] push mode on")
+        } else {
+            pushMode = false
+            BelayStreamView.clearLive(self)
+            displayLayer.flushAndRemoveImage()
+        }
+    }
+
+    /// One access unit from the WebSocket. Returns false when not in push
+    /// mode (the frame is dropped; the host's next keyframe resyncs).
+    func push(_ data: Data) -> Bool {
+        guard pushMode else { return false }
+        pushQueue.async { [weak self] in
+            guard let self, self.pushMode else { return }
+            let now = Self.monotonicNow()
+            let outcome = data.withUnsafeBytes { raw in
+                self.present(raw, keyframeHint: false, stream: self.pushStream, recovery: &self.pushRecovery, now: now)
+            }
+            switch outcome {
+            case .decoded:
+                guard !self.pushReportedLive else { return }
+                self.pushReportedLive = true
+                NSLog("[BelayStream] push: first frame decoded (%d bytes), layer status %d", data.count, self.displayLayer.status.rawValue)
+                self.report(["state": "live"])
+            case .requestKeyframe:
+                NSLog("[BelayStream] push: keyframe needed (%d bytes, IDR=%d)", data.count,
+                      data.withUnsafeBytes { H264Stream.containsIDR($0) } ? 1 : 0)
+                self.report(["state": "keyframe"])
+            case .dropped:
+                break
+            }
+        }
+        return true
+    }
+
+    private func report(_ status: [String: Any]) {
+        DispatchQueue.main.async { [weak self] in self?.onStatus(status) }
+    }
+
     func stop() {
-        BelayStreamView.clearLive(self)
+        // In push mode the view stays registered: `source: null` arrives on
+        // every mount and must not unregister a view `push` just claimed.
+        if !pushMode { BelayStreamView.clearLive(self) }
         if let observer = inputObserver {
             NotificationCenter.default.removeObserver(observer)
             inputObserver = nil
@@ -174,7 +238,43 @@ public final class BelayStreamView: ExpoView {
             Thread.sleep(forTimeInterval: 0.02)
             belay_client_close(h)
         }
-        displayLayer.flushAndRemoveImage()
+        if !pushMode { displayLayer.flushAndRemoveImage() }
+    }
+
+    // MARK: presenting one access unit
+
+    enum PresentOutcome {
+        case decoded
+        case dropped
+        /// Dropped, and the host should be asked for a keyframe.
+        case requestKeyframe
+    }
+
+    /// Judge, decode and enqueue one Annex-B access unit. Shared by the UDP
+    /// receive loop and the WebSocket push path, so both recover from loss and
+    /// a failed display layer by the same rules (StreamRecovery).
+    private func present(_ buffer: UnsafeRawBufferPointer, keyframeHint: Bool, stream: H264Stream,
+                         recovery: inout StreamRecovery, now: TimeInterval) -> PresentOutcome {
+        // Trust the bytes over the header flag: see H264Stream.containsIDR.
+        let keyframe = keyframeHint || H264Stream.containsIDR(buffer)
+        let layerFailed = displayLayer.status == .failed
+        switch recovery.judge(keyframe: keyframe, layerFailed: layerFailed, now: now) {
+        case .drop: return .dropped
+        case .dropAndRequest: return .requestKeyframe
+        case .show: break
+        }
+        guard let sample = stream.decode(buffer) else {
+            // Parameter sets missing or a corrupt access unit: only a fresh
+            // keyframe (which carries SPS/PPS) can fix either.
+            return recovery.decodeFailed(now: now) ? .requestKeyframe : .dropped
+        }
+        // The layer can fail into a state where every subsequent enqueue is
+        // silently dropped — a decoder error, or a background transition.
+        // Only a keyframe reaches here while it is failed (recovery drops
+        // the rest), so flush and restart.
+        if layerFailed { displayLayer.flush() }
+        displayLayer.enqueue(sample)
+        return .decoded
     }
 
     // MARK: input
@@ -257,38 +357,17 @@ public final class BelayStreamView: ExpoView {
                 guard let data = frame.data, frame.len > 0 else { break }
                 let buffer = UnsafeRawBufferPointer(start: data, count: frame.len)
                 let now = Self.monotonicNow()
-                // Trust the bytes over the header flag: see H264Stream.containsIDR.
-                let keyframe = frame.keyframe != 0 || H264Stream.containsIDR(buffer)
-                let layerFailed = displayLayer.status == .failed
-                switch recovery.judge(keyframe: keyframe, layerFailed: layerFailed, now: now) {
-                case .drop:
+                switch present(buffer, keyframeHint: frame.keyframe != 0, stream: stream, recovery: &recovery, now: now) {
+                case .dropped:
                     stats = stats.dropped()
                     continue
-                case .dropAndRequest:
+                case .requestKeyframe:
                     stats = stats.dropped()
                     belay_client_request_keyframe(h)
                     continue
-                case .show:
-                    break
+                case .decoded:
+                    stats = stats.decoded()
                 }
-                guard let sample = stream.decode(buffer) else {
-                    // Parameter sets missing or a corrupt access unit: only a
-                    // fresh keyframe (which carries SPS/PPS) can fix either.
-                    stats = stats.dropped()
-                    if recovery.decodeFailed(now: now) {
-                        belay_client_request_keyframe(h)
-                    }
-                    continue
-                }
-                // The layer can fail into a state where every subsequent
-                // enqueue is silently dropped — a decoder error, or a
-                // background transition. Only a keyframe reaches here while it
-                // is failed (recovery drops the rest), so flush and restart.
-                if layerFailed {
-                    displayLayer.flush()
-                }
-                displayLayer.enqueue(sample)
-                stats = stats.decoded()
                 if !reportedLive {
                     reportedLive = true
                     DispatchQueue.main.async { [weak self] in

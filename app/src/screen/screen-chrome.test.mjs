@@ -164,6 +164,8 @@ test('the panel state covers the stage until any picture exists, or when capture
   assert.equal(panelStateShown({ captureBlocked: false, hasFrame: true, bwp: null }), false);
   assert.equal(panelStateShown({ captureBlocked: false, hasFrame: false, bwp: { port: 1 } }), false, 'H.264 is a picture');
   assert.equal(panelStateShown({ captureBlocked: true, hasFrame: true, bwp: null }), true);
+  assert.equal(panelStateShown({ captureBlocked: false, hasFrame: false, bwp: null, h264Shown: true }), false, 'socket H.264 shown is a picture');
+  assert.equal(panelStateShown({ captureBlocked: false, hasFrame: false, bwp: null, h264Shown: false }), true, 'announced but not yet shown is not');
 });
 
 test('the crosshair shows in trackpad mode or after a pad touch, only over a picture', () => {

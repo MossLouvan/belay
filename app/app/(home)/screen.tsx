@@ -232,6 +232,7 @@ export default function ScreenTab() {
     captureBlocked: permissions.captureBlocked,
     hasFrame: stream.hasFrame,
     bwp: stream.bwp,
+    h264Shown: stream.h264Shown,
   });
   const noticeArea = <NoticeArea permissions={permissions} actionError={toast.value} onHelp={openHelp} />;
   const typeRow = (

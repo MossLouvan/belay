@@ -17,7 +17,22 @@ import { fileURLToPath } from 'node:url';
 import { backoffDelay, isHealthyRun } from './backoff.js';
 import type { GamepadState } from './gamepad-codec.js';
 import type { RawScreen } from './displays.js';
+import { splitVideoRecords, type VideoRecord } from './video-records.js';
 import type { ValidSignal } from './webrtc/relay.js';
+
+/** An H.264 frame pushed FROM the helper on its video pipe while an `h264start`
+ *  session runs. Already a complete binary screen frame (frame-codec.ts), so a
+ *  listener forwards `frame` to its socket as-is. */
+export type VideoFrameListener = (record: VideoRecord) => void;
+
+/** What `h264start` reports: the encoded and source sizes, and the rate. */
+export interface H264Geometry {
+  w: number;
+  h: number;
+  sw: number;
+  sh: number;
+  fps: number;
+}
 
 /** A signaling frame pushed FROM the helper (the callee peer) toward Node, to be
  *  relayed to the phone: the helper's local answer, its ICE candidates, or a
@@ -92,7 +107,10 @@ function resolveTarget(platform: NodeJS.Platform): HelperTarget | null {
       return {
         path: helperPath('BelayHostMac', 'TetherHostMac'),
         buildCommand: 'bash native/build-mac.sh',
-        spawnOptions: {},
+        // A fourth pipe (fd 3 in the helper) carries H.264 frames as binary
+        // records — see video-records.ts. stdout stays one JSON line per
+        // message; a helper built before the pipe simply never writes to it.
+        spawnOptions: { stdio: ['pipe', 'pipe', 'pipe', 'pipe'] },
       };
     default:
       return null;
@@ -184,6 +202,9 @@ class NativeHost {
 
   /** Subscribers to audio frames the helper pushes while capture runs. */
   private audioListeners = new Set<AudioFrameListener>();
+
+  /** Subscribers to H.264 frames from the helper's video pipe. */
+  private videoListeners = new Set<VideoFrameListener>();
 
   private gamepadListeners: readonly ((event: unknown) => void)[] = [];
 
@@ -303,6 +324,8 @@ class NativeHost {
         else p.reject(new Error(msg.error || 'native error'));
       });
 
+      this.readVideoPipe(proc);
+
       // The helper writes nothing to stderr in normal operation; anything there
       // is a crash trace worth showing rather than discarding.
       proc.stderr.on('data', (chunk: Buffer) => {
@@ -338,6 +361,34 @@ class NativeHost {
       proc.on('error', reject);
     });
     return this.starting;
+  }
+
+  /** Frames on the video pipe (fd 3), split into records and fanned out. */
+  private readVideoPipe(proc: ChildProcessWithoutNullStreams): void {
+    const pipe = proc.stdio[3];
+    if (!pipe || typeof (pipe as NodeJS.ReadableStream).on !== 'function') return;
+    let rest: Buffer = Buffer.alloc(0);
+    (pipe as NodeJS.ReadableStream).on('data', (chunk: Buffer) => {
+      let split;
+      try {
+        split = splitVideoRecords(rest.length === 0 ? chunk : Buffer.concat([rest, chunk]));
+      } catch (e: unknown) {
+        // A corrupt pipe cannot be resynchronised; the helper is restarted
+        // rather than left feeding garbage to every phone.
+        console.error('[native] video pipe:', e instanceof Error ? e.message : String(e));
+        rest = Buffer.alloc(0);
+        proc.kill();
+        return;
+      }
+      rest = split.rest;
+      for (const record of split.records) {
+        for (const listener of this.videoListeners) {
+          try { listener(record); } catch (err) {
+            console.error('[native] video listener failed:', err instanceof Error ? err.message : String(err));
+          }
+        }
+      }
+    });
   }
 
   private send<T = any>(cmd: object): Promise<T> {
@@ -516,6 +567,32 @@ class NativeHost {
   scroll(dy: number, dx: number) { return this.send({ cmd: 'scroll', dy, dx }); }
   key(vk: number, mods: number[] = []) { return this.send({ cmd: 'key', vk, mods }); }
   text(text: string) { return this.send({ cmd: 'text', text }); }
+
+  // ---- H.264 over the screen socket (macOS helper) ------------------------
+  //
+  // One hardware encoder per helper, shared by every subscribed socket; the
+  // last `h264start` sets its display, size and rate. Frames arrive on the
+  // video pipe and are fanned out via `onVideoFrame`. A helper without the
+  // verbs (Windows, or a Mac helper built before them) answers `unknown
+  // command`, which the relay turns into a JPEG fallback — never a hang.
+
+  h264Start(w: number, fps: number, q: number, screen?: number, virtualDisplay?: boolean): Promise<H264Geometry> {
+    return this.send<H264Geometry>({
+      cmd: 'h264start', w, fps, q, screen, virtualdisplay: virtualDisplay ? true : undefined,
+    });
+  }
+
+  h264Stop(): Promise<unknown> { return this.send({ cmd: 'h264stop' }); }
+
+  h264Keyframe(): Promise<unknown> { return this.send({ cmd: 'h264key' }); }
+
+  onVideoFrame(listener: VideoFrameListener): () => void {
+    this.videoListeners.add(listener);
+    return () => { this.videoListeners.delete(listener); };
+  }
+
+  /** How many sockets are currently taking H.264 — the last one out stops the encoder. */
+  videoListenerCount(): number { return this.videoListeners.size; }
 
   // ---- WebRTC signaling (opt-in, behind BELAY_WEBRTC) --------------------
   //
