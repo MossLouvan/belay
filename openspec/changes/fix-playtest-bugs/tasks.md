@@ -15,7 +15,7 @@
 - [ ] #76 notice banners don't overlap panel message; Controls tab clears them
 - [ ] #78 Exit button and mascot button don't overlap
 - [ ] #80 platform-correct keys (Notify on Mac, Mac-only keys hidden on Windows)
-- [ ] Owner request: Controls tab pinned to the bottom-left corner (safe-area flush), not 108pt down the left edge
+- [ ] Owner request: Parsec-style controls — the mascot is a draggable floating button (default top-right, snaps to edges, position remembered); tap opens the controls; the separate Controls tab is removed
 
 ## D. Agent (agent D)
 - [ ] #72 approval card state resets per pending ask (key by id)
