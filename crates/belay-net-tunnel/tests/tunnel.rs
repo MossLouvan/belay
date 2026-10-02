@@ -141,3 +141,24 @@ async fn revoking_a_phone_closes_its_live_connection() {
     fwd.close().await;
     ep.close().await;
 }
+
+/// The linked-computer case: the phone knows only the host's node id (no
+/// address, no relay on either side). Local-network discovery (mDNS) must
+/// find the host on its own.
+#[tokio::test]
+async fn phone_finds_host_by_node_id_alone_with_no_relay() {
+    let phone_key = SecretKey::generate();
+    let (_host, ep, _addr, _seen) = setup(phone_key.public()).await;
+    let phone_ep = bind(phone_key, RelayMode::Disabled).await.unwrap();
+
+    let id_only = EndpointAddr::new(ep.id());
+    assert_eq!(id_only.addrs.len(), 0);
+    let fwd = tokio::time::timeout(Duration::from_secs(20), Forwarder::start(phone_ep, id_only))
+        .await
+        .expect("local discovery should find the host within 20s")
+        .unwrap();
+    assert_eq!(round_trip(fwd.local_port, b"found you on the LAN").await, b"found you on the LAN");
+    assert!(fwd.stats().await.connected);
+    fwd.close().await;
+    ep.close().await;
+}
