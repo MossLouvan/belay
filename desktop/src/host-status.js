@@ -9,11 +9,19 @@
  */
 export const PHONE_APP_URL = 'https://gobelay.com/get';
 
-/** The code and identity inside a `belay://pair` (or legacy `tether://`) link. */
+/**
+ * The code and identity inside a `belay://pair` (or legacy `tether://`) link,
+ * or the 8-character code and node id inside the account `belay://claim` link.
+ */
 export function parsePairing(link) {
   let url;
   try { url = new URL(String(link ?? '')); } catch { return null; }
-  if (!/^(belay|tether):$/.test(url.protocol) || url.host !== 'pair') return null;
+  if (!/^(belay|tether):$/.test(url.protocol)) return null;
+  if (url.host === 'claim') {
+    const code = url.searchParams.get('c') ?? '';
+    return /^[A-Z2-7]{8}$/.test(code) ? { code, hostId: url.searchParams.get('n') ?? '', label: '' } : null;
+  }
+  if (url.host !== 'pair') return null;
   const code = url.searchParams.get('c') ?? '';
   if (!/^\d{6,8}$/.test(code)) return null;
   return { code, hostId: url.searchParams.get('id') ?? '', label: url.searchParams.get('n') ?? '' };

@@ -90,7 +90,7 @@ export function startHost({ openViewer }) {
   let quitting = false;
   let hostWindow = null;
   let tray = null;
-  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, perms: permissions() };
+  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, claim: null, perms: permissions() };
   const phoneAppSvg = qrSvg(qrModules(PHONE_APP_URL));
 
   const savePrefs = (next) => {
@@ -104,8 +104,10 @@ export function startHost({ openViewer }) {
     ...state,
     // Live, not cached: the user flips these in System Settings while we watch.
     perms: permissions(),
-    pairingSvg: state.pairing ? qrSvg(state.pairing.modules) : '',
-    pairingCode: state.pairing ? parsePairing(state.pairing.link)?.code ?? '' : '',
+    // Unlinked, the account claim QR is the way in; once linked, the 6-digit
+    // pairing code the phone asks for next.
+    pairingSvg: (state.claim ?? state.pairing) ? qrSvg((state.claim ?? state.pairing).modules) : '',
+    pairingCode: (state.claim ?? state.pairing) ? parsePairing((state.claim ?? state.pairing).link)?.code ?? '' : '',
     phoneAppUrl: PHONE_APP_URL,
     phoneAppSvg,
     openAtLogin: prefs.openAtLogin === true,
@@ -175,6 +177,9 @@ export function startHost({ openViewer }) {
     if (!data || typeof data !== 'object') return;
     if (data.type === 'pairing' && typeof data.link === 'string' && Array.isArray(data.modules)) {
       update({ pairing: { link: data.link, modules: data.modules } });
+    } else if (data.type === 'claim') {
+      // The account claim QR while unlinked; `link: null` once it is linked.
+      update({ claim: typeof data.link === 'string' && Array.isArray(data.modules) ? { link: data.link, modules: data.modules } : null });
     } else if (data.type === 'listening') {
       update({ phase: 'running', paired: data.paired === true });
     } else if (data.type === 'autostart' && typeof data.id === 'number') {

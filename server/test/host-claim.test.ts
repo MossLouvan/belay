@@ -32,7 +32,7 @@ test('the QR payload is belay://claim?c=<code>&n=<nodeId>', () => {
   assert.equal(claimLink('ABCD2345', 'ab'.repeat(32)), `belay://claim?c=ABCD2345&n=${'ab'.repeat(32)}`);
 });
 
-interface Script { readonly calls: string[]; readonly client: AccountsClient; readonly store: LinkStore & { cred: string | null; cache: unknown }; readonly show: LinkShow & { lines: string[]; qrs: string[]; popups: string[] } }
+interface Script { readonly calls: string[]; readonly client: AccountsClient; readonly store: LinkStore & { cred: string | null; cache: unknown }; readonly show: LinkShow & { lines: string[]; qrs: string[]; popups: string[]; linkedCount: number } }
 
 function script(steps: Array<() => unknown>, cred: string | null = null, cache: unknown = null): Script {
   const calls: string[] = [];
@@ -52,7 +52,8 @@ function script(steps: Array<() => unknown>, cred: string | null = null, cache: 
     writeCache: (c: unknown) => { store.cache = c; },
   };
   const show = {
-    lines: [] as string[], qrs: [] as string[], popups: [] as string[],
+    lines: [] as string[], qrs: [] as string[], popups: [] as string[], linkedCount: 0,
+    linked: () => { show.linkedCount += 1; },
     line: (t: string) => { show.lines.push(t); }, qr: (l: string) => { show.qrs.push(l); },
     popup: (t: string, b: string) => { show.popups.push(`${t}|${b}`); },
   };
@@ -93,6 +94,8 @@ test('happy path: claim, show QR, poll, persist credential before anything else,
   assert.deepEqual(s.show.qrs, [`belay://claim?c=ABCD2345&n=${'ab'.repeat(32)}`]);
   assert.ok(s.show.popups.length === 1 && s.show.popups[0].includes('ABCD2345'));
   assert.ok(s.show.lines.some((l) => l.includes('Linked to m***@gmail.com')));
+  // Belay.app swaps its window from the claim QR to the pairing code here.
+  assert.equal(s.show.linkedCount, 1);
   assert.deepEqual(seen, [[['n1', 'n2'], ['https://relay.example']]]);
   assert.deepEqual(s.store.cache, { allowedNodeIds: ['n1', 'n2'], relayUrls: ['https://relay.example'], at: 1_000_000 });
 });

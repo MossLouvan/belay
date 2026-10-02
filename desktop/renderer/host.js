@@ -32,7 +32,9 @@ function paint(state) {
   }
   const linked = running && state.paired;
   const busy = state.phase === 'busy';
-  $('link-heading').lastChild.textContent = linked ? 'Linked' : 'Scan this code in Belay';
+  // Unlinked: the account claim QR. Linked to the account but not yet paired
+  // with a phone: the 6-digit code the phone asks for next.
+  $('link-heading').lastChild.textContent = linked ? 'Linked' : state.claim || !state.pairing ? 'Scan this code in Belay' : 'Type this code in Belay';
   $('link-caption').hidden = linked || busy;
   $('get-app').hidden = linked;
   $('busy').hidden = !busy;

@@ -69,6 +69,8 @@ export interface LinkShow {
   qr(link: string): void;
   line(text: string): void;
   popup(title: string, body: string): void;
+  /** Linked: Belay.app swaps the claim QR for the pairing code. */
+  linked?(): void;
 }
 
 export interface HostLinkDeps {
@@ -128,6 +130,7 @@ async function step(state: LinkState, deps: HostLinkDeps, nowMs: number): Promis
       if (next.kind === 'linked') {
         deps.store.writeCredential(next.hostCredential);
         deps.show.line(`  Linked to ${poll.maskedEmail ?? 'your Belay account'}.`);
+        deps.show.linked?.();
         return [next, 0];
       }
       if (next.kind === 'unlinked') deps.show.line('  Claim code expired — showing a new one.');
@@ -163,10 +166,10 @@ async function step(state: LinkState, deps: HostLinkDeps, nowMs: number): Promis
 function showClaim(deps: HostLinkDeps, code: string): void {
   const link = claimLink(code, deps.nodeId);
   deps.show.line('');
-  deps.show.line('  Link this computer to your Belay account: scan with the Belay app');
+  deps.show.line('  Link this computer: open the Belay app on your phone, sign in, and scan this QR');
   deps.show.qr(link);
-  deps.show.line(`  ...or enter the code ${code} in the app.`);
-  deps.show.popup('Belay — link this computer', `Scan the QR in the terminal, or enter code ${code} in the Belay app.`);
+  deps.show.line(`  ...or type the code ${code} in the Belay app.`);
+  deps.show.popup('Belay — link this computer', `Open Belay on your phone, sign in, and scan the QR — or type code ${code}.`);
 }
 
 // ---- the on-disk store ------------------------------------------------------
