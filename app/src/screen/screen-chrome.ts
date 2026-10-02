@@ -153,15 +153,19 @@ export interface PanelStateInputs {
   readonly captureBlocked: boolean;
   readonly hasFrame: boolean;
   readonly bwp: unknown;
+  /** H.264 on the screen socket, once the native decoder has shown a frame. */
+  readonly h264Shown?: boolean;
 }
 
 /**
  * A live H.264 stream is a picture even before any JPEG frame has arrived —
  * and none ever will while it is up, so keying the overlay off `hasFrame`
- * alone would leave the "connecting" panel on top of working video.
+ * alone would leave the "connecting" panel on top of working video. For the
+ * socket-borne H.264 path the picture exists once the decoder reports a
+ * shown frame, not when the codec is merely announced.
  */
-export const panelStateShown = ({ captureBlocked, hasFrame, bwp }: PanelStateInputs): boolean =>
-  captureBlocked || (!hasFrame && !bwp);
+export const panelStateShown = ({ captureBlocked, hasFrame, bwp, h264Shown = false }: PanelStateInputs): boolean =>
+  captureBlocked || (!hasFrame && !bwp && !h264Shown);
 
 export interface CrosshairInputs {
   readonly gaming: boolean;

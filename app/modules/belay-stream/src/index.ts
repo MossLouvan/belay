@@ -86,6 +86,7 @@ interface BelayStreamNativeModule {
   sendInput?(report: Uint8Array): boolean;
   /** Absent in a binary built before H.264 over the WebSocket. */
   feedH264?(blobId: string, offset: number, size: number): boolean;
+  trace?(message: string): void;
 }
 
 let nativeModule: BelayStreamNativeModule | null = null;
@@ -140,6 +141,15 @@ export function canSendInput(): boolean {
  * both wires; whichever is second is dropped. That is what makes falling back
  * to the WebSocket seamless rather than a gap.
  */
+/**
+ * One line into the device log (`NSLog`), for the H.264 path's milestones.
+ * Release builds drop `console.log`, and this path only misbehaves on a
+ * device; a handful of one-shot lines is what makes it diagnosable there.
+ */
+export function trace(message: string): void {
+  try { nativeModule?.trace?.(message); } catch { /* diagnostics never throw */ }
+}
+
 export function sendInput(report: Uint8Array): boolean {
   const send = nativeModule?.sendInput;
   if (!send) return false;

@@ -172,6 +172,7 @@ public final class BelayStreamView: ExpoView {
             }
             pushMode = true
             BelayStreamView.setLive(self)
+            NSLog("[BelayStream] push mode on")
         } else {
             pushMode = false
             BelayStreamView.clearLive(self)
@@ -193,8 +194,11 @@ public final class BelayStreamView: ExpoView {
             case .decoded:
                 guard !self.pushReportedLive else { return }
                 self.pushReportedLive = true
+                NSLog("[BelayStream] push: first frame decoded (%d bytes), layer status %d", data.count, self.displayLayer.status.rawValue)
                 self.report(["state": "live"])
             case .requestKeyframe:
+                NSLog("[BelayStream] push: keyframe needed (%d bytes, IDR=%d)", data.count,
+                      data.withUnsafeBytes { H264Stream.containsIDR($0) } ? 1 : 0)
                 self.report(["state": "keyframe"])
             case .dropped:
                 break

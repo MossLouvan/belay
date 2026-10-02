@@ -130,6 +130,7 @@ export function createH264Relay(
       if (!unsubscribe) unsubscribe = native.onVideoFrame(onFrame);
       onGeometry?.(geometry);
       announce('h264', geometry);
+      console.log(`[screen] h264 ${geometry.w}x${geometry.h}@${geometry.fps} (source ${geometry.sw}x${geometry.sh})`);
       // No keyframe request here: every `h264start` opens a fresh encoder
       // session whose first frame is an IDR (measured), and asking again
       // would only double the one bandwidth spike this path has.
@@ -142,7 +143,7 @@ export function createH264Relay(
       generation += 1;
       const was = unsubscribe !== null;
       detach();
-      if (was) announce('jpeg');
+      if (was) { announce('jpeg'); console.log('[screen] h264 stopped by the phone; jpeg resumes'); }
     },
   };
 }

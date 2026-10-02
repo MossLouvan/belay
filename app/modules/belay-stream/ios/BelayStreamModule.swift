@@ -31,6 +31,11 @@ struct BwpSourceRecord: Record {
 /// Deliberately thin: it owns no protocol logic at all. Everything about BWP
 /// lives in the Rust the host was tested against, and everything about decoding
 /// lives in H264Stream. This file is only the shape React Native needs.
+/// The first few `feedH264` calls are logged, so a device log says whether the
+/// socket's blobs reach native and resolve. Three lines per process, not per
+/// session: enough to see the path work once.
+private var feedTraces = 0
+
 public class BelayStreamModule: Module {
     public func definition() -> ModuleDefinition {
         Name("BelayStream")
@@ -111,8 +116,17 @@ public class BelayStreamModule: Module {
         /// frame that arrives between mount and unmount cannot leak.
         Function("feedH264") { (blobId: String, offset: Int, size: Int) -> Bool in
             let data = BlobBridge.take(blobId: blobId, offset: offset, size: size)
-            guard let data, let view = BelayStreamView.current() else { return false }
+            let view = BelayStreamView.current()
+            if feedTraces < 3 {
+                feedTraces += 1
+                NSLog("[BelayStream] feedH264 size=%d resolved=%d view=%@", size, data?.count ?? -1, view == nil ? "none" : "live")
+            }
+            guard let data, let view else { return false }
             return view.push(data)
+        }
+
+        Function("trace") { (message: String) in
+            NSLog("[BelayStream] %@", message)
         }
     }
 }

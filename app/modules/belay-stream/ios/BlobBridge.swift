@@ -37,6 +37,7 @@ enum BlobBridge {
         else { return nil }
         let objectSend = unsafeBitCast(msgSend, to: ObjectSend.self)
         let found = objectSend(bridge, NSSelectorFromString("moduleForClass:"), blobClass)?.takeUnretainedValue()
+        NSLog("[BelayStream] blob manager via %@: %@", String(describing: type(of: bridge)), found == nil ? "not found" : "ok")
         cachedManager = found
         return found
     }

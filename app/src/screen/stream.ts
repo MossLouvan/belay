@@ -111,7 +111,12 @@ export interface StreamState {
    * host's codec announcement.
    */
   readonly h264: CodecAnnouncement | null;
+  /** True once the native decoder has shown an H.264 frame from this socket. */
+  readonly h264Shown: boolean;
 }
+
+/** If the decoder has shown nothing this long after `codec:h264`, use JPEG. */
+export const H264_FIRST_FRAME_TIMEOUT_MS = 3000;
 
 export interface BwpClientStats {
   /** Frames the decoder showed in the last second. */
@@ -229,9 +234,15 @@ export function useScreenStream(
   const [phase, setPhase] = useState<Phase>('idle');
   const [hasFrame, setHasFrame] = useState(false);
   const [h264, setH264] = useState<CodecAnnouncement | null>(null);
-  // Ref as well as state: the message handler decides per binary message,
-  // synchronously, whether it is an access unit for the native decoder.
+  const [h264Shown, setH264Shown] = useState(false);
+  // Refs as well as state: the message handler decides per binary message,
+  // synchronously, whether it is an access unit for the native decoder, and
+  // the first-frame watchdog reads whether one was shown.
   const h264Live = useRef(false);
+  const h264ShownRef = useRef(false);
+  // Set once the watchdog gave up on this hook instance: the next connect
+  // asks for JPEG outright instead of paying the timeout again.
+  const h264Declined = useRef(false);
   const [stats, setStats] = useState<StreamStats>(EMPTY_STATS);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -347,6 +358,11 @@ export function useScreenStream(
     // same socket. A keyframe request is routine (join, loss); a decoder
     // error means this session cannot decode, so hand the picture to JPEG.
     if (h264Live.current) {
+      if (status.state === 'live') {
+        h264ShownRef.current = true;
+        setH264Shown(true);
+        return;
+      }
       const socket = socketRef.current;
       if (!socket || socket.readyState !== SOCKET_OPEN) return;
       try {
@@ -417,11 +433,14 @@ export function useScreenStream(
       bwpLive.current = false;
       bwpHealth.current = null;
       h264Live.current = false;
+      h264ShownRef.current = false;
       setH264(null);
+      setH264Shown(false);
       return;
     }
 
     let disposed = false;
+    let h264Watchdog: ReturnType<typeof setTimeout> | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let probeTimer: ReturnType<typeof setInterval> | undefined;
     let probeInFlight = false;
@@ -481,10 +500,12 @@ export function useScreenStream(
         const socket = socketRef.current;
         if (socket && socket.binaryType !== 'arraybuffer') socket.binaryType = 'arraybuffer';
         releaseBlob(raw);
+        nativeStream.trace('blob while not h264: flipped to arraybuffer');
         return;
       }
-      nativeStream.feedH264(blob.blobId, blob.offset, blob.size);
+      const fed = nativeStream.feedH264(blob.blobId, blob.offset, blob.size);
       const c = counters.current;
+      if (c.frames === 0) nativeStream.trace(`first h264 blob ${blob.size}B fed=${fed}`);
       c.frames += 1;
       c.bytes += blob.size;
       c.frameBytes = blob.size;
@@ -494,12 +515,31 @@ export function useScreenStream(
       setError((prev) => (prev === null ? prev : null));
     };
 
+    const giveUpH264 = (): void => {
+      h264Watchdog = undefined;
+      if (!h264Live.current || h264ShownRef.current) return;
+      // Announced, fed, but nothing ever reached the glass: a decoder or
+      // blob failure on this build. Hand the socket back to JPEG now and
+      // stop asking on later connects, rather than hang on a black view.
+      h264Declined.current = true;
+      nativeStream.trace('h264 watchdog: no frame shown, falling back to jpeg');
+      const socket = socketRef.current;
+      if (socket && socket.readyState === SOCKET_OPEN) {
+        try { socket.send(JSON.stringify({ type: 'h264stop' })); } catch { /* reconnect will ask for jpeg */ }
+      }
+    };
+
     const onCodec = (announced: CodecAnnouncement): void => {
       const live = announced.codec === 'h264';
       h264Live.current = live;
+      h264ShownRef.current = false;
+      clearTimeout(h264Watchdog);
+      h264Watchdog = live ? setTimeout(giveUpH264, H264_FIRST_FRAME_TIMEOUT_MS) : undefined;
       const socket = socketRef.current;
       if (socket) socket.binaryType = live ? 'blob' : 'arraybuffer';
       setH264(live ? announced : null);
+      setH264Shown(false);
+      nativeStream.trace(`codec ${announced.codec} ${announced.w}x${announced.h}; binaryType=${socket?.binaryType ?? 'none'}`);
       if (live) {
         const c = counters.current;
         c.width = announced.w;
@@ -718,7 +758,7 @@ export function useScreenStream(
             bin: 1,
             // Advertise native H.264 decoding (./h264). A host that cannot
             // encode announces JPEG; an old host ignores it.
-            ...streamCodecParams(nativeStream.canDecodeH264()),
+            ...streamCodecParams(nativeStream.canDecodeH264() && !h264Declined.current),
             // Only named when a monitor was actually chosen; older hosts
             // ignore unknown query params, so this is safe either way.
             ...(screenIndex === undefined ? {} : { screen: screenIndex }),
@@ -741,9 +781,11 @@ export function useScreenStream(
       // synchronously). When H.264 was advertised the socket starts as Blob —
       // the host's codec announcement precedes its first frame and settles
       // which it is; see onCodec and onH264Frame.
-      socket.binaryType = nativeStream.canDecodeH264() ? 'blob' : 'arraybuffer';
+      socket.binaryType = nativeStream.canDecodeH264() && !h264Declined.current ? 'blob' : 'arraybuffer';
       h264Live.current = false;
+      h264ShownRef.current = false;
       socketRef.current = socket;
+      nativeStream.trace(`socket open: canDecodeH264=${nativeStream.canDecodeH264()} declined=${h264Declined.current} binaryType=${socket.binaryType}`);
       socketUrl.current = url;
       socket.onopen = () => {
         // Backoff is reset on the first frame (see onFrame), not here — a socket
@@ -782,7 +824,10 @@ export function useScreenStream(
         setBwpPath(null);
         setBwpClient(null);
         h264Live.current = false;
+        h264ShownRef.current = false;
+        clearTimeout(h264Watchdog);
         setH264(null);
+        setH264Shown(false);
         if (event?.code === 4001) {
           // The host revoked this device mid-stream. Terminal — do not retry.
           setError('This phone is no longer paired with that computer.');
@@ -842,6 +887,7 @@ export function useScreenStream(
       clearTimeout(retryTimer);
       stopProbe();
       clearInterval(ticker);
+      clearTimeout(h264Watchdog);
       const socket = socketRef.current;
       socketRef.current = null;
       if (!socket) return;
@@ -882,6 +928,7 @@ export function useScreenStream(
     bwpFallback,
     onBwpStatus,
     h264,
+    h264Shown,
   };
 }
 
