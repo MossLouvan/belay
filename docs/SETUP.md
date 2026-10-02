@@ -1,15 +1,26 @@
 # Setup
 
 Everything runs on two machines: your **host** (a Mac or a Windows PC) and your
-**iPhone** (the app). This walks through both, plus reaching the host from
-anywhere.
+**iPhone** (the app).
 
-**The short way:** download `Belay-mac-universal.dmg` or `Belay-Setup.exe`
-from the latest GitHub release, install it, and scan the QR it shows with the
-phone. The app runs the host from the menu bar, asks for the macOS
-permissions under its own name, and starts at login once a phone has linked
-(`desktop/README.md`; building and signing it: `docs/RELEASE.md`). The rest of
-this page is the developer path, from a checkout.
+## Quick start
+
+1. **Computer:** install **Belay.app** (`Belay-mac-universal.dmg` or
+   `Belay-Setup.exe`, from [gobelay.com](https://gobelay.com) or the latest
+   GitHub release) and open it. It runs the host from the menu bar, asks for
+   the macOS permissions under its own name, and starts at login once a phone
+   has linked (`desktop/README.md`; building and signing it: `docs/RELEASE.md`).
+2. **Phone:** install Belay (the Belay.app window shows a QR to the download)
+   and sign in with Apple or an email code.
+3. **Link:** in the phone app, **Add computer › Scan to link**, scan the QR in
+   the Belay.app window (or type the code under it), then enter the 6-digit
+   pairing code it shows. The encrypted Belay tunnel reaches the computer from
+   anywhere — no VPN, no port forwarding.
+
+## Advanced: the developer path
+
+The rest of this page runs the host from a checkout or `npx` (needs Node.js)
+and connects by address. You do not need any of it with Belay.app.
 
 Pick your host platform:
 
@@ -70,9 +81,9 @@ Either way the host prints something like:
 
   Cert      : 773D0AD8 AA87241A 264CD024 C2A779E1 07DB2697 C4C3C6DC 3E22FE34 B9333AE7
 
-  Reachable at:
+  Advanced: connect by address (same network or VPN):
     https://192.168.1.20:8787
-    http://100.101.102.103:8787   (Tailscale)
+    http://100.101.102.103:8787
 
   macOS permissions (required for the Screen tab):
     1. System Settings → Privacy & Security → Screen & System Audio Recording
@@ -183,9 +194,9 @@ The host prints something like:
 
   Cert      : 773D0AD8 AA87241A 264CD024 C2A779E1 07DB2697 C4C3C6DC 3E22FE34 B9333AE7
 
-  Reachable at:
+  Advanced: connect by address (same network or VPN):
     https://192.168.1.20:8787
-    http://100.101.102.103:8787   (Tailscale)
+    http://100.101.102.103:8787
 
   Pairing code: 481920   (expires in 300s)
 ```
@@ -246,6 +257,12 @@ LAN the app shows *"Pair again to secure this connection"* with a button to
 scan the QR. Re-pairing takes ten seconds and replaces the old entry.
 
 ## 4. Reaching your host from anywhere
+
+A computer linked to your Belay account (Quick start above) is reachable from
+anywhere through the Belay tunnel; there is nothing else to install. The rest
+of this section is the advanced, account-free alternative.
+
+### Advanced: over your own VPN (Tailscale)
 
 Install [Tailscale](https://tailscale.com/download) on the computer and on the
 phone and sign both in to the same account. The host then has a stable

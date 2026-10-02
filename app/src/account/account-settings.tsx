@@ -28,6 +28,9 @@ export function AccountRows({ onLeave, onRequestDelete }: AccountRowsProps) {
     haptic('light');
     await signOut();
     onLeave();
+    // The front door's gate decides what is next: sign in again with no
+    // computers paired here, the list when there are (account/gate.ts).
+    router.replace('/');
   }, [signOut, onLeave]);
 
   if (!account) {

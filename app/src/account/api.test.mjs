@@ -147,6 +147,20 @@ test('a 401 is reported as a session problem whatever the body says', async () =
   await assert.rejects(api(fetch).me(), (e) => e instanceof AccountsError && e.code === 'unauthorized');
 });
 
+// The accounts service answers a wrong or expired sign-in code with a 401 too.
+// On a signed-out route that is about the code, never "your session has ended".
+test('a 401 on a sign-in route keeps its code: wrong and expired codes say so', async () => {
+  for (const [code, re] of [['invalid_code', /not right/i], ['code_expired', /expired/i]]) {
+    const { fetch } = mockFetch({ status: 401, body: { error: 'x', code } });
+    await assert.rejects(api(fetch, null).verifyEmail('a@b.c', '000000'), (e) => {
+      assert.equal(e.code, code);
+      assert.match(e.message, re);
+      assert.doesNotMatch(e.message, /session/i);
+      return true;
+    });
+  }
+});
+
 test('a network failure is a friendly offline message, not a stack trace', async () => {
   const { fetch } = mockFetch(new TypeError('Network request failed'));
   await assert.rejects(api(fetch, null).startEmail('a@b.c'), (e) => {

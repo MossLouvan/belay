@@ -2,11 +2,11 @@
 
 To belay is to hold your climbing partner's rope: this holds the line from
 your iPhone to your Mac or Windows PC — watching the work and catching it
-when it needs a decision. Self-hosted, private, no third-party relay.
+when it needs a decision. Private and end-to-end encrypted.
 
-Your computer runs a small host agent. Your phone runs a React Native app that
-connects straight to it over your own network (LAN or Tailscale). Nothing goes
-through anyone else's servers.
+The control room for your AI agents: your computer runs Belay.app, your phone
+runs the Belay app, and an end-to-end encrypted tunnel connects them at your
+desk or anywhere else. Sign in once, scan a QR, done.
 
 ```
    iPhone (Expo / React Native)            macOS / Windows (host agent)
@@ -46,70 +46,56 @@ through anyone else's servers.
 
 ## Quick start
 
-**1. On the computer** (macOS or Windows — same command)
+1. **On the computer:** install **Belay.app** from [gobelay.com](https://gobelay.com)
+   and open it. On macOS, allow Screen Recording and Accessibility when it asks.
+2. **On the phone:** install **Belay** (the Belay.app window shows a QR to the
+   download), then sign in with Apple or an email code.
+3. **Link them:** in the phone app tap **Add computer › Scan to link** and scan
+   the QR in the Belay.app window (or type the code under it). Then enter the
+   6-digit pairing code it shows. That's it — at home or away, no port
+   forwarding, no VPN.
+
+Do **not** port-forward the host agent to the public internet.
+
+### Advanced: run the host from a terminal, connect by address
+
+For developers and headless machines, the host also runs without Belay.app:
 
 ```bash
-npx belay-host
+npx belay-host                      # needs Node.js 20+
+# or from a checkout:
+cd server && npm install && npm run build:native && npm start
 ```
 
 It builds the native screen/input helper on first run (needs the Xcode
-command line tools on macOS, `csc.exe` on Windows), then prints a pairing
-code and the URLs it is reachable on. State and the TLS certificate live in
-`~/Library/Application Support/Belay` (macOS), `%APPDATA%\Belay` (Windows)
-or `~/.config/belay` (Linux).
+command line tools on macOS, `csc.exe` on Windows), then prints the link QR,
+a pairing code and the addresses it answers on. State and the TLS certificate
+live in `~/Library/Application Support/Belay` (macOS), `%APPDATA%\Belay`
+(Windows) or `~/.config/belay` (Linux). On macOS grant Screen & System Audio
+Recording and Accessibility to the *terminal app* you launch it from, not to
+`node` — details in [`docs/SETUP.md`](docs/SETUP.md).
 
-From a checkout instead: `cd server && npm install && npm run build:native && npm start`.
+The phone can also connect by address (**Add computer › Advanced: connect
+by address**): any address the phone can reach works — the same
+network, or a VPN such as [Tailscale](https://tailscale.com/), where the host
+skips the pairing code for devices on your own tailnet.
 
-On **macOS** you must also grant two permissions before the Screen tab works —
-**System Settings → Privacy & Security → Screen & System Audio Recording** and
-**→ Accessibility** — to the *terminal app* you launch the host from, not to
-`node`. The host prints a reminder on boot; the details are in
-[`docs/SETUP.md`](docs/SETUP.md).
+The phone app from source: `cd app && npm install && npx expo start`.
 
-**Or, from another computer**
-
-```bash
-cd desktop
-npm install
-npm start
-```
-
-Pair with the same 6-digit code, and each of that computer's displays opens as
-an ordinary window on this one. If the host has a virtual monitor, that is the
-display offered first — it lets you work on the machine without taking the
-screen away from whoever is sitting at it.
-
-The same window also lists the host's **open windows**, and can put each one in
-a window of its own on this desktop — the old VMware Unity trick. See
+**From another computer:** `cd desktop && npm install && npm start`, pair with
+the same 6-digit code, and each of that computer's displays opens as an
+ordinary window on this one. If the host has a virtual monitor, that is the
+display offered first. The same window can also put each of the host's open
+windows in a window of its own. See
 [`docs/VIRTUAL-MONITOR.md`](docs/VIRTUAL-MONITOR.md),
 [`docs/SEAMLESS-WINDOWS.md`](docs/SEAMLESS-WINDOWS.md) and
 [`desktop/README.md`](desktop/README.md).
-
-**2. On the phone**
-
-```bash
-cd app
-npm install
-npx expo start
-```
-
-Scan the QR with the Camera app (Expo Go must be installed). Enter the host URL
-and the pairing code. That's it — the token is stored, you won't pair again.
-
-## Reaching it from anywhere
-
-On the same Wi-Fi it works immediately. To use it on cellular, install
-[Tailscale](https://tailscale.com/) on both the computer and the phone and use
-the computer's Tailscale IP (`100.x.y.z`) as the host. No port forwarding, works behind
-CGNAT, and the link is encrypted end to end.
-
-Do **not** port-forward the host agent to the public internet.
 
 ## Docs
 
 - [`docs/AGENT.md`](docs/AGENT.md) — the Agent tab: how Claude Code runs on the PC and how every action is approved from the phone
 
-- [`docs/SETUP.md`](docs/SETUP.md) — full install for macOS and Windows, permissions, Tailscale, 24/7 config
+- [`docs/SETUP.md`](docs/SETUP.md) — full install for macOS and Windows, permissions, advanced connect-by-address, 24/7 config
 - [`docs/IOS.md`](docs/IOS.md) — installing on your iPhone, TestFlight and IPA builds
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — protocol, threat model, roadmap
 - [`docs/CHECKLIST.md`](docs/CHECKLIST.md) — implementation status of every requirement

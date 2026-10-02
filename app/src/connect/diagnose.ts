@@ -46,7 +46,7 @@ function mixedContentHint(url: string): string {
 }
 
 const REACHABILITY_STEPS =
-  'Check that Belay is running on your computer, that the address matches the one it shows, and that both devices are on the same network. Away from home, use the PC\'s Tailscale address (100.x.y.z).';
+  'Check that Belay is open on your computer, that the address matches the one it shows, and that both devices are on the same network. To reach it from anywhere, scan the QR code Belay shows to link it to your account instead.';
 
 /** Explains why `/health` did not answer, or answered with something unexpected. */
 export function diagnoseHostFailure(url: string, raw?: string): Diagnosis {
@@ -66,12 +66,12 @@ export function diagnoseHostFailure(url: string, raw?: string): Diagnosis {
     if (code === 401 || code === 403) {
       return {
         title: `${name} refused the request (${code})`,
-        message: 'The host agent never asks for credentials on this check, so the refusal most likely came from something in front of your PC — a proxy, VPN gateway or firewall. Connect to the PC directly, or use its Tailscale address.',
+        message: 'The host agent never asks for credentials on this check, so the refusal most likely came from something in front of your PC — a proxy, VPN gateway or firewall. Connect to the PC directly, or scan the QR code Belay shows to link it to your account.',
       };
     }
     return {
       title: `${name} answered with an error (${code})`,
-      message: 'Something at that address is up but not serving Belay. If it is the host agent, restarting it on your PC usually clears this; if a proxy sits in between, try the PC directly or its Tailscale address.',
+      message: 'Something at that address is up but not serving Belay. If it is the host agent, restarting it on your PC usually clears this; if a proxy sits in between, try the PC directly.',
     };
   }
 

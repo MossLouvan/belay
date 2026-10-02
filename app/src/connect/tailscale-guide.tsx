@@ -95,14 +95,12 @@ function copyFor(step: GuideStep, hostName: string | null): StepCopy {
     case 'intro':
       return {
         ordinal: '',
-        title: 'Reach your computer from anywhere',
-        body: hostName
-          ? 'Right now Belay only works at home. Tailscale puts your phone and ' +
-            'computer on the same private network wherever you are — free for ' +
-            'personal use, and about two minutes to set up.'
-          : 'Belay connects straight to your computer, and away from home that ' +
-            'takes Tailscale — a free app that puts your phone and computer on ' +
-            'the same private network wherever you are. About two minutes, once.',
+        // Advanced and optional: a computer linked to the account is already
+        // reachable from anywhere through Belay's own tunnel.
+        title: 'Use your own VPN (optional)',
+        body: 'You do not need this: a computer linked to your Belay account works ' +
+          'from anywhere already. If you prefer your own private network, Tailscale ' +
+          'puts your phone and computer on one, free for personal use, in about two minutes.',
       };
     case 'install':
       return {
@@ -487,7 +485,7 @@ export function TailscaleGuide({
           })}
         >
           <Txt variant="body" tone="dim" style={{ textAlign: 'center', fontSize: 15 }}>
-            {step !== 'intro' ? '← Back' : host ? 'Not now' : "Skip — I'm on the same Wi-Fi"}
+            {step !== 'intro' ? '← Back' : 'Not now'}
           </Txt>
         </Pressable>
       </View>

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { afterHowItWorks, connectLanding, postPairDestination } from './landing.ts';
+import { connectLanding, postPairDestination } from './landing.ts';
 
 const base = { ready: true, connected: false, deviceCount: 0, connecting: false, adding: false };
 
@@ -39,16 +39,6 @@ test('a fresh pair lands on Screen when the host can capture', () => {
 
 test('a host with no capture helper lands on System, not a black Screen', () => {
   assert.equal(postPairDestination(false), '/(home)/system');
-});
-
-test('a first-time user lands on the address field after the intro', () => {
-  // Typing the 100.x address from the Tailscale app is the way in; the
-  // guided Tailscale setup is one tap away on that screen, not in front of it.
-  assert.equal(afterHowItWorks(false), 'host');
-});
-
-test('anyone with a remembered computer goes straight to connecting', () => {
-  assert.equal(afterHowItWorks(true), 'host');
 });
 
 test('an older host that reports neither way keeps the old Screen landing', () => {

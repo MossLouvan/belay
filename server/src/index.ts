@@ -85,7 +85,7 @@ import { readSettings, settingsPath } from './hooks-install-cli.js';
 import { createCursorRegistry } from './cursors.js';
 import { createCursorHub } from './cursor-channel.js';
 import { createInputFloor, denialBody, isLocalActivity } from './input-floor.js';
-import { postToApp } from './host-ipc.js';
+import { postToApp, qrModules } from './host-ipc.js';
 import type { FloorDenied } from './input-floor.js';
 import { registerImageRoutes } from './image-routes.js';
 import { registerThumbnailRoutes } from './thumbnail.js';
@@ -2103,7 +2103,11 @@ function startTunnelHost(): void {
         sign: (m) => t.sign(m),
         onAllowList: (ids, relays) => { t.setAllowList(ids); t.setRelays(relays); },
         show: {
-          qr: (link) => qrcode.generate(link, { small: true }),
+          qr: (link) => {
+            qrcode.generate(link, { small: true });
+            postToApp({ type: 'claim', link, modules: qrModules(link) });
+          },
+          linked: () => postToApp({ type: 'claim', link: null }),
           line: (text) => console.log(text),
           popup: (title, body) => { void native.notify(title, body, '', 20).catch(() => {}); },
         },

@@ -21,11 +21,11 @@ test('a MagicDNS name is a Tailscale name', () => {
   assert.deepEqual(addressFeedback('mac.tail1234.ts.net'), { tone: 'good', text: 'Looks like a Tailscale name' });
 });
 
-test('digits heading towards 100. are encouraged, others are nudged', () => {
+test('a half-typed address is encouraged, whatever it starts with', () => {
   assert.equal(addressFeedback('1').tone, 'dim');
   assert.equal(addressFeedback('100.101').tone, 'dim');
   assert.match(addressFeedback('100.101').text, new RegExp(EXAMPLE_TAILSCALE_ADDRESS));
-  assert.deepEqual(addressFeedback('192.168'), { tone: 'warn', text: 'Tailscale addresses start with 100.' });
+  assert.equal(addressFeedback('192.168').tone, 'dim');
 });
 
 test('a LAN address works but only on the same network', () => {

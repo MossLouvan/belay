@@ -1,12 +1,12 @@
 // Connect screen — the first thing anyone sees, and the only place the app can
 // lose someone entirely.
 //
-// The front door is the address field: copy the computer's 100.x address out
-// of the Tailscale app, type it, Connect — over the tailnet that pairs with no
-// code at all. On home Wi-Fi the 6-digit code shown on the computer follows.
-// Around those steps sits the onboarding a cold start needs: what has to be
-// running, where the address is, and what to do when it fails. A saved
-// connection skips the whole thing.
+// A fresh, signed-in install lands on "Put Belay on your computer": open
+// Belay there and scan its QR (app/link.tsx), which links the computer to the
+// account and pairs it through the tunnel. Connecting by address (a local IP,
+// or a VPN address such as Tailscale's) is the advanced door, and every
+// later step of that legacy path still lives here: the address field, the
+// scanner, the 6-digit code. A saved connection skips the whole thing.
 //
 // This file is composition only. The pairing state machine is
 // src/connect/use-pair-session.ts, the address check and everything it
@@ -21,12 +21,13 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useConnection } from '../src/connection';
 import { useAccount } from '../src/account/store';
 import { signInRequired } from '../src/account/gate';
+import { mergeComputers } from '../src/account/merge-devices';
 import { useTheme } from '../src/theme';
 import { KeyboardAvoider } from '../src/ui';
-import { connectLanding, afterHowItWorks } from '../src/connect/landing';
+import { connectLanding } from '../src/connect/landing';
 import { PairingStages } from '../src/connect/pairing-stages';
 import { TailscaleGuide } from '../src/connect/tailscale-guide';
-import { HowItWorksScreen, WelcomeScreen } from '../src/connect/setup-intro';
+import { WelcomeScreen } from '../src/connect/setup-intro';
 import { useAddressCheck } from '../src/connect/use-address-check';
 import { usePairSession } from '../src/connect/use-pair-session';
 import { useStageFade } from '../src/connect/use-stage-fade';
@@ -45,7 +46,10 @@ export default function Connect() {
   // loopback port, and the saved computer must carry this node id instead.
   const tunnelNode = typeof node === 'string' && node ? node : null;
 
-  const { ready: accountReady, account } = useAccount();
+  const { ready: accountReady, account, devices: accountDevices } = useAccount();
+  // A computer linked to the account but not paired here yet still belongs on
+  // the list (its Pair button), not back on "put Belay on your computer".
+  const linkedOnly = mergeComputers(devices, accountDevices).linkedOnly.length;
   const session = usePairSession(addDevice, tunnelNode);
   const check = useAddressCheck({ session, adding, scanRequested: scan === '1', arrivedAddress });
   const { stage, setStage, busy, setBusy, live, completePairing } = session;
@@ -67,12 +71,12 @@ export default function Connect() {
     const dest = connectLanding({
       ready,
       connected: connection !== null,
-      deviceCount: devices.length,
+      deviceCount: devices.length + linkedOnly,
       connecting: phase === 'connecting',
       adding,
     });
     if (dest) router.replace(dest);
-  }, [ready, accountReady, account, connection, devices.length, phase, adding]);
+  }, [ready, accountReady, account, connection, devices.length, linkedOnly, phase, adding]);
 
   /** The guide detected the tailnet: pair over the address it discovered. */
   const onGuideConnected = useCallback(
@@ -121,25 +125,14 @@ export default function Connect() {
     transitionToStage('tailscale');
   }, [check.setGuideHost, transitionToStage]);
 
-  const onWelcomeContinue = useCallback(() => {
-    transitionToStage('how-it-works');
-  }, [transitionToStage]);
+  /** The account way in: the claim QR (or its typed code) on app/link.tsx. */
+  const onWelcomeLink = useCallback(() => {
+    router.push('/link');
+  }, []);
 
-  /**
-   * After "how it works" comes the address field — the owner's own route in
-   * is copying the 100.x address out of the Tailscale app, so that is what
-   * the screen leads with. The guided Tailscale setup stays one tap away on
-   * that screen for anyone who has no address to copy yet. The decision
-   * itself lives in connect/landing.ts, where node can test it.
-   */
-  const onHowItWorksContinue = useCallback(() => {
-    const next = afterHowItWorks(check.recent.length > 0);
-    if (next === 'tailscale') check.setGuideHost(null);
-    transitionToStage(next);
-  }, [check.recent.length, check.setGuideHost, transitionToStage]);
-
-  const onHowItWorksBack = useCallback(() => {
-    transitionToStage('welcome');
+  /** Advanced: the legacy address field, for a LAN or VPN address. */
+  const onWelcomeAdvanced = useCallback(() => {
+    transitionToStage('host');
   }, [transitionToStage]);
 
   return (
@@ -151,9 +144,7 @@ export default function Connect() {
     <KeyboardAvoider style={{ backgroundColor: theme.colors.bg }}>
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
         {stage === 'welcome' ? (
-          <WelcomeScreen onContinue={onWelcomeContinue} />
-        ) : stage === 'how-it-works' ? (
-          <HowItWorksScreen onContinue={onHowItWorksContinue} onBack={onHowItWorksBack} />
+          <WelcomeScreen onLink={onWelcomeLink} onAdvanced={onWelcomeAdvanced} />
         ) : stage === 'tailscale' ? (
           <TailscaleGuide
             host={check.guideHost}

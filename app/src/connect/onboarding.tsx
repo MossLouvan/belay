@@ -49,14 +49,12 @@ function Step({ index, title, detail, url, code }: StepProps) {
 
 /** Where the computer half of Belay comes from. */
 export const HOST_SITE_URL = 'https://gobelay.com';
-export const HOST_INSTALL_COMMAND = 'npx belay-host';
 
 const STEPS: readonly Omit<StepProps, 'index'>[] = [
   {
-    title: 'Install Belay on your computer',
-    detail: 'Get it from the site, or run this one line in a terminal. Leave it running — it shows an address and a code.',
+    title: 'Open Belay on your computer',
+    detail: 'Get it from the site. Run from a terminal (npx belay-host), it prints its addresses and a 6-digit code under Advanced.',
     url: HOST_SITE_URL,
-    code: HOST_INSTALL_COMMAND,
   },
   {
     // The Screen tab is black until this is granted, and macOS never prompts
@@ -64,16 +62,11 @@ const STEPS: readonly Omit<StepProps, 'index'>[] = [
     // it is even needed. Windows and Linux need nothing here, hence "On a Mac".
     title: 'On a Mac, allow Screen Recording',
     detail:
-      'System Settings › Privacy & Security › Screen Recording — switch on the app running the host agent (Terminal, or your code editor), then start it again. Without it the Screen tab stays black; Agent, Terminal, Files and System still work.',
+      'System Settings › Privacy & Security › Screen Recording — switch on Belay, then open it again. Without it the Screen tab stays black; Agent, Terminal, Files and System still work.',
   },
   {
-    title: 'On the same Wi-Fi, enter the address and code it shows',
+    title: 'Enter the address and code it shows',
     detail: 'One time only. After that your phone remembers this computer.',
-  },
-  {
-    title: 'Away from home? Optional',
-    detail:
-      'Install Tailscale on both devices and use the address it gives your computer — it starts with 100. and works from anywhere. No code is needed over Tailscale.',
   },
 ];
 
@@ -93,9 +86,9 @@ export function SetupSteps() {
 }
 
 interface AwayFromHomeNoteProps {
-  /** Opens the guided Tailscale setup. Rendered as the section's one action. */
+  /** Opens the guided Tailscale setup (optional, advanced). The section's one action. */
   readonly onSetUp?: () => void;
-  /** Start expanded — a first run, where Tailscale may not be set up yet. */
+  /** Start expanded. */
   readonly defaultOpen?: boolean;
 }
 
@@ -127,17 +120,16 @@ export function AwayFromHomeNote({ onSetUp, defaultOpen = false }: AwayFromHomeN
       {open ? (
         <View style={{ gap: theme.space.xs, paddingBottom: theme.space.sm }}>
           <Txt variant="caption" tone="dim">
-            On the same Wi-Fi, the address your computer prints works as-is. On cellular it will not — your
-            home network is not reachable from the outside.
+            A local address only works on the same network. To reach this computer from anywhere, link it to
+            your account instead: go back and scan the QR code Belay shows on it.
           </Txt>
           <Txt variant="caption" tone="dim">
-            Install Tailscale on both devices and use the computer's Tailscale address instead. It starts with
-            100. and works from anywhere, encrypted end to end, with no port forwarding.
+            Already use a VPN such as Tailscale? The address it gives the computer works from anywhere too.
           </Txt>
-          <Caption>Never expose the host agent directly to the internet.</Caption>
+          <Caption>Never expose Belay directly to the internet.</Caption>
           {onSetUp ? (
             <Button
-              label="Set it up step by step"
+              label="Set up Tailscale step by step"
               variant="secondary"
               onPress={onSetUp}
               fullWidth

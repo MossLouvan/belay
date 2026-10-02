@@ -143,24 +143,10 @@ export function DiscoveredSection({ saved, connected, viaLabel, nonce, onAdd }: 
     <Label style={{ marginBottom: theme.space.xs }}>Also on your tailnet</Label>
   );
 
-  if (scan.kind === 'loading') {
-    return (
-      <View>
-        {heading}
-        <Caption>Asking {viaLabel} to look for your other computers…</Caption>
-      </View>
-    );
-  }
-
-  if (scan.kind === 'error') {
-    return (
-      <View>
-        {heading}
-        <Caption>{`Could not ask ${viaLabel} to look: ${scan.message}`}</Caption>
-        <Micro style={{ marginTop: theme.space.xxs }}>{`Checked ${timeOf(scan.at)} · Refresh looks again`}</Micro>
-      </View>
-    );
-  }
+  // Opportunistic: only a computer that is on a tailnet can look around it.
+  // Everyone else (the account + tunnel default) sees nothing here at all,
+  // not a "Tailscale unavailable" note implying they need it.
+  if (scan.kind !== 'ready' || !scan.reply.tailscale) return null;
 
   const fresh = newlyDiscovered(scan.reply.hosts, saved);
   const summary = summarizeDiscovery(scan.reply, fresh.length, viaLabel);

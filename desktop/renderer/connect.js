@@ -106,8 +106,8 @@ async function pair() {
   // needed nor checked, so an empty one is the normal case, not an error.
   const tailnet = isTailscaleOrigin(origin);
   const code = link ? link.code : (tailnet ? '' : $('code').value.trim());
-  if (!tailnet && !code) return showError('Type the pairing code shown on that computer, or use its Tailscale address to skip it.');
-  setBusy(true, tailnet ? 'pairing over Tailscale…' : 'pairing…');
+  if (!tailnet && !code) return showError('Type the pairing code shown on that computer.');
+  setBusy(true, 'pairing…');
   try {
     // deviceName is what the host shows in its paired-devices list, so it says
     // which machine this is rather than just "desktop".
@@ -320,10 +320,10 @@ for (const id of ['host', 'code']) {
 function syncCodeField() {
   const tailnet = isTailscaleOrigin(hostOrigin($('host').value));
   $('code').disabled = tailnet;
-  $('code').placeholder = tailnet ? 'not needed over Tailscale' : '123456';
+  $('code').placeholder = tailnet ? 'not needed on this network' : '123456';
   $('code-hint').textContent = tailnet
-    ? 'This is a Tailscale address — the host recognises this computer, no code needed.'
-    : 'Leave blank when connecting over Tailscale.';
+    ? 'The host recognises this computer on this network — no code needed.'
+    : 'The 6-digit code that computer shows.';
 }
 // The live line under the address, in the app's voice: the example while the
 // field is empty, then reassurance, a nudge, or the reason it will not do.

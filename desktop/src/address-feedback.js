@@ -11,9 +11,6 @@ import { hostOrigin, isTailscaleOrigin } from './url.js';
 /** The example shown under an empty field — the shape of a Tailscale address. */
 export const EXAMPLE_TAILSCALE_ADDRESS = '100.101.102.103';
 
-/** What every Tailscale address begins with. */
-export const TAILSCALE_PREFIX = '100.';
-
 const IPV4_DRAFT = /^[\d.]+$/;
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
@@ -45,16 +42,14 @@ export function addressFeedback(input) {
   // typing an IP, not a name (the URL parser would happily read "100.101" as
   // 100.0.0.101, which is why this comes before the origin check).
   if (IPV4_DRAFT.test(trimmed) && !IPV4.test(trimmed)) {
-    return trimmed.startsWith(TAILSCALE_PREFIX) || TAILSCALE_PREFIX.startsWith(trimmed)
-      ? feedback('dim', `Keep going — four numbers, like ${EXAMPLE_TAILSCALE_ADDRESS}`)
-      : feedback('warn', 'Tailscale addresses start with 100.');
+    return feedback('dim', `Keep going — four numbers, like ${EXAMPLE_TAILSCALE_ADDRESS}`);
   }
   if (!origin) {
-    return feedback('bad', `"${trimmed}" is not an address. Copy the 100.x address from Tailscale, e.g. ${EXAMPLE_TAILSCALE_ADDRESS}.`);
+    return feedback('bad', `"${trimmed}" is not an address — four numbers, e.g. ${EXAMPLE_TAILSCALE_ADDRESS}.`);
   }
   if (/\.ts\.net$/i.test(hostnameOf(origin))) return feedback('good', 'Looks like a Tailscale name');
   if (IPV4.test(hostnameOf(origin))) {
-    return feedback('warn', 'Local address — works on the same network only. Tailscale addresses start with 100.');
+    return feedback('warn', 'Local address — works on the same network only.');
   }
   return feedback('dim', 'A computer name — works on the same network only');
 }

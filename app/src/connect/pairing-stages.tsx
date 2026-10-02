@@ -75,7 +75,7 @@ export function PairingStages({ session, check, adding, onOpenGuide }: PairingSt
           />
           <Rule bleed={theme.layout.margin} />
           <SetupSteps />
-          <AwayFromHomeNote onSetUp={onOpenGuide} defaultOpen={check.recent.length === 0} />
+          <AwayFromHomeNote onSetUp={onOpenGuide} />
           {adding && router.canGoBack() ? (
             <Button
               testID="cancel-add"

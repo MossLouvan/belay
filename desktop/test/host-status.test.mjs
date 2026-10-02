@@ -12,6 +12,14 @@ test('parsePairing reads the code and identity, both schemes, rejects the rest',
   assert.equal(parsePairing(undefined), null);
 });
 
+// Belay.app shows the account claim QR while the computer is unlinked: its
+// code is the 8-character one the phone's "type the code" field takes.
+test('parsePairing reads the claim code from a claim link', () => {
+  const node = 'ab'.repeat(32);
+  assert.deepEqual(parsePairing(`belay://claim?c=ABCD2345&n=${node}`), { code: 'ABCD2345', hostId: node, label: '' });
+  assert.equal(parsePairing(`belay://claim?c=12345678&n=${node}`), null);
+});
+
 test('qrSvg draws one unit square per dark module inside a quiet zone', () => {
   const svg = qrSvg([[true, false], [false, true]], { quiet: 1 });
   assert.match(svg, /viewBox="0 0 4 4"/);

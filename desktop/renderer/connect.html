@@ -28,8 +28,8 @@
     </header>
 
     <section id="pair" class="stack">
-      <p class="subheading">Type the address from your Tailscale app</p>
-      <p class="caption">The 100.x number Tailscale shows next to that computer, its address on this network, or the pairing link from its QR code.</p>
+      <p class="subheading">Connect by address</p>
+      <p class="caption">The computer's address on this network or a VPN, or the pairing link from its QR code.</p>
 
       <div class="field">
         <label class="label" for="host">Computer address</label>
@@ -40,7 +40,7 @@
       <div class="field" id="code-field">
         <label class="label" for="code">Pairing code shown on that computer</label>
         <input id="code" class="input mono" placeholder="123456" inputmode="numeric" autocomplete="off" maxlength="8" />
-        <div class="caption" id="code-hint">Leave blank when connecting over Tailscale.</div>
+        <div class="caption" id="code-hint">The 6-digit code that computer shows.</div>
       </div>
 
       <div class="field" id="cert" hidden>
@@ -56,11 +56,11 @@
         <button class="track-label" id="where" type="button" aria-expanded="false" aria-controls="where-panel">Where do I find it?</button>
       </div>
       <div class="stack where-panel" id="where-panel" hidden>
-        <span class="label">In the Tailscale app</span>
+        <span class="label">On that computer</span>
         <ol class="steps">
-          <li>Open Tailscale on this computer or your phone.</li>
-          <li>Find the computer running the Belay host in the machine list.</li>
-          <li>Copy its address — it starts with <span class="mono">100.</span> — and paste it above.</li>
+          <li>Use its local IP from its network settings.</li>
+          <li>Or, if the host runs in a terminal, copy an address from <em>Advanced: connect by address</em>.</li>
+          <li>On a VPN such as Tailscale, use the address that VPN gives that computer.</li>
         </ol>
         <div class="example-address mono" aria-hidden="true">100.101.102.103</div>
       </div>

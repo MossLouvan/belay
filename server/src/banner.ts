@@ -52,7 +52,7 @@ export function reprintPairingCode(
   expiresInSec: number,
 ): void {
   console.log('');
-  console.log('  New pairing code — scan this in the Belay app:');
+  console.log('  Advanced: new pairing code — scan this in the Belay app (Connect by address):');
   console.log('');
   emitPairingCode(info, code, expiresInSec, terminalSinks);
   console.log('');
@@ -97,7 +97,7 @@ export function printBanner(info: BannerInfo): void {
     `  Native    : ${info.nativeReady ? 'ready (screen + input)' : `NOT BUILT — ${buildNativeHint()}`}`,
     ...(info.fingerprint ? [`  Cert      : ${displayFingerprint(info.fingerprint)}`] : []),
     '',
-    '  Reachable at:',
+    '  Advanced: connect by address (same network or VPN):',
     ...found.map((a) => `    ${urlOf(a)}`),
   ];
 
@@ -108,20 +108,20 @@ export function printBanner(info: BannerInfo): void {
   const ispCgnat = found.filter((a) => isCgnatAddress(a.address) && !isTailscaleAddress(a.address, a.interfaceName));
 
   if (onTailscale) {
-    lines.push('    (the 100.x address on a tunnel interface is Tailscale — reachable from anywhere)');
+    lines.push('    (the 100.x address is on a VPN interface — reachable wherever that VPN reaches)');
   } else {
     if (ispCgnat.length > 0) {
       lines.push(
         `    Note: ${ispCgnat[0].address} is in the 100.64.0.0/10 range but sits on`,
         `    ${ispCgnat[0].interfaceName}, a physical interface — so it is your ISP's`,
-        '    carrier-grade NAT, not Tailscale. It looks similar and means the',
+        '    carrier-grade NAT, not a VPN address. It looks similar and means the',
         '    opposite: there is no public address and nothing to port-forward.',
         '',
       );
     }
     lines.push('    These addresses only work on this network, and they change.');
-    lines.push('    Install Tailscale on this machine and your phone to reach it');
-    lines.push('    from anywhere: https://tailscale.com/download');
+    lines.push('    To reach this computer from anywhere, link it to your Belay account:');
+    lines.push('    open the Belay app on your phone, sign in, and scan the link QR.');
   }
   lines.push('');
 
@@ -130,7 +130,7 @@ export function printBanner(info: BannerInfo): void {
   }
 
   if (info.deviceCount === 0 && info.pairingCode) {
-    lines.push('  Scan this in the Belay app to connect:', '');
+    lines.push('  Advanced: pair by address and code (scan in the Belay app, Connect by address):', '');
     for (const line of lines) console.log(line);
     lines.length = 0;
 

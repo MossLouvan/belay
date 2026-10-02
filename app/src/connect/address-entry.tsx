@@ -16,7 +16,7 @@ import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useTheme } from '../theme';
-import { Button, IconButton, Input, Label, Row, Rule, TrackLabel, Txt, haptic } from '../ui';
+import { Button, IconButton, Input, Row, Rule, TrackLabel, Txt, haptic } from '../ui';
 import {
   EXAMPLE_TAILSCALE_ADDRESS,
   TAILSCALE_PREFIX,
@@ -163,7 +163,7 @@ export function AddressEntry({
       const text = await Clipboard.getStringAsync();
       const next = normalizePastedAddress(text ?? '');
       if (!next) {
-        setPasteError('Nothing to paste — copy the address in Tailscale first.');
+        setPasteError('Nothing to paste — copy the computer\'s address first.');
         return;
       }
       haptic('light');
@@ -181,9 +181,9 @@ export function AddressEntry({
       {discovered ? <DiscoveredRow shortcut={discovered} /> : null}
 
       <View style={{ gap: theme.space.xs }}>
-        <Txt variant="subheading">Type the address from your Tailscale app</Txt>
+        <Txt variant="subheading">Connect by address</Txt>
         <Txt variant="caption" tone="dim">
-          Open Tailscale, find your computer, and copy the address that starts with 100.
+          Advanced. Type the computer's local IP, or its address on a VPN you already use.
         </Txt>
       </View>
 
@@ -207,7 +207,7 @@ export function AddressEntry({
           onSubmitEditing={onSubmit}
           editable={!busy}
           accessibilityLabel="Computer address"
-          accessibilityHint="The 100.x address from the Tailscale app. Port 8787 is added for you."
+          accessibilityHint="The computer's IP address. Port 8787 is added for you."
           trailing={
             <IconButton
               testID="paste-address"
@@ -244,14 +244,14 @@ export function AddressEntry({
           label="Where do I find it?"
           active={showWhere}
           onPress={() => setShowWhere((open) => !open)}
-          accessibilityHint={showWhere ? 'Hides the example' : 'Shows where the address is in the Tailscale app'}
+          accessibilityHint={showWhere ? 'Hides the example' : 'Shows where to find the computer\'s address'}
           testID="address-where"
         />
         {onScan ? (
           <TrackLabel
             label="Scan a code instead"
             onPress={onScan}
-            accessibilityHint="Scans the QR code the host agent prints"
+            accessibilityHint="Scans the pairing QR code Belay shows on the computer"
             testID="scan-btn"
           />
         ) : null}
@@ -259,7 +259,10 @@ export function AddressEntry({
 
       {showWhere ? (
         <View style={{ gap: theme.space.sm }}>
-          <Label>In the Tailscale app</Label>
+          <Txt variant="caption" tone="dim">
+            Use the computer's local IP from its network settings (a terminal-run host prints its addresses
+            too). On a VPN such as Tailscale, use the address the VPN app shows for the computer:
+          </Txt>
           <TailscaleIpExample />
         </View>
       ) : null}

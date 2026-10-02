@@ -42,3 +42,13 @@ test('a malformed code or node id is refused', () => {
   assert.equal(parseClaimLink(`belay://claim?c=ABCD2345&n=${NODE.toUpperCase()}`), null, 'hex must be lowercase');
   assert.equal(parseClaimLink(`belay://claim?c=ABCD2345&n=${'a'.repeat(63)}`), null, 'exactly 64 hex');
 });
+
+// The type-the-code fallback: the host prints the code beside the QR.
+test('a typed claim code is normalised, or null when it cannot be one', async () => {
+  const { parseClaimCode } = await import('./claim-link.ts');
+  assert.equal(parseClaimCode(' ylk7-wpvm '), 'YLK7WPVM');
+  assert.equal(parseClaimCode('YLK7 WPVM'), 'YLK7WPVM');
+  assert.equal(parseClaimCode('YLK7WPV'), null);
+  assert.equal(parseClaimCode('YLK7WPV1'), null);
+  assert.equal(parseClaimCode(''), null);
+});
