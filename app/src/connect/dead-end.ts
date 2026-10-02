@@ -1,9 +1,10 @@
 // Detecting the pairing dead end before anyone types a digit.
 //
-// The host only mints a pairing code while nothing is paired with it — an
-// already-paired host that restarts would otherwise hold a live five-minute
-// code its banner never prints, an open door nobody could see. Correct on the
-// host; a trap on the phone, which used to present six code boxes anyway and
+// The host only mints a pairing code by itself while nothing is paired with
+// it; once paired, a newer host shows one only when a phone asks (POST
+// /pair/request, #150) and an older one never does. The ask is tried first
+// (use-address-check.ts); this notice is what is left when it fails — a trap
+// on the phone otherwise, which used to present six code boxes anyway and
 // let someone sit entering codes that could not exist. /health already says
 // everything needed to catch this: `paired: true` plus `pairing: 'code'`
 // means a code is required from here and none will be issued.
@@ -81,27 +82,11 @@ export function detectDeadEnd(
 }
 
 /**
- * The exact commands that reopen the pairing window on the computer.
- *
- * The host only issues codes while nothing is paired, so the window is reopened
- * by clearing the paired devices. It must be cleared *without* discarding the
- * machine's identity: deleting belay-state.json used to do it, but that also
- * regenerates the host's `hostId` — the very key the app saves computers on —
- * which orphans the phone's saved entry, resets a renamed machine's label, and
- * makes the next pairing appear as a *second*, duplicate computer.
- * `--reset-pairing` clears only the devices and keeps hostId and label, so the
- * saved computer keeps working after re-pairing. The command is the same on
- * every platform — no file to remove, so no `del`/`rm` split, and no guessing
- * between belay-state.json and the legacy tether-state.json. BELAY_TEST_CODE is
- * deliberately not offered: it disables expiry and single-use, and the host
- * itself warns it is for automated tests only.
- *
- * `platform` is retained for signature stability (callers pass the host's OS);
- * the instruction no longer varies by it.
+ * Where a fresh code comes from once a computer is paired (#150): Belay on the
+ * computer shows one when a phone asks, and its "Pair another phone" action
+ * shows one on demand. No command, no reset — every paired phone keeps working.
  */
-export function reopenPairingCommand(_platform?: string): string {
-  return 'npx belay-host --reset-pairing';
-}
+export const REOPEN_PAIRING_HINT = 'Open Belay on your computer to see a pairing code';
 
 /**
  * Proof-of-life stamp for the dead-end notice (docs/DESIGN.md §11.4): a

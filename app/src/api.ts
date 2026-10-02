@@ -148,6 +148,11 @@ export interface HostCheck {
    */
   pairing?: 'tailnet' | 'code';
   /**
+   * True when an already-paired host will show a fresh code on its own
+   * screen if asked (POST /pair/request, #150). False on older hosts.
+   */
+  codeOnRequest?: boolean;
+  /**
    * True when the host can stream H.264 over UDP (BWP). Absent from hosts
    * older than the flag, which are asked anyway — see screen/bwp-policy.ts.
    */
@@ -192,6 +197,7 @@ export async function checkHost(host: string, signal?: AbortSignal): Promise<Hos
       addresses: Array.isArray(j.addresses) ? j.addresses : undefined,
       reachableFromAnywhere: j.reachableFromAnywhere === true,
       pairing: j.pairing === 'tailnet' ? 'tailnet' : 'code',
+      codeOnRequest: j.codeOnRequest === true,
       bwp: readBwpCapability(j),
     };
   } catch (e: unknown) {
@@ -262,6 +268,25 @@ export async function pair(host: string, code: string, deviceName: string): Prom
     secret: str(j.secret),
     fingerprint: str(j.fingerprint),
   };
+}
+
+/**
+ * Ask an already-paired host to show a fresh pairing code on its own screen
+ * (#150). The reply never carries the code — the person reads it off the
+ * computer, as always. False when the host refused (not one of the account's
+ * phones, not on its network, too many asks) or could not be reached.
+ */
+export async function requestPairingCode(host: string, deviceName: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(
+      host + '/pair/request',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceName }) },
+      '/pair/request',
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**

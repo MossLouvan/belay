@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { checkedAtLabel, detectDeadEnd, reopenPairingCommand } from './dead-end.ts';
+import { REOPEN_PAIRING_HINT, checkedAtLabel, detectDeadEnd } from './dead-end.ts';
 
 const lan = { kind: 'lan', url: 'http://192.168.1.30:8787' };
 const ts = { kind: 'tailscale', url: 'http://100.64.10.40:8787' };
@@ -89,31 +89,13 @@ test('an upgrade plan that was never probed stays honest: untried', () => {
   assert.deepEqual(detectDeadEnd(pairedHost(), upgrade, null, ts.url), { standing: 'untried' });
 });
 
-// ---- reopenPairingCommand -------------------------------------------------
+// ---- the way forward on the computer (#150) --------------------------------
 
-// Regression: the reset must NOT delete belay-state.json. Deleting it
-// regenerates the host's id, which orphans the phone's saved computer and
-// duplicates it on the next pair. --reset-pairing clears only the devices and
-// keeps the machine's identity and label.
-test('the reopen instruction resets pairing without deleting state', () => {
-  const expected = 'npx belay-host --reset-pairing';
-  assert.equal(reopenPairingCommand('darwin'), expected);
-  assert.equal(reopenPairingCommand('win32'), expected);
-  assert.equal(reopenPairingCommand(undefined), expected);
-});
-
-test('the reopen instruction never removes the host state file', () => {
-  for (const platform of ['darwin', 'win32', undefined]) {
-    const cmd = reopenPairingCommand(platform);
-    assert.doesNotMatch(cmd, /rm -f|del /, 'no file deletion — that would drop identity');
-    assert.doesNotMatch(cmd, /belay-state\.json|tether-state\.json/, 'never names the state file');
-  }
-});
-
-test('the reopen instruction never mentions the test-code back door', () => {
-  for (const platform of ['darwin', 'win32', undefined]) {
-    assert.doesNotMatch(reopenPairingCommand(platform), /TEST_CODE/);
-  }
+// Belay.app users have no terminal and no npx: the computer itself shows a
+// code (Pair another phone), so that is where the notice points.
+test('the reopen hint points at Belay on the computer, not at a command', () => {
+  assert.equal(REOPEN_PAIRING_HINT, 'Open Belay on your computer to see a pairing code');
+  assert.doesNotMatch(REOPEN_PAIRING_HINT, /npx|--reset-pairing|TEST_CODE|belay-state/);
 });
 
 // ---- checkedAtLabel -------------------------------------------------------
