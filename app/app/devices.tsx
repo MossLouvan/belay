@@ -326,8 +326,10 @@ export default function Devices() {
           ) : null}
         </View>
       </Screen>
-      {/* The list is none of the tabs: nothing lit, Screen navigates (#73). */}
-      <AppearanceNav />
+      {/* The list is none of the tabs: nothing lit, Screen navigates (#73).
+          Every tab needs a connected computer, so with none there is no bar
+          rather than five tabs that do nothing (#151). */}
+      {phase === 'connected' ? <AppearanceNav /> : null}
       {sheets}
     </View>
   );

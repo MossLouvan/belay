@@ -28,7 +28,8 @@ import { createPolyglotServer, transportAllowed, PLAINTEXT_REFUSED, PLAINTEXT_RE
 import { isValidNonce, proveDevice } from './device-proof.js';
 import { wantsPairingReset } from './reset-pairing.js';
 import { buildAddresses, hasStableAddress } from './addresses.js';
-import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive } from './pairing.js';
+import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive, codeOnDemand } from './pairing.js';
+import { createPairRequestGate } from './pair-request.js';
 import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
@@ -66,7 +67,7 @@ import {
   listProjects, agentAvailable, attachSession, attachedClaudeIds, ptyRegistry, rememberProjectPath, findClaude,
 } from './agent.js';
 import { createProject, defaultProjectParent } from './projects.js';
-import { collectChanges } from './changes.js';
+import { collectChanges, changesForCwd } from './changes.js';
 import { discoverSessions, sessionIndex } from './discover.js';
 import { handleTranscriptSocket, registerTranscriptRoutes } from './transcript-routes.js';
 import { discoverPeerHosts } from './discover-hosts.js';
@@ -85,7 +86,7 @@ import { readSettings, settingsPath } from './hooks-install-cli.js';
 import { createCursorRegistry } from './cursors.js';
 import { createCursorHub } from './cursor-channel.js';
 import { createInputFloor, denialBody, isLocalActivity } from './input-floor.js';
-import { postToApp, qrModules } from './host-ipc.js';
+import { onAppMessage, postToApp, qrModules } from './host-ipc.js';
 import type { FloorDenied } from './input-floor.js';
 import { registerImageRoutes } from './image-routes.js';
 import { registerThumbnailRoutes } from './thumbnail.js';
@@ -196,6 +197,10 @@ const pairGuard = createPairGuard();
 // dropped success can be replayed by an identical retry from the same source,
 // without handing the token to anyone else who saw the on-screen code.
 const pairReplay = createPairReplayCache();
+// Who may make this computer show a fresh code once something is paired (#150).
+const pairRequestGate = createPairRequestGate();
+/** The account's phones, as the tunnel admits them; empty until linked. */
+let tunnelAllowList: readonly string[] = [];
 const tickets = createTicketStore();
 
 /**
@@ -325,6 +330,9 @@ app.get('/health', async (req, res) => {
     // never asks a host that says false — so a Mac host is never left waiting
     // for an offer it cannot make.
     bwp: bwpAvailable(),
+    // A paired host shows a fresh code when a phone asks (POST /pair/request),
+    // so the phone offers that instead of the "already paired" dead end.
+    codeOnRequest: true,
     // Every identity field is read by the phone BEFORE it has a token: `id`
     // and `label` to save the computer, `addresses` to retry over the tailnet
     // address for code-less pairing, `platform` for the desktop client's key
@@ -425,6 +433,33 @@ app.post('/pair', async (req, res) => {
   const body = pairReply(device);
   pairReplay.remember(codeStr, clientId, body);
   res.json(body);
+});
+
+// A phone that wants to pair with an already-paired host asks here, and the
+// host puts a fresh short-lived code on its OWN screen (Belay.app's window and
+// the native popup). The reply never carries the code: reading it off this
+// computer is still the proof of presence, and /pair with its guard, replay
+// binding and single use is unchanged. pair-request.ts decides who may ask.
+app.post('/pair/request', (req, res) => {
+  const refusal = pairRefusal(req.headers, allowedOrigins());
+  if (refusal) { res.status(refusal.status).json({ error: refusal.error }); return; }
+
+  const decision = pairRequestGate.decide(req.socket.remoteAddress, tunnelAllowList);
+  if (!decision.allowed) {
+    if (decision.status === 429) res.set('Retry-After', String(decision.retryAfterSec));
+    console.warn(`[pairing] code request from ${req.ip ?? 'unknown'} refused (${decision.status})`);
+    res.status(decision.status).json({ error: decision.error, retryAfterSec: decision.retryAfterSec });
+    return;
+  }
+
+  const shown = showCodeOnDemand();
+  const { deviceName } = req.body || {};
+  void notifyPairAttempt(native, {
+    from: req.ip ?? 'unknown',
+    deviceName: typeof deviceName === 'string' ? deviceName : null,
+    code: shown.code,
+  });
+  res.json({ ok: true, expiresInSec: shown.expiresInSec });
 });
 
 // Prove this host is the one `deviceId` paired with, before the client sends
@@ -1084,6 +1119,24 @@ app.get('/agent/sessions/:id/changes', auth, async (req, res) => {
   if (!snap) { res.status(404).json({ error: 'no such session' }); return; }
   try { res.json(await collectChanges(snap.cwd)); }
   catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+// The same, by folder, for a done notice from a plain terminal session (no
+// Belay session id, #127). Only a cwd some session actually ran in is served
+// — Belay's own, a hook notice or ask, or one discovered on disk — so this is
+// not a way to ask git about an arbitrary path. Unknown is a flat 404.
+const knownSessionCwds = (): string[] => [
+  ...listSessions().map((s) => s.cwd),
+  ...hooksStore().notices().map((n) => n.cwd),
+  ...hooksStore().pending().map((p) => p.cwd),
+  ...sessionIndex().list().map((d) => d.cwd),
+];
+app.get('/agent/changes', auth, async (req, res) => {
+  try {
+    const out = await changesForCwd(req.query.cwd, knownSessionCwds());
+    if (!out) { res.status(404).json({ error: 'no session ran in that folder' }); return; }
+    res.json(out);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 app.post('/agent/sessions/:id/prompt', auth, (req, res) => {
@@ -2101,7 +2154,7 @@ function startTunnelHost(): void {
         client: fetchAccountsClient(), store, nodeId,
         name: getHostName(), platform: getPlatform(),
         sign: (m) => t.sign(m),
-        onAllowList: (ids, relays) => { t.setAllowList(ids); t.setRelays(relays); },
+        onAllowList: (ids, relays) => { tunnelAllowList = [...ids]; t.setAllowList(ids); t.setRelays(relays); },
         show: {
           qr: (link) => {
             qrcode.generate(link, { small: true });
@@ -2121,6 +2174,29 @@ function startTunnelHost(): void {
 // whenever it rotates, so the PC always shows a code that actually works even
 // if the user takes more than the 5-minute window to pair.
 let lastPrintedCode = currentCode()?.code || '';
+
+/**
+ * Put a pairing code on this computer's screen on request: the live one if
+ * there is one, else a fresh short-lived one (pairing.ts codeOnDemand). Shown
+ * the same way the rotation shows it — terminal QR plus Belay.app's window.
+ */
+function showCodeOnDemand(): { code: string; expiresInSec: number } {
+  const c = codeOnDemand();
+  // A minted code gets its own failure budget, exactly like a rotated one.
+  if (c.minted) pairGuard.resetCodeBudget();
+  lastPrintedCode = c.code;
+  reprintPairingCode(
+    { hostId: getHostId(), label: getLabel(), platform: getPlatform(), port: PORT, fingerprint: tls.fingerprint },
+    c.code,
+    c.expiresInSec,
+  );
+  return c;
+}
+
+// Belay.app's "Pair another phone": the person is at this computer, so no gate.
+onAppMessage((message) => {
+  if (message.type === 'pair-code') showCodeOnDemand();
+});
 setInterval(() => {
   if (deviceCount() > 0) return;
   ensureCode();

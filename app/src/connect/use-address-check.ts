@@ -8,7 +8,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { checkHost } from '../api';
+import { Platform } from 'react-native';
+import { checkHost, requestPairingCode } from '../api';
 import { pinAddresses, pinningAvailable, probeFingerprint } from '../devices/pinning';
 import { haptic } from '../ui';
 import type { PairingDeadEnd } from './dead-end';
@@ -20,7 +21,7 @@ import type { TailnetOutcome } from './tailnet';
 import { TAILNET_PROBE_ATTEMPTS, planTailnetUpgrade, readTailnetProbe, tailnetUrlFrom } from './tailnet';
 import type { GuideHost } from './tailscale-guide';
 import type { DiscoveredShortcut } from './address-entry';
-import { HOST_CHECK_TIMEOUT_MS, TIMED_OUT, withDeadline } from './pair-flow';
+import { HOST_CHECK_TIMEOUT_MS, TIMED_OUT, deviceNameFor, withDeadline } from './pair-flow';
 import type { DeadEndNotice, HealthResult } from './pair-flow';
 import { useTailnetDiscovery } from './use-tailnet-discovery';
 import { useTailscaleReturn } from './use-tailscale-return';
@@ -233,10 +234,19 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
       // work while the host will actually issue a code, and an already-paired
       // host never does. Walking in blind is the exact hour-long trap the
       // dead-end notice exists to prevent.
+      //
+      // A newer host shows a fresh code on its own screen when asked (#150),
+      // so ask first; the notice appears only if the computer refuses (not
+      // this account's phone, not its network, asked too often) or is gone.
+      // True either way: the code screen, not the Tailscale guide, comes next.
       const flagDeadEnd = (probe: TailnetOutcome | null): boolean => {
         const dead: PairingDeadEnd | null = detectDeadEnd(result, plan, probe, tailnetUrlFrom(result));
         if (!dead) return false;
-        setDeadEnd({ ...dead, checkedAt: Date.now(), platform: result.platform });
+        const show = () => setDeadEnd({ ...dead, checkedAt: Date.now(), platform: result.platform });
+        if (!result.codeOnRequest) { show(); return true; }
+        void requestPairingCode(resolved.url, deviceNameFor(Platform.OS)).then((asked) => {
+          if (!asked && live.current && seq === checkSeq.current) show();
+        });
         return true;
       };
 

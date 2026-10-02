@@ -48,6 +48,9 @@ const GIT_MAX_BUFFER = 8 * 1024 * 1024;
  */
 const MAX_NEW_FILE_DIFFS = 20;
 
+/** Per git invocation: a wedged repo (network FS, giant tree) must not hang the route. */
+const GIT_TIMEOUT_MS = 15_000;
+
 export interface ProjectChanges {
   /** False when the folder has no git history to compare against. */
   readonly repo: boolean;
@@ -77,6 +80,8 @@ async function git(dir: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', [...args], {
     cwd: dir,
     maxBuffer: GIT_MAX_BUFFER,
+    timeout: GIT_TIMEOUT_MS,
+    windowsHide: true,
     // Untranslated, unpaged, and with literal (unquoted) non-ASCII paths, so
     // the parsers below see one stable format regardless of host config.
     env: { ...process.env, LC_ALL: 'C', GIT_PAGER: 'cat' },
@@ -263,4 +268,22 @@ export async function collectChanges(cwd: string): Promise<ProjectChanges> {
     diff: capped.text,
     diffTruncated: capped.truncated,
   };
+}
+
+/**
+ * Changes for a folder a session ran in, for a done notice from a plain
+ * terminal session that has no Belay session id (#127).
+ *
+ * `known` is every cwd the host already knows a session for. Anything else is
+ * null — the same answer for a real repo, a missing folder or one outside the
+ * roots — so the route cannot be used to probe arbitrary paths. A known folder
+ * still goes through collectChanges' own confinement.
+ */
+export async function changesForCwd(cwd: unknown, known: Iterable<string>): Promise<ProjectChanges | null> {
+  if (typeof cwd !== 'string' || cwd === '') return null;
+  const wanted = resolve(cwd);
+  for (const k of known) {
+    if (k && resolve(k) === wanted) return collectChanges(k);
+  }
+  return null;
 }

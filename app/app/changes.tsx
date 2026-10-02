@@ -1,6 +1,7 @@
 // "What changed" — the review half of supervising a Claude session from the
 // phone (docs/PRODUCT-REVIEW.md, A4). Opened with a session id (plus its
-// title and folder for the header), it asks the host what Claude actually did
+// title and folder for the header), or with just the folder for a plain
+// terminal session's done notice (#127), it asks the host what Claude actually did
 // to the files and leads with the host's plain-English verdict: cautions
 // first, in the status colour, then the headline, then the file list, then
 // the full line-by-line change for whoever wants the detail.
@@ -40,19 +41,21 @@ export default function Changes() {
   const theme = useTheme();
   const params = useLocalSearchParams<{ session?: string; title?: string; cwd?: string }>();
   const sessionId = typeof params.session === 'string' ? params.session : '';
+  // A plain terminal session has no Belay id: its done notice opens by folder.
+  const cwd = typeof params.cwd === 'string' ? params.cwd : '';
 
   const [phase, setPhase] = useState<Phase>({ state: 'loading' });
 
   const load = useCallback(async () => {
     setPhase({ state: 'loading' });
     try {
-      const data = await fetchChanges(sessionId);
+      const data = await fetchChanges({ session: sessionId, cwd });
       setPhase({ state: 'ready', data, at: Date.now() });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'something went wrong';
       setPhase({ state: 'error', message, at: Date.now() });
     }
-  }, [sessionId]);
+  }, [sessionId, cwd]);
 
   // On a reload or deep link the saved connection is still racing when this
   // mounts; a load fired then fails "not connected" and would never re-run

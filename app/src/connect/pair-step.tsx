@@ -108,7 +108,7 @@ export function PairStep({
         <Label>Pairing code</Label>
         <Caption>
           {codeUnlikely
-            ? `For when ${host.name} is actually showing one — right after a pairing reset, for instance.`
+            ? `For when ${host.name} is showing one — from Pair another phone in Belay on it.`
             : `It is shown in the Belay window on ${host.name}.`}
         </Caption>
 

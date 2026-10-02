@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 
 import {
   generateCode, currentCode, consumeCode, ensureCode, burnCode,
-  testCode, testCodeActive,
+  testCode, testCodeActive, codeOnDemand, ON_DEMAND_TTL_MS,
 } from '../src/pairing.js';
 
 const savedTestCode = process.env.BELAY_TEST_CODE;
@@ -178,4 +178,41 @@ test('a malformed BELAY_TEST_CODE is ignored even with the opt-in', () => {
     process.env.BELAY_TEST_CODE = bad;
     assert.equal(testCode(), null, `${bad} must not be accepted as a test code`);
   }
+});
+
+// ---- codes on demand (a second phone, #150) ---------------------------------
+
+test('codeOnDemand mints a short-lived code when none is live', () => {
+  burnCode();
+  const c = codeOnDemand();
+  assert.equal(c.minted, true);
+  assert.match(c.code, /^\d{6}$/);
+  assert.ok(c.expiresInSec > 0 && c.expiresInSec <= ON_DEMAND_TTL_MS / 1000);
+  assert.ok(ON_DEMAND_TTL_MS < 5 * 60 * 1000, 'shorter than the first-run window');
+  assert.equal(currentCode()?.code, c.code);
+});
+
+test('codeOnDemand re-shows a live code instead of minting a new one', () => {
+  // Re-minting would reset the per-code failure budget on every request.
+  const first = generateCode();
+  const again = codeOnDemand();
+  assert.equal(again.minted, false);
+  assert.equal(again.code, first);
+});
+
+test('an on-demand code is single use, like any other', () => {
+  burnCode();
+  const { code } = codeOnDemand();
+  assert.equal(consumeCode(code), true);
+  assert.equal(consumeCode(code), false);
+  assert.equal(codeOnDemand().minted, true, 'the next request mints afresh');
+});
+
+test('an on-demand code expires', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  burnCode();
+  const { code } = codeOnDemand();
+  t.mock.timers.tick(ON_DEMAND_TTL_MS + 1);
+  assert.equal(currentCode(), null);
+  assert.equal(consumeCode(code), false);
 });

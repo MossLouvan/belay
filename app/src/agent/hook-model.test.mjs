@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  applyHooksPush, discoveredFromHook, hookTitle, hookWaitingCount, noticeLine, orderedHookAsks, parseHooksPush,
+  applyHooksPush, changesParams, discoveredFromHook, hookTitle, hookWaitingCount, noticeLine, orderedHookAsks, parseHooksPush,
 } from './hook-model.ts';
 
 const ask = (id, over = {}) => ({
@@ -114,4 +114,21 @@ test('changesLine: "N files · +a −b", singular file, zero counts dropped', as
 test('noticeLine: a done notice with changes carries the changes line', () => {
   const line = noticeLine(notice('n1', { changes: { files: 2, insertions: 5, deletions: 0, cwd: '/p' } }));
   assert.equal(line.label, 'done · 2 files · +5');
+});
+
+// ---- where a done notice opens (#127) ----------------------------------------
+
+test('a Belay session notice opens its Changes by session id', () => {
+  assert.deepEqual(changesParams(notice('a', { belaySessionId: 'b1', cwd: '/p/belay' })),
+    { session: 'b1', title: 'belay', cwd: '/p/belay' });
+});
+
+test('a plain terminal done notice with a change stat opens Changes by folder', () => {
+  const n = notice('a', { cwd: '/p/belay', changes: { files: 2, insertions: 3, deletions: 1, cwd: '/p/belay' } });
+  assert.deepEqual(changesParams(n), { title: 'belay', cwd: '/p/belay' });
+});
+
+test('without a stat (not a repo, older host) the notice opens the transcript instead', () => {
+  assert.equal(changesParams(notice('a')), null);
+  assert.equal(changesParams(notice('a', { kind: 'terminal-prompt', changes: { files: 1, insertions: 1, deletions: 0, cwd: '/p/q' } })), null);
 });

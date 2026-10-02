@@ -12,15 +12,15 @@
 import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { useTheme } from '../theme';
-import { Button, Caption, Label, Micro, Mono, Rule, Txt, haptic } from '../ui';
+import { Button, Caption, Label, Micro, Rule, Txt, haptic } from '../ui';
 import type { TailnetStanding } from './dead-end';
-import { checkedAtLabel, reopenPairingCommand } from './dead-end';
+import { REOPEN_PAIRING_HINT, checkedAtLabel } from './dead-end';
 import { openTailscale } from './tailscale-card';
 
 export interface NoCodeStepProps {
   /** What the computer is called, for a message that names it. */
   readonly hostName: string;
-  /** The host's platform, so the reset command matches its shell. */
+  /** The host's platform, so the directions name its menu bar or tray. */
   readonly platform?: string;
   /** Where the tailnet route stands — it decides which fix leads. */
   readonly standing: TailnetStanding;
@@ -38,8 +38,8 @@ export interface NoCodeStepProps {
 function observed(hostName: string, standing: TailnetStanding): string {
   const base =
     `${hostName} answered, and reports a device is already paired with it. ` +
-    'It only shows a pairing code while nothing is paired — so as far as this ' +
-    'phone can tell, there is no code on its screen for you to type.';
+    'It did not put a new pairing code on its screen for this phone — so as far ' +
+    'as this phone can tell, there is no code there for you to type yet.';
   if (standing === 'unreachable') {
     return (
       `${base} Its Tailscale address did not answer from this phone either, ` +
@@ -101,12 +101,10 @@ function TailscaleRoute({ onRecheck, busy }: { onRecheck: () => void; busy?: boo
 }
 
 /**
- * The route that runs through the computer: reset pairing there.
- *
- * There is no gentler lever to point at — the host has no unpair command and
- * only issues codes while nothing is paired — so this shows the honest reset,
- * cost included. The accent lands on "Check again" only when Tailscale cannot
- * lead, keeping one solid accent per screen (§3.3).
+ * The route that runs through the computer: Belay there shows a fresh code
+ * from "Pair another phone" (#150) — no command, no reset, and every phone
+ * already paired keeps working. The accent lands on "Check again" only when
+ * Tailscale cannot lead, keeping one solid accent per screen (§3.3).
  */
 function ComputerRoute({
   hostName,
@@ -125,12 +123,9 @@ function ComputerRoute({
   return (
     <View style={{ gap: theme.space.sm }}>
       <Label style={{ marginBottom: 0 }}>On the computer</Label>
-      <Txt variant="caption" tone="dim">
-        To get a fresh code, stop Belay on {hostName} and start it again with
-      </Txt>
-      <Mono>{reopenPairingCommand(platform)}</Mono>
+      <Txt variant="caption">{REOPEN_PAIRING_HINT}.</Txt>
       <Caption>
-        It will print a new code and QR. Every device that was paired will need to pair again.
+        {`On ${hostName}, click Belay in ${platform === 'win32' ? 'the system tray' : 'the menu bar'} and choose Pair another phone, then type the code below.`}
       </Caption>
       {accented ? (
         <Button

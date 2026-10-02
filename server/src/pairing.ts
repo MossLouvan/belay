@@ -50,10 +50,13 @@ export function testCodeActive(): boolean {
   return testCode() !== null;
 }
 
-export function generateCode(): string {
+/** How long a code minted on request (a second phone, #150) stays valid. */
+export const ON_DEMAND_TTL_MS = 2 * 60 * 1000;
+
+export function generateCode(ttlMs: number = CODE_TTL_MS): string {
   const forced = testCode();
   const code = forced ?? String(randomInt(0, 1_000_000)).padStart(6, '0');
-  current = { code, expires: Date.now() + CODE_TTL_MS };
+  current = { code, expires: Date.now() + ttlMs };
   // A freshly minted code re-enables pairing, mirroring how a new random code
   // clears a burn in the non-test path.
   testCodeBurned = false;
@@ -97,6 +100,22 @@ export function consumeCode(code: string): boolean {
   // Single use: burn it so the same code can't pair a second device.
   current = null;
   return true;
+}
+
+/**
+ * A code for a phone that asks while this host is already paired (#150).
+ *
+ * A live code is re-shown rather than replaced: minting a new one would hand
+ * the caller a fresh per-code failure budget on every request. Who may ask,
+ * and how often, is pair-request.ts; this only decides mint-or-reuse.
+ */
+export function codeOnDemand(): { code: string; expiresInSec: number; minted: boolean } {
+  const live = currentCode();
+  if (live) return { ...live, minted: false };
+  generateCode(ON_DEMAND_TTL_MS);
+  const fresh = currentCode();
+  if (!fresh) throw new Error('pairing code vanished as it was minted');
+  return { ...fresh, minted: true };
 }
 
 // Keep a fresh code available at all times while unpaired so the PC display is
