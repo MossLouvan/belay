@@ -115,7 +115,7 @@ In `app.json`:
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
-          "backgroundColor": "#0b0d12",
+          "backgroundColor": "#1E3A4C",
           "resizeMode": "contain"
         }
       ]

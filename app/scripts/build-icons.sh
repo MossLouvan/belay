@@ -10,8 +10,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-BG='#0b0d12'      # app.json backgroundColor
-INK='#F5F5F7'     # dark theme text
+BG='#1E3A4C'      # app.json backgroundColor: Harbour slate navy
+INK='#FDF8EF'     # Harbour lamplit cream
 TMP=$(mktemp -t belay-icon).svg; trap 'rm -f "$TMP"' EXIT
 PATH_D=$(sed -E 's/.* d="([^"]+)".*/\1/' app/assets/beluga-mark.svg)
 
