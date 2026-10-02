@@ -68,6 +68,50 @@ function paint(state) {
   $('relaunch').hidden = !(perms.supported && perms.screen && sawScreenDenied);
 
   $('login-item').checked = state.openAtLogin;
+  paintTrust(state, running);
+}
+
+// ── account trust: Allow/Deny for a phone that asked, and the paired list ──
+// Names arrive from the network: textContent only, never innerHTML.
+function row(name, detail, buttons) {
+  const li = document.createElement('li');
+  li.className = 'device-row';
+  const text = document.createElement('div');
+  text.className = 'device-text';
+  const n = document.createElement('div');
+  n.className = 'name';
+  n.textContent = name;
+  const c = document.createElement('div');
+  c.className = 'caption';
+  c.textContent = detail;
+  text.append(n, c);
+  li.append(text);
+  for (const [label, primary, onClick] of buttons) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = primary ? 'button sm primary' : 'button sm';
+    b.textContent = label;
+    b.addEventListener('click', () => { b.disabled = true; onClick(); });
+    li.append(b);
+  }
+  return li;
+}
+
+function paintTrust(state, running) {
+  const pending = running ? state.pendingPhones ?? [] : [];
+  $('pending').hidden = pending.length === 0;
+  $('pending-list').replaceChildren(...pending.map((p) => row(`Allow ${p.name}?`, 'Asked just now', [
+    ['Allow', true, () => window.belayHost.decidePhone(p.id, true)],
+    ['Deny', false, () => window.belayHost.decidePhone(p.id, false)],
+  ])));
+  $('first-phone').hidden = !(running && state.waitingForFirstPhone);
+  // Nothing to scan or type while the first phone is on its way.
+  $('link-section').hidden = running && state.waitingForFirstPhone === true && state.phase !== 'busy';
+  const phones = running ? state.phones ?? [] : [];
+  $('phones').hidden = phones.length === 0;
+  $('phone-list').replaceChildren(...phones.map((p) => row(p.name, p.lastSeen ? `Last seen ${new Date(p.lastSeen).toLocaleString()}` : 'Paired', [
+    ['Remove', false, () => window.belayHost.removePhone(p.tokenPrefix)],
+  ])));
 }
 
 // ── sign in to link this computer ──────────────────────────────────────────

@@ -54,6 +54,15 @@
 
     <p class="caption" id="linked-to" role="status" hidden></p>
 
+    <section class="stack" id="pending" hidden>
+      <p class="subheading">A phone wants to use this computer</p>
+      <p class="caption">It is signed in to the same Belay account. Allow it only if it is yours.</p>
+      <ul class="list" id="pending-list"></ul>
+    </section>
+
+    <p class="caption" id="first-phone" role="status" hidden>Open Belay on your phone, signed in to the same
+      account. It connects by itself, with nothing to type.</p>
+
     <section class="stack" id="link-section">
       <p class="subheading" id="link-heading"><span class="step">2</span>Scan this code in Belay</p>
       <p class="caption" id="link-caption">Tap <strong>Scan</strong> in the app to link this Mac to your account.</p>
@@ -69,6 +78,11 @@
           Belay running in a Terminal window. Quit it there and this app takes over by itself.</p>
       </div>
       <p class="error" id="error" hidden></p>
+    </section>
+
+    <section class="stack" id="phones" hidden>
+      <p class="subheading">Paired phones</p>
+      <ul class="list" id="phone-list"></ul>
     </section>
 
     <section class="stack" id="perms" hidden>

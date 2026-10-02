@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld('belayHost', {
   openViewer: () => ipcRenderer.invoke('host:viewer'),
   /** Ask the host for a fresh pairing code for one more phone. */
   pairAnother: () => ipcRenderer.invoke('host:pairAnother'),
+  /** Allow or deny a phone on this account that asked to connect. */
+  decidePhone: (pendingId, allow) => ipcRenderer.invoke('host:decidePhone', { pendingId: String(pendingId), allow: allow === true }),
+  /** Unpair a phone by its token-hash prefix. */
+  removePhone: (tokenPrefix) => ipcRenderer.invoke('host:removePhone', String(tokenPrefix)),
   /** Stop the developer LaunchAgent so this app can have the port. */
   takeOver: () => ipcRenderer.invoke('host:takeOver'),
   /** Sign in on this computer to link it. Each answers {ok, error?, maskedEmail?}; no session ever comes back. */

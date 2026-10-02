@@ -78,3 +78,29 @@ test('livePairing hides a code once it has expired', () => {
   assert.equal(livePairing(p, 120_000), null);
   assert.equal(livePairing(null, 0), null);
 });
+
+// ── account trust: phones waiting for a tap, and the paired list ──────────
+import { pendingFromMessage, phonesFromMessage, waitingForFirstPhone } from '../src/host-status.js';
+
+test('pendingFromMessage keeps well-formed, unexpired requests only', () => {
+  const now = 1000;
+  const msg = { type: 'pair-pending', requests: [
+    { id: 'a'.repeat(32), name: 'iPad', createdAt: 1, expiresAt: 2000 },
+    { id: 'b'.repeat(32), name: 'Old', createdAt: 1, expiresAt: 500 },
+    { id: 7, name: 'bad' },
+  ] };
+  assert.deepEqual(pendingFromMessage(msg, now), [{ id: 'a'.repeat(32), name: 'iPad', expiresAt: 2000 }]);
+  assert.deepEqual(pendingFromMessage({ type: 'pair-pending' }, now), []);
+});
+
+test('phonesFromMessage reads the paired list and the link state', () => {
+  const msg = { type: 'devices', linked: true, devices: [{ tokenPrefix: 'abcd1234', name: 'iPhone', lastSeen: 5 }, { name: 'no prefix' }] };
+  assert.deepEqual(phonesFromMessage(msg), { linked: true, phones: [{ tokenPrefix: 'abcd1234', name: 'iPhone', lastSeen: 5 }] });
+  assert.deepEqual(phonesFromMessage({ type: 'devices' }), { linked: false, phones: [] });
+});
+
+test('a linked computer with no phone waits for the phone, not a code', () => {
+  assert.equal(waitingForFirstPhone({ accountLinked: true, devices: 0 }), true);
+  assert.equal(waitingForFirstPhone({ accountLinked: true, devices: 1 }), false);
+  assert.equal(waitingForFirstPhone({ accountLinked: false, devices: 0 }), false);
+});

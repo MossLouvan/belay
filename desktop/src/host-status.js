@@ -99,3 +99,32 @@ export function pairingFromMessage(data, now) {
 export function livePairing(pairing, now) {
   return pairing && pairing.expiresAt > now ? pairing : null;
 }
+
+// ── account trust (server/src/account-pair.ts) ────────────────────────────
+
+const clampName = (v) => String(v).replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, 32) || 'A phone';
+
+/** Phones waiting for Allow/Deny, from the host's `pair-pending` message. */
+export function pendingFromMessage(msg, now) {
+  const list = Array.isArray(msg?.requests) ? msg.requests : [];
+  return list
+    .filter((r) => typeof r?.id === 'string' && /^[0-9a-f]{32}$/.test(r.id) && typeof r.name === 'string'
+      && typeof r.expiresAt === 'number' && r.expiresAt > now)
+    .map((r) => ({ id: r.id, name: clampName(r.name), expiresAt: r.expiresAt }));
+}
+
+/** Paired phones (for Remove) and whether the computer is account-linked, from `devices`. */
+export function phonesFromMessage(msg) {
+  const list = Array.isArray(msg?.devices) ? msg.devices : [];
+  return {
+    linked: msg?.linked === true,
+    phones: list
+      .filter((d) => typeof d?.tokenPrefix === 'string' && d.tokenPrefix.length >= 4 && typeof d.name === 'string')
+      .map((d) => ({ tokenPrefix: d.tokenPrefix, name: clampName(d.name), lastSeen: Number(d.lastSeen) || 0 })),
+  };
+}
+
+/** Linked with nothing paired: the first phone connects by itself, so no code. */
+export function waitingForFirstPhone(state) {
+  return state.accountLinked === true && state.devices === 0;
+}
