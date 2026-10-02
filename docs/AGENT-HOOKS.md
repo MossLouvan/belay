@@ -150,7 +150,8 @@ even when `node` is not on the login shell's PATH.
    - otherwise holds the request (`BELAY_HOOK_WAIT_MS`, default 120 s,
      clamped 5–570 s), publishes it on `/ws/attention`, pings the push
      webhook, and returns the phone's decision when it lands. If the wait
-     runs out, or the last phone disconnects, it answers `{}` and the
+     runs out, or no phone has been connected for 30 s, it answers `{}`, leaves
+     a "back at the terminal" notice, and the
      terminal dialog appears. The reason travels in an `x-belay-hook`
      header the script echoes to stderr.
 3. The script prints the decision object only when `behavior` is
@@ -159,8 +160,13 @@ even when `node` is not on the login shell's PATH.
    from the `permission_suggestions` Claude Code itself proposed — never
    wider.
 
-The script also bails at once when `BELAY_SPAWNED=1` (set on Belay's own
-sessions), so those never double-ask.
+The script bails at once when `BELAY_SPAWNED=1` is set without
+`BELAY_SESSION` (Belay's stream sessions, which ask through their MCP
+sidecar), so those never double-ask. Belay's pty sessions set both: the hook
+forwards with an `x-belay-session` header, the host tags the ask and the done
+notice with `belaySessionId`, and the TUI dialog stays hidden while the phone
+decides. A Stop notice also carries `changes: { files, insertions,
+deletions, cwd }` when the cwd is a git repo.
 
 ### Tradeoffs to know
 

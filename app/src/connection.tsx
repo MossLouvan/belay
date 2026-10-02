@@ -25,6 +25,7 @@ import { raceAddresses } from './devices/race';
 import { probeViaTunnel, tunnelNodeId, withTunnelCandidate } from './devices/tunnel-candidate';
 import type { ConnectionPath } from './devices/tunnel-candidate';
 import { tunnelPath, tunnelPort } from './devices/tunnel';
+import { isTunnelAvailable } from '../modules/belay-stream/src/tunnel';
 
 /** Where the app is in the process of reaching the active computer. */
 export type ConnectPhase = 'idle' | 'connecting' | 'connected' | 'unreachable';
@@ -151,7 +152,9 @@ export function ConnectionProvider({ children }: { children: React.ReactNode }) 
     // Plus the tunnel, when this computer is linked to the account: dialled by
     // the node id the claim recorded, answering on a 127.0.0.1 port that is
     // pinned to the same fingerprint before it is probed (tunnel-candidate.ts).
-    const ordered = withTunnelCandidate(orderAddresses(device.addresses, device.lastKnownGoodUrl), device);
+    // No native tunnel (Android, web, Expo Go): the saved addresses alone.
+    const lanOrdered = orderAddresses(device.addresses, device.lastKnownGoodUrl);
+    const ordered = isTunnelAvailable() ? withTunnelCandidate(lanOrdered, device) : lanOrdered;
     // The host answers plain HTTP on the LAN with a refusal that says why
     // (426, `plaintext-refused`). That is not "unreachable" — it is "pair
     // again" — and the race would otherwise flatten it into a dead probe.

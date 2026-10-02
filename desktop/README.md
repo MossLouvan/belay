@@ -33,7 +33,9 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac   # unsigned local Belay.app 
 State lives in the app's userData (`belay-state.json`, `host.log`,
 `host-prefs.json`), not in `server/`. If another host already answers on the
 port (the `com.belay.host` LaunchAgent, say), the app waits and says so
-instead of racing it — remove that one with `npm run autostart -- remove`.
+instead of racing it, and offers "Use Belay.app instead", which unloads the
+agent and parks its plist as `.plist.disabled` (`src/launch-agent.js`). A
+second launch of the app just shows the first one's window.
 
 ## The viewer role
 

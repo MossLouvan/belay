@@ -2,7 +2,8 @@
 //
 // The host serves the LAN over TLS with a self-signed certificate. React
 // Native's fetch and WebSocket cannot pin one from JS, so the native module
-// `BelayPin` (app/modules/belay-stream/ios/BelayPinModule.swift) holds a table
+// `BelayPin` (app/modules/belay-stream/ios/BelayPinModule.swift, and its
+// android/ OkHttp counterpart) holds a table
 // of host:port → SHA-256 and accepts a server trust only when the leaf
 // certificate hashes to the pinned value. This file is the only place that
 // table is written from, and the only place that reads the two other things

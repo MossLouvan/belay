@@ -13,6 +13,7 @@ import { Brand } from '../connect/brand';
 import { CodeInput } from '../connect/code-input';
 import { errorMessage } from '../connect/pair-flow';
 import { useAccount } from './store';
+import { isTunnelAvailable } from '../../modules/belay-stream/src/tunnel';
 import { GOOGLE_SIGN_IN_ENABLED, appleSignInAvailable, signInWithApple, signInWithGoogle } from './providers';
 
 type Stage = 'pick' | 'email' | 'code';
@@ -93,7 +94,9 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
           <View style={{ gap: theme.space.sm }}>
             <View style={{ gap: theme.space.xs, marginBottom: theme.space.sm }}>
               <Heading>Sign in to Belay</Heading>
-              <Txt tone="dim">Your account links your phone to your computers, so they can find each other from anywhere.</Txt>
+              <Txt tone="dim">{isTunnelAvailable()
+                ? 'Your account links your phone to your computers, so they can find each other from anywhere.'
+                : 'Your account links your phone to your computers.'}</Txt>
             </View>
             {appleAvailable ? (
               <Button

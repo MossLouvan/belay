@@ -62,7 +62,7 @@ import { notify, notifyBannerLine } from './notify.js';
 import {
   loadAgentState, listSessions, createSession, getSnapshot, deleteSession,
   sendPrompt, stopSession, subscribe, requestApproval, answerApproval,
-  listProjects, agentAvailable, attachSession, attachedClaudeIds, rememberProjectPath, findClaude,
+  listProjects, agentAvailable, attachSession, attachedClaudeIds, ptyRegistry, rememberProjectPath, findClaude,
 } from './agent.js';
 import { createProject, defaultProjectParent } from './projects.js';
 import { collectChanges } from './changes.js';
@@ -78,7 +78,8 @@ import { ensureHookSecret } from './hooks-secret.js';
 import { handleAgentAttach, registerAttachRoutes } from './agent-attach.js';
 import { ensureAttachSecret, localConsoleDevice } from './attach-secret.js';
 import { hooksStore } from './hooks-store.js';
-import { hooksStatusLine } from './hooks-install.js';
+import { hooksInstalled, hooksStatusLine } from './hooks-install.js';
+import { changeStat } from './changes-stat.js';
 import { readSettings, settingsPath } from './hooks-install-cli.js';
 import { createCursorRegistry } from './cursors.js';
 import { createCursorHub } from './cursor-channel.js';
@@ -999,7 +1000,9 @@ app.post('/devices/revoke', auth, (req, res) => {
 // (approval-mcp.cjs) back to the phone — see docs/AGENT.md.
 
 app.get('/agent/status', auth, (_req, res) => {
-  res.json({ available: agentAvailable() });
+  // Read-only: whether terminal sessions can ask the phone at all (#128).
+  const read = readSettings(settingsPath());
+  res.json({ available: agentAvailable(), hooksInstalled: read.ok && hooksInstalled(read.settings) });
 });
 
 // `defaultParent` rides along so the phone can pre-fill the "where" of its
@@ -1124,6 +1127,8 @@ registerHookRoutes(app, auth, {
   secret: ensureHookSecret(),
   phones: attentionClients,
   isBelaySession: (id) => attachedClaudeIds().has(id),
+  isPtySession: (id) => ptyRegistry().has(id),
+  changes: changeStat,
   waitMs: hookWaitMs(),
   onSessionStart: () => sessionIndex().rescan(),
   notify,

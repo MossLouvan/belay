@@ -1,18 +1,40 @@
-/* The host window: a compact column, the QR on paper so any phone camera reads it. */
-.host { gap: var(--space-xl); padding-top: var(--space-lg); }
+/* The host window: a compact column that fits its window without scrolling,
+   the QRs on paper so any phone camera reads them, the code big enough to
+   read across the room. */
+.host { padding-top: var(--space-md); padding-bottom: var(--space-md); }
+.host > * + * { margin-top: var(--space-md); }
+.host .stack > * + * { margin-top: var(--space-xs); }
 .host-head { display: flex; align-items: center; gap: var(--space-md); }
-.host-mark { width: 56px; height: 56px; object-fit: contain; }
+.host-mark { width: 48px; height: 48px; object-fit: contain; }
 .host-title { animation: none; margin: 0; }
 .subtitle { margin: 0; }
 
+.step {
+  display: inline-block; width: 22px; height: 22px; margin-right: var(--space-xs);
+  font-size: var(--type-caption-size); line-height: 22px; text-align: center;
+  color: var(--on-accent); background: var(--accent); border-radius: 50%;
+}
+
 .qr {
-  width: 240px; height: 240px; padding: var(--space-sm);
-  margin: var(--space-sm) auto;
+  width: 152px; height: 152px; padding: var(--space-xs);
+  margin: var(--space-sm) auto 0;
   background: #fff; color: #000;
   border-radius: var(--radius-md);
 }
 .qr svg { display: block; width: 100%; height: 100%; }
-.code { color: var(--text); letter-spacing: var(--type-mono-tracking); }
+.qr-sm { width: 64px; height: 64px; padding: var(--space-xxs); margin: 0; border-radius: var(--radius-xs); flex: none; }
+.get-app-row { display: flex; align-items: center; gap: var(--space-md); }
+.get-app-row a { color: var(--accent); }
+
+.code-line { text-align: center; }
+.code {
+  display: inline-block; margin-left: var(--space-xs);
+  font-family: var(--mono); font-size: 36px; line-height: 40px; font-weight: 600;
+  letter-spacing: 0.18em; font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.busy > * + * { margin-top: var(--space-sm); }
 
 .perm { gap: var(--space-xs); }
 .perm[data-granted="true"] [data-role="request"],

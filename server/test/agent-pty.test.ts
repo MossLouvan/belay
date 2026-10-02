@@ -404,6 +404,8 @@ test('the session env marks itself for the hook script and gives the TUI a usabl
   const env = ptyEnv({ PATH: '/usr/bin' }, 'darwin');
   assert.equal(env.BELAY_SPAWNED, '1');
   assert.equal(env.BELAY_PTY_SESSION, '1');
+  assert.equal(env.BELAY_SESSION, undefined);
+  assert.equal(ptyEnv({ PATH: '/usr/bin' }, 'darwin', 'pty-1').BELAY_SESSION, 'pty-1');
   assert.equal(env.TERM, 'xterm-256color');
   assert.equal(env.LANG, 'en_US.UTF-8');
 });
