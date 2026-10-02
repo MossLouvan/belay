@@ -222,3 +222,33 @@ test('hub pushes when a hook row appears and counts connected clients', async ()
   assert.equal(hub.clients(), 0);
   assert.equal(notifyHooks, null);
 });
+
+// ---- account trust: phones waiting for one tap -----------------------------
+
+test('hub pushes waiting phones (name and expiry only) as pairRequests', async () => {
+  let waiting: { id: string; name: string; createdAt: number; expiresAt: number }[] = [];
+  let notify: (() => void) | null = null;
+  const hub = createAttentionHub({
+    list: () => [],
+    subscribe: () => () => {},
+    pairRequests: () => waiting,
+    subscribePairRequests: (fn) => { notify = fn; return () => { notify = null; }; },
+  });
+  const a = fakeSocket();
+  hub.handle(a.ws);
+  assert.deepEqual(JSON.parse(a.sent[0]).pairRequests, []);
+  waiting = [{ id: 'p1', name: 'iPad', createdAt: 1, expiresAt: 2 }];
+  notify!();
+  await tick();
+  assert.equal(a.sent.length, 2);
+  assert.deepEqual(JSON.parse(a.sent[1]).pairRequests, [{ id: 'p1', name: 'iPad', expiresAt: 2 }]);
+  notify!();
+  await tick();
+  assert.equal(a.sent.length, 2);
+  a.close();
+  assert.equal(notify, null);
+});
+
+test('attentionWire leaves pairRequests out for a hub without that source', () => {
+  assert.equal('pairRequests' in JSON.parse(attentionWire([])), false);
+});

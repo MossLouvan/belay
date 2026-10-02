@@ -11,8 +11,8 @@ import { createServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import type { Duplex } from 'node:stream';
-import { createReadStream } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFile, createReadStream } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { hostname } from 'node:os';
 import { URL } from 'node:url';
@@ -30,6 +30,9 @@ import { wantsPairingReset } from './reset-pairing.js';
 import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive, codeOnDemand } from './pairing.js';
 import { createPairRequestGate } from './pair-request.js';
+import { createAccountPairing } from './account-pair.js';
+import { registerAccountPairRoutes } from './account-pair-routes.js';
+import { safeName } from './pair-notify.js';
 import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
@@ -201,6 +204,18 @@ const pairReplay = createPairReplayCache();
 const pairRequestGate = createPairRequestGate();
 /** The account's phones, as the tunnel admits them; empty until linked. */
 let tunnelAllowList: readonly string[] = [];
+/**
+ * Account trust (account-pair.ts): an account phone pairs without a code —
+ * the first one at once, later ones with one tap. Every decision is written
+ * to pair-audit.log beside the state file.
+ */
+const accountPairing = createAccountPairing({
+  audit: (line) => {
+    console.log(`[pairing] account: ${line}`);
+    appendFile(join(dirname(stateFilePath()), 'pair-audit.log'), `${new Date().toISOString()} ${line}\n`, { mode: 0o600 },
+      (e) => { if (e) console.warn(`[pairing] audit log write failed: ${e.message}`); });
+  },
+});
 const tickets = createTicketStore();
 
 /**
@@ -333,6 +348,9 @@ app.get('/health', async (req, res) => {
     // A paired host shows a fresh code when a phone asks (POST /pair/request),
     // so the phone offers that instead of the "already paired" dead end.
     codeOnRequest: true,
+    // A tunnel phone on this computer's account pairs with POST /pair/account
+    // (account-pair.ts): no code, and one tap for any phone after the first.
+    accountTrust: true,
     // Every identity field is read by the phone BEFORE it has a token: `id`
     // and `label` to save the computer, `addresses` to retry over the tailnet
     // address for code-less pairing, `platform` for the desktop client's key
@@ -392,6 +410,7 @@ app.post('/pair', async (req, res) => {
     if (tailnet.trusted) {
       pairGuard.recordSuccess(clientId);
       const device = addDevice(cleanDeviceName(deviceName));
+      announceDevices();
       console.log(`[pairing] paired ${device.name} via tailnet identity (${tailnet.peer?.node || clientId})`);
       res.json({ ...pairReply(device), via: 'tailnet' });
       return;
@@ -432,7 +451,22 @@ app.post('/pair', async (req, res) => {
   const device = addDevice(cleanDeviceName(deviceName));
   const body = pairReply(device);
   pairReplay.remember(codeStr, clientId, body);
+  announceDevices();
   res.json(body);
+});
+
+// Account trust: tunnel phones on this computer's account. See account-pair.ts.
+registerAccountPairRoutes(app, auth, {
+  pairing: accountPairing,
+  allowList: () => tunnelAllowList,
+  linked: accountLinked,
+  deviceCount,
+  issue: (name) => {
+    const device = addDevice(cleanDeviceName(name));
+    announceDevices();
+    return pairReply(device);
+  },
+  refusal: (headers) => pairRefusal(headers as Parameters<typeof pairRefusal>[0], allowedOrigins()),
 });
 
 // A phone that wants to pair with an already-paired host asks here, and the
@@ -1025,6 +1059,10 @@ app.post('/devices/revoke', auth, (req, res) => {
     res.status(400).json({ error: `prefix must be at least ${MIN_REVOKE_PREFIX} characters` });
     return;
   }
+  res.json({ ok: revokeAndDisconnect(prefix) });
+});
+
+function revokeAndDisconnect(prefix: string): boolean {
   const ok = revokeDevice(prefix);
   // A revoked device must lose its live screen and terminal too, not just its
   // ability to open new ones.
@@ -1033,7 +1071,31 @@ app.post('/devices/revoke', auth, (req, res) => {
   // for a device that just lost its token must not be handed to the next
   // caller out of a cache the revoke did not reach.
   if (ok) screenThumbnails.forget();
-  res.json({ ok });
+  if (ok) announceDevices();
+  return ok;
+}
+
+/** Whether this computer holds a host credential (account-linked). */
+function accountLinked(): boolean {
+  return diskLinkStore().readCredential() !== null;
+}
+
+/** Belay.app's paired-phones list and link state (host-ipc.ts); a no-op outside the app. */
+function announceDevices(): void {
+  postToApp({ type: 'devices', devices: listDevices(), linked: accountLinked() });
+}
+
+// Phones waiting for a tap: Belay.app's Allow/Deny prompt, plus a native
+// popup for each new one. Paired phones get the same list on /ws/attention.
+let announcedPending = new Set<string>();
+accountPairing.onChange(() => {
+  const pending = accountPairing.list();
+  postToApp({ type: 'pair-pending', requests: pending });
+  for (const p of pending) {
+    if (announcedPending.has(p.id)) continue;
+    void native.notify('Belay — add a phone?', `${safeName(p.name)} wants to use this computer. Allow it in Belay or on a phone that is already paired.`, '', 20).catch(() => {});
+  }
+  announcedPending = new Set(pending.map((p) => p.id));
 });
 
 // ---- agent (Claude Code) routes ------------------------------------------
@@ -1380,7 +1442,7 @@ const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAgent(ws, url); });
   } else if (url.pathname === '/ws/attention') {
     // Push channel for the app's badge/banner/list — agent-attention.ts.
-    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAttention(ws); });
+    wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleAttention(ws, accountPairing); });
   } else if (url.pathname === '/ws/transcript') {
     // Read-only tail of a terminal-started session — transcript-routes.ts.
     wss.handleUpgrade(req, socket, head, (ws) => { track(ws); handleTranscriptSocket(ws, url); });
@@ -2094,6 +2156,7 @@ for (const host of bind.hosts.slice(1)) {
 server.listen(PORT, bind.hosts[0], () => {
   listening = true;
   postToApp({ type: 'listening', port: PORT, paired: deviceCount() > 0 });
+  announceDevices();
   printBanner({
     hostName: getHostName(),
     port: PORT,
@@ -2159,7 +2222,7 @@ function startTunnelHost(): void {
         client, store, nodeId,
         name: getHostName(), platform: getPlatform(),
         sign,
-        onAllowList: (ids, relays) => { tunnelAllowList = [...ids]; t.setAllowList(ids); t.setRelays(relays); },
+        onAllowList: (ids, relays) => { tunnelAllowList = [...ids]; t.setAllowList(ids); t.setRelays(relays); announceDevices(); },
         show: {
           qr: (link) => {
             qrcode.generate(link, { small: true });
@@ -2212,6 +2275,7 @@ async function linkFromApp(session: unknown): Promise<void> {
     const { maskedEmail } = await linkBySession(session);
     console.log(`  Linked to ${maskedEmail ?? 'your Belay account'} (signed in on this computer).`);
     postToApp({ type: 'claim', link: null });
+    announceDevices();
     reply({ ok: true, ...(maskedEmail ? { maskedEmail } : {}) });
   } catch (e) {
     const error = e instanceof AccountsError && e.code === 'device_exists'
@@ -2228,6 +2292,13 @@ async function linkFromApp(session: unknown): Promise<void> {
 onAppMessage((message) => {
   if (message.type === 'pair-code') showCodeOnDemand();
   if (message.type === 'link-session') void linkFromApp(message.session);
+  // The person is at this computer: Allow/Deny and Remove need no token.
+  if (message.type === 'pair-decide' && typeof message.pendingId === 'string' && typeof message.allow === 'boolean') {
+    accountPairing.decide(message.pendingId, message.allow);
+  }
+  if (message.type === 'device-remove' && typeof message.tokenPrefix === 'string' && message.tokenPrefix.length >= MIN_REVOKE_PREFIX) {
+    revokeAndDisconnect(message.tokenPrefix);
+  }
 });
 setInterval(() => {
   if (deviceCount() > 0) return;

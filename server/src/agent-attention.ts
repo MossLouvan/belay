@@ -19,6 +19,18 @@ import { attachedClaudeIds, listSessions, onSessionsChanged } from './agent.js';
 import { sessionIndex } from './discover.js';
 import { hookRows, hooksStore } from './hooks-store.js';
 import type { HookRow } from './hooks-store.js';
+import type { PendingPhone } from './account-pair.js';
+
+/** A phone waiting for one tap (account-pair.ts): name and deadline only. */
+export interface PairRequestRow {
+  readonly id: string;
+  readonly name: string;
+  readonly expiresAt: number;
+}
+
+export function pairRequestRows(pending: readonly PendingPhone[]): readonly PairRequestRow[] {
+  return pending.map((p) => ({ id: p.id, name: p.name, expiresAt: p.expiresAt }));
+}
 
 /** One session on the wire — the whole story the badge needs. */
 export interface AttentionRow {
@@ -100,12 +112,14 @@ export function hooksEqual(a: readonly HookRow[], b: readonly HookRow[]): boolea
  */
 export function attentionWire(
   rows: readonly AttentionRow[], discovered?: readonly DiscoveredRow[], hooks?: readonly HookRow[],
+  pairRequests?: readonly PairRequestRow[],
 ): string {
   return JSON.stringify({
     type: 'attention',
     sessions: rows,
     ...(discovered === undefined ? {} : { discovered }),
     ...(hooks === undefined ? {} : { hooks }),
+    ...(pairRequests === undefined ? {} : { pairRequests }),
   });
 }
 
@@ -121,6 +135,9 @@ interface AttentionHubDeps {
   /** Asks and notices from terminal sessions — the hooks store in production. Optional. */
   readonly hooks?: () => readonly HookRow[];
   readonly subscribeHooks?: (fn: () => void) => () => void;
+  /** Phones waiting for one tap to join (account-pair.ts). Optional. */
+  readonly pairRequests?: () => readonly PendingPhone[];
+  readonly subscribePairRequests?: (fn: () => void) => () => void;
 }
 
 export interface AttentionHub {
@@ -146,11 +163,15 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
   let unhook: (() => void) | null = null;
   let unhookFound: (() => void) | null = null;
   let unhookHooks: (() => void) | null = null;
+  let lastPairs: string | null = null;
+  let unhookPairs: (() => void) | null = null;
   let flushTimer: NodeJS.Timeout | null = null;
 
   const found = (): readonly DiscoveredRow[] | undefined =>
     deps.discovered ? discoveredRows(deps.discovered()) : undefined;
   const hooks = (): readonly HookRow[] | undefined => deps.hooks?.();
+  const pairs = (): readonly PairRequestRow[] | undefined =>
+    deps.pairRequests ? pairRequestRows(deps.pairRequests()) : undefined;
 
   const flush = (): void => {
     flushTimer = null;
@@ -161,11 +182,15 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
     const sameRows = lastRows !== null && rowsEqual(lastRows, rows);
     const sameFound = disc === undefined || (lastFound !== null && discoveredEqual(lastFound, disc));
     const sameHooks = hk === undefined || (lastHooks !== null && hooksEqual(lastHooks, hk));
-    if (sameRows && sameFound && sameHooks) return;
+    const pr = pairs();
+    const prKey = pr === undefined ? null : JSON.stringify(pr);
+    const samePairs = prKey === lastPairs;
+    if (sameRows && sameFound && sameHooks && samePairs) return;
     lastRows = rows;
     lastFound = disc ?? null;
     lastHooks = hk ?? null;
-    const wire = attentionWire(rows, disc, hk);
+    lastPairs = prKey;
+    const wire = attentionWire(rows, disc, hk, pr);
     for (const ws of sockets) {
       try { if (ws.readyState === ws.OPEN) ws.send(wire); } catch { /* socket on its way out */ }
     }
@@ -183,13 +208,16 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
       if (unhook === null) unhook = deps.subscribe(scheduleFlush);
       if (unhookFound === null && deps.subscribeDiscovered) unhookFound = deps.subscribeDiscovered(scheduleFlush);
       if (unhookHooks === null && deps.subscribeHooks) unhookHooks = deps.subscribeHooks(scheduleFlush);
+      if (unhookPairs === null && deps.subscribePairRequests) unhookPairs = deps.subscribePairRequests(scheduleFlush);
       const rows = attentionRows(deps.list());
       const disc = found();
       const hk = hooks();
+      const pr = pairs();
       lastRows = rows;
       lastFound = disc ?? null;
       lastHooks = hk ?? null;
-      try { ws.send(attentionWire(rows, disc, hk)); } catch { /* close will follow */ }
+      lastPairs = pr === undefined ? null : JSON.stringify(pr);
+      try { ws.send(attentionWire(rows, disc, hk, pr)); } catch { /* close will follow */ }
       // One-way channel: anything the client says is ignored, not an error.
       ws.on('message', () => {});
       ws.on('close', () => {
@@ -201,6 +229,9 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
         unhookFound = null;
         unhookHooks?.();
         unhookHooks = null;
+        unhookPairs?.();
+        unhookPairs = null;
+        lastPairs = null;
         lastRows = null;
         lastFound = null;
         lastHooks = null;
@@ -215,9 +246,16 @@ export function createAttentionHub(deps: AttentionHubDeps): AttentionHub {
 // its pure functions (tests) never touches session state.
 let defaultHub: AttentionHub | null = null;
 
-/** index.ts's upgrade handler for /ws/attention. */
-export function handleAttention(ws: WebSocket): void {
+/**
+ * index.ts's upgrade handler for /ws/attention. `pairing` (account trust) is
+ * passed on every call; the hub is built with it on the first.
+ */
+export function handleAttention(
+  ws: WebSocket,
+  pairing?: { list(): readonly PendingPhone[]; onChange(fn: () => void): () => void },
+): void {
   defaultHub ??= createAttentionHub({
+    ...(pairing ? { pairRequests: () => pairing.list(), subscribePairRequests: (fn: () => void) => pairing.onChange(fn) } : {}),
     list: listSessions,
     subscribe: onSessionsChanged,
     discovered: () => sessionIndex().list(attachedClaudeIds()),
