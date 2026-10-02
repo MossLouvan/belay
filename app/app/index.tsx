@@ -19,6 +19,8 @@ import React, { useCallback, useEffect } from 'react';
 import { Animated } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useConnection } from '../src/connection';
+import { useAccount } from '../src/account/store';
+import { signInRequired } from '../src/account/gate';
 import { useTheme } from '../src/theme';
 import { KeyboardAvoider } from '../src/ui';
 import { connectLanding, afterHowItWorks } from '../src/connect/landing';
@@ -36,11 +38,15 @@ export default function Connect() {
   // button that led here just bounces its user straight back. The computer
   // list's own address field arrives with `address` already typed (checked
   // on arrival), or with `scan` when it asked for the scanner.
-  const { add, address, scan } = useLocalSearchParams<{ add?: string; address?: string; scan?: string }>();
+  const { add, address, scan, node } = useLocalSearchParams<{ add?: string; address?: string; scan?: string; node?: string }>();
   const adding = add === '1';
   const arrivedAddress = typeof address === 'string' && address.trim() ? address : null;
+  // A linked computer being paired through the tunnel: the address is a
+  // loopback port, and the saved computer must carry this node id instead.
+  const tunnelNode = typeof node === 'string' && node ? node : null;
 
-  const session = usePairSession(addDevice);
+  const { ready: accountReady, account } = useAccount();
+  const session = usePairSession(addDevice, tunnelNode);
   const check = useAddressCheck({ session, adding, scanRequested: scan === '1', arrivedAddress });
   const { stage, setStage, busy, setBusy, live, completePairing } = session;
   const { fadeAnim, transitionToStage } = useStageFade(setStage);
@@ -51,6 +57,13 @@ export default function Connect() {
   // Unless the user came here on purpose to pair another machine — the
   // decision itself lives in connect/landing.ts, where node can test it.
   useEffect(() => {
+    // Accounts are required for anything new (account/gate.ts): a fresh
+    // install, or an already-paired phone adding another computer. Existing
+    // pairings keep working signed out.
+    if (signInRequired({ ready: ready && accountReady, signedIn: account !== null, deviceCount: devices.length, adding })) {
+      router.replace(adding ? '/sign-in?next=/?add=1' : '/sign-in');
+      return;
+    }
     const dest = connectLanding({
       ready,
       connected: connection !== null,
@@ -59,7 +72,7 @@ export default function Connect() {
       adding,
     });
     if (dest) router.replace(dest);
-  }, [ready, connection, devices.length, phase, adding]);
+  }, [ready, accountReady, account, connection, devices.length, phase, adding]);
 
   /** The guide detected the tailnet: pair over the address it discovered. */
   const onGuideConnected = useCallback(

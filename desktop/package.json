@@ -2,16 +2,23 @@
   "name": "belay-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Belay desktop client - the paired computer's displays and windows, as windows on this one",
+  "description": "Belay for Mac and Windows - runs the host from the menu bar, and opens a paired computer's displays as windows on this one",
   "type": "module",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.mjs",
     "test:harness": "ELECTRON_ENABLE_LOGGING=1 electron test/harness",
-    "sync-tokens": "node scripts/sync-tokens.mjs"
+    "sync-tokens": "node scripts/sync-tokens.mjs",
+    "stage": "node scripts/stage-host.mjs",
+    "dist:mac": "npm run stage && electron-builder --mac --config electron-builder.config.mjs",
+    "dist:win": "npm run stage && electron-builder --win --config electron-builder.config.mjs"
   },
   "devDependencies": {
-    "electron": "^44.4.5"
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

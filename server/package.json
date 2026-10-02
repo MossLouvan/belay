@@ -1,17 +1,46 @@
 {
   "name": "belay-host",
   "version": "1.0.0",
-  "private": true,
   "type": "module",
   "description": "Belay host agent - lets the Belay iOS app control this Windows or macOS machine",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MossLouvan/belay.git",
+    "directory": "server"
+  },
+  "homepage": "https://github.com/MossLouvan/belay#readme",
+  "bin": {
+    "belay-host": "bin/belay-host.mjs"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "!dist/**/*.map",
+    "native/",
+    "!native/BelayHostMac",
+    "!native/TetherHostMac",
+    "!native/*.exe",
+    "!native/*.dll",
+    "!native/win-display/",
+    "!native/mac/transport/vendor/",
+    "hooks/",
+    "scripts/",
+    "approval-mcp.cjs"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "dist/index.js",
   "scripts": {
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "build:native": "node -e \"const cp=process.getBuiltinModule('node:child_process');const p=process.platform;if(p!=='win32'&&p!=='darwin'){console.error('[build:native] no native helper for '+p);process.exit(1)}const win=p==='win32';const f=win?'powershell':'/bin/bash';const a=win?['-NoProfile','-ExecutionPolicy','Bypass','-File','native/build.ps1']:['native/build-mac.sh'];try{cp.execFileSync(f,a,{stdio:'inherit'})}catch(e){console.error('[build:native] '+(win?'native/build.ps1':'native/build-mac.sh')+' failed: '+e.message);process.exit(1)}\"",
     "build:native:win": "powershell -NoProfile -ExecutionPolicy Bypass -File native/build.ps1",
     "build:stream:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-stream-windows.ps1",
     "build:native:mac": "bash native/build-mac.sh",
+    "build:tunnel": "cargo build --release --manifest-path ../crates/belay-net-tunnel/Cargo.toml && node -e \"const fs=require('node:fs');const e=process.platform==='win32'?'.exe':'';fs.copyFileSync('../crates/belay-net-tunnel/target/release/belay-net'+e,'native/belay-net'+e)\"",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/*.test.ts src/*.test.mjs",

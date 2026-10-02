@@ -194,20 +194,20 @@ export function HowItWorksScreen({ onContinue, onBack }: HowItWorksScreenProps) 
   const steps = [
     {
       label: '01',
-      title: 'Start the host on your computer',
-      detail: 'A small program that lets Belay connect. Leave it running.',
+      title: 'Install Belay on your computer',
+      detail: 'Get it at gobelay.com, or run npx belay-host in a terminal. Leave it running.',
     },
     {
-      // Away-from-home is the main use case, so Tailscale is a headline step
-      // of the setup, not fine print — and its address is the way in.
       label: '02',
-      title: 'Set up Tailscale',
-      detail: 'A free app that lets your phone reach your computer from anywhere. Belay can walk you through it.',
+      title: 'Enter the address and code it shows',
+      detail: 'On the same Wi-Fi, once. After that your phone remembers this computer.',
     },
     {
+      // Tailscale is the way in from outside the house — useful, but not a
+      // prerequisite, so it sits after the same-Wi-Fi path and says so.
       label: '03',
-      title: 'Type the address once',
-      detail: 'Copy your computer\'s address from the Tailscale app — it starts with 100. After that, your phone remembers it.',
+      title: 'Away from home? Optional',
+      detail: 'Install Tailscale on both devices and use the address it gives your computer. Belay can walk you through it.',
     },
     {
       label: '04',

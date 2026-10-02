@@ -19,7 +19,9 @@ import {
   bytesToBase64,
   decodeBinaryFrame,
   encodeBinaryFrame,
+  frameCodecOf,
   isBinaryFramePayload,
+  isKeyframe,
 } from './frame-codec.ts';
 
 const jpeg = (...bytes) => Uint8Array.from(bytes);
@@ -112,4 +114,15 @@ test('a decoded binary frame renders as the same data URI the JSON path built', 
   const frame = decodeBinaryFrame(encodeBinaryFrame({ w: 2, h: 2, sw: 2, sh: 2 }, pixels));
   assert.ok(frame);
   assert.equal(bytesToBase64(frame.jpeg), Buffer.from(pixels).toString('base64'));
+});
+
+test('a frame is JPEG unless its meta tags another codec', () => {
+  const jpegFrame = decodeBinaryFrame(encodeBinaryFrame({ w: 8, h: 8, sw: 8, sh: 8 }, jpeg(1)));
+  assert.equal(frameCodecOf(jpegFrame), 'jpeg');
+  const tagged = decodeBinaryFrame(encodeBinaryFrame({ w: 8, h: 8, sw: 8, sh: 8, meta: { codec: 'h264', key: true } }, jpeg(0, 0, 0, 1)));
+  assert.equal(frameCodecOf(tagged), 'h264');
+  assert.equal(isKeyframe(tagged), true);
+  const delta = decodeBinaryFrame(encodeBinaryFrame({ w: 8, h: 8, sw: 8, sh: 8, meta: { codec: 'h264' } }, jpeg(0, 0, 0, 1)));
+  assert.equal(isKeyframe(delta), false);
+  assert.equal(frameCodecOf(decodeBinaryFrame(encodeBinaryFrame({ w: 8, h: 8, sw: 8, sh: 8, meta: { codec: 'vp9' } }, jpeg(1)))), 'jpeg');
 });

@@ -33,15 +33,21 @@ import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
 import { BwpSession, bwpAvailable } from './bwp-stream.js';
+import { createTunnelListener } from './tunnel-listener.js';
+import { startTunnel, tunnelAvailable, Tunnel } from './tunnel.js';
+import { fetchAccountsClient } from './accounts-client.js';
+import { diskLinkStore, runHostLink } from './host-claim.js';
+import qrcode from 'qrcode-terminal';
 import { createTicketStore } from './tickets.js';
 import { isTrustedHost, isTrustedOrigin, pairRefusal } from './host-guard.js';
 import { configuredBind, bindBannerLine } from './bind.js';
 import { messageOf } from './errors.js';
 import { tailnetTrusted, tailnetPairingEnabled, couldBeTailnet } from './tailnet.js';
-import { FRAME_DRAIN_POLL_MS, frameBackedUp } from './frame-backpressure.js';
+import { FRAME_BUFFER_CAP, FRAME_DRAIN_POLL_MS, frameBackedUp } from './frame-backpressure.js';
 import { resolveStreamParams, screenIndexOf, StreamParams } from './stream-params.js';
 import { native, Frame, WindowFrame } from './native.js';
 import { encodeBinaryFrame } from './frame-codec.js';
+import { createH264Relay } from './h264-relay.js';
 import { classifyScreens } from './displays.js';
 import { openableWindows, sanitizeWindows, windowIdOf } from './windows.js';
 import { MAX_CLIPBOARD_UNITS, parseClipboardSet, shapeClipboardGet } from './clipboard.js';
@@ -77,6 +83,7 @@ import { readSettings, settingsPath } from './hooks-install-cli.js';
 import { createCursorRegistry } from './cursors.js';
 import { createCursorHub } from './cursor-channel.js';
 import { createInputFloor, denialBody, isLocalActivity } from './input-floor.js';
+import { postToApp } from './host-ipc.js';
 import type { FloorDenied } from './input-floor.js';
 import { registerImageRoutes } from './image-routes.js';
 import { registerThumbnailRoutes } from './thumbnail.js';
@@ -308,6 +315,9 @@ app.get('/health', async (req, res) => {
     // that capture worked while every call was failing against a dead helper.
     native: native.isReady(),
     paired: deviceCount() > 0,
+    // How many phones are paired, for Belay.app's menu bar. Not secret: it is
+    // one number, and `paired` already says whether it is zero.
+    devices: deviceCount(),
     // Whether this host can stream H.264 over UDP (the streamer binary is
     // present). The phone makes BWP its default only when this is true, and
     // never asks a host that says false — so a Mac host is never left waiting
@@ -1683,20 +1693,39 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
           }
         }
       }
+      retuneH264(); // the capture target changed: re-point the encoder
     }).catch(() => { /* a reconcile never rejects the chain */ });
   };
 
   const phoneOrLidRequest = (): VirtualDisplayRequest | null => desired ?? lidReq;
+
+  // ---- H.264 over this socket (h264-relay.ts) ------------------------------
+  //
+  // A phone that can decode natively asks with `?codec=h264`. On a Mac host
+  // the helper's VideoToolbox frames are forwarded as binary messages and the
+  // JPEG loop idles; anywhere else the relay announces JPEG and nothing
+  // changes. A retune (config, virtual display) restarts the encoder at the
+  // new size, whose first frame is a keyframe.
+  const h264 = url.searchParams.get('codec') === 'h264'
+    ? createH264Relay(ws, () => ({
+        width: params.width, quality: params.quality, fps: params.fps, screen: params.screen,
+        virtualDisplay: selectCaptureMode(activeReq, virtualUp).virtual !== null,
+      }), FRAME_BUFFER_CAP, (g) => { if (g.sw > 0 && g.sh > 0 && !virtualUp) lastAspect = g.sw / g.sh; })
+    : null;
+  const retuneH264 = (): void => { if (h264?.active) void h264.start(); };
 
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
       if (msg?.type === 'bwpStart') { void startBwp(msg); return; }
       if (msg?.type === 'bwpStop') { stopBwp(); return; }
+      if (msg?.type === 'keyframe') { h264?.keyframe(); return; }
+      if (msg?.type === 'h264stop') { h264?.stop(); return; }
       if (msg?.type !== 'config') return;
       params = resolveStreamParams(msg, params);
       const next = resolveVirtualRequest(msg, desired);
       if (!sameRequest(next, desired)) { desired = next; reconcileVirtual(); }
+      else retuneH264();
     } catch { /* ignore malformed control messages */ }
   });
 
@@ -1719,6 +1748,7 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
     // A streamer that outlived its socket would keep capturing the desktop and
     // sending it to a client that is gone.
     stopBwp();
+    h264?.stop();
     // Free the virtual display on disconnect: a display that outlived the phone
     // that asked for it would rearrange the host owner's desktop for nobody.
     desired = null;
@@ -1727,14 +1757,17 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
   };
   ws.on('close', teardown);
   ws.on('error', teardown);
+  void h264?.start();
 
   const loop = async () => {
     while (alive && ws.readyState === ws.OPEN) {
       const started = Date.now();
-      // Exactly one video path at a time. While BWP carries the pixels this
-      // loop must not also capture: two capture loops on one desktop compete
-      // for the same GPU and halve the frame rate of the one that matters.
-      if (bwpActive) {
+      // Exactly one video path at a time. While BWP or H.264 carries the
+      // pixels this loop must not also capture: two capture loops on one
+      // desktop compete for the same GPU and halve the frame rate of the one
+      // that matters. The H.264 relay also holds the loop while it negotiates,
+      // so its codec announcement always precedes the first pixel frame.
+      if (bwpActive || h264?.active || h264?.pending) {
         await sleep(BWP_IDLE_POLL_MS);
         continue;
       }
@@ -1994,6 +2027,7 @@ for (const host of bind.hosts.slice(1)) {
 
 server.listen(PORT, bind.hosts[0], () => {
   listening = true;
+  postToApp({ type: 'listening', port: PORT, paired: deviceCount() > 0 });
   printBanner({
     hostName: getHostName(),
     port: PORT,
@@ -2010,8 +2044,8 @@ server.listen(PORT, bind.hosts[0], () => {
   console.log(`  Hooks     : ${hooksBannerLine()}`);
   console.log(`  Notify    : ${notifyBannerLine()}`);
   // Printed because it is the answer to "why did my phone lose the pairing":
-  // the file defaults to process.cwd(), so a start from another folder without
-  // BELAY_STATE_FILE is a fresh, unpaired host with a new id.
+  // see data-dir.ts for which file wins (BELAY_STATE_FILE, a file beside the
+  // process, or the per-user data dir).
   console.log(`  State     : ${stateFilePath()}`);
   console.log(`  Bind      : ${bindBannerLine(bind)}`);
   // Async because it asks launchctl / Task Scheduler; printed as soon as it answers.
@@ -2022,7 +2056,49 @@ server.listen(PORT, bind.hosts[0], () => {
   // a device is on the desktop. Never awaited and never fatal: a host with no
   // interactive desktop just answers shown:false.
   void native.tray('show', `Belay - ${getHostName()}`, false).catch(() => {});
+  startTunnelHost();
 });
+
+// ---- tunnel: reach this computer from anywhere -----------------------------
+//
+// A second listener, 127.0.0.1 only, that the belay-net sidecar pipes phone
+// streams into. tunnel-listener.ts tags everything that arrives there as
+// remote, so none of the loopback privileges above apply to it. Without the
+// sidecar binary the host behaves exactly as before: no listener, no claim.
+let tunnel: Tunnel | null = null;
+const linkAbort = new AbortController();
+
+function startTunnelHost(): void {
+  if (!tunnelAvailable()) { console.log('  Tunnel    : belay-net binary not built — tunnel off (npm run build:tunnel)'); return; }
+  const listener = createTunnelListener({ app, tls: { key: tls.key, cert: tls.cert }, onUpgrade });
+  listener.on('error', (e: NodeJS.ErrnoException) => console.error(`[tunnel] listener failed: ${e.message}`));
+  listener.listen(0, '127.0.0.1', () => {
+    const targetPort = (listener.address() as { port: number }).port;
+    const store = diskLinkStore();
+    const cached = store.readCache();
+    try {
+      tunnel = startTunnel({ targetPort, relayUrls: cached?.relayUrls ?? [] });
+    } catch (e) {
+      console.error('[tunnel] not started:', messageOf(e)); return;
+    }
+    const t = tunnel;
+    void t.nodeId.then((nodeId) => {
+      console.log(`  Tunnel    : node ${nodeId.slice(0, 10)}… (${store.readCredential() ? 'linked' : 'not linked — scan the QR below'})`);
+      return runHostLink({
+        client: fetchAccountsClient(), store, nodeId,
+        name: getHostName(), platform: getPlatform(),
+        sign: (m) => t.sign(m),
+        onAllowList: (ids, relays) => { t.setAllowList(ids); t.setRelays(relays); },
+        show: {
+          qr: (link) => qrcode.generate(link, { small: true }),
+          line: (text) => console.log(text),
+          popup: (title, body) => { void native.notify(title, body, '', 20).catch(() => {}); },
+        },
+        signal: linkAbort.signal,
+      });
+    }).catch((e: unknown) => console.error('[tunnel] link loop died:', messageOf(e)));
+  });
+}
 
 // While no device is paired, keep a valid pairing code alive and reprint it
 // whenever it rotates, so the PC always shows a code that actually works even
@@ -2067,6 +2143,8 @@ process.on('uncaughtException', (error: unknown) => {
 // Normal sleep is restored before the process goes: an exit while armed must
 // not leave the machine never-sleeping.
 const shutdown = (): void => {
+  linkAbort.abort();
+  tunnel?.stop();
   void lid.stop().finally(() => { native.stop(); process.exit(0); });
 };
 process.on('SIGINT', shutdown);

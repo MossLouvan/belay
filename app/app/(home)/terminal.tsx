@@ -68,7 +68,7 @@ const SHORT_VIEWPORT_PX = 500;
 const COMPLETE_TIMEOUT_MS = 2500;
 const TAB_NOTICE_MS = 5000;
 const PIPE_TAB_NOTICE =
-  'NO COMPLETION — the host shell has no TTY, so tab has nothing to ask. Run "npm i node-pty" next to the host agent, then restart it.';
+  'NO COMPLETION — the host shell has no TTY, so tab has nothing to ask. Update Belay on your computer, then restart it.';
 
 type FontKey = 'sm' | 'md' | 'lg';
 const FONT_SIZES: Readonly<Record<FontKey, number>> = { sm: 11, md: 12.5, lg: 15 };

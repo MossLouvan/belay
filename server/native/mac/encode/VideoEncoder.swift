@@ -1,13 +1,8 @@
-// VideoToolbox H.264/HEVC low-latency encoder for the WebRTC slice.
+// VideoToolbox H.264/HEVC low-latency encoder.
 //
-// ┌─ STATUS: WRITTEN-BUT-HARDWARE-GATED ────────────────────────────────────┐
-// │ Written to the VideoToolbox API shape and TYPECHECKED with swiftc (see   │
-// │ docs/WEBRTC-SLICE.md, "Verify without hardware"), but it has NOT been    │
-// │ run against a real GPU: no encode latency, no bitrate tracking, no       │
-// │ decodability has been measured. Do NOT treat any of it as verified until │
-// │ the runbook produces a glass-to-glass number (milestone M3). The         │
-// │ encode-latency and bitrate numbers in the plan are TARGETS.              │
-// └──────────────────────────────────────────────────────────────────────────┘
+// Compiled into the shipping helper and driven by H264Session.swift (H.264
+// over the /ws/screen socket). The WebRTC transport under mac/transport/ is a
+// second, still hardware-gated consumer of the same class.
 //
 // Design: one long-lived VTCompressionSession fed the CVPixelBuffers that
 // Capture.swift's SCStream already produces. Configured for interactive
@@ -17,19 +12,15 @@
 //                                       frame of latency waiting for the next)
 //   - PrioritizeEncodingSpeedOverQuality = true (screen content at streaming
 //                                       rates: speed is the quality)
-//   - large MaxKeyFrameInterval + explicit forced keyframes on demand instead
-//     of frequent periodic IDR (a full keyframe is a bandwidth spike that
-//     stalls a constrained uplink)
-//   - AverageBitRate + DataRateLimits driven by the congestion controller
-//     (congestion.ts, relayed over the control data channel) so the encoder
-//     tracks the ABR setpoint
+//   - keyframes only on demand (requestKeyframe) — a full keyframe is a
+//     bandwidth spike that stalls a constrained uplink
+//   - AverageBitRate + DataRateLimits via setBitrate
 //   - low-latency rate control on Apple silicon (H.264 AND HEVC there; on
 //     Intel it is H.264-only, so the spec is arch-gated)
 //
 // Output NAL units are converted from AVCC (length-prefixed) to Annex-B
 // (start-code framed) with the cached SPS/PPS (VPS/SPS/PPS for HEVC) prepended
-// to every IDR, and handed to the transport with the capture timestamp
-// attached — which is what latency.ts needs for glass-to-glass accounting.
+// to every IDR, and handed to the caller with the capture timestamp attached.
 // The Annex-B format and keyframe/parameter-set rules match the pure, tested
 // reference implementation in server/src/webrtc/nal.ts.
 
@@ -144,10 +135,13 @@ final class VideoEncoder {
         setProperty(session, kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, kCFBooleanTrue)
         let profile = codec == .hevc ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_Main_AutoLevel
         setProperty(session, kVTCompressionPropertyKey_ProfileLevel, profile)
-        // Large interval: we drive IDRs explicitly (join / unrecoverable loss)
-        // rather than paying a periodic full-frame spike.
-        setProperty(session, kVTCompressionPropertyKey_MaxKeyFrameInterval, 600 as CFNumber)
-        setProperty(session, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, 5 as CFNumber)
+        // Keyframes on demand only: the client asks (join / decoder failure)
+        // and a resolution change rebuilds the session. No periodic IDR, which
+        // on a constrained uplink is a bandwidth spike for nothing — and no
+        // MaxKeyFrameIntervalDuration, which would reintroduce one by time.
+        setProperty(session, kVTCompressionPropertyKey_MaxKeyFrameInterval, Int32.max as CFNumber)
+        // The real capture rate, so the rate controller budgets per frame
+        // correctly instead of assuming a rate the stream never reaches.
         setProperty(session, kVTCompressionPropertyKey_ExpectedFrameRate, fps as CFNumber)
         // Never let the encoder queue frames internally: output must follow
         // input with no pipeline depth, or every queued frame is added latency.
@@ -159,7 +153,11 @@ final class VideoEncoder {
 
     private func setProperty(_ session: VTCompressionSession, _ key: CFString, _ value: CFTypeRef) {
         let status = VTSessionSetProperty(session, key: key, value: value)
-        if status != noErr {
+        // kVTPropertyNotSupportedErr is a hint the encoder has no knob for
+        // (measured: the low-latency rate controller refuses
+        // PrioritizeEncodingSpeedOverQuality and MaxFrameDelayCount, having
+        // already pinned both), not a misconfiguration.
+        if status != noErr, status != kVTPropertyNotSupportedErr {
             onError?("VTSessionSetProperty(\(key)) failed: \(status)")
         }
     }

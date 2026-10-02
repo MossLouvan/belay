@@ -12,6 +12,7 @@ import { ScrollView, View } from 'react-native';
 import { useTheme } from '../theme';
 import { Button, Caption, Row, Rule, Sheet, Txt } from '../ui';
 import { SegmentedControl } from '../ui/controls';
+import { LABS } from '../labs';
 
 export interface StreamSettings {
   readonly fps: number;
@@ -161,6 +162,7 @@ export function StreamSettingsSheet({
           />
         </View>
 
+        {LABS ? <>
         <Rule />
 
         <View style={{ gap: theme.space.sm }}>
@@ -189,6 +191,7 @@ export function StreamSettingsSheet({
             />
           </Row>
         </View>
+        </> : null}
 
         <View style={{ marginTop: theme.space.md, gap: theme.space.sm }}>
           <Button

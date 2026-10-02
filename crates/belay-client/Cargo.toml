@@ -14,3 +14,5 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [dependencies]
 belay-wire = { path = "../belay-wire" }
 belay-net = { path = "../belay-net" }
+belay-net-tunnel = { path = "../belay-net-tunnel" }
+tokio = { version = "1", features = ["rt-multi-thread"] }

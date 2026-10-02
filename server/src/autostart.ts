@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { Express, RequestHandler } from 'express';
 
 import { messageOf } from './errors.js';
+import { requestFromApp, underHostApp } from './host-ipc.js';
 
 const SERVER_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT_TIMEOUT_MS = 30_000;
@@ -66,7 +67,16 @@ function runScript(action: AutostartAction): Promise<string> {
   });
 }
 
+// Under Belay.app "autostart" is the app's own login item, not a LaunchAgent
+// or scheduled task: the app answers these over the parent port (host-ipc.ts),
+// so the phone's toggle keeps working with the same routes and the same words.
+async function appAutostart(action: AutostartAction): Promise<AutostartStatus> {
+  const reply = await requestFromApp({ type: 'autostart', action }) as { installed?: unknown };
+  return { supported: true, installed: reply.installed === true };
+}
+
 export async function autostartStatus(): Promise<AutostartStatus> {
+  if (underHostApp()) return appAutostart('status');
   if (!autostartCommand('status')) return { supported: false, installed: false };
   return { supported: true, ...parseAutostartStatus(await runScript('status')) };
 }
@@ -102,6 +112,7 @@ export function registerAutostartRoutes(app: Express, auth: RequestHandler): voi
       if (!before.supported) { res.status(400).json({ error: `autostart is not supported on ${process.platform}` }); return; }
       // Idempotent: re-installing boots the running agent out, which would be us.
       if (before.installed) { res.json({ ok: true, installed: true }); return; }
+      if (underHostApp()) { res.json({ ok: true, installed: (await appAutostart('install')).installed }); return; }
       await runScript('install');
       res.json({ ok: true, installed: (await autostartStatus()).installed });
     } catch (e: unknown) {
@@ -113,6 +124,7 @@ export function registerAutostartRoutes(app: Express, auth: RequestHandler): voi
     try {
       const before = await autostartStatus();
       if (!before.installed) { res.json({ ok: true, installed: false }); return; }
+      if (underHostApp()) { res.json({ ok: true, installed: (await appAutostart('remove')).installed }); return; }
       if (launchedByAutostart(before)) {
         // Removing the agent stops this process. Answer, then go.
         res.json({ ok: true, installed: false, restarting: true });

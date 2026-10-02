@@ -108,6 +108,28 @@ test('plain http, Tailscale, and an unenforced pin all keep the challenge', asyn
   }
 });
 
+// The tunnel: the app talks to https://127.0.0.1:<port>, a loopback address
+// that is NOT a private link in the Tailscale sense — the bytes leave the
+// phone, and the native pin layer enforces the host's fingerprint for exactly
+// that host:port. A pinned loopback https answer therefore proves identity
+// just as a pinned LAN one does; an unpinned one still challenges.
+test('a natively pinned https loopback (tunnel) address counts as pinned https', async () => {
+  let asked = false;
+  const spy = async (...args) => { asked = true; return genuine(...args); };
+  const verdict = await verifyHost(
+    { device: paired, url: 'https://127.0.0.1:5123', reportedHostId: 'mac-uuid', pinEnforced: true },
+    spy, bytes,
+  );
+  assert.deepEqual(verdict, { ok: true, adoptId: undefined });
+  assert.equal(asked, false, 'no /challenge round trip through the tunnel');
+
+  const unpinned = await verifyHost(
+    { device: paired, url: 'https://127.0.0.1:5123', reportedHostId: 'mac-uuid', pinEnforced: false },
+    impostor, bytes,
+  );
+  assert.deepEqual(unpinned, { ok: false, problem: 'identity' }, 'unpinned loopback https still challenges');
+});
+
 test('a mismatched host id still fails on a pinned link, before any challenge', async () => {
   const verdict = await verifyHost(
     { device: paired, url: 'https://192.168.1.5:8787', reportedHostId: 'other', pinEnforced: true },

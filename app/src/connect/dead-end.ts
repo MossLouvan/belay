@@ -88,8 +88,8 @@ export function detectDeadEnd(
  * machine's identity: deleting belay-state.json used to do it, but that also
  * regenerates the host's `hostId` — the very key the app saves computers on —
  * which orphans the phone's saved entry, resets a renamed machine's label, and
- * makes the next pairing appear as a *second*, duplicate computer. `npm start
- * --reset-pairing` clears only the devices and keeps hostId and label, so the
+ * makes the next pairing appear as a *second*, duplicate computer.
+ * `--reset-pairing` clears only the devices and keeps hostId and label, so the
  * saved computer keeps working after re-pairing. The command is the same on
  * every platform — no file to remove, so no `del`/`rm` split, and no guessing
  * between belay-state.json and the legacy tether-state.json. BELAY_TEST_CODE is
@@ -100,7 +100,7 @@ export function detectDeadEnd(
  * the instruction no longer varies by it.
  */
 export function reopenPairingCommand(_platform?: string): string {
-  return 'cd server\nnpm start -- --reset-pairing';
+  return 'npx belay-host --reset-pairing';
 }
 
 /**

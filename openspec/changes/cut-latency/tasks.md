@@ -3,4 +3,4 @@
 ## C (client)
 - [ ] 9 leaf render + newest-wins + single URI  - [ ] 10 stagger 75  - [ ] 11 challenge skip on pinned HTTPS  - [ ] 12 BWP gap/poll/cursor/rcvbuf
 ## V (Mac H.264)
-- [ ] 13 VideoToolbox over /ws/screen + native decode + SCK GPU downscale 60 fps
+- [x] 13 VideoToolbox over /ws/screen + native decode + SCK GPU downscale 60 fps

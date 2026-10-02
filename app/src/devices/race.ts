@@ -42,10 +42,15 @@ export interface ProbeResult {
   readonly rttMs: number;
   /** Host identity from /health, when the host reported one. */
   readonly hostId?: string;
+  /**
+   * The concrete URL that answered when the candidate was not one itself: a
+   * `tunnel:<nodeId>` candidate answers on `https://127.0.0.1:<port>`.
+   */
+  readonly via?: string;
 }
 
 /** Probes one URL. Injected so the racer is testable without a network. */
-export type Probe = (url: string, signal: AbortSignal) => Promise<{ ok: boolean; hostId?: string }>;
+export type Probe = (url: string, signal: AbortSignal) => Promise<{ ok: boolean; hostId?: string; via?: string }>;
 
 export interface RaceOptions {
   readonly timeoutMs?: number;
@@ -98,7 +103,7 @@ export async function raceAddresses(
     try {
       const result = await probe(address.url, perAttempt.signal);
       if (!result.ok) return null;
-      return { url: address.url, rttMs: now() - started, hostId: result.hostId };
+      return { url: address.url, rttMs: now() - started, hostId: result.hostId, ...(result.via ? { via: result.via } : {}) };
     } catch {
       // A failed or aborted probe is not exceptional — it is the normal case
       // for every address that is not the right one on this network.

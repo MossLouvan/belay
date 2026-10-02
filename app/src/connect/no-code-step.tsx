@@ -126,8 +126,7 @@ function ComputerRoute({
     <View style={{ gap: theme.space.sm }}>
       <Label style={{ marginBottom: 0 }}>On the computer</Label>
       <Txt variant="caption" tone="dim">
-        To get a fresh code, reset pairing on {hostName}: stop the host agent (Ctrl+C in its
-        terminal), then run
+        To get a fresh code, stop Belay on {hostName} and start it again with
       </Txt>
       <Mono>{reopenPairingCommand(platform)}</Mono>
       <Caption>

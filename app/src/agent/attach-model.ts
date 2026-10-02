@@ -279,7 +279,7 @@ export function attachedNote(state: AttachState, reported?: number): string | nu
  * screen that makes you want it.
  */
 export function deskCommand(id: string): string {
-  return `npm run attach -- ${id}`;
+  return `npx belay-host attach ${id}`;
 }
 
 /** The header's one-line truth about the link, for a screen that must never look dead. */

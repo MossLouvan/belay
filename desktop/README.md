@@ -1,8 +1,41 @@
-# Belay desktop client
+# Belay for Mac and Windows
 
-Connect to a computer running the Belay host **from another computer**, and
-open its displays as ordinary windows on your desktop — resizable, alt-tabbable,
-snappable beside your local apps.
+Two roles in one app:
+
+- **Host** (default, in the menu bar): runs the Belay host agent so your phone
+  can reach this computer. Shows the pairing QR, walks through the macOS
+  Screen Recording / Accessibility grants (they land on *Belay*, not on
+  Terminal), and starts at login once a phone has linked. This is the
+  one-download install: `Belay-mac-universal.dmg` / `Belay-Setup.exe` from
+  GitHub Releases, see [`docs/RELEASE.md`](../docs/RELEASE.md).
+- **Viewer** ("Connect to a computer…" in the menu): open another computer's
+  displays as ordinary windows on this desktop — resizable, alt-tabbable,
+  snappable beside your local apps. Everything below this section is about
+  the viewer.
+
+## The host role
+
+`host.js` forks the compiled agent (`server/dist/index.js`, staged into
+`Resources/host` by `scripts/stage-host.mjs`) as an Electron `utilityProcess`
+and talks to it over the parent port (`server/src/host-ipc.ts`): the host
+posts its pairing link and QR matrix, the app answers the phone's autostart
+toggle with the login-item state. Node is Electron's own; the user installs
+nothing else. The prebuilt universal `BelayHostMac` ships inside the bundle,
+so the TCC grant attaches to the app.
+
+```bash
+npm start                        # host + viewer from this checkout (needs ../server built)
+BELAY_PORT=8790 npm start        # beside a running npx/LaunchAgent host
+npm run stage                    # server build + prod deps + helper → desktop/host/
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac   # unsigned local Belay.app + dmg
+```
+
+State lives in the app's userData (`belay-state.json`, `host.log`,
+`host-prefs.json`), not in `server/`. If another host already answers on the
+port (the `com.belay.host` LaunchAgent, say), the app waits and says so
+instead of racing it — remove that one with `npm run autostart -- remove`.
+
+## The viewer role
 
 ```
    this computer (Electron)                 the paired computer (host agent)
@@ -102,6 +135,10 @@ opened after the change.
 | File | Role |
 |---|---|
 | `main.js` | Electron main process: windows, IPC, aspect-ratio locking |
+| `host.js` | the host role: utilityProcess child, tray menu, QR window, permissions, login item |
+| `preload-host.cjs` / `renderer/host.*` | the host window and its narrow bridge |
+| `src/host-status.js` | pure host pieces: pairing link parse, QR→SVG, status line, login-item rule |
+| `scripts/stage-host.mjs`, `electron-builder.config.mjs`, `build/` | packaging (see `docs/RELEASE.md`) |
 | `preload.cjs` | the renderer's only privileged surface — four IPC calls |
 | `renderer/tokens.css` | GENERATED from `app/src/theme.ts` — every palette, type, spacing, radius, motion and HUD token; dark under `prefers-color-scheme` and `data-theme` |
 | `renderer/fonts/` | the four Outfit faces the phone loads, plus their OFL licence |
