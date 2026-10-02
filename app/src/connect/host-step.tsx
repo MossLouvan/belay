@@ -15,6 +15,7 @@ import { AddressEntry } from './address-entry';
 import type { DiscoveredShortcut } from './address-entry';
 import { isTailscaleAddress, prettyHost } from './host-input';
 import { openTailscale } from './tailscale-card';
+import { LocalNetworkNotice } from './local-network-notice';
 
 export interface HostStepProps {
   value: string;
@@ -105,13 +106,17 @@ export function HostStep({
         onScan={onScan}
       />
 
-      {error ? (
+      {error?.localNetwork ? (
+        // A failed scan leaves the field empty: retry by scanning again.
+        <LocalNetworkNotice onRetry={value.trim() ? onSubmit : onScan} />
+      ) : null}
+      {error && !error.localNetwork ? (
         <StatusNotice testID="error" title={error.title} message={error.message} status="bad" />
       ) : null}
       {/* A 100.x address that does not answer almost always means Tailscale is
           off on this phone, so the fix is one tap away rather than a re-read
           of the address. */}
-      {error && isTailscaleAddress(value) ? (
+      {error && !error.localNetwork && isTailscaleAddress(value) ? (
         <Button
           label="Open Tailscale"
           onPress={() => { haptic('light'); void openTailscale(); }}

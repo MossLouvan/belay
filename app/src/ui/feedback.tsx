@@ -287,6 +287,7 @@ export function Banner({
   title,
   status = 'bad',
   action,
+  secondaryAction,
   style,
   testID,
 }: {
@@ -294,6 +295,8 @@ export function Banner({
   title?: string;
   status?: Status;
   action?: { label: string; onPress: () => void };
+  /** A second tracked button beside `action` (e.g. Retry next to Open Settings). */
+  secondaryAction?: { label: string; onPress: () => void };
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }) {
@@ -345,14 +348,19 @@ export function Banner({
       </Txt>
       {/* The action is a tracked text button, not a soft Button — fills
           within fills die (§5.8). Inks: on-fill label, solid status track. */}
-      {action ? (
-        <TrackLabel
-          label={action.label}
-          onPress={action.onPress}
-          labelColor={onFill}
-          trackColor={rule}
-          style={{ alignSelf: 'flex-start' }}
-        />
+      {action || secondaryAction ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.md }}>
+          {[action, secondaryAction].map((a) => (a ? (
+            <TrackLabel
+              key={a.label}
+              label={a.label}
+              onPress={a.onPress}
+              labelColor={onFill}
+              trackColor={rule}
+              style={{ alignSelf: 'flex-start' }}
+            />
+          ) : null))}
+        </View>
       ) : null}
     </View>
   );

@@ -3,7 +3,7 @@
 // (once client ids exist), and a 6-digit email code. Brand block centred as the
 // connect screen's is (DESIGN.md §2.6); one accent button per stage.
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { IconBrandApple, IconBrandGoogle, IconMail } from '@tabler/icons-react-native';
 
@@ -12,7 +12,10 @@ import { useTheme } from '../theme';
 import { Brand } from '../connect/brand';
 import { CodeInput } from '../connect/code-input';
 import { errorMessage } from '../connect/pair-flow';
-import { useAccount } from './store';
+import { ACCOUNTS_BASE_URL, useAccount } from './store';
+import { AccountsError } from './api';
+import { localNetworkDiagnosis } from '../connect/local-network-permission';
+import { LocalNetworkNotice } from '../connect/local-network-notice';
 import { GOOGLE_SIGN_IN_ENABLED, appleSignInAvailable, signInWithApple, signInWithGoogle } from './providers';
 
 type Stage = 'pick' | 'email' | 'code';
@@ -35,18 +38,26 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
   const [appleAvailable, setAppleAvailable] = useState(false);
   /** Set when "Send a new code" went through, so the tap visibly did something. */
   const [resent, setResent] = useState(false);
+  /** A LAN accounts server (dev override) blocked by iOS Local Network permission. */
+  const [localNetworkOff, setLocalNetworkOff] = useState(false);
+  /** The last attempt, so the Local Network notice's Retry can run it again. */
+  const lastRun = useRef<(() => Promise<boolean>) | null>(null);
 
   useEffect(() => { appleSignInAvailable().then(setAppleAvailable); }, []);
 
   /** Run one sign-in attempt with the shared busy/error plumbing. */
   const attempt = useCallback(async (run: () => Promise<boolean>) => {
+    lastRun.current = run;
     setBusy(true);
     setError(null);
+    setLocalNetworkOff(false);
     try {
       if (await run()) { haptic('success'); onSignedIn(); }
     } catch (e: unknown) {
       haptic('error');
-      setError(errorMessage(e));
+      const network = e instanceof AccountsError && e.code === 'network';
+      if (network && await localNetworkDiagnosis([ACCOUNTS_BASE_URL])) setLocalNetworkOff(true);
+      else setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -85,7 +96,7 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
     });
   }, [attempt, api, signIn, email, code]);
 
-  const back = useCallback((to: Stage) => { setError(null); setResent(false); setStage(to); }, []);
+  const back = useCallback((to: Stage) => { setError(null); setLocalNetworkOff(false); setResent(false); setStage(to); }, []);
 
   return (
     <Screen scroll padding="page" contentStyle={{ justifyContent: 'center', flexGrow: 1 }}>
@@ -153,6 +164,9 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
         )}
 
         {error ? <Banner status="bad" title="Could not sign in" message={error} testID="sign-in-error" /> : null}
+        {localNetworkOff ? (
+          <LocalNetworkNotice onRetry={() => { if (lastRun.current) void attempt(lastRun.current); }} />
+        ) : null}
       </View>
     </Screen>
   );

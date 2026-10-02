@@ -8,7 +8,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
-import { AccountsError, createAccountsApi } from './api';
+import { AccountsError, DEFAULT_ACCOUNTS_URL, createAccountsApi } from './api';
 import type { Account, AccountDevice, AccountsApi, SessionResult } from './api';
 import { clearSession, loadPhoneRegistration, loadSession, savePhoneRegistration, saveSession } from './session';
 import { registrationNeeded } from './phone-registration';
@@ -17,6 +17,8 @@ import { deviceNameFor } from '../connect/pair-flow';
 
 /** Override for local development: EXPO_PUBLIC_ACCOUNTS_API=http://localhost:8787/v1 */
 const ACCOUNTS_API_URL = process.env.EXPO_PUBLIC_ACCOUNTS_API || undefined;
+/** Where account calls go; a LAN one is subject to iOS Local Network permission. */
+export const ACCOUNTS_BASE_URL = ACCOUNTS_API_URL ?? DEFAULT_ACCOUNTS_URL;
 
 interface Ctx {
   /** The stored session has been read (or found absent). */

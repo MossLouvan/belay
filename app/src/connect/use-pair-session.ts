@@ -22,6 +22,7 @@ import { haptic } from '../ui';
 import type { Diagnosis } from './diagnose';
 import { diagnosePairFailure } from './diagnose';
 import { postPairDestination } from './landing';
+import { localNetworkDiagnosis, primeLocalNetwork } from './local-network-permission';
 import type { ParsedPairLink } from './pair-link';
 import { CODE_LENGTH } from './pair-step';
 import type { HostSummary } from './pair-step';
@@ -229,10 +230,12 @@ export function usePairSession(
       // address before the first probe, so an https address only answers if it
       // presents that certificate.
       if (link.fingerprint) pinAddresses(link.addresses, link.fingerprint);
+      await primeLocalNetwork(link.addresses);
       const reachable = await firstReachable(link.addresses, checkHost);
       if (!reachable) {
+        const blocked = await localNetworkDiagnosis(link.addresses);
         setStage('host');
-        setHostError({
+        setHostError(blocked ?? {
           title: `Could not reach ${link.label}`,
           message:
             'The code scanned fine, but none of that computer\'s addresses answered ' +
