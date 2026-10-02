@@ -7,6 +7,7 @@ import qrcode from 'qrcode-terminal';
 import { localAddresses, isTailscaleAddress, isCgnatAddress, schemeFor } from './addresses.js';
 import { displayFingerprint } from './tls-cert.js';
 import { emitPairingCode, PairingHostInfo } from './pairing-display.js';
+import { postToApp, qrModules } from './host-ipc.js';
 
 export interface BannerInfo {
   readonly hostName: string;
@@ -25,8 +26,13 @@ export interface BannerInfo {
 // The concrete terminal sinks: a real QR renderer and console.log. `small:
 // true` uses half-block characters so the code fits an 80-column terminal; the
 // default renders roughly twice as tall and wraps.
+// Under Belay.app the same link also goes to the app, which draws it in a
+// window (host-ipc.ts); the terminal copy still prints for the log file.
 const terminalSinks = {
-  qr: (link: string) => qrcode.generate(link, { small: true }),
+  qr: (link: string) => {
+    qrcode.generate(link, { small: true });
+    postToApp({ type: 'pairing', link, modules: qrModules(link) });
+  },
   line: (text: string) => console.log(text),
 };
 

@@ -102,3 +102,8 @@ app/modules/belay-stream/ios/lib/
 
 # host TLS identity (private key) — never commit
 belay-tls-*.pem
+
+# packaged host staging and electron-builder output (desktop/)
+desktop/host/
+desktop/release/
+!desktop/build/

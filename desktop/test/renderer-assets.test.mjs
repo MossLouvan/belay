@@ -15,8 +15,8 @@ import { parseTokensCss } from '../scripts/tokens-css.mjs';
 const rendererDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'renderer');
 const read = (file) => readFileSync(resolve(rendererDir, file), 'utf8');
 
-const PAGES = Object.freeze(['connect.html', 'display.html', 'seamless.html']);
-const PAGE_CSS = Object.freeze(['style.css', 'display.css', 'seamless.css']);
+const PAGES = Object.freeze(['connect.html', 'display.html', 'seamless.html', 'host.html']);
+const PAGE_CSS = Object.freeze(['style.css', 'display.css', 'seamless.css', 'host.css']);
 
 /** Local `href`/`src` values in a page — everything that is not a URL. */
 export const localReferences = (html) =>

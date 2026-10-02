@@ -4,6 +4,13 @@ Everything runs on two machines: your **host** (a Mac or a Windows PC) and your
 **iPhone** (the app). This walks through both, plus reaching the host from
 anywhere.
 
+**The short way:** download `Belay-mac-universal.dmg` or `Belay-Setup.exe`
+from the latest GitHub release, install it, and scan the QR it shows with the
+phone. The app runs the host from the menu bar, asks for the macOS
+permissions under its own name, and starts at login once a phone has linked
+(`desktop/README.md`; building and signing it: `docs/RELEASE.md`). The rest of
+this page is the developer path, from a checkout.
+
 Pick your host platform:
 
 - [macOS](#macos-host)
