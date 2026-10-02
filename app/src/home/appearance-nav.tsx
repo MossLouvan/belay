@@ -14,9 +14,11 @@ import {
 } from '@tabler/icons-react-native';
 import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
-import { Txt } from '../ui';
+import { Txt, tabSelected } from '../ui';
+import { planTabPress } from './nav-plan';
+import type { NavTab } from './nav-plan';
 
-export type NavTab = 'screen' | 'agent' | 'terminal' | 'files' | 'system';
+export type { NavTab } from './nav-plan';
 
 const TABS: readonly NavTab[] = ['screen', 'agent', 'terminal', 'files', 'system'];
 
@@ -49,10 +51,14 @@ export function ComputerGlyph({ color }: { color: string }) {
 }
 
 export interface AppearanceNavProps {
+  /**
+   * The tab this screen IS. Omit on a screen that is none of them (the
+   * Computers list): nothing is lit and every tab navigates (#73).
+   */
   readonly selected?: NavTab;
 }
 
-export function AppearanceNav({ selected = 'screen' }: AppearanceNavProps) {
+export function AppearanceNav({ selected }: AppearanceNavProps) {
   const theme = useTheme();
   const look = useLook();
   const insets = useSafeAreaInsets();
@@ -82,17 +88,13 @@ export function AppearanceNav({ selected = 'screen' }: AppearanceNavProps) {
             key={tab}
             testID={`nav-${tab}`}
             accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
+            {...tabSelected(active)}
             accessibilityLabel={tabLabel(tab)}
             onPress={() => {
-              if (tab === selected) return;
-              // Inside a tool panel, moving to another tool REPLACES it. Pushing
-              // would stack a second panel — and a second copy of this bar —
-              // over the first, so the app would grow one tablist per tap and
-              // the way back to the desktop would need as many taps.
-              if (selected === 'screen') router.navigate(`/${tab}`);
-              else if (tab === 'screen') router.back();
-              else router.replace(`/${tab}`);
+              const plan = planTabPress(selected, tab);
+              if (plan.kind === 'navigate') router.navigate(plan.href);
+              else if (plan.kind === 'replace') router.replace(plan.href);
+              else if (plan.kind === 'back') router.back();
             }}
             style={({ pressed }) => ({
               flex: 1,

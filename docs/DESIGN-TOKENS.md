@@ -251,7 +251,19 @@ value; only palette hexes change.
 ## 9. Contrast verifier
 
 Re-run whenever a hex or alpha changes; all text pairs must print ≥ 4.50, all
-`accentGraphic`/track marks ≥ 3.00.
+`accentGraphic`/track marks ≥ 3.00. `app/src/theme-contrast.test.mjs` runs the
+text and danger pairs below on every `npm test`.
+
+What ships (`currentPalette` / `fieldworkPalette` in `app/src/theme.ts`, which
+override the §1 base palettes), worst backdrop of bg / surface / surfaceAlt —
+corrected in #71:
+
+| token | Current | Fieldwork |
+|---|---|---|
+| `text` | `#101828` ≥ 15.34:1 | `#F2F2EF` ≥ 13.57:1 |
+| `textDim` | `#5B6676` ≥ 5.03:1 | `#A8ACAF` ≥ 6.66:1 |
+| `textFaint` | `#616D7E` ≥ 4.54:1 (was `#8791A1`, 2.75) | `#8E9396` ≥ 4.90:1 (was `#82878A`, 4.19) |
+| `onDanger` on `bad` | `#FFFFFF` on `#C4342E` 5.42:1 | `#1A1210` on `#FF6B6B` 6.65:1 (was white, 2.78) |
 
 ```js
 // node contrast.mjs

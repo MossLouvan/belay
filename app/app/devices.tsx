@@ -311,7 +311,8 @@ export default function Devices() {
           ) : null}
         </View>
       </Screen>
-      <AppearanceNav selected="screen" />
+      {/* The list is none of the tabs: nothing lit, Screen navigates (#73). */}
+      <AppearanceNav />
       {sheets}
     </View>
   );

@@ -40,7 +40,7 @@ export type { ConnectionPhase, ConnectionView, SurfaceExtras, SurfacePhase, Surf
 export { Input, TextField } from './input';
 export type { InputProps } from './input';
 
-export { SegmentedControl, ListItem } from './controls';
+export { SegmentedControl, ListItem, tabSelected } from './controls';
 export type { SegmentOption, SegmentedControlProps, ListItemProps } from './controls';
 
 export { Sheet, Sheet as Modal } from './sheet';

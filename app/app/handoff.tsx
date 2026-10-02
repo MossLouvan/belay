@@ -16,7 +16,7 @@
 // Navigate here with:
 //   router.push({ pathname: '/handoff', params: { session, title, cwd } })
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
@@ -25,6 +25,8 @@ import {
   EmptyState, Skeleton,
 } from '../src/ui';
 import { useTheme } from '../src/theme';
+import { useConnection } from '../src/connection';
+import { hostSettled } from '../src/connection-gate';
 import { copyText } from '../src/files/clipboard';
 import { requestHandoff } from '../src/handoff/handoff-api';
 import { busyExplanation, openedNote } from '../src/handoff/handoff-model';
@@ -75,9 +77,21 @@ export default function Handoff() {
     }
   }, [sessionId]);
 
+  // Ask once the saved connection has settled, not on mount: after a reload
+  // the race is still running and the request would fail "not connected"
+  // (#85). Unlike What changed, this is a command that opens a window on the
+  // computer, so it fires once — reconnects do not re-issue it.
+  const { ready, phase: connPhase } = useConnection();
+  const settled = hostSettled(ready, connPhase);
+  const asked = useRef(false);
   useEffect(() => {
-    if (sessionId) void ask(false);
-  }, [sessionId, ask]);
+    if (!sessionId || !settled || asked.current) return;
+    asked.current = true;
+    void ask(false);
+  }, [sessionId, settled, ask]);
+
+  // Opened by URL there is no history, so a bare back() is a dead button (#84).
+  const leave = () => { if (router.canGoBack()) router.back(); else router.replace('/agent'); };
 
   const margin = theme.layout.margin;
 
@@ -107,7 +121,7 @@ export default function Handoff() {
         <EmptyState
           title="No session"
           message="This screen hands a Claude session to the computer's own terminal, and no session was given."
-          action={{ label: 'Go back', onPress: () => router.back() }}
+          action={{ label: 'Go back', onPress: leave }}
         />
       </Screen>
     );
@@ -153,7 +167,7 @@ export default function Handoff() {
           <Txt variant="body">{busyExplanation(outcome.status)}</Txt>
           <Row gap="sm">
             <View style={{ flex: 1 }}>
-              <Button label="Cancel" variant="secondary" fullWidth onPress={() => router.back()} />
+              <Button label="Cancel" variant="secondary" fullWidth onPress={leave} />
             </View>
             <View style={{ flex: 1 }}>
               <Button
@@ -180,7 +194,7 @@ export default function Handoff() {
             {`The computer said: ${outcome.reason}. The phone has let go of this session, so paste this into any terminal there to pick it up:`}
           </Txt>
           <CommandBlock command={outcome.command} />
-          <Button label="Done" variant="secondary" size="sm" onPress={() => router.back()} />
+          <Button label="Done" variant="secondary" size="sm" onPress={leave} />
         </View>
       </Screen>
     );
@@ -193,7 +207,7 @@ export default function Handoff() {
         <Label style={{ color: theme.colors.good }}>{`OPENED IN ${outcome.terminal.toUpperCase()}`}</Label>
         <Txt variant="body">{openedNote(outcome.terminal, outcome.stopped)}</Txt>
         <CommandBlock command={outcome.command} />
-        <Button label="Done" variant="primary" onPress={() => router.back()} />
+        <Button label="Done" variant="primary" onPress={leave} />
       </View>
     </Screen>
   );
