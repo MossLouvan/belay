@@ -731,7 +731,7 @@ The boot splash shows:
 - "BELAY" wordmark + "HOLD THE LINE" tagline at bottom-right
 - Animation sequence: rope drops down → carabiner slides in → wordmark fades up
 - Drawn with React Native Views and SVG for clean scaling and theme recoloring
-- Replaces the old two-square tether LogoMark on boot
+- The two-square tether LogoMark is retired; the brand mark is the beluga (section 12.6)
 
 ### 12.5 Notification carabiner
 
@@ -747,6 +747,18 @@ Brand consistency: the same carabiner design used in splash and notifications cr
 cohesive visual language.
 
 ---
+
+### 12.6 The beluga mark
+
+The one brand mark is the beluga silhouette in `app/assets/beluga-mark.svg`: a single
+`currentColor` path (profile facing left, melon over a short beak, the tail curled up
+into a horizontal fluke) with the eye and smile cut out, legible from 16 px to 1024 px.
+In the app it is `BelugaAvatar` (`app/src/ui/beluga-avatar.tsx`), in the desktop window
+a CSS mask over `desktop/renderer/beluga-mark.svg`. The lockup is the mark plus the
+"Belay" wordmark in the accent (`Brand`, the desktop host header). Every icon (iOS,
+splash, Android adaptive, web favicon, macOS app icon, menu-bar `trayTemplate`) is
+built from it by `bash app/scripts/build-icons.sh`. The detailed `beluga-cutout.png`
+stays for big hero placements only.
 
 ## 13. Never do this
 
