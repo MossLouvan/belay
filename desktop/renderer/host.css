@@ -5,9 +5,9 @@
 .host > * + * { margin-top: var(--space-md); }
 .host .stack > * + * { margin-top: var(--space-xs); }
 .host-head { display: flex; align-items: center; gap: var(--space-md); }
-/* The beluga mark, tinted by the accent like the wordmark beside it. */
+/* The beluga mark in Harbour's slate-navy ink, as gobelay.com sets it. */
 .host-mark {
-  width: 40px; height: 40px; flex: none; background: var(--accent);
+  width: 40px; height: 40px; flex: none; background: var(--text);
   -webkit-mask: url(beluga-mark.svg) center / contain no-repeat;
   mask: url(beluga-mark.svg) center / contain no-repeat;
 }
@@ -17,7 +17,7 @@
 .step {
   display: inline-block; width: 22px; height: 22px; margin-right: var(--space-xs);
   font-size: var(--type-caption-size); line-height: 22px; text-align: center;
-  color: var(--on-accent); background: var(--accent); border-radius: 50%;
+  color: var(--on-cta); background: var(--cta-bottom); border-radius: 50%;
 }
 
 .qr {
@@ -49,3 +49,4 @@
 .signin-providers .button { flex: 1; }
 #signin form .input { flex: 1; min-width: 0; }
 #signin-msg:empty { display: none; }
+.host-title .brand { color: var(--text); }

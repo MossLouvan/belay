@@ -13,7 +13,7 @@ import { groundFromTheme, renderGroundJs } from '../scripts/ground-js.mjs';
 import { HUD_KEYS, loadHud, parseHud } from '../scripts/hud-source.mjs';
 import { OUTPUTS, generate } from '../scripts/sync-tokens.mjs';
 import { loadDarkFirst, loadTheme, parseDarkFirst } from '../scripts/theme-source.mjs';
-import { OUTFIT_FACES, kebab, parseTokensCss, renderTokensCss, sansStack } from '../scripts/tokens-css.mjs';
+import { FONT_FACES, displayStack, faceOf, familyVar, kebab, parseTokensCss, renderTokensCss, sansStack } from '../scripts/tokens-css.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const rendererDir = resolve(here, '..', 'renderer');
@@ -37,18 +37,18 @@ test('src/ground.js is exactly what theme.ts generates', () => {
   assert.equal(onDisk.ground, generated.ground, 'ground.js drifted from app/src/theme.ts — run `npm run sync-tokens`');
 });
 
-test('every light palette role is a bare property on :root', () => {
+test('every Harbour day palette role is a bare property on :root', () => {
   const root = parseTokensCss(onDisk.css)[':root'];
-  for (const [role, value] of Object.entries(theme.lightPalette)) {
+  for (const [role, value] of Object.entries(theme.harbourPalette)) {
     assert.equal(root[kebab(role)], value, `--${kebab(role)} on :root`);
   }
 });
 
-test('the dark palette applies under prefers-color-scheme and under data-theme="dark"', () => {
+test('the Harbour night palette applies under prefers-color-scheme and under data-theme="dark"', () => {
   const blocks = parseTokensCss(onDisk.css);
   for (const selector of DARK_SELECTORS) {
     assert.ok(blocks[selector], `${selector} block present`);
-    for (const [role, value] of Object.entries(theme.darkPalette)) {
+    for (const [role, value] of Object.entries(theme.harbourNightPalette)) {
       assert.equal(blocks[selector][kebab(role)], value, `--${kebab(role)} in ${selector}`);
     }
   }
@@ -73,23 +73,30 @@ test('spacing, radii and layout come through in px', () => {
 
 test('every type variant carries size, line, weight, tracking and transform', () => {
   const root = parseTokensCss(onDisk.css)[':root'];
-  for (const [variant, style] of Object.entries(theme.type)) {
+  for (const [variant, style] of Object.entries(theme.harbourType)) {
     const name = `type-${kebab(variant)}`;
     assert.equal(root[`${name}-size`], `${style.fontSize}px`, `${name}-size`);
     assert.equal(root[`${name}-line`], `${style.lineHeight}px`, `${name}-line`);
-    assert.equal(root[`${name}-weight`], String(style.fontWeight ?? '400'), `${name}-weight`);
+    assert.equal(root[`${name}-weight`], String(faceOf(style.fontFamily)?.weight ?? style.fontWeight ?? '400'), `${name}-weight`);
     assert.equal(root[`${name}-tracking`], `${style.letterSpacing ?? 0}px`, `${name}-tracking`);
     assert.equal(root[`${name}-transform`], style.textTransform ?? 'none', `${name}-transform`);
-    const expectedFamily = style.fontFamily === theme.font.sans ? 'var(--sans)' : 'var(--mono)';
+    const expectedFamily = familyVar(style.fontFamily, theme.harbourFont);
     assert.equal(root[`${name}-family`], expectedFamily, `${name}-family`);
   }
 });
 
-test('font families match the theme and the Outfit faces exist on disk', () => {
+test('font families match the theme and the Harbour faces exist on disk', () => {
   const root = parseTokensCss(onDisk.css)[':root'];
-  assert.equal(root.sans, sansStack(theme.font), '--sans is the app sans stack');
-  assert.equal(root.mono, theme.font.mono);
-  for (const face of OUTFIT_FACES) {
+  assert.equal(root.sans, sansStack(theme.harbourFont), '--sans is the app sans stack');
+  assert.equal(root.display, displayStack(theme.harbourFont), '--display is the rounded heading stack');
+  assert.match(root.sans, /^"Nunito", /);
+  assert.match(root.display, /^"Fredoka", /);
+  assert.equal(root.mono, theme.harbourFont.mono);
+  assert.equal(root['type-display-family'], 'var(--display)');
+  assert.equal(root['type-body-family'], 'var(--sans)');
+  assert.equal(root['type-body-strong-weight'], '700');
+  assert.equal(root['type-mono-family'], 'var(--mono)');
+  for (const face of FONT_FACES) {
     const path = resolve(rendererDir, 'fonts', face.file);
     assert.ok(existsSync(path), `${face.file} present in renderer/fonts`);
     assert.match(onDisk.css, new RegExp(`font-weight: ${face.weight};\\s*font-display: block;\\s*src: url\\("fonts/${face.file}"\\)`));
@@ -122,12 +129,19 @@ test('parseHud lifts the literal and refuses a missing key', () => {
 
 test('ground colours are the page bg per scheme and the machine black', () => {
   assert.deepEqual(groundFromTheme(theme, true), {
-    light: theme.lightPalette.bg,
-    dark: theme.darkPalette.bg,
-    machine: theme.darkPalette.machine,
+    light: theme.harbourPalette.bg,
+    dark: theme.harbourNightPalette.bg,
+    machine: theme.harbourNightPalette.machine,
     darkFirst: true,
   });
   assert.match(renderGroundJs(theme, false), /darkFirst: false,/);
+});
+
+test('faceOf reads expo-google-fonts face names and nothing else', () => {
+  assert.deepEqual(faceOf('Nunito_700Bold'), { family: 'Nunito', weight: 700 });
+  assert.deepEqual(faceOf('Fredoka_600SemiBold'), { family: 'Fredoka', weight: 600 });
+  assert.equal(faceOf('System'), null);
+  assert.equal(faceOf('ui-monospace, Menlo'), null);
 });
 
 test('parseDarkFirst reads the module-private flag and refuses its absence', () => {
@@ -155,6 +169,6 @@ test('renderTokensCss is pure and round-trips through the parser', () => {
   const css = renderTokensCss(theme, hud);
   assert.equal(css, renderTokensCss(theme, hud));
   const parsed = parseTokensCss(css);
-  assert.equal(parsed[':root'].accent, theme.lightPalette.accent);
-  assert.equal(parsed[':root[data-theme="dark"]'].accent, theme.darkPalette.accent);
+  assert.equal(parsed[':root'].accent, theme.harbourPalette.accent);
+  assert.equal(parsed[':root[data-theme="dark"]'].accent, theme.harbourNightPalette.accent);
 });

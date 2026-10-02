@@ -58,7 +58,7 @@ test('page stylesheets only read tokens that tokens.css defines', () => {
   }
 });
 
-test('every page allows fonts from itself, since Outfit is bundled', () => {
+test('every page allows fonts from itself, since the Harbour faces are bundled', () => {
   for (const page of PAGES) {
     assert.match(read(page), /Content-Security-Policy[^>]*font-src 'self'/, `${page} font-src`);
   }
@@ -90,13 +90,14 @@ test('every element id a renderer script looks up exists in its page', () => {
   }
 });
 
-test('the bundled font directory holds only the four faces and the licence', () => {
+test('the bundled font directory holds only the four Harbour faces and their licences', () => {
   const files = readdirSync(resolve(rendererDir, 'fonts')).sort();
   assert.deepEqual(files, [
-    'LICENSE-OFL.txt',
-    'Outfit_400Regular.ttf',
-    'Outfit_500Medium.ttf',
-    'Outfit_600SemiBold.ttf',
-    'Outfit_700Bold.ttf',
+    'Fredoka_600SemiBold.ttf',
+    'LICENSE-OFL-Fredoka.txt',
+    'LICENSE-OFL-Nunito.txt',
+    'Nunito_500Medium.ttf',
+    'Nunito_600SemiBold.ttf',
+    'Nunito_700Bold.ttf',
   ]);
 });

@@ -195,7 +195,7 @@ opened after the change.
 | `scripts/stage-host.mjs`, `electron-builder.config.mjs`, `build/` | packaging (see `docs/RELEASE.md`) |
 | `preload.cjs` | the renderer's only privileged surface — four IPC calls |
 | `renderer/tokens.css` | GENERATED from `app/src/theme.ts` — every palette, type, spacing, radius, motion and HUD token; dark under `prefers-color-scheme` and `data-theme` |
-| `renderer/fonts/` | the four Outfit faces the phone loads, plus their OFL licence |
+| `renderer/fonts/` | the Harbour faces the phone loads (Fredoka 600, Nunito 500/600/700), plus their OFL licences |
 | `scripts/sync-tokens.mjs` | regenerates `renderer/tokens.css` and `src/ground.js` from the phone theme (`npm run sync-tokens`) |
 | `src/ground.js` | GENERATED — the window grounds `main.js` paints before CSS loads |
 | `src/address-feedback.js` | the live line under the address field, in the app's words |
