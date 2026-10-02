@@ -7,8 +7,8 @@
 // even while the session pulses — safety-relevant actions outrank the
 // one-accent rule (§11.5).
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Keyboard, Pressable, ScrollView, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Keyboard, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useTheme } from '../theme';
 import { router } from 'expo-router';
 import { SwitchComputerLink } from '../devices/switch-link';
@@ -102,6 +102,20 @@ function StreamSessionView({ id, onBack }: SessionViewProps) {
   const [composing, setComposing] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const composerRef = useRef<TextInput>(null);
+
+  // Web only: a <textarea> never sizes itself to its content, and RNW's
+  // onContentSizeChange reports scrollHeight *before* the box can shrink, so
+  // the field would only ever grow. Reset to the one-line height, measure the
+  // content, then size the box — before paint, so nothing flickers (#77).
+  // Native multiline inputs grow on their own.
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const el = composerRef.current as unknown as HTMLTextAreaElement | null;
+    if (!el?.style) return;
+    el.style.height = `${theme.layout.minTouch}px`;
+    const border = el.offsetHeight - el.clientHeight;
+    el.style.height = `${Math.min(el.scrollHeight + border, COMPOSER_MAX_HEIGHT)}px`;
+  }, [input, theme.layout.minTouch]);
 
   // Voice streams the utterance's whole text on every interim result, so the
   // composer shows words as they are spoken. The base is what was typed before
@@ -350,7 +364,10 @@ function StreamSessionView({ id, onBack }: SessionViewProps) {
 
       {pending ? (
         <View style={{ marginHorizontal: margin, marginBottom: theme.space.xs }}>
-          <ApprovalCard pending={pending} now={now} onAnswer={answer} />
+          {/* Keyed by ask: when the host promotes the next queued ask, the
+              card's expanded options / raw input / held-Allow state must not
+              carry over (#72). */}
+          <ApprovalCard key={pending.id} pending={pending} now={now} onAnswer={answer} />
         </View>
       ) : null}
 
