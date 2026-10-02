@@ -10,11 +10,16 @@ import { requireProofOfPossession } from './claims.js';
 export async function heartbeat(req: Request, env: Env): Promise<Response> {
   const host = await requireHost(req, env.DB);
   await readJson(req); // body is `{}` today; still must be a JSON object
-  const [, phones] = await env.DB.batch<{ node_id: string }>([
+  const [, phones] = await env.DB.batch<{ node_id: string; platform: string; created_at: number }>([
     env.DB.prepare('UPDATE devices SET last_seen_at = ?1 WHERE id = ?2').bind(Date.now(), host.id),
-    env.DB.prepare("SELECT node_id FROM devices WHERE account_id = ?1 AND kind = 'phone'").bind(host.account_id),
+    env.DB.prepare("SELECT node_id, platform, created_at FROM devices WHERE account_id = ?1 AND kind = 'phone'").bind(host.account_id),
   ]);
-  return json({ allowedNodeIds: phones.results.map((r) => r.node_id), relayUrls: splitList(env.RELAY_URLS) });
+  return json({
+    allowedNodeIds: phones.results.map((r) => r.node_id),
+    relayUrls: splitList(env.RELAY_URLS),
+    // For the host's "Allow this phone?" prompt: platform and when it joined.
+    phones: phones.results.map((r) => ({ nodeId: r.node_id, platform: r.platform, createdAt: r.created_at })),
+  });
 }
 
 const deviceExists = (id: string): HttpError =>

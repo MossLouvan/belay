@@ -11,6 +11,8 @@ import type { RefObject } from 'react';
 import { Platform } from 'react-native';
 import { router } from 'expo-router';
 import { checkHost, pair } from '../api';
+import type { PairResult } from '../api';
+import { askToJoin, waitForApproval } from '../account/account-pair';
 import { buildSavedDevice } from '../devices/from-host';
 import { pinAddresses, pinnedFingerprint } from '../devices/pinning';
 import type { SavedDevice } from '../devices/model';
@@ -47,14 +49,31 @@ export interface PairSession {
   /** A scanned link: race its addresses, then pair with the code it carries. */
   readonly onScanned: (link: ParsedPairLink) => Promise<void>;
   readonly onChangeCode: (next: string) => void;
+  /**
+   * Account trust for a computer reached over the tunnel: pair with no code
+   * (first phone) or wait for one tap. False when this computer does not do
+   * account trust for this phone, so the caller falls back to the code.
+   */
+  readonly tryAccountPairing: (hostUrl: string, hostNodeId: string | undefined) => Promise<boolean>;
+  /** Cancel on the "Waiting for approval…" screen. */
+  readonly cancelApproval: () => void;
+  /** Why the last wait ended without a pairing (declined, expired), else null. */
+  readonly approvalError: Diagnosis | null;
+  /** The code the computer's prompt shows too, while waiting. */
+  readonly matchCode: string;
 }
 
 /**
  * `tunnelNodeId` is set when the computer is being paired THROUGH the
  * tunnel (a linked computer): the saved entry then carries that node id and
- * not the loopback port it was paired on.
+ * not the loopback port it was paired on. `accountTrust` (auto-pair.ts) asks
+ * the host's POST /pair/account before ever showing a code.
  */
-export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>, tunnelNodeId: string | null = null): PairSession {
+export function usePairSession(
+  addDevice: (device: SavedDevice) => Promise<void>,
+  tunnelNodeId: string | null = null,
+  accountTrust = false,
+): PairSession {
   const [stage, setStage] = useState<Stage>('welcome');
   const [host, setHost] = useState<HostSummary | null>(null);
   const [code, setCode] = useState('');
@@ -62,6 +81,9 @@ export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>
   const [hostError, setHostError] = useState<Diagnosis | null>(null);
   const [pairError, setPairError] = useState<Diagnosis | null>(null);
 
+  const [approvalError, setApprovalError] = useState<Diagnosis | null>(null);
+  const [matchCode, setMatchCode] = useState('');
+  const approvalAbort = useRef<AbortController | null>(null);
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const live = useRef(true);
 
@@ -74,6 +96,7 @@ export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>
 
   useEffect(() => () => {
     if (successTimer.current) clearTimeout(successTimer.current);
+    approvalAbort.current?.abort();
   }, []);
 
   const onChangeCode = useCallback((next: string) => {
@@ -88,43 +111,84 @@ export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>
    * scanning must produce exactly the same saved computer as typing, including
    * the identity re-read below.
    */
+  /** A token in hand: check it, re-read the host, save it and go in. */
+  const finishPairing = useCallback(async (hostUrl: string, result: PairResult) => {
+    // The host names its certificate in the reply; it must be the one this
+    // address was pinned to (from the QR, or the fingerprint shown for a
+    // typed address). Anything else means the pairing went somewhere else.
+    const pinned = pinnedFingerprint(hostUrl);
+    if (pinned && result.fingerprint && result.fingerprint !== pinned) {
+      throw new Error('the computer\'s certificate does not match the one this phone was shown');
+    }
+    // Pin the fingerprint for every address the host advertises before the
+    // identity re-read below and every connect after it.
+    if (result.fingerprint) pinAddresses([hostUrl], result.fingerprint);
+    // Re-read /health now that we are paired, so the saved computer gets the
+    // host's real identity and its full address list rather than just the one
+    // URL that happened to be typed in.
+    const identity = await checkHost(result.host);
+    if (result.fingerprint) pinAddresses((identity.addresses ?? []).map((a) => a.url), result.fingerprint);
+    const built = buildSavedDevice(result, identity, Date.now());
+    const device = tunnelNodeId ? savedOverTunnel(built, tunnelNodeId) : built;
+    haptic('success');
+    setStage('success');
+    successTimer.current = setTimeout(() => {
+      // Save and connect *before* navigating. The tabs guard redirects away
+      // when there is no live connection, so leaving this unawaited bounces
+      // the user straight back to this screen. Land on a tab that actually
+      // works: a Mac without the capture permission would otherwise open on a
+      // black Screen tab as its first impression (postPairDestination).
+      void addDevice(device).then(() => router.replace(postPairDestination(identity.native)));
+    }, SUCCESS_DWELL_MS);
+  }, [addDevice, tunnelNodeId]);
+
   const completePairing = useCallback(async (hostUrl: string, pairingCode: string) => {
     try {
-      const result = await pair(hostUrl, pairingCode, deviceNameFor(Platform.OS));
-      // The host names its certificate in the reply; it must be the one this
-      // address was pinned to (from the QR, or the fingerprint shown for a
-      // typed address). Anything else means the pairing went somewhere else.
-      const pinned = pinnedFingerprint(hostUrl);
-      if (pinned && result.fingerprint && result.fingerprint !== pinned) {
-        throw new Error('the computer\'s certificate does not match the one this phone was shown');
-      }
-      // Pin the fingerprint for every address the host advertises before the
-      // identity re-read below and every connect after it.
-      if (result.fingerprint) pinAddresses([hostUrl], result.fingerprint);
-      // Re-read /health now that we are paired, so the saved computer gets the
-      // host's real identity and its full address list rather than just the one
-      // URL that happened to be typed in.
-      const identity = await checkHost(result.host);
-      if (result.fingerprint) pinAddresses((identity.addresses ?? []).map((a) => a.url), result.fingerprint);
-      const built = buildSavedDevice(result, identity, Date.now());
-      const device = tunnelNodeId ? savedOverTunnel(built, tunnelNodeId) : built;
-      haptic('success');
-      setStage('success');
-      successTimer.current = setTimeout(() => {
-        // Save and connect *before* navigating. The tabs guard redirects away
-        // when there is no live connection, so leaving this unawaited bounces
-        // the user straight back to this screen. Land on a tab that actually
-        // works: a Mac without the capture permission would otherwise open on a
-        // black Screen tab as its first impression (postPairDestination).
-        void addDevice(device).then(() => router.replace(postPairDestination(identity.native)));
-      }, SUCCESS_DWELL_MS);
+      await finishPairing(hostUrl, await pair(hostUrl, pairingCode, deviceNameFor(Platform.OS)));
     } catch (e: unknown) {
       haptic('error');
       setStage('code');
       setPairError(diagnosePairFailure(hostUrl, errorMessage(e)));
       setCode('');
     }
-  }, [addDevice, tunnelNodeId]);
+  }, [finishPairing]);
+
+  const tryAccountPairing = useCallback(async (hostUrl: string, hostNodeId: string | undefined): Promise<boolean> => {
+    if (!tunnelNodeId || !accountTrust) return false;
+    setApprovalError(null);
+    setMatchCode('');
+    try {
+      // The tunnel authenticates the node it dialled; the host must agree it
+      // is that node, or this is not the computer the account named.
+      if (hostNodeId !== tunnelNodeId) throw new Error('the computer that answered is not the one linked to your account');
+      const start = await askToJoin(hostUrl, deviceNameFor(Platform.OS));
+      if (start.kind === 'unsupported') return false;
+      if (start.kind === 'error') throw new Error(start.message);
+      if (start.kind === 'paired') { await finishPairing(hostUrl, start.result); return true; }
+      setMatchCode(start.matchCode);
+      setStage('approval');
+      const abort = new AbortController();
+      approvalAbort.current = abort;
+      const end = await waitForApproval(hostUrl, start, { signal: abort.signal });
+      approvalAbort.current = null;
+      if (!live.current) return true;
+      if (end.kind === 'paired') await finishPairing(hostUrl, end.result);
+      else if (end.kind === 'denied') setApprovalError({ title: 'Not allowed', message: 'Someone declined this phone on your computer or another phone. Ask again if that was a mistake.' });
+      else if (end.kind === 'expired') setApprovalError({ title: 'Nobody answered in time', message: 'The request lapsed after five minutes. Ask again, then tap Allow on your computer or another phone.' });
+      return true;
+    } catch (e: unknown) {
+      haptic('error');
+      setStage('approval');
+      setApprovalError({ title: 'Could not add this phone', message: errorMessage(e) });
+      return true;
+    }
+  }, [finishPairing, tunnelNodeId, accountTrust]);
+
+  const cancelApproval = useCallback(() => {
+    approvalAbort.current?.abort();
+    approvalAbort.current = null;
+    router.back();
+  }, []);
 
   const doPair = useCallback(async () => {
     if (!host) return;
@@ -203,5 +267,9 @@ export function usePairSession(addDevice: (device: SavedDevice) => Promise<void>
     doPair,
     onScanned,
     onChangeCode,
+    tryAccountPairing,
+    cancelApproval,
+    approvalError,
+    matchCode,
   };
 }

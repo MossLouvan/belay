@@ -18,9 +18,14 @@
 // pair-guard buckets and the notifications, instead of one shared "tunnel".
 //
 // Only the sidecar speaks the header. Every stream begins with one line,
-// `belay-tunnel/1 <64 lowercase hex>\n`, then the TLS ClientHello. Anything
-// else — a raw ClientHello, plain HTTP, a malformed id — is dropped without
-// a byte in reply: a local process that found the port learns nothing.
+// `belay-tunnel/2 <launch secret> <64 lowercase hex>\n`, then the TLS
+// ClientHello. The secret is 32 random bytes the host mints per launch and
+// hands the sidecar in its environment (tunnel.ts): this port is loopback,
+// and without the secret any local process (another macOS user, a sandboxed
+// app) could claim to be an allow-listed phone. The old secret-less
+// `belay-tunnel/1` line is refused. Anything else — a raw ClientHello, plain
+// HTTP, a wrong secret, a malformed id — is dropped without a byte in reply:
+// a local process that found the port learns nothing.
 //
 // The TLS handshake is done here rather than by an https.Server because a
 // TLSSocket reports the kernel's peer address, not the wrapped socket's, and
@@ -34,15 +39,22 @@ import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, RequestListener } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { createSecureContext, TLSSocket } from 'node:tls';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { PLAINTEXT_REFUSED, PLAINTEXT_REFUSED_STATUS } from './transport.js';
 
 const TLS_HANDSHAKE = 0x16;
 /** Longest header line we will buffer before giving up on a peer. */
-const MAX_HEADER_BYTES = 128;
+const MAX_HEADER_BYTES = 192;
 /** Only the sidecar connects here, and it sends the header first thing. */
 export const HEADER_TIMEOUT_MS = 5_000;
-const HEADER_RE = /^belay-tunnel\/1 ([0-9a-f]{64})$/;
+const HEADER_RE = /^belay-tunnel\/2 ([0-9a-f]{64}) ([0-9a-f]{64})$/;
+const SECRET_RE = /^[0-9a-f]{64}$/;
+
+/** A fresh per-launch stream secret: 32 random bytes, 64 lowercase hex. */
+export function newStreamSecret(): string {
+  return randomBytes(32).toString('hex');
+}
 
 /** Prefix of `req.socket.remoteAddress` for anything that came through the tunnel. */
 export const TUNNEL_REMOTE_ADDRESS = 'tunnel:';
@@ -51,14 +63,20 @@ export function tunnelRemoteAddress(nodeId: string): string {
   return `${TUNNEL_REMOTE_ADDRESS}${nodeId}`;
 }
 
-/** The node id from a header line, or null for anything the sidecar would not send. */
-export function parseTunnelHeader(line: string): string | null {
-  return HEADER_RE.exec(line)?.[1] ?? null;
+/** The node id from a header line carrying `secret`, or null for anything else. */
+export function parseTunnelHeader(line: string, secret: string): string | null {
+  const m = HEADER_RE.exec(line);
+  if (!m || !SECRET_RE.test(secret)) return null;
+  // Constant time: the secret is the only thing standing between a local
+  // process and every allow-listed phone's identity.
+  return timingSafeEqual(Buffer.from(m[1], 'latin1'), Buffer.from(secret, 'latin1')) ? m[2] : null;
 }
 
 export interface TunnelListenerDeps {
   readonly app: RequestListener;
   readonly tls: { readonly key: string | Buffer; readonly cert: string | Buffer };
+  /** The per-launch stream secret the sidecar was started with. */
+  readonly secret: string;
   readonly onUpgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
   /** Test hook: how long a peer may stall before or during the handshake. */
   readonly handshakeTimeoutMs?: number;
@@ -76,7 +94,7 @@ const refusal = (): string => {
 };
 
 /** Read the header line; resolves with the node id and whatever followed, or null to drop. */
-function readHeader(socket: Socket, cb: (nodeId: string | null, rest: Buffer) => void): void {
+function readHeader(socket: Socket, secret: string, cb: (nodeId: string | null, rest: Buffer) => void): void {
   let buf = Buffer.alloc(0);
   const onTimeout = () => done(null, buf);
   const done = (nodeId: string | null, rest: Buffer) => {
@@ -92,7 +110,7 @@ function readHeader(socket: Socket, cb: (nodeId: string | null, rest: Buffer) =>
       if (buf.length > MAX_HEADER_BYTES) done(null, buf);
       return;
     }
-    done(parseTunnelHeader(buf.subarray(0, nl).toString('latin1')), buf.subarray(nl + 1));
+    done(parseTunnelHeader(buf.subarray(0, nl).toString('latin1'), secret), buf.subarray(nl + 1));
   };
   // A peer that never finishes the line (a raw ClientHello has no newline)
   // must not hold a socket open forever.
@@ -108,7 +126,7 @@ export function createTunnelListener(deps: TunnelListenerDeps): NetServer {
 
   return createNetServer({ noDelay: true }, (socket: Socket) => {
     socket.on('error', () => { /* handed-off sockets get the http server's handler */ });
-    readHeader(socket, (nodeId, rest) => {
+    readHeader(socket, deps.secret, (nodeId, rest) => {
       if (!nodeId) { socket.destroy(); return; }
       // A valid header is not a licence to idle: a local process that sends
       // one and then stalls (or never finishes the ClientHello) would hold a

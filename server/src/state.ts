@@ -15,6 +15,7 @@ import { hostname, homedir } from 'node:os';
 
 import { productEnv } from './env.js';
 import { resolveStateFile, LEGACY_STATE_FILE_NAME } from './data-dir.js';
+import { FIRST_PHONE_WINDOW_MS } from './account-pair.js';
 
 /**
  * Where state lives. See data-dir.ts: an explicit BELAY_STATE_FILE wins, then
@@ -113,6 +114,12 @@ interface Persisted {
   readonly lidClosedMode: boolean;
   /** Windows: the LIDACTION pair saved before arming, so a crash can be undone. */
   readonly lidSavedLidAction: LidAction | null;
+  /**
+   * Account trust (account-pair.ts): until this time (ms) the FIRST phone on
+   * the linked account pairs without a tap. 0 = closed. Opened only at link
+   * time, from Belay.app, or by --reset-pairing; closed by any pairing.
+   */
+  readonly trustFirstPhoneUntil: number;
 }
 
 export interface LidAction { readonly ac: number; readonly dc: number }
@@ -126,6 +133,7 @@ function emptyState(): Persisted {
     devices: [],
     lidClosedMode: false,
     lidSavedLidAction: null,
+    trustFirstPhoneUntil: 0,
   };
 }
 
@@ -203,6 +211,9 @@ function migrate(raw: unknown): Persisted {
     devices: valid,
     lidClosedMode: r.lidClosedMode === true,
     lidSavedLidAction: isLidAction(r.lidSavedLidAction) ? r.lidSavedLidAction : null,
+    // A pre-trust file (or one linked before this existed) has no window: a
+    // linked computer with zero phones waits for someone at it to open one.
+    trustFirstPhoneUntil: typeof r.trustFirstPhoneUntil === 'number' && Number.isFinite(r.trustFirstPhoneUntil) ? r.trustFirstPhoneUntil : 0,
   };
 }
 
@@ -337,9 +348,19 @@ export function addDevice(name: string): PairedDevice {
     id: randomBytes(8).toString('hex'),
     secret: newToken(),
   };
-  state = { ...state, devices: [...state.devices, device] };
+  // Any pairing closes the first-phone window for good; nothing but the
+  // owner at this computer opens it again.
+  state = { ...state, devices: [...state.devices, device], trustFirstPhoneUntil: 0 };
   save();
   return { ...device, token };
+}
+
+export function getTrustFirstPhoneUntil(): number { return state.trustFirstPhoneUntil; }
+
+/** Open the first-phone window for FIRST_PHONE_WINDOW_MS from `now`. */
+export function openFirstPhoneWindow(now: number = Date.now()): void {
+  state = { ...state, trustFirstPhoneUntil: now + FIRST_PHONE_WINDOW_MS };
+  save();
 }
 
 // Constant-time comparison of hashes so a token cannot be recovered by timing

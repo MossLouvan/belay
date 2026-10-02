@@ -26,7 +26,8 @@ import {
 } from './src/account-signin.js';
 import { GROUND } from './src/ground.js';
 import {
-  PHONE_APP_URL, livePairing, loginItemAfterHealth, pairingFromMessage, parsePairing, qrSvg, readHealth, statusLine,
+  PHONE_APP_URL, livePairing, loginItemAfterHealth, pairingFromMessage, parsePairing, pendingFromMessage, phonesFromMessage,
+  qrSvg, readHealth, statusLine, firstPhoneState,
 } from './src/host-status.js';
 import { launchAgentInstalled, stopLaunchAgent } from './src/launch-agent.js';
 
@@ -96,7 +97,7 @@ export function startHost({ openViewer }) {
   let quitting = false;
   let hostWindow = null;
   let tray = null;
-  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, claim: null, linkedTo: null, perms: permissions() };
+  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, claim: null, linkedTo: null, accountLinked: false, firstPhoneUntil: 0, phones: [], pendingPhones: [], perms: permissions() };
   const signIn = signInConfig();
   const signInProviders = providers(signIn);
   const phoneAppSvg = qrSvg(qrModules(PHONE_APP_URL));
@@ -113,13 +114,18 @@ export function startHost({ openViewer }) {
     // pairing code the phone asks for next — also while phones are already
     // paired, when a new one asked or "Pair another phone" was chosen (#150),
     // until the code expires.
-    const shown = state.claim ?? livePairing(state.pairing, Date.now());
+    // Account-linked with no phone yet: the first phone connects by itself
+    // (account trust) or with a tap here, so the 6-digit code is not shown.
+    const firstPhone = firstPhoneState(state, Date.now());
+    const shown = state.claim ?? (firstPhone !== 'none' ? null : livePairing(state.pairing, Date.now()));
     return {
     ...state,
     // Live, not cached: the user flips these in System Settings while we watch.
     perms: permissions(),
     pairingSvg: shown ? qrSvg(shown.modules) : '',
     pairingCode: shown ? parsePairing(shown.link)?.code ?? '' : '',
+    firstPhone,
+    pendingPhones: pendingFromMessage({ requests: state.pendingPhones }, Date.now()),
     phoneAppUrl: PHONE_APP_URL,
     phoneAppSvg,
     signInProviders,
@@ -200,6 +206,15 @@ export function startHost({ openViewer }) {
     } else if (data.type === 'claim') {
       // The account claim QR while unlinked; `link: null` once it is linked.
       update({ claim: typeof data.link === 'string' && Array.isArray(data.modules) ? { link: data.link, modules: data.modules } : null });
+    } else if (data.type === 'pair-pending') {
+      const pendingPhones = pendingFromMessage(data, Date.now());
+      const fresh = pendingPhones.some((p) => !state.pendingPhones.some((q) => q.id === p.id));
+      update({ pendingPhones });
+      // A phone is asking to be let in: put Allow/Deny in front of the person.
+      if (fresh) openHostWindow();
+    } else if (data.type === 'devices') {
+      const { linked, phones, firstPhoneUntil } = phonesFromMessage(data);
+      update({ accountLinked: linked, firstPhoneUntil, phones, devices: phones.length, paired: phones.length > 0, pairing: phones.length > state.devices ? null : state.pairing });
     } else if (data.type === 'link-result') {
       linkWaiter?.(data);
     } else if (data.type === 'listening') {
@@ -283,6 +298,24 @@ export function startHost({ openViewer }) {
   });
 
   ipcMain.handle('host:state', () => snapshot());
+  // Account trust: the person is at this computer, so Allow/Deny and Remove go
+  // straight to the host. The ids are checked here and again in the host.
+  ipcMain.handle('host:decidePhone', (_event, { pendingId, allow } = {}) => {
+    if (typeof pendingId !== 'string' || !/^[0-9a-f]{32}$/.test(pendingId) || typeof allow !== 'boolean') return false;
+    child?.postMessage({ type: 'pair-decide', pendingId, allow });
+    update({ pendingPhones: state.pendingPhones.filter((p) => p.id !== pendingId) });
+    return Boolean(child);
+  });
+  // "Let a phone connect": reopen the first-phone window for 15 minutes.
+  ipcMain.handle('host:openFirstPhone', () => {
+    child?.postMessage({ type: 'open-first-phone' });
+    return Boolean(child);
+  });
+  ipcMain.handle('host:removePhone', (_event, tokenPrefix) => {
+    if (typeof tokenPrefix !== 'string' || !/^[0-9a-f]{4,64}$/.test(tokenPrefix)) return false;
+    child?.postMessage({ type: 'device-remove', tokenPrefix });
+    return Boolean(child);
+  });
   ipcMain.handle('host:loginItem', (_event, on) => { savePrefs({ ...prefs, openAtLogin: on === true }); return prefs.openAtLogin; });
   ipcMain.handle('host:relaunch', () => { app.relaunch(); app.exit(0); });
   ipcMain.handle('host:openLogs', () => shell.openPath(join(userData, LOG_FILE)));

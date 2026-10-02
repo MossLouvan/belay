@@ -17,11 +17,13 @@ export interface AddComputerRoute {
 /**
  * Pair a linked computer through the tunnel: the connect screen checks the
  * loopback port like any typed https address (reads and shows the host's
- * fingerprint, asks for the 6-digit code), and `node` tells it to save the
+ * fingerprint; with `trust`, account trust first, else the 6-digit code), and `node` tells it to save the
  * computer under its node id rather than the ephemeral port.
  */
-export function pairOverTunnelRoute(port: number, nodeId: string): AddComputerRoute {
-  return { pathname: '/', params: { add: '1', address: `https://127.0.0.1:${port}`, node: nodeId } };
+export function pairOverTunnelRoute(port: number): AddComputerRoute {
+  // Only the address: which node it is, and whether to try account trust,
+  // stay in memory (account/tunnel-intent.ts) where a deep link cannot reach.
+  return { pathname: '/', params: { add: '1', address: `https://127.0.0.1:${port}` } };
 }
 
 export function addComputerRoute(address: string | null): AddComputerRoute | null {

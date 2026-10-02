@@ -10,7 +10,7 @@ import { raceAddresses } from '../devices/race.ts';
 import type { PairingDeadEnd } from './dead-end';
 
 /** Every screen the connect route can show, in the order a cold start meets them. */
-export type Stage = 'welcome' | 'host' | 'scan' | 'code' | 'tailscale' | 'success';
+export type Stage = 'welcome' | 'host' | 'scan' | 'code' | 'tailscale' | 'approval' | 'success';
 
 /** How long to wait for `/health` before calling the address unreachable. */
 export const HOST_CHECK_TIMEOUT_MS = 8000;

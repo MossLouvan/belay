@@ -68,6 +68,58 @@ function paint(state) {
   $('relaunch').hidden = !(perms.supported && perms.screen && sawScreenDenied);
 
   $('login-item').checked = state.openAtLogin;
+  paintTrust(state, running);
+}
+
+// ── account trust: Allow/Deny for a phone that asked, and the paired list ──
+// Names arrive from the network: textContent only, never innerHTML.
+function row(name, detail, buttons) {
+  const li = document.createElement('li');
+  li.className = 'device-row';
+  const text = document.createElement('div');
+  text.className = 'device-text';
+  const n = document.createElement('div');
+  n.className = 'name';
+  n.textContent = name;
+  const c = document.createElement('div');
+  c.className = 'caption';
+  c.textContent = detail;
+  text.append(n, c);
+  li.append(text);
+  for (const [label, primary, onClick] of buttons) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = primary ? 'button sm primary' : 'button sm';
+    b.textContent = label;
+    b.addEventListener('click', () => { b.disabled = true; onClick(); });
+    li.append(b);
+  }
+  return li;
+}
+
+/** "Code K7PQ · iPhone · on your account since 2 Oct 2026" */
+function describePending(p) {
+  const kind = p.platform === 'ios' ? 'iPhone' : p.platform === 'android' ? 'Android phone' : 'Phone';
+  const since = p.addedAt ? ` · on your account since ${new Date(p.addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : '';
+  return `${p.matchCode ? `Code ${p.matchCode} · ` : ''}${kind}${since}. Check the phone shows the same code.`;
+}
+
+function paintTrust(state, running) {
+  const pending = running ? state.pendingPhones ?? [] : [];
+  $('pending').hidden = pending.length === 0;
+  $('pending-list').replaceChildren(...pending.map((p) => row(`Allow ${p.name}?`, describePending(p), [
+    ['Allow', true, () => window.belayHost.decidePhone(p.id, true)],
+    ['Deny', false, () => window.belayHost.decidePhone(p.id, false)],
+  ])));
+  $('first-phone').hidden = !(running && state.firstPhone === 'open');
+  $('first-phone-closed').hidden = !(running && state.firstPhone === 'closed');
+  // Nothing to scan or type for a linked computer waiting on its first phone.
+  $('link-section').hidden = running && (state.firstPhone === 'open' || state.firstPhone === 'closed') && state.phase !== 'busy';
+  const phones = running ? state.phones ?? [] : [];
+  $('phones').hidden = phones.length === 0;
+  $('phone-list').replaceChildren(...phones.map((p) => row(p.name, p.lastSeen ? `Last seen ${new Date(p.lastSeen).toLocaleString()}` : 'Paired', [
+    ['Remove', false, () => window.belayHost.removePhone(p.tokenPrefix)],
+  ])));
 }
 
 // ── sign in to link this computer ──────────────────────────────────────────
@@ -131,6 +183,7 @@ async function init() {
   $('login-item').addEventListener('change', (e) => window.belayHost.setLoginItem(e.target.checked));
   $('viewer').addEventListener('click', () => window.belayHost.openViewer());
   $('pair-another').addEventListener('click', () => window.belayHost.pairAnother());
+  $('open-first-phone').addEventListener('click', () => window.belayHost.openFirstPhone());
   $('logs').addEventListener('click', () => window.belayHost.openLogs());
   wireSignIn();
   // Permissions change outside this window (System Settings); re-read while visible.

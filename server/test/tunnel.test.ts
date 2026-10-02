@@ -32,6 +32,7 @@ function fakeSidecar(dir: string): string {
     process.stdout.write('ready ${NODE}\\n');
     createInterface({ input: process.stdin }).on('line', (l) => {
       appendFileSync(process.env.FAKE_LOG, l + '\\n');
+      if (l === 'allow secret?') appendFileSync(process.env.FAKE_LOG, 'secret=' + (process.env.BELAY_NET_STREAM_SECRET ?? '') + '\\n');
       if (l.startsWith('sign belay-claim:')) process.stdout.write('sig SIG_' + l.slice(5).replace(/[^A-Za-z0-9]/g, '_') + '\\n');
       else if (l.startsWith('sign ')) process.stdout.write('sig-refused\\n');
       if (l === 'allow die') process.exit(3);
@@ -53,7 +54,8 @@ test('the supervisor reports the node id, signs, forwards the allow-list and re-
   const dir = mkdtempSync(join(tmpdir(), 'belay-tunnel-sup-'));
   const log = join(dir, 'log');
   process.env.FAKE_LOG = log;
-  const t = startTunnel({ targetPort: 1, binary: fakeSidecar(dir), relayUrls: ['https://r.example'] });
+  const streamSecret = '9a'.repeat(32);
+  const t = startTunnel({ targetPort: 1, binary: fakeSidecar(dir), relayUrls: ['https://r.example'], streamSecret });
   try {
     assert.equal(await t.nodeId, NODE);
     assert.equal(await t.sign(`belay-claim:v1:${NODE}:1`), `SIG_belay_claim_v1_${NODE}_1`);
@@ -69,6 +71,9 @@ test('the supervisor reports the node id, signs, forwards the allow-list and re-
     t.setAllowList(['die']);
     await until(() => (readFileSync(log, 'utf8').match(/^allow die$/gm) ?? []).length === 2, 8000);
     await assert.rejects(t.sign('a\nb'), /one line/);
+    // The stream secret reaches the sidecar through its environment, never argv.
+    t.setAllowList(['secret?']);
+    await until(() => readFileSync(log, 'utf8').includes(`secret=${streamSecret}`));
   } finally {
     t.stop();
     rmSync(dir, { recursive: true, force: true });

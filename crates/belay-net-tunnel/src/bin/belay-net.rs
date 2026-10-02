@@ -5,6 +5,10 @@
 //! Environment:
 //!   BELAY_NET_TARGET  where accepted streams are piped (the host's tunnel
 //!                     listener, 127.0.0.1:port). Required.
+//!   BELAY_NET_STREAM_SECRET  per-launch 64-hex secret the host generated;
+//!                     every piped stream's header carries it so the host's
+//!                     loopback listener can tell this sidecar from any other
+//!                     local process. Required.
 //!   BELAY_NET_KEY     keypair file, created 0600 if missing. Default
 //!                     $HOME/.belay/net-key.
 //!   BELAY_NET_RELAYS  comma-separated relay URLs; empty or unset = NO relay.
@@ -25,7 +29,7 @@
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
-use belay_net_tunnel::{bind, AllowList, Host};
+use belay_net_tunnel::{bind, AllowList, Host, StreamSecret};
 use iroh::{RelayMode, RelayUrl, SecretKey};
 
 fn key_path() -> PathBuf {
@@ -185,6 +189,13 @@ async fn main() {
             std::process::exit(2);
         }
     };
+    let secret = match std::env::var("BELAY_NET_STREAM_SECRET").ok().and_then(|s| StreamSecret::parse(&s)) {
+        Some(s) => s,
+        None => {
+            eprintln!("[belay-net] BELAY_NET_STREAM_SECRET must be 64 lowercase hex");
+            std::process::exit(2);
+        }
+    };
     let key = match load_or_create_key(&key_path()) {
         Ok(k) => k,
         Err(e) => {
@@ -209,7 +220,7 @@ async fn main() {
     println!("ready {}", endpoint.id());
     let _ = std::io::stdout().flush();
 
-    let serve = tokio::spawn(host.clone().serve(endpoint.clone(), target));
+    let serve = tokio::spawn(host.clone().serve(endpoint.clone(), target, secret));
 
     // stdin is blocking; a thread is the smallest thing that reads it.
     let signer = endpoint.secret_key().clone();

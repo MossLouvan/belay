@@ -72,7 +72,7 @@ const checkHostBounded = (url: string): Promise<HealthResult> =>
 
 export function useAddressCheck({ session, adding, scanRequested, arrivedAddress }: AddressCheckInputs): AddressCheck {
   const {
-    stage, setStage, setHost, setCode, setBusy, setHostError, setPairError, live, completePairing, onScanned,
+    stage, setStage, setHost, setCode, setBusy, setHostError, setPairError, live, completePairing, onScanned, tryAccountPairing,
   } = session;
 
   const [hostText, setHostText] = useState(arrivedAddress ?? '');
@@ -216,9 +216,22 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
         native: result.native !== false,
         paired: Boolean(result.paired),
         ...(fingerprint ? { fingerprint } : {}),
+        ...(result.nodeId ? { nodeId: result.nodeId } : {}),
       });
       setCode('');
       setPairError(null);
+
+      // A computer on this phone's account, reached over the tunnel: no code.
+      // The first phone is paired at once, a later one waits for one tap
+      // (account/account-pair.ts). Anything else falls through to the code.
+      if (result.accountTrust) {
+        setBusy(true);
+        try {
+          if (await tryAccountPairing(resolved.url, result.nodeId)) return;
+        } finally {
+          if (live.current) setBusy(false);
+        }
+      }
 
       // Over the owner's own tailnet the host has already verified this phone
       // and will pair without a code: go straight there. If that somehow fails
@@ -307,7 +320,7 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
     } finally {
       checking.current = false;
     }
-  }, [live, onScanned, completePairing, setBusy, setCode, setHost, setHostError, setPairError, setStage]);
+  }, [live, onScanned, completePairing, tryAccountPairing, setBusy, setCode, setHost, setHostError, setPairError, setStage]);
 
   /** The field's own submit: check what is typed. */
   const doCheck = useCallback(() => checkAddress(hostText), [checkAddress, hostText]);

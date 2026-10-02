@@ -1,12 +1,15 @@
-// A linked computer still has to be paired once: the account only proves
-// which node to dial, the device token (and the proof secret and pinned
-// certificate that come with it) still come from the host's own /pair, with
-// the 6-digit code read off the host's window. Dial the node, then hand the
-// loopback port to the connect screen exactly as a typed address.
+// A linked computer still has to be paired once: the account proves which
+// node to dial, and the device token (with the proof secret and pinned
+// certificate) still comes from the host. With account trust (auto-pair.ts)
+// that is POST /pair/account — no code; otherwise the host's own /pair with
+// the 6-digit code. Dial the node, then hand the loopback port to the connect
+// screen exactly as a typed address.
 
 import { router } from 'expo-router';
 import { pairOverTunnelRoute } from '../devices/add-computer-route';
 import { tunnelPort } from '../devices/tunnel';
+import { autoPairSameAccount } from './auto-pair';
+import { setTunnelIntent } from './tunnel-intent';
 
 /** Resolves false when the tunnel could not reach that computer right now. */
 export async function startPairingOverTunnel(nodeId: string): Promise<boolean> {
@@ -16,6 +19,7 @@ export async function startPairingOverTunnel(nodeId: string): Promise<boolean> {
   } catch {
     return false;
   }
-  router.push(pairOverTunnelRoute(port, nodeId));
+  setTunnelIntent({ port, nodeId, trust: autoPairSameAccount(nodeId) });
+  router.push(pairOverTunnelRoute(port));
   return true;
 }

@@ -78,3 +78,34 @@ test('livePairing hides a code once it has expired', () => {
   assert.equal(livePairing(p, 120_000), null);
   assert.equal(livePairing(null, 0), null);
 });
+
+// ── account trust: phones waiting for a tap, and the paired list ──────────
+import { firstPhoneState, pendingFromMessage, phonesFromMessage } from '../src/host-status.js';
+
+test('pendingFromMessage keeps well-formed, unexpired requests only', () => {
+  const now = 1000;
+  const msg = { type: 'pair-pending', requests: [
+    { id: 'a'.repeat(32), name: 'iPad', matchCode: 'K7PQ', platform: 'ios', addedAt: 99, createdAt: 1, expiresAt: 2000 },
+    { id: 'b'.repeat(32), name: 'Old', createdAt: 1, expiresAt: 500 },
+    { id: 7, name: 'bad' },
+  ] };
+  assert.deepEqual(pendingFromMessage(msg, now), [{ id: 'a'.repeat(32), name: 'iPad', matchCode: 'K7PQ', platform: 'ios', addedAt: 99, expiresAt: 2000 }]);
+  const bare = pendingFromMessage({ requests: [{ id: 'c'.repeat(32), name: 'X', matchCode: '<b>', expiresAt: 2000 }] }, now);
+  assert.deepEqual(bare, [{ id: 'c'.repeat(32), name: 'X', matchCode: '', platform: 'unknown', addedAt: null, expiresAt: 2000 }]);
+  assert.deepEqual(pendingFromMessage({ type: 'pair-pending' }, now), []);
+});
+
+test('phonesFromMessage reads the paired list and the link state', () => {
+  const msg = { type: 'devices', linked: true, devices: [{ tokenPrefix: 'abcd1234', name: 'iPhone', lastSeen: 5 }, { name: 'no prefix' }] };
+  assert.deepEqual(phonesFromMessage({ ...msg, firstPhoneUntil: 7 }), { linked: true, firstPhoneUntil: 7, phones: [{ tokenPrefix: 'abcd1234', name: 'iPhone', lastSeen: 5 }] });
+  assert.deepEqual(phonesFromMessage({ type: 'devices' }), { linked: false, firstPhoneUntil: 0, phones: [] });
+});
+
+test('first-phone state: open window waits for the phone; closed offers "Let a phone connect"', () => {
+  const now = 1000;
+  assert.equal(firstPhoneState({ accountLinked: true, devices: 0, firstPhoneUntil: 5000 }, now), 'open');
+  assert.equal(firstPhoneState({ accountLinked: true, devices: 0, firstPhoneUntil: 500 }, now), 'closed');
+  assert.equal(firstPhoneState({ accountLinked: true, devices: 0, firstPhoneUntil: 0 }, now), 'closed');
+  assert.equal(firstPhoneState({ accountLinked: true, devices: 1, firstPhoneUntil: 5000 }, now), 'none');
+  assert.equal(firstPhoneState({ accountLinked: false, devices: 0, firstPhoneUntil: 5000 }, now), 'none');
+});

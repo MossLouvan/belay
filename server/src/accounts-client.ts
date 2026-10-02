@@ -34,7 +34,15 @@ export interface ClaimPoll {
 }
 /** POST /hosts/link: the credential is in this one answer only. Persist it first. */
 export interface LinkResult { readonly hostCredential: string; readonly maskedEmail?: string }
-export interface Heartbeat { readonly allowedNodeIds: readonly string[]; readonly relayUrls: readonly string[] }
+/** An account phone as the heartbeat describes it: shown on "Allow this phone?" prompts. */
+export interface PhoneInfo { readonly nodeId: string; readonly platform: string; readonly createdAt: number }
+
+export interface Heartbeat {
+  readonly allowedNodeIds: readonly string[];
+  readonly relayUrls: readonly string[];
+  /** Display metadata only; admission is `allowedNodeIds` alone. */
+  readonly phones: readonly PhoneInfo[];
+}
 
 export interface AccountsClient {
   createClaim(body: ClaimRequest): Promise<Claim>;
@@ -105,7 +113,19 @@ export function parseHeartbeat(json: unknown): Heartbeat {
   // One malformed entry fails the whole answer rather than being skipped: a
   // list the service got wrong is not a list to admit anyone on.
   if (bad !== undefined) throw new Error(`accounts: allowedNodeIds entry is not a 64-hex node id: ${JSON.stringify(bad)}`);
-  return { allowedNodeIds, relayUrls: strs(o.relayUrls ?? [], 'relayUrls') };
+  return { allowedNodeIds, relayUrls: strs(o.relayUrls ?? [], 'relayUrls'), phones: parsePhones(o.phones, allowedNodeIds) };
+}
+
+/** Lenient: metadata never decides admission, so a bad entry is skipped, not fatal. */
+function parsePhones(raw: unknown, allowed: readonly string[]): readonly PhoneInfo[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((p) => {
+    const o = (p ?? {}) as Record<string, unknown>;
+    if (typeof o.nodeId !== 'string' || !allowed.includes(o.nodeId)) return [];
+    const platform = typeof o.platform === 'string' ? o.platform.replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 16) || 'unknown' : 'unknown';
+    const createdAt = typeof o.createdAt === 'number' && Number.isFinite(o.createdAt) ? o.createdAt : 0;
+    return [{ nodeId: o.nodeId, platform, createdAt }];
+  });
 }
 
 async function call(url: string, init: RequestInit): Promise<unknown> {

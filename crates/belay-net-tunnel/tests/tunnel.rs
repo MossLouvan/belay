@@ -6,7 +6,11 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use belay_net_tunnel::{bind, stream_header, AllowList, Forwarder, Host, ALPN, STREAM_HEADER_PREFIX};
+use belay_net_tunnel::{bind, stream_header, AllowList, Forwarder, Host, StreamSecret, ALPN, STREAM_HEADER_PREFIX};
+
+fn secret() -> StreamSecret {
+    StreamSecret::parse(&"c3".repeat(32)).unwrap()
+}
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, SecretKey, TransportAddr};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -71,7 +75,7 @@ async fn setup(phone_id: EndpointId) -> (Arc<Host>, Endpoint, EndpointAddr, Arc<
     let host = Host::new(AllowList::from_ids([phone_id]));
     let ep = bind(SecretKey::generate(), RelayMode::Disabled).await.unwrap();
     let addr = ip_only(&ep);
-    tokio::spawn(host.clone().serve(ep.clone(), target));
+    tokio::spawn(host.clone().serve(ep.clone(), target, secret()));
     (host, ep, addr, seen)
 }
 
@@ -91,7 +95,7 @@ async fn allowed_phone_round_trips_bytes_through_the_tunnel() {
     // A second TCP connection reuses the QUIC connection, and every stream
     // carried the phone's node id as its header line.
     assert_eq!(round_trip(fwd.local_port, b"again").await, b"again");
-    let want = stream_header(&phone_key.public());
+    let want = stream_header(&secret(), &phone_key.public());
     assert_eq!(*seen.lock().unwrap(), vec![want.trim_end().to_string(); 2]);
     fwd.close().await;
     ep.close().await;
