@@ -29,6 +29,8 @@ export interface KeyboardLift {
   readonly lift: Animated.Value;
   /** True while a keyboard frame is on screen. */
   readonly shown: boolean;
+  /** The same intrusion as a number, for layout (the settled target, not animated). */
+  readonly overlap: number;
 }
 
 export interface KeyboardLiftOptions {
@@ -88,6 +90,7 @@ export function useKeyboardLift(
   const { driver = 'transform', safeAreaBottom = 0 } = options;
   const lift = useRef(new Animated.Value(0)).current;
   const [shown, setShown] = useState(false);
+  const [overlap, setOverlap] = useState(0);
   const reduced = useReducedMotion();
   // Read by the (long-lived) listeners without resubscribing on toggle.
   const reducedRef = useRef(reduced);
@@ -105,6 +108,7 @@ export function useKeyboardLift(
       // keyboard height (screen height) to prevent layout corruption.
       const windowHeight = Dimensions.get('window').height;
       const safeOverlap = Math.max(0, Math.min(overlap, windowHeight));
+      setOverlap(safeOverlap);
       
       if (reducedRef.current) {
         lift.setValue(safeOverlap);
@@ -151,5 +155,5 @@ export function useKeyboardLift(
     return subscribeToKeyboardFrames(onFrame);
   }, [anchor, lift, nativeDriver]);
 
-  return { lift, shown };
+  return { lift, shown, overlap };
 }

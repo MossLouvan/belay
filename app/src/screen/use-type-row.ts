@@ -27,6 +27,8 @@ export interface TypeRowState {
   readonly closeType: () => void;
   /** Negative keyboard intrusion, for the floating row's translateY. */
   readonly typeBarLift: Animated.AnimatedMultiplication<number>;
+  /** How far the software keyboard covers the root, px (0 when hidden). */
+  readonly keyboardOverlap: number;
 }
 
 export function useTypeRow(reportError: (message: string) => void): TypeRowState {
@@ -73,5 +75,5 @@ export function useTypeRow(reportError: (message: string) => void): TypeRowState
     }
   }, [keyboard.shown]);
 
-  return { rootRef, text, setText, sendText, typeOpen, toggleType, closeType, typeBarLift };
+  return { rootRef, text, setText, sendText, typeOpen, toggleType, closeType, typeBarLift, keyboardOverlap: keyboard.overlap };
 }

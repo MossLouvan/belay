@@ -29,6 +29,8 @@ export interface HudInputs {
   readonly bwpClient?: BwpClientStats | null;
   /** Why the picture is JPEG when H.264 was on the table, if it was. */
   readonly bwpFallback?: BwpSkipReason | BwpFallbackReason | null;
+  /** True while a Mac host sends H.264 on the screen socket (stream.h264). */
+  readonly h264?: boolean;
   readonly quality: QualityPreset;
   readonly pingMs: number | null;
   readonly zoom: number;
@@ -68,9 +70,34 @@ export function isBwpLive(i: Pick<HudInputs, 'bwpPath' | 'bwp'>): boolean {
   return i.bwpPath !== null || i.bwp !== null;
 }
 
+/**
+ * Which wire carries the picture: H.264 on the screen socket (a Mac's
+ * hardware encoder), H.264 over UDP (BWP), or JPEG frames.
+ */
+export type VideoPath = 'h264' | 'bwp' | 'jpeg';
+
+export function videoPathOf(i: Pick<HudInputs, 'bwpPath' | 'bwp' | 'h264'>): VideoPath {
+  if (i.h264) return 'h264';
+  return isBwpLive(i) ? 'bwp' : 'jpeg';
+}
+
 export function hudRows(i: HudInputs): readonly HudRow[] {
   const ping = i.pingMs === null ? dash : `${i.pingMs} ms`;
   const zoom = `${i.zoom.toFixed(1)}×`;
+
+  if (i.h264) {
+    // The socket counters count H.264 access units here, so they are live.
+    const shown = i.bwpClient ? `${i.bwpClient.fps}${i.bwpClient.dropped > 0 ? ` (−${i.bwpClient.dropped})` : ''}` : dash;
+    return [
+      ['codec', 'H.264 · socket'],
+      ['fps', `${i.stats.fps} / ${i.quality.fps}`],
+      ['shown', shown],
+      ['rate', `${i.stats.kbps} KB/s`],
+      ['source', i.stats.sourceWidth > 0 ? `${i.stats.sourceWidth}×${i.stats.sourceHeight}` : dash],
+      ['ping', ping],
+      ['zoom', zoom],
+    ];
+  }
 
   if (isBwpLive(i)) {
     // The host reports kilo*bits* per second; the JPEG path counts kilo*bytes*.
@@ -127,8 +154,11 @@ export function hudRows(i: HudInputs): readonly HudRow[] {
  * JPEG path was limited to precisely because every frame cost full price. Left
  * unchanged it would tell someone watching 60fps video that they are getting 12.
  */
-export function qualityDescription(quality: QualityPreset, bwpLive: boolean): string {
-  if (bwpLive) {
+export function qualityDescription(quality: QualityPreset, path: VideoPath): string {
+  if (path === 'h264') {
+    return `H.264 up to ${quality.fps} fps at ${quality.w}px wide, encoded in hardware on the host. Applied to the running stream.`;
+  }
+  if (path === 'bwp') {
     return (
       `H.264 up to ${quality.bwpFps} fps, capped at the ${quality.bwpPreset} bitrate. ` +
       'The host sends full resolution and only what changed, so sharpness no longer costs frame rate.'
@@ -143,6 +173,7 @@ export function qualityDescription(quality: QualityPreset, bwpLive: boolean): st
 /** The live "Now: ..." line under the quality picker. */
 export function nowLine(i: HudInputs): string {
   const ping = i.pingMs === null ? dash : `${i.pingMs} ms`;
+  if (i.h264) return `Now: ${i.stats.fps} fps · H.264 · ping ${ping}`;
   if (isBwpLive(i)) {
     if (!i.bwp) return `Now: starting H.264 · ping ${ping}`;
     return `Now: ${Math.round(i.bwp.fps)} fps · ${Math.round(i.bwp.kbps)} kbps · ping ${ping}`;

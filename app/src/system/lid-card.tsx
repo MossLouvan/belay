@@ -23,7 +23,8 @@ export const LID_STATE_LABEL: Readonly<Record<LidModeState, string>> = {
 
 const HELP =
   'While a phone is streaming, this computer stays awake with the lid shut and streams a virtual display at your size. ' +
-  'It sleeps normally again after 30 minutes without a stream, or at 20% on battery.';
+  'It sleeps normally again after 30 minutes without a stream, or at 20% on battery. ' +
+  'On a Mac, turning it on the first time asks once for an administrator password on that computer.';
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 

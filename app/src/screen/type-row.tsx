@@ -54,14 +54,17 @@ export interface FloatingTypeBarProps {
   readonly lift: Animated.AnimatedMultiplication<number>;
   /** Over live video the bar uses the HUD scrim, matching the floating dock. */
   readonly immersive: boolean;
+  /** Reports the bar's height, so the immersive picture can sit above it. */
+  readonly onHeight?: (height: number) => void;
   readonly children: ReactNode;
 }
 
-export function FloatingTypeBar({ lift, immersive, children }: FloatingTypeBarProps) {
+export function FloatingTypeBar({ lift, immersive, onHeight, children }: FloatingTypeBarProps) {
   const theme = useTheme();
   return (
     <Animated.View
       testID="type-bar"
+      onLayout={onHeight ? (e) => onHeight(e.nativeEvent.layout.height) : undefined}
       style={{
         position: 'absolute',
         left: 0,

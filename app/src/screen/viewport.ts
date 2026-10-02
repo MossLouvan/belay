@@ -47,6 +47,7 @@ import type { SwipeDirection } from './swipe';
 import { detectEdgeGesture, edgeGestureToAction } from './edge-gestures';
 import type { EdgeTuning } from './edge-gestures';
 import { planTap } from './tap-plan';
+import { createLiveDrag } from './live-drag';
 import type { TapMemory } from './tap-plan';
 
 export type { PointerMode };
@@ -129,6 +130,8 @@ export interface ViewportOptions {
    * cursor, whatever the stage's own pointer mode is.
    */
   readonly onPadInput?: () => void;
+  /** The host has /input/down + /input/up: Touch drags go live instead of one /input/drag. */
+  readonly liveDrag?: boolean;
 }
 
 export interface Viewport {
@@ -153,7 +156,7 @@ export interface Viewport {
 }
 
 export function useViewport(options: ViewportOptions): Viewport {
-  const { sizeRef, stageW, stageH, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, onCursor, activeMods, onSwipe, isMac, onPadInput } =
+  const { sizeRef, stageW, stageH, mode, button, onButtonUsed, onError, reducedMotion, inputBlocked, screen, onPointer, onCursor, activeMods, onSwipe, isMac, onPadInput, liveDrag = false } =
     options;
 
   const translateX = useRef(new Animated.Value(0)).current;
@@ -185,6 +188,7 @@ export function useViewport(options: ViewportOptions): Viewport {
   const onSwipeRef = useRef(onSwipe);
   const isMacRef = useRef(isMac);
   const onPadInputRef = useRef(onPadInput);
+  const liveDragRef = useRef(liveDrag);
 
   // Whether the gesture in flight arrived through `padHandlers`. A ref, not
   // state: it must be readable synchronously inside responder callbacks, and
@@ -211,12 +215,30 @@ export function useViewport(options: ViewportOptions): Viewport {
     onSwipeRef.current = onSwipe;
     isMacRef.current = isMac;
     onPadInputRef.current = onPadInput;
-  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, onCursor, activeMods, onSwipe, isMac, onPadInput]);
+    liveDragRef.current = liveDrag;
+  }, [mode, button, inputBlocked, reducedMotion, onError, onButtonUsed, screen, onPointer, onCursor, activeMods, onSwipe, isMac, onPadInput, liveDrag]);
 
   const send = useCallback((run: () => Promise<unknown>, what: string): void => {
     if (blockedRef.current) return;
     run().catch((e: unknown) => onErrorRef.current(`${what} failed — ${messageOf(e)}`));
   }, []);
+
+  // One drag at a time; its sends are serial (live-drag.ts). Input-blocked
+  // hosts get nothing, like every other send.
+  const hostDrag = useMemo(
+    () =>
+      createLiveDrag(
+        {
+          down: (p) => (blockedRef.current ? Promise.resolve() : api.down(p.x, p.y, screenRef.current)),
+          move: (p) => (blockedRef.current ? Promise.resolve() : api.move(p.x, p.y, screenRef.current)),
+          up: (p) => (blockedRef.current ? Promise.resolve() : api.up(p.x, p.y, screenRef.current)),
+          drag: (a, b) => (blockedRef.current ? Promise.resolve() : api.drag(a.x, a.y, b.x, b.y, screenRef.current)),
+          onError: (m) => onErrorRef.current(`Drag failed — ${m}`),
+        },
+        GESTURE.moveThrottleMs
+      ),
+    []
+  );
 
   const applyView = useCallback(() => {
     const { scale, tx, ty } = view.current;
@@ -495,7 +517,11 @@ export function useViewport(options: ViewportOptions): Viewport {
       const [first, second] = touches;
       const { distance, centerX, centerY } = geometryOf(touchPoint(first, origin), touchPoint(second, origin));
       const classified = g.kind === 'zoom' || g.kind === 'scroll' || g.kind === 'edgeGesture';
-      if (!classified) cancelLongPress();
+      if (!classified) {
+        cancelLongPress();
+        // A second finger ends a live drag: let go where the first one was.
+        hostDrag.cancel();
+      }
       
       // Check if this is an edge gesture (2-finger swipe starting from screen edge)
       // Only check on initial adoption (not classified yet)
@@ -529,7 +555,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         isEdgeGesture: isFromEdge,
       };
     },
-    [cancelLongPress, sizeRef]
+    [cancelLongPress, hostDrag, sizeRef]
   );
 
   /**
@@ -626,6 +652,11 @@ export function useViewport(options: ViewportOptions): Viewport {
       if (kind !== g.kind) {
         cancelLongPress();
         g.kind = kind;
+        if (kind === 'hostDrag') hostDrag.start(toHost(g.startX, g.startY), liveDragRef.current);
+      }
+      if (g.kind === 'hostDrag') {
+        hostDrag.move(toHost(g.startX + state.dx, g.startY + state.dy));
+        return;
       }
       if (g.kind === 'pan') {
         setTranslate(g.baseTx + state.dx, g.baseTy + state.dy);
@@ -649,7 +680,7 @@ export function useViewport(options: ViewportOptions): Viewport {
         }
       }
     },
-    [cancelLongPress, effectiveMode, emitScroll, nudgeCursor, setTranslate]
+    [cancelLongPress, effectiveMode, emitScroll, hostDrag, nudgeCursor, setTranslate, toHost]
   );
 
   /**
@@ -734,6 +765,7 @@ export function useViewport(options: ViewportOptions): Viewport {
       cancelLongPress();
       const g = gesture.current;
       gesture.current = newGesture();
+      if (g.kind !== 'hostDrag') hostDrag.cancel();
       if (g.kind === 'pending') {
         handleTap(effectiveMode() === 'trackpad' ? cursor.current : toHost(g.startX, g.startY));
         return;
@@ -769,13 +801,12 @@ export function useViewport(options: ViewportOptions): Viewport {
         return;
       }
       if (g.kind === 'hostDrag') {
-        const from = toHost(g.startX, g.startY);
         const to = toHost(numberOf(event.nativeEvent.locationX), numberOf(event.nativeEvent.locationY));
-        send(() => api.drag(from.x, from.y, to.x, to.y, screenRef.current), 'Drag');
+        hostDrag.end(to);
         onPointerRef.current?.();
       }
     },
-    [cancelLongPress, clickAt, effectiveMode, handleTap, send, startMomentum, startScrollMomentum, toHost]
+    [cancelLongPress, effectiveMode, handleTap, hostDrag, send, startMomentum, startScrollMomentum, toHost]
   );
 
   /**
@@ -839,11 +870,12 @@ export function useViewport(options: ViewportOptions): Viewport {
         },
         onPanResponderTerminate: () => {
           cancelLongPress();
+          hostDrag.cancel();
           gesture.current = newGesture();
           padActive.current = false;
         },
       }).panHandlers,
-    [cancelLongPress, handleOneFinger, handleThreeFingers, handleTwoFingers, onGrant, onRelease]
+    [cancelLongPress, handleOneFinger, handleThreeFingers, handleTwoFingers, hostDrag, onGrant, onRelease]
   );
 
   const handlers = useMemo(() => buildResponder(false), [buildResponder]);
@@ -859,10 +891,11 @@ export function useViewport(options: ViewportOptions): Viewport {
   useEffect(
     () => () => {
       stopMomentum();
+      hostDrag.cancel();
       if (moveTimer.current) clearTimeout(moveTimer.current);
       if (gesture.current.longPress) clearTimeout(gesture.current.longPress);
     },
-    [stopMomentum]
+    [hostDrag, stopMomentum]
   );
 
   return { translateX, translateY, scale: scaleValue, cursorX, cursorY, zoom, handlers, padHandlers, zoomBy, reset };

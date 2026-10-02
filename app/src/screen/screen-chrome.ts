@@ -5,7 +5,6 @@
 
 import type { Size } from './model';
 import type { RecordPhase } from './record';
-import type { StreamSettings } from './stream-settings-sheet';
 import type { PendingButton, PointerMode } from './viewport';
 
 export interface WindowMetrics {
@@ -48,6 +47,8 @@ export interface StageOffsetInputs {
   readonly stageH: number;
   readonly insetTop: number;
   readonly insetBottom: number;
+  /** Height of whatever covers the bottom while typing (keys, keyboard), px. */
+  readonly bottomReserve?: number;
 }
 
 /**
@@ -68,13 +69,20 @@ export interface StageOffsetInputs {
  * is left exactly as it was.
  */
 export const immersiveStageOffset = (
-  { immersive, boxH, stageH, insetTop, insetBottom }: StageOffsetInputs
+  { immersive, boxH, stageH, insetTop, insetBottom, bottomReserve = 0 }: StageOffsetInputs
 ): number => {
   if (!immersive || boxH <= 0 || stageH <= 0) return 0;
-  const safeH = boxH - Math.max(0, insetTop) - Math.max(0, insetBottom);
+  const safeH = boxH - Math.max(0, insetTop) - Math.max(0, insetBottom, bottomReserve);
   if (stageH >= safeH) return 0;
   return Math.max(0, insetTop) + (safeH - stageH) / 2;
 };
+
+/**
+ * The box an immersive stage fits into (#135): the whole display, minus the
+ * band the key bar / keyboard covers while typing, so you can see what you type.
+ */
+export const immersiveStageBox = (box: Size, bottomReserve: number): Size =>
+  bottomReserve > 0 ? { w: box.w, h: Math.max(1, box.h - bottomReserve) } : box;
 
 export interface RotationInputs {
   readonly gaming: boolean;
@@ -187,7 +195,3 @@ export const crosshairShown = ({ gaming, mode, padCursor, hasPicture }: Crosshai
  * at all, so both keep the row inline in the control column.
  */
 export const typeRowFloats = (os: string): boolean => os === 'ios';
-
-/** The Performance settings row's subtitle: "60 Hz • Auto • H264". */
-export const performanceSummary = (settings: StreamSettings): string =>
-  `${settings.fps} Hz • ${settings.bitrateMbps === 0 ? 'Auto' : `${settings.bitrateMbps} Mbps`} • ${settings.codec.toUpperCase()}`;

@@ -52,7 +52,6 @@ import { useScreenBack } from '../../src/screen/use-screen-back';
 import { PAD_CURSOR_LINGER_MS } from '../../src/screen/trackpad';
 import { RecordSheet, RecordStrip, SentNotice } from '../../src/screen/record-parts';
 import { ClipboardSheet } from '../../src/screen/clipboard-sheet';
-import { StreamSettingsSheet } from '../../src/screen/stream-settings-sheet';
 import { HostAudio, type HostAudioStatus } from '../../src/stream/audio-player';
 import { audioDockLabel } from '../../src/stream/audio-capability';
 import { AppearanceNav } from '../../src/home/appearance-nav';
@@ -63,7 +62,7 @@ import { HelpSheet } from '../../src/screen/help-sheet';
 import { ImmersiveHud } from '../../src/screen/immersive-hud';
 import { QualitySheet } from '../../src/screen/quality-sheet';
 import type { BwpPreference } from '../../src/screen/bwp-policy';
-import { dockedStageHeight, hintVisible, immersiveStageOffset, panelStateShown, typeRowFloats } from '../../src/screen/screen-chrome';
+import { dockedStageHeight, hintVisible, immersiveStageBox, immersiveStageOffset, panelStateShown, typeRowFloats } from '../../src/screen/screen-chrome';
 import { ScreenHeader } from '../../src/screen/screen-header';
 import { MonitorSheet, ScreenMenuSheet } from '../../src/screen/screen-menu-sheet';
 import { StageView } from '../../src/screen/stage-view';
@@ -125,7 +124,7 @@ export default function ScreenTab() {
     [bwpPreference, facts.info?.bwp],
   );
   const stream = useScreenStream(active, presets.quality, screenIndex, presets.virtualRequest, gaming.enabled, bwpOptions);
-  const qualityChoices = useQualityAvailability(stream.bwpPath, presets, gaming.enabled);
+  const qualityChoices = useQualityAvailability(stream.bwpPath, stream.h264 !== null, presets, gaming.enabled);
   // A live UDP session is also a wire for the controller: its Input channel
   // leaves ahead of queued video, where the control WebSocket queues behind
   // whatever the phone's JavaScript thread is doing. `stream.bwp` is the
@@ -143,9 +142,27 @@ export default function ScreenTab() {
     () => aspectOf(stream.stats, facts.info, { width: stream.bwpWidth, height: stream.bwpHeight }),
     [facts.info, stream.stats, stream.bwpWidth, stream.bwpHeight],
   );
+
+  // Transient toast for one-shot input failures.
+  const toast = useTransient<string>(STREAM.toastMs);
+  const reportError = toast.show;
+  // Host advisories (the lid-closed battery warning) use the same strip.
+  useEffect(() => { if (stream.notice) reportError(stream.notice); }, [stream.notice, reportError]);
+
+  const tools = useToolsHint();
+  const typing = useTypeRow(reportError);
+  const [dockH, setDockH] = useState(0);
+  const [typeBarH, setTypeBarH] = useState(0);
+
+  // Typing while immersive: the picture fits the band above whatever covers
+  // the bottom — the iOS keyboard plus the floating key bar, or the floating
+  // dock carrying the keys elsewhere — so you see what you type (#135).
+  const bottomReserve = immersive && typing.typeOpen && !gaming.enabled
+    ? (TYPE_ROW_FLOATS ? typing.keyboardOverlap + typeBarH : dockH + insets.bottom + theme.space.sm)
+    : 0;
   const stage = useMemo(
-    () => fitBox(immersive ? box : { w: box.w, h: dockedStageHeight(box.h) }, aspect),
-    [box, aspect, immersive],
+    () => fitBox(immersive ? immersiveStageBox(box, bottomReserve) : { w: box.w, h: dockedStageHeight(box.h) }, aspect),
+    [box, aspect, immersive, bottomReserve],
   );
   const stageRef = useRef<Size>(EMPTY_SIZE);
   stageRef.current = stage;
@@ -156,19 +173,11 @@ export default function ScreenTab() {
   // area, so the portrait panel and the edge-to-edge landscape are untouched.
   const stageOffset = useMemo(
     () => immersiveStageOffset({
-      immersive, boxH: box.h, stageH: stage.h, insetTop: insets.top, insetBottom: insets.bottom,
+      immersive, boxH: box.h, stageH: stage.h, insetTop: insets.top, insetBottom: insets.bottom, bottomReserve,
     }),
-    [immersive, box.h, stage.h, insets.top, insets.bottom],
+    [immersive, box.h, stage.h, insets.top, insets.bottom, bottomReserve],
   );
 
-  // Transient toast for one-shot input failures.
-  const toast = useTransient<string>(STREAM.toastMs);
-  const reportError = toast.show;
-  // Host advisories (the lid-closed battery warning) use the same strip.
-  useEffect(() => { if (stream.notice) reportError(stream.notice); }, [stream.notice, reportError]);
-
-  const tools = useToolsHint();
-  const typing = useTypeRow(reportError);
   const dock = useDockState({ immersive, typeOpen: typing.typeOpen, landscape });
   const keys = useKeySender({ isMac, reportError });
 
@@ -201,6 +210,7 @@ export default function ScreenTab() {
     onSwipe: keys.onSwipe,
     isMac,
     onPadInput,
+    liveDrag: facts.info?.inputHold === true,
   });
 
   const onBoxLayout = useCallback((event: LayoutChangeEvent) => {
@@ -365,7 +375,7 @@ export default function ScreenTab() {
       {gaming.enabled ? null : !immersive ? (
         <DockedControls>{controls}</DockedControls>
       ) : (
-        <FloatingDock shown={dock.dockShown} opacity={dock.dockOpacity} onHide={dock.dockHide.hide}>
+        <FloatingDock shown={dock.dockShown} opacity={dock.dockOpacity} onHide={dock.dockHide.hide} onHeight={setDockH}>
           {controls}
         </FloatingDock>
       )}
@@ -392,7 +402,7 @@ export default function ScreenTab() {
 
       {/* The type-to-PC row, floating on the keyboard's top edge (iOS). */}
       {typing.typeOpen && TYPE_ROW_FLOATS && !gaming.enabled ? (
-        <FloatingTypeBar lift={typing.typeBarLift} immersive={immersive}>
+        <FloatingTypeBar lift={typing.typeBarLift} immersive={immersive} onHeight={setTypeBarH}>
           {keyBar}
           {typeRow}
         </FloatingTypeBar>
@@ -421,26 +431,6 @@ export default function ScreenTab() {
 
       <ClipboardSheet visible={sheets.isOpen('clipboard')} onClose={sheets.closer('clipboard')} />
 
-      <StreamSettingsSheet
-        visible={sheets.isOpen('streamSettings')}
-        onClose={sheets.closer('streamSettings')}
-        settings={sheets.streamSettings}
-        onApply={(settings) => {
-          sheets.applyStreamSettings(settings);
-          // Wire to WebRTC ABR: send control message to update encoder bitrate ceiling
-          // Control channel message: {"t":"bitrate","bps":settings.bitrateMbps*1_000_000}
-          // If bitrateMbps === 0 (Auto), congestion.ts decides with no ceiling
-          // On JPEG fallback: bitrate maps indirectly via quality/width presets
-          if (connection && settings.bitrateMbps > 0) {
-            const bps = settings.bitrateMbps * 1_000_000;
-            // TODO: Send via WebRTC control channel when session is WebRTC-backed
-            // For now this state is read by quality presets and HUD
-            console.log(`[stream-settings] bitrate ceiling: ${bps} bps (${settings.bitrateMbps} Mbps)`);
-          }
-        }}
-        webrtcAvailable={facts.info?.webrtc === true}
-      />
-
       {/* The tool drawer: the four former tabs, named and explained, each
           opening as a slide-up panel over this desktop. */}
       <ToolDrawer visible={tools.showTools} onClose={tools.closeTools} waitingCount={tools.waitingCount} />
@@ -449,12 +439,10 @@ export default function ScreenTab() {
         visible={sheets.isOpen('menu')}
         onClose={sheets.closer('menu')}
         quality={presets.quality}
-        streamSettings={sheets.streamSettings}
         showHud={sheets.showHud}
         audioOn={sheets.audioOn}
         audioStatus={audioStatus}
         onOpenQuality={sheets.fromMenu('quality')}
-        onOpenStreamSettings={sheets.fromMenu('streamSettings')}
         onToggleHud={sheets.toggleHud}
         onToggleAudio={sheets.toggleAudio}
         onOpenHelp={sheets.fromMenu('help')}

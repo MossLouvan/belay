@@ -30,7 +30,7 @@ import { IconArrowsHorizontal, IconHandFinger } from '@tabler/icons-react-native
 import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
 import { Txt } from '../ui';
-import { FILL } from './parts';
+import { FILL, NO_BROWSER_GESTURES } from './parts';
 import { padGapBelow, padRect, showsPadHint } from './trackpad';
 import { PadTexture } from './pad-dots';
 
@@ -57,7 +57,7 @@ export function TrackpadSurface({ handlers, boxH, stageH, immersive, testID }: T
       testID={testID}
       accessibilityLabel="Trackpad. Drag to move the mouse pointer, tap to click, two-finger tap to right-click, two fingers to scroll."
       {...handlers}
-      style={immersive ? FILL : {
+      style={[immersive ? FILL : {
         position: 'absolute',
         top: rect.top,
         bottom: rect.bottom,
@@ -68,7 +68,7 @@ export function TrackpadSurface({ handlers, boxH, stageH, immersive, testID }: T
         borderWidth: look.cardBorder ? 0 : theme.layout.hairline,
         borderColor: theme.colors.border,
         overflow: 'hidden',
-      }}
+      }, NO_BROWSER_GESTURES]}
     >
       {!immersive && look.padTexture ? <PadTexture /> : null}
       {roomy && look.padHint ? (

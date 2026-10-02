@@ -339,9 +339,18 @@ export function useScreenStream(
   // it now rather than on the next reconnect. Turning BWP off mid-stream is
   // the one case that stops a live stream; everything else only ever asks.
   useEffect(() => {
+    const wasOff = bwpPolicy.current.preference === 'off';
     bwpPolicy.current = { preference: bwpOptions.preference, hostBwp: bwpOptions.hostBwp, gaming };
     const socket = socketRef.current;
     if (!socket || socket.readyState !== SOCKET_OPEN) return;
+    // The same switch governs H.264 on the socket (#134): JPEG stops it now;
+    // leaving JPEG reconnects so the URL asks for codec=h264 again.
+    if (bwpOptions.preference === 'off' && h264Live.current) {
+      try { socket.send(JSON.stringify({ type: 'h264stop' })); } catch { /* the reconnect asks for jpeg */ }
+    } else if (wasOff && bwpOptions.preference !== 'off' && nativeStream.canDecodeH264() && !h264Declined.current) {
+      setGeneration((g) => g + 1);
+      return;
+    }
     if (bwpLive.current) {
       if (bwpOptions.preference === 'off') abandonBwp('off', false);
       return;
@@ -361,6 +370,16 @@ export function useScreenStream(
       if (status.state === 'live') {
         h264ShownRef.current = true;
         setH264Shown(true);
+        return;
+      }
+      if (status.state === 'stats') {
+        setBwpClient({
+          fps: status.decoded,
+          dropped: status.dropped,
+          keyframeRequests: status.keyframeRequests,
+          inputSent: status.inputSent ?? 0,
+          rttMs: status.rttMs >= 0 ? status.rttMs : null,
+        });
         return;
       }
       const socket = socketRef.current;
@@ -514,6 +533,11 @@ export function useScreenStream(
       setPhase((prev) => (prev === 'live' ? prev : 'live'));
       setError((prev) => (prev === null ? prev : null));
     };
+
+    // Ask for H.264 on the socket unless this build cannot show it, it already
+    // failed here, or the Video path switch says JPEG.
+    const wantsH264 = (): boolean =>
+      nativeStream.canDecodeH264() && !h264Declined.current && bwpPolicy.current.preference !== 'off';
 
     const giveUpH264 = (): void => {
       h264Watchdog = undefined;
@@ -758,7 +782,7 @@ export function useScreenStream(
             bin: 1,
             // Advertise native H.264 decoding (./h264). A host that cannot
             // encode announces JPEG; an old host ignores it.
-            ...streamCodecParams(nativeStream.canDecodeH264() && !h264Declined.current),
+            ...streamCodecParams(wantsH264()),
             // Only named when a monitor was actually chosen; older hosts
             // ignore unknown query params, so this is safe either way.
             ...(screenIndex === undefined ? {} : { screen: screenIndex }),
@@ -781,7 +805,7 @@ export function useScreenStream(
       // synchronously). When H.264 was advertised the socket starts as Blob —
       // the host's codec announcement precedes its first frame and settles
       // which it is; see onCodec and onH264Frame.
-      socket.binaryType = nativeStream.canDecodeH264() && !h264Declined.current ? 'blob' : 'arraybuffer';
+      socket.binaryType = wantsH264() ? 'blob' : 'arraybuffer';
       h264Live.current = false;
       h264ShownRef.current = false;
       socketRef.current = socket;

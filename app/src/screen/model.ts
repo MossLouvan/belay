@@ -128,8 +128,9 @@ export const QUALITY: readonly QualityPreset[] = Object.freeze([
  * on the GPU, 'cpu' when it has no hardware encoder, null before H.264 is up.
  * Only 'gpu' can keep the promise Performance and Ultra make.
  */
-export function availableQuality(bwpPath: string | null): readonly QualityPreset[] {
-  if (bwpPath === 'gpu') return QUALITY;
+export function availableQuality(bwpPath: string | null, h264Socket = false): readonly QualityPreset[] {
+  // H.264 on the screen socket is the Mac's VideoToolbox encoder: hardware.
+  if (bwpPath === 'gpu' || h264Socket) return QUALITY;
   return QUALITY.filter((preset) => !preset.requiresHardwareEncode);
 }
 

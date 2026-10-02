@@ -95,7 +95,7 @@ export function readBwpCapability(body: unknown): boolean | undefined {
 
 const REASON_TEXT: Readonly<Record<BwpSkipReason | BwpFallbackReason, string>> = Object.freeze({
   off: 'H.264 is switched off',
-  'no-native': 'this build has no H.264 receiver',
+  'no-native': 'this device uses JPEG',
   'no-port': 'no UDP port could be reserved',
   'host-unsupported': 'the host cannot stream H.264',
   'cooling-down': 'H.264 failed recently; retrying later',

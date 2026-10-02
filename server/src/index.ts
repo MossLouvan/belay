@@ -50,6 +50,7 @@ import { encodeBinaryFrame } from './frame-codec.js';
 import { createH264Relay } from './h264-relay.js';
 import { classifyScreens } from './displays.js';
 import { openableWindows, sanitizeWindows, windowIdOf } from './windows.js';
+import { createHoldGuard, registerHoldRoutes } from './input-hold.js';
 import { MAX_CLIPBOARD_UNITS, parseClipboardSet, shapeClipboardGet } from './clipboard.js';
 import { createTerminal } from './terminal.js';
 import { createCompleter, sanitizeCompletionLine } from './terminal-complete.js';
@@ -603,7 +604,8 @@ app.get('/screen/info', auth, async (_req, res) => {
     // handle the webrtc verb (a helper built without BELAY_WEBRTC_BUILD=1 answers
     // "unknown command"). UI can use this to disable high-FPS/codec/audio controls
     // when gated by either the flag or the build.
-    res.json({ ...info, webrtc: webrtcEnabled(), bwp: bwpAvailable() });
+    // `inputHold`: /input/down + /input/up exist (live drags); old hosts omit it.
+    res.json({ ...info, webrtc: webrtcEnabled(), bwp: bwpAvailable(), inputHold: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -871,6 +873,7 @@ app.post('/input/move', auth, async (req: AuthedRequest, res) => {
       return;
     }
     floor.noteInjection(Date.now());
+    holdGuard.touch();
     try {
       await native.move(req.body.x, req.body.y, screen, window);
     } finally {
@@ -928,6 +931,11 @@ app.post('/input/drag', auth, async (req: AuthedRequest, res) => {
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
+
+// Live drags: press, stream /input/move, release. A phone that vanishes
+// mid-drag is released by the guard after 15s without a move.
+const holdGuard = createHoldGuard(native, 15_000);
+registerHoldRoutes(app, { auth, withFloor, native, screenIndexOf, windowIdOf, guard: holdGuard });
 
 app.post('/input/text', auth, async (req: AuthedRequest, res) => {
   try {

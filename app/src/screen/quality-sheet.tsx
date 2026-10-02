@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Caption, Column, ListItem, Rule, SegmentedControl, Sheet, Txt } from '../ui';
-import { nowLine, qualityDescription } from './hud';
+import { nowLine, qualityDescription, videoPathOf } from './hud';
 import { fallbackReasonText, type BwpPreference } from './bwp-policy';
 import { BelayStreamView } from '../../modules/belay-stream/src';
 import type { QualityPreset, ResolutionOption } from './model';
@@ -33,6 +33,8 @@ export function QualitySheet({
   visible, onClose, presets, qualityChoices, stream, bwpPreference, onBwpPreference, pingMs, zoom,
 }: QualitySheetProps) {
   const { qualityId, setQualityId, quality, resolutions, resolution, setResolutionId, vdAvailable } = presets;
+  const h264 = stream.h264 !== null;
+  const path = videoPathOf({ bwpPath: stream.bwpPath, bwp: stream.bwpStats, h264 });
   return (
     <Sheet visible={visible} onClose={onClose} title="Stream quality" testID="quality-sheet">
       <Column gap="sm">
@@ -44,13 +46,14 @@ export function QualitySheet({
           options={qualityChoices.map((preset) => ({ value: preset.id, label: preset.label }))}
         />
         <Caption>{quality.hint}</Caption>
-        <Caption>{qualityDescription(quality, stream.bwpPath !== null)}</Caption>
+        <Caption>{qualityDescription(quality, path)}</Caption>
         <Caption>
           {nowLine({
             stats: stream.stats,
             bwp: stream.bwpStats,
             bwpSize: null,
             bwpPath: stream.bwpPath,
+            h264,
             quality,
             pingMs,
             zoom,
@@ -71,7 +74,9 @@ export function QualitySheet({
               options={BWP_CHOICES}
             />
             <Caption>
-              {stream.bwpPath !== null
+              {path === 'h264'
+                ? 'Streaming hardware H.264 over the screen socket.'
+                : path === 'bwp'
                 ? 'Streaming H.264 over UDP.'
                 : stream.bwpFallback
                   ? `JPEG over the control socket — ${fallbackReasonText(stream.bwpFallback)}.`
