@@ -2,15 +2,24 @@
 // process pushes (host.js → preload-host.cjs); this file only paints it.
 
 const $ = (id) => document.getElementById(id);
-const PHASE_TEXT = { starting: 'Starting…', stopped: 'Stopped', busy: 'Waiting for the port' };
+const PHASE_TEXT = { starting: 'Starting…', stopped: 'Stopped', busy: 'Belay is already running' };
 
 let sawScreenDenied = false;
+let paintedPhoneQr = false;
 
 function paint(state) {
   const running = state.phase === 'running';
   $('status').textContent = running
     ? (state.paired ? `Running · ${state.devices} phone${state.devices === 1 ? '' : 's'} linked` : 'Running · not linked yet')
     : PHASE_TEXT[state.phase] ?? state.phase;
+
+  if (!paintedPhoneQr && state.phoneAppSvg) {
+    // Same fixed <svg><path/></svg> shape as the pairing QR, built in the main process.
+    $('phone-qr').innerHTML = state.phoneAppSvg;
+    $('phone-link').href = state.phoneAppUrl;
+    paintedPhoneQr = true;
+  }
+  $('phone-qr').hidden = !state.phoneAppSvg;
 
   const showQr = running && !state.paired && state.pairingSvg;
   $('qr').hidden = !showQr;
@@ -21,9 +30,15 @@ function paint(state) {
     $('qr').innerHTML = state.pairingSvg;
     $('code').textContent = state.pairingCode;
   }
-  $('link-heading').textContent = running && state.paired ? 'Linked' : 'Link a phone';
-  $('link-caption').hidden = running && state.paired;
-  $('busy').hidden = state.phase !== 'busy';
+  const linked = running && state.paired;
+  const busy = state.phase === 'busy';
+  $('link-heading').lastChild.textContent = linked ? 'Linked' : 'Scan this code in Belay';
+  $('link-caption').hidden = linked || busy;
+  $('get-app').hidden = linked;
+  $('busy').hidden = !busy;
+  $('busy-agent').hidden = !busy || !state.launchAgent;
+  $('take-over').hidden = !busy || !state.launchAgent;
+  $('busy-other').hidden = !busy || state.launchAgent;
   $('error').hidden = !state.error;
   $('error').textContent = state.error ?? '';
 
@@ -54,6 +69,11 @@ async function init() {
     }
   }
   $('relaunch-button').addEventListener('click', () => window.belayHost.relaunch());
+  $('take-over').addEventListener('click', async () => {
+    $('take-over').disabled = true;
+    await window.belayHost.takeOver();
+    $('take-over').disabled = false;
+  });
   $('login-item').addEventListener('change', (e) => window.belayHost.setLoginItem(e.target.checked));
   $('viewer').addEventListener('click', () => window.belayHost.openViewer());
   $('logs').addEventListener('click', () => window.belayHost.openLogs());

@@ -12,13 +12,18 @@
 // helper it spawns to this bundle, which is the whole point of shipping an app.
 
 import {
-  app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, shell, systemPreferences, Tray, utilityProcess,
+  app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, nativeTheme, shell, systemPreferences, Tray, utilityProcess,
 } from 'electron';
+import { execFile } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
-import { loginItemAfterHealth, parsePairing, qrSvg, readHealth, statusLine } from './src/host-status.js';
+import { GROUND } from './src/ground.js';
+import { PHONE_APP_URL, loginItemAfterHealth, parsePairing, qrSvg, readHealth, statusLine } from './src/host-status.js';
+import { launchAgentInstalled, stopLaunchAgent } from './src/launch-agent.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 8787;
@@ -36,6 +41,27 @@ const SETTINGS_PANE = {
 /** The staged host (Resources/host) when packaged; the sibling server/ in a checkout. */
 export function hostDir() {
   return app.isPackaged ? join(process.resourcesPath, 'host') : resolve(__dirname, '..', 'server');
+}
+
+/**
+ * A QR matrix from the encoder the host ships (qrcode-terminal, staged under
+ * host/dist/node_modules; server/node_modules in a checkout) — the same one
+ * the pairing QR comes from, so nothing new to bundle.
+ */
+function qrModules(text) {
+  try {
+    const require = createRequire(join(hostDir(), 'dist', 'index.js'));
+    const QRCode = require('qrcode-terminal/vendor/QRCode');
+    const level = require('qrcode-terminal/vendor/QRCode/QRErrorCorrectLevel');
+    const qr = new QRCode(-1, level.L);
+    qr.addData(text);
+    qr.make();
+    const n = qr.getModuleCount();
+    return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, c) => Boolean(qr.isDark(r, c))));
+  } catch (e) {
+    console.error(`[host] no QR encoder for ${text}: ${e?.message ?? e}`);
+    return [];
+  }
 }
 
 function readPrefs(file) {
@@ -65,6 +91,7 @@ export function startHost({ openViewer }) {
   let hostWindow = null;
   let tray = null;
   let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, perms: permissions() };
+  const phoneAppSvg = qrSvg(qrModules(PHONE_APP_URL));
 
   const savePrefs = (next) => {
     if (next === prefs) return;
@@ -79,6 +106,8 @@ export function startHost({ openViewer }) {
     perms: permissions(),
     pairingSvg: state.pairing ? qrSvg(state.pairing.modules) : '',
     pairingCode: state.pairing ? parsePairing(state.pairing.link)?.code ?? '' : '',
+    phoneAppUrl: PHONE_APP_URL,
+    phoneAppSvg,
     openAtLogin: prefs.openAtLogin === true,
     logFile: join(userData, LOG_FILE),
   });
@@ -100,9 +129,11 @@ export function startHost({ openViewer }) {
   const spawn = async () => {
     if (quitting || child) return;
     if (await alreadyServing()) {
-      // Most likely the npx/LaunchAgent host (com.belay.host). Two hosts on one
-      // port would fight over it at every login, so wait and say so.
-      update({ phase: 'busy' });
+      // A second Belay.app is ruled out by the single-instance lock (main.js),
+      // so this is the npx host: its LaunchAgent (com.belay.host) or a copy
+      // in a Terminal. Two hosts on one port would fight over it at every
+      // login, so wait, say so, and offer to take over from the agent.
+      update({ phase: 'busy', launchAgent: launchAgentInstalled() });
       setTimeout(spawn, BUSY_RETRY_MS);
       return;
     }
@@ -170,11 +201,13 @@ export function startHost({ openViewer }) {
     if (hostWindow && !hostWindow.isDestroyed()) { hostWindow.show(); hostWindow.focus(); return hostWindow; }
     hostWindow = new BrowserWindow({
       width: 480,
-      height: 720,
-      minWidth: 400,
-      minHeight: 560,
+      height: 856,
+      minWidth: 440,
+      minHeight: 720,
       title: 'Belay',
-      backgroundColor: '#0b0d10',
+      // Follows the OS, unlike the viewer: this window sits on the desktop
+      // next to System Settings, so it should look like it belongs there.
+      backgroundColor: nativeTheme.shouldUseDarkColors ? GROUND.dark : GROUND.light,
       webPreferences: {
         preload: join(__dirname, 'preload-host.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
       },
@@ -189,6 +222,19 @@ export function startHost({ openViewer }) {
   ipcMain.handle('host:relaunch', () => { app.relaunch(); app.exit(0); });
   ipcMain.handle('host:openLogs', () => shell.openPath(join(userData, LOG_FILE)));
   ipcMain.handle('host:viewer', () => { openViewer(); return true; });
+  // Only ever on the user's click: unload the developer LaunchAgent, park its
+  // plist, and try the port again right away instead of waiting for the retry.
+  ipcMain.handle('host:takeOver', async () => {
+    try {
+      await stopLaunchAgent({ run: (cmd, args) => promisify(execFile)(cmd, args) });
+      update({ launchAgent: false, error: undefined });
+      void spawn();
+      return true;
+    } catch (e) {
+      update({ error: `Could not stop the old host: ${e?.message ?? e}` });
+      return false;
+    }
+  });
   ipcMain.handle('host:permission', async (_event, { kind, action }) => {
     if (process.platform !== 'darwin' || !(kind in SETTINGS_PANE)) return permissions();
     if (action === 'open') {

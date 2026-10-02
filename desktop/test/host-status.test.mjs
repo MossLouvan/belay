@@ -25,7 +25,7 @@ test('statusLine counts phones and names the port clash', () => {
   assert.equal(statusLine({ phase: 'running', devices: 0, port: 8787 }), 'Running · not linked yet');
   assert.equal(statusLine({ phase: 'running', devices: 1, port: 8787 }), 'Running · 1 phone');
   assert.equal(statusLine({ phase: 'running', devices: 3, port: 8787 }), 'Running · 3 phones');
-  assert.equal(statusLine({ phase: 'busy', port: 8787 }), 'Another Belay host is on port 8787');
+  assert.equal(statusLine({ phase: 'busy', port: 8787 }), 'Belay is already running on port 8787');
   assert.equal(statusLine({ phase: 'starting', port: 8787 }), 'Starting…');
 });
 
