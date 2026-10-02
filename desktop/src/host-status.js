@@ -110,7 +110,15 @@ export function pendingFromMessage(msg, now) {
   return list
     .filter((r) => typeof r?.id === 'string' && /^[0-9a-f]{32}$/.test(r.id) && typeof r.name === 'string'
       && typeof r.expiresAt === 'number' && r.expiresAt > now)
-    .map((r) => ({ id: r.id, name: clampName(r.name), expiresAt: r.expiresAt }));
+    .map((r) => ({
+      id: r.id,
+      name: clampName(r.name),
+      // Also on the asking phone's screen; the person checks they match.
+      matchCode: typeof r.matchCode === 'string' && /^[A-Z2-9]{4}$/.test(r.matchCode) ? r.matchCode : '',
+      platform: typeof r.platform === 'string' ? r.platform.replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 16) || 'unknown' : 'unknown',
+      addedAt: typeof r.addedAt === 'number' && r.addedAt > 0 ? r.addedAt : null,
+      expiresAt: r.expiresAt,
+    }));
 }
 
 /** Paired phones (for Remove) and whether the computer is account-linked, from `devices`. */
@@ -118,13 +126,19 @@ export function phonesFromMessage(msg) {
   const list = Array.isArray(msg?.devices) ? msg.devices : [];
   return {
     linked: msg?.linked === true,
+    firstPhoneUntil: typeof msg?.firstPhoneUntil === 'number' ? msg.firstPhoneUntil : 0,
     phones: list
       .filter((d) => typeof d?.tokenPrefix === 'string' && d.tokenPrefix.length >= 4 && typeof d.name === 'string')
       .map((d) => ({ tokenPrefix: d.tokenPrefix, name: clampName(d.name), lastSeen: Number(d.lastSeen) || 0 })),
   };
 }
 
-/** Linked with nothing paired: the first phone connects by itself, so no code. */
-export function waitingForFirstPhone(state) {
-  return state.accountLinked === true && state.devices === 0;
+/**
+ * Linked with nothing paired: 'open' while the first phone may connect by
+ * itself (no code shown), 'closed' once that window lapsed (offer "Let a phone
+ * connect"), 'none' otherwise.
+ */
+export function firstPhoneState(state, now) {
+  if (state.accountLinked !== true || state.devices !== 0) return 'none';
+  return state.firstPhoneUntil > now ? 'open' : 'closed';
 }

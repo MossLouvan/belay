@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('belayHost', {
   pairAnother: () => ipcRenderer.invoke('host:pairAnother'),
   /** Allow or deny a phone on this account that asked to connect. */
   decidePhone: (pendingId, allow) => ipcRenderer.invoke('host:decidePhone', { pendingId: String(pendingId), allow: allow === true }),
+  /** Let the first phone on the account connect without a tap for 15 minutes. */
+  openFirstPhone: () => ipcRenderer.invoke('host:openFirstPhone'),
   /** Unpair a phone by its token-hash prefix. */
   removePhone: (tokenPrefix) => ipcRenderer.invoke('host:removePhone', String(tokenPrefix)),
   /** Stop the developer LaunchAgent so this app can have the port. */

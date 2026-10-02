@@ -9,8 +9,25 @@ import { parseHeartbeat, parseLink, parsePoll } from '../src/accounts-client.js'
 const ID = 'ab'.repeat(32);
 
 test('parseHeartbeat accepts 64-hex node ids and defaults relayUrls', () => {
-  assert.deepEqual(parseHeartbeat({ allowedNodeIds: [ID] }), { allowedNodeIds: [ID], relayUrls: [] });
-  assert.deepEqual(parseHeartbeat({ allowedNodeIds: [], relayUrls: ['https://r'] }), { allowedNodeIds: [], relayUrls: ['https://r'] });
+  assert.deepEqual(parseHeartbeat({ allowedNodeIds: [ID] }), { allowedNodeIds: [ID], relayUrls: [], phones: [] });
+  assert.deepEqual(parseHeartbeat({ allowedNodeIds: [], relayUrls: ['https://r'] }), { allowedNodeIds: [], relayUrls: ['https://r'], phones: [] });
+});
+
+test('parseHeartbeat keeps phone metadata for allow-listed nodes only, and never fails on it', () => {
+  const other = 'cd'.repeat(32);
+  const hb = parseHeartbeat({
+    allowedNodeIds: [ID],
+    phones: [
+      { nodeId: ID, platform: 'ios', createdAt: 1700000000000 },
+      { nodeId: other, platform: 'android', createdAt: 1 },
+      { nodeId: ID.slice(1), platform: 'x', createdAt: 1 },
+      'junk',
+    ],
+  });
+  assert.deepEqual(hb.phones, [{ nodeId: ID, platform: 'ios', createdAt: 1700000000000 }]);
+  assert.deepEqual(parseHeartbeat({ allowedNodeIds: [ID], phones: 'nope' }).phones, []);
+  // A long or odd platform is clamped, not trusted.
+  assert.equal(parseHeartbeat({ allowedNodeIds: [ID], phones: [{ nodeId: ID, platform: `ios\n${'x'.repeat(80)}`, createdAt: 2 }] }).phones[0].platform.length <= 16, true);
 });
 
 test('parseHeartbeat rejects any node id that is not 64 lowercase hex', () => {

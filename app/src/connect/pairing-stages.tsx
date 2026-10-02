@@ -144,7 +144,8 @@ export function PairingStages({ session, check, adding, onOpenGuide }: PairingSt
           hostName={host.name}
           error={session.approvalError}
           busy={busy}
-          onAskAgain={() => void session.tryAccountPairing(host.url)}
+          matchCode={session.matchCode}
+          onAskAgain={() => void session.tryAccountPairing(host.url, host.nodeId)}
           onCancel={session.cancelApproval}
         />
       ) : null}

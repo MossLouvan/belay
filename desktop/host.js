@@ -27,7 +27,7 @@ import {
 import { GROUND } from './src/ground.js';
 import {
   PHONE_APP_URL, livePairing, loginItemAfterHealth, pairingFromMessage, parsePairing, pendingFromMessage, phonesFromMessage,
-  qrSvg, readHealth, statusLine, waitingForFirstPhone,
+  qrSvg, readHealth, statusLine, firstPhoneState,
 } from './src/host-status.js';
 import { launchAgentInstalled, stopLaunchAgent } from './src/launch-agent.js';
 
@@ -97,7 +97,7 @@ export function startHost({ openViewer }) {
   let quitting = false;
   let hostWindow = null;
   let tray = null;
-  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, claim: null, linkedTo: null, accountLinked: false, phones: [], pendingPhones: [], perms: permissions() };
+  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, claim: null, linkedTo: null, accountLinked: false, firstPhoneUntil: 0, phones: [], pendingPhones: [], perms: permissions() };
   const signIn = signInConfig();
   const signInProviders = providers(signIn);
   const phoneAppSvg = qrSvg(qrModules(PHONE_APP_URL));
@@ -115,15 +115,16 @@ export function startHost({ openViewer }) {
     // paired, when a new one asked or "Pair another phone" was chosen (#150),
     // until the code expires.
     // Account-linked with no phone yet: the first phone connects by itself
-    // (account trust), so the 6-digit code is not shown at all.
-    const shown = state.claim ?? (waitingForFirstPhone(state) ? null : livePairing(state.pairing, Date.now()));
+    // (account trust) or with a tap here, so the 6-digit code is not shown.
+    const firstPhone = firstPhoneState(state, Date.now());
+    const shown = state.claim ?? (firstPhone !== 'none' ? null : livePairing(state.pairing, Date.now()));
     return {
     ...state,
     // Live, not cached: the user flips these in System Settings while we watch.
     perms: permissions(),
     pairingSvg: shown ? qrSvg(shown.modules) : '',
     pairingCode: shown ? parsePairing(shown.link)?.code ?? '' : '',
-    waitingForFirstPhone: waitingForFirstPhone(state),
+    firstPhone,
     pendingPhones: pendingFromMessage({ requests: state.pendingPhones }, Date.now()),
     phoneAppUrl: PHONE_APP_URL,
     phoneAppSvg,
@@ -212,8 +213,8 @@ export function startHost({ openViewer }) {
       // A phone is asking to be let in: put Allow/Deny in front of the person.
       if (fresh) openHostWindow();
     } else if (data.type === 'devices') {
-      const { linked, phones } = phonesFromMessage(data);
-      update({ accountLinked: linked, phones, devices: phones.length, paired: phones.length > 0, pairing: phones.length > state.devices ? null : state.pairing });
+      const { linked, phones, firstPhoneUntil } = phonesFromMessage(data);
+      update({ accountLinked: linked, firstPhoneUntil, phones, devices: phones.length, paired: phones.length > 0, pairing: phones.length > state.devices ? null : state.pairing });
     } else if (data.type === 'link-result') {
       linkWaiter?.(data);
     } else if (data.type === 'listening') {
@@ -303,6 +304,11 @@ export function startHost({ openViewer }) {
     if (typeof pendingId !== 'string' || !/^[0-9a-f]{32}$/.test(pendingId) || typeof allow !== 'boolean') return false;
     child?.postMessage({ type: 'pair-decide', pendingId, allow });
     update({ pendingPhones: state.pendingPhones.filter((p) => p.id !== pendingId) });
+    return Boolean(child);
+  });
+  // "Let a phone connect": reopen the first-phone window for 15 minutes.
+  ipcMain.handle('host:openFirstPhone', () => {
+    child?.postMessage({ type: 'open-first-phone' });
     return Boolean(child);
   });
   ipcMain.handle('host:removePhone', (_event, tokenPrefix) => {

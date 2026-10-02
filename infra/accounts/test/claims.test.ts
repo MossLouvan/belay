@@ -39,7 +39,14 @@ test('full claim flow', async () => {
   assert.deepEqual((await a.call('GET', `/v1/claims/${claimCode}`, { headers: secretHeader })).body, { status: 'claimed', claimedBy: 'us***@example.com' });
 
   const hb = await a.call('POST', '/v1/hosts/heartbeat', { token: polled.body.hostCredential, body: {} });
-  assert.deepEqual(hb.body, { allowedNodeIds: [phoneNodeId()], relayUrls: ['https://relay-1.example', 'https://relay-2.example'] });
+  assert.deepEqual(hb.body.allowedNodeIds, [phoneNodeId()]);
+  assert.deepEqual(hb.body.relayUrls, ['https://relay-1.example', 'https://relay-2.example']);
+  // What the host shows on an "Allow this phone?" prompt: platform and when it joined the account.
+  assert.equal(hb.body.phones.length, 1);
+  assert.equal(hb.body.phones[0].nodeId, phoneNodeId());
+  assert.equal(typeof hb.body.phones[0].platform, 'string');
+  assert.equal(typeof hb.body.phones[0].createdAt, 'number');
+  assert.deepEqual(Object.keys(hb.body.phones[0]).sort(), ['createdAt', 'nodeId', 'platform']);
   assert.equal((await a.call('POST', '/v1/hosts/heartbeat', { token: 'nope', body: {} })).status, 401);
   assert.equal((await a.call('POST', '/v1/hosts/heartbeat', { token, body: {} })).status, 401); // a session is not a host credential
 

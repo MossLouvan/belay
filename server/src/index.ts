@@ -11,14 +11,14 @@ import { createServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import type { Duplex } from 'node:stream';
-import { appendFile, createReadStream } from 'node:fs';
+import { appendFileSync, chmodSync, createReadStream } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { hostname } from 'node:os';
 import { URL } from 'node:url';
 
 import {
-  loadState, addDevice, findDevice, findDeviceById, touchDevice, setHostName, getHostName, listDevices,
+  loadState, addDevice, getTrustFirstPhoneUntil, openFirstPhoneWindow, findDevice, findDeviceById, touchDevice, setHostName, getHostName, listDevices,
   revokeDevice, revokeAll, deviceCount, getHostId, getLabel, setLabel, getPlatform, stateFilePath, Device, PairedDevice,
   getLidClosedMode, setLidClosedMode, getLidSavedAction, setLidSavedAction,
 } from './state.js';
@@ -30,14 +30,15 @@ import { wantsPairingReset } from './reset-pairing.js';
 import { buildAddresses, hasStableAddress } from './addresses.js';
 import { ensureCode, currentCode, consumeCode, burnCode, testCodeActive, codeOnDemand } from './pairing.js';
 import { createPairRequestGate } from './pair-request.js';
-import { createAccountPairing } from './account-pair.js';
+import { createAccountPairing, healthPairingFacts } from './account-pair.js';
+import type { PhoneInfo } from './accounts-client.js';
 import { registerAccountPairRoutes } from './account-pair-routes.js';
 import { safeName } from './pair-notify.js';
 import { createPairGuard } from './pair-guard.js';
 import { createPairReplayCache } from './pair-replay.js';
 import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
 import { BwpSession, bwpAvailable } from './bwp-stream.js';
-import { createTunnelListener } from './tunnel-listener.js';
+import { createTunnelListener, newStreamSecret } from './tunnel-listener.js';
 import { startTunnel, tunnelAvailable, Tunnel } from './tunnel.js';
 import { AccountsError, fetchAccountsClient } from './accounts-client.js';
 import { diskLinkStore, linkWithSession, runHostLink } from './host-claim.js';
@@ -177,6 +178,9 @@ if (!getHostName()) setHostName(hostname());
 if (wantsPairingReset(process.argv.slice(2))) {
   const cleared = deviceCount();
   revokeAll();
+  // At the computer, on purpose: the next account phone may connect without
+  // a tap for the next 15 minutes (account-pair.ts).
+  openFirstPhoneWindow();
   console.log(
     `[pairing] reset: cleared ${cleared} paired device${cleared === 1 ? '' : 's'}; ` +
     `identity kept (${getLabel()}). A fresh pairing code follows.`,
@@ -209,13 +213,25 @@ let tunnelAllowList: readonly string[] = [];
  * the first one at once, later ones with one tap. Every decision is written
  * to pair-audit.log beside the state file.
  */
+const auditFile = join(dirname(stateFilePath()), 'pair-audit.log');
+let auditModeChecked = false;
 const accountPairing = createAccountPairing({
   audit: (line) => {
     console.log(`[pairing] account: ${line}`);
-    appendFile(join(dirname(stateFilePath()), 'pair-audit.log'), `${new Date().toISOString()} ${line}\n`, { mode: 0o600 },
-      (e) => { if (e) console.warn(`[pairing] audit log write failed: ${e.message}`); });
+    try {
+      // `mode` only applies when the file is created; an older or hand-made
+      // log is tightened once on first write.
+      appendFileSync(auditFile, `${new Date().toISOString()} ${line}\n`, { mode: 0o600 });
+      if (!auditModeChecked) { chmodSync(auditFile, 0o600); auditModeChecked = true; }
+    } catch (e) {
+      console.warn(`[pairing] audit log write failed: ${messageOf(e)}`);
+    }
   },
 });
+/** The account's phones as the last heartbeat described them (prompt metadata only). */
+let accountPhones: ReadonlyMap<string, PhoneInfo> = new Map();
+/** This host's tunnel node id, once the sidecar reports it. */
+let hostNodeId: string | null = null;
 const tickets = createTicketStore();
 
 /**
@@ -336,10 +352,9 @@ app.get('/health', async (req, res) => {
     // Live, not sampled at boot. Reporting a boot-time constant told the phone
     // that capture worked while every call was failing against a dead helper.
     native: native.isReady(),
-    paired: deviceCount() > 0,
-    // How many phones are paired, for Belay.app's menu bar. Not secret: it is
-    // one number, and `paired` already says whether it is zero.
-    devices: deviceCount(),
+    // `paired` on LAN (the code-on-request path needs it), the count only for
+    // Belay.app on loopback, and neither over the tunnel (account-pair.ts).
+    ...healthPairingFacts(req.socket.remoteAddress, deviceCount()),
     // Whether this host can stream H.264 over UDP (the streamer binary is
     // present). The phone makes BWP its default only when this is true, and
     // never asks a host that says false — so a Mac host is never left waiting
@@ -351,6 +366,9 @@ app.get('/health', async (req, res) => {
     // A tunnel phone on this computer's account pairs with POST /pair/account
     // (account-pair.ts): no code, and one tap for any phone after the first.
     accountTrust: true,
+    // The tunnel node this host answers as, so a phone pairing over the
+    // tunnel can check it reached the computer its account named.
+    ...(hostNodeId ? { nodeId: hostNodeId } : {}),
     // Every identity field is read by the phone BEFORE it has a token: `id`
     // and `label` to save the computer, `addresses` to retry over the tailnet
     // address for code-less pairing, `platform` for the desktop client's key
@@ -461,6 +479,8 @@ registerAccountPairRoutes(app, auth, {
   allowList: () => tunnelAllowList,
   linked: accountLinked,
   deviceCount,
+  trustUntil: getTrustFirstPhoneUntil,
+  phoneInfo: (node) => accountPhones.get(node),
   issue: (name) => {
     const device = addDevice(cleanDeviceName(name));
     announceDevices();
@@ -1082,7 +1102,7 @@ function accountLinked(): boolean {
 
 /** Belay.app's paired-phones list and link state (host-ipc.ts); a no-op outside the app. */
 function announceDevices(): void {
-  postToApp({ type: 'devices', devices: listDevices(), linked: accountLinked() });
+  postToApp({ type: 'devices', devices: listDevices(), linked: accountLinked(), firstPhoneUntil: getTrustFirstPhoneUntil() });
 }
 
 // Phones waiting for a tap: Belay.app's Allow/Deny prompt, plus a native
@@ -2201,19 +2221,23 @@ let linkBySession: ((session: string) => Promise<{ maskedEmail?: string }>) | nu
 
 function startTunnelHost(): void {
   if (!tunnelAvailable()) { console.log('  Tunnel    : belay-net binary not built — tunnel off (npm run build:tunnel)'); return; }
-  const listener = createTunnelListener({ app, tls: { key: tls.key, cert: tls.cert }, onUpgrade });
+  // Minted per launch and shared only with the sidecar we spawn (its env):
+  // the listener drops any local connection that cannot quote it.
+  const streamSecret = newStreamSecret();
+  const listener = createTunnelListener({ app, tls: { key: tls.key, cert: tls.cert }, onUpgrade, secret: streamSecret });
   listener.on('error', (e: NodeJS.ErrnoException) => console.error(`[tunnel] listener failed: ${e.message}`));
   listener.listen(0, '127.0.0.1', () => {
     const targetPort = (listener.address() as { port: number }).port;
     const store = diskLinkStore();
     const cached = store.readCache();
     try {
-      tunnel = startTunnel({ targetPort, relayUrls: cached?.relayUrls ?? [] });
+      tunnel = startTunnel({ targetPort, relayUrls: cached?.relayUrls ?? [], streamSecret });
     } catch (e) {
       console.error('[tunnel] not started:', messageOf(e)); return;
     }
     const t = tunnel;
     void t.nodeId.then((nodeId) => {
+      hostNodeId = nodeId;
       console.log(`  Tunnel    : node ${nodeId.slice(0, 10)}… (${store.readCredential() ? 'linked' : 'not linked — scan the QR below'})`);
       const client = fetchAccountsClient();
       const sign = (m: string) => t.sign(m);
@@ -2223,12 +2247,18 @@ function startTunnelHost(): void {
         name: getHostName(), platform: getPlatform(),
         sign,
         onAllowList: (ids, relays) => { tunnelAllowList = [...ids]; t.setAllowList(ids); t.setRelays(relays); announceDevices(); },
+        onPhones: (phones) => { accountPhones = new Map(phones.map((p) => [p.nodeId, p])); },
         show: {
           qr: (link) => {
             qrcode.generate(link, { small: true });
             postToApp({ type: 'claim', link, modules: qrModules(link) });
           },
-          linked: () => postToApp({ type: 'claim', link: null }),
+          linked: () => {
+            // Just linked (claim QR or sign-in): the first phone may connect
+            // without a tap for the next 15 minutes, and never again by itself.
+            openFirstPhoneWindow();
+            postToApp({ type: 'claim', link: null });
+          },
           line: (text) => console.log(text),
           popup: (title, body) => { void native.notify(title, body, '', 20).catch(() => {}); },
         },
@@ -2274,6 +2304,7 @@ async function linkFromApp(session: unknown): Promise<void> {
   try {
     const { maskedEmail } = await linkBySession(session);
     console.log(`  Linked to ${maskedEmail ?? 'your Belay account'} (signed in on this computer).`);
+    openFirstPhoneWindow();
     postToApp({ type: 'claim', link: null });
     announceDevices();
     reply({ ok: true, ...(maskedEmail ? { maskedEmail } : {}) });
@@ -2294,8 +2325,11 @@ onAppMessage((message) => {
   if (message.type === 'link-session') void linkFromApp(message.session);
   // The person is at this computer: Allow/Deny and Remove need no token.
   if (message.type === 'pair-decide' && typeof message.pendingId === 'string' && typeof message.allow === 'boolean') {
-    accountPairing.decide(message.pendingId, message.allow);
+    accountPairing.decide(message.pendingId, message.allow, { allowList: tunnelAllowList, linked: accountLinked() });
   }
+  // "Let a phone connect": the owner at this computer reopens the first-phone
+  // window for 15 minutes (only meaningful with no phone paired).
+  if (message.type === 'open-first-phone') { openFirstPhoneWindow(); announceDevices(); }
   if (message.type === 'device-remove' && typeof message.tokenPrefix === 'string' && message.tokenPrefix.length >= MIN_REVOKE_PREFIX) {
     revokeAndDisconnect(message.tokenPrefix);
   }

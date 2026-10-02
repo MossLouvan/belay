@@ -9,6 +9,7 @@ import { router } from 'expo-router';
 import { pairOverTunnelRoute } from '../devices/add-computer-route';
 import { tunnelPort } from '../devices/tunnel';
 import { autoPairSameAccount } from './auto-pair';
+import { setTunnelIntent } from './tunnel-intent';
 
 /** Resolves false when the tunnel could not reach that computer right now. */
 export async function startPairingOverTunnel(nodeId: string): Promise<boolean> {
@@ -18,6 +19,7 @@ export async function startPairingOverTunnel(nodeId: string): Promise<boolean> {
   } catch {
     return false;
   }
-  router.push(pairOverTunnelRoute(port, nodeId, autoPairSameAccount(nodeId)));
+  setTunnelIntent({ port, nodeId, trust: autoPairSameAccount(nodeId) });
+  router.push(pairOverTunnelRoute(port));
   return true;
 }

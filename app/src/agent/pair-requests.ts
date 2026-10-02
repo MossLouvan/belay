@@ -6,6 +6,11 @@
 export interface PairRequestRow {
   readonly id: string;
   readonly name: string;
+  /** Also on the asking phone's screen: the owner checks they match. */
+  readonly matchCode: string;
+  /** What the account says the phone is, and when it joined (ms, or null). */
+  readonly platform: string;
+  readonly addedAt: number | null;
   readonly expiresAt: number;
 }
 
@@ -19,9 +24,16 @@ export function parsePairRequestsPush(raw: string): readonly PairRequestRow[] | 
   const { type, pairRequests } = msg as { type?: unknown; pairRequests?: unknown };
   if (type !== 'attention' || !Array.isArray(pairRequests)) return null;
   const rows: PairRequestRow[] = [];
-  for (const r of pairRequests as { id?: unknown; name?: unknown; expiresAt?: unknown }[]) {
+  for (const r of pairRequests as Record<string, unknown>[]) {
     if (typeof r?.id !== 'string' || typeof r.name !== 'string' || typeof r.expiresAt !== 'number') return null;
-    rows.push({ id: r.id, name: clamp(r.name), expiresAt: r.expiresAt });
+    rows.push({
+      id: r.id,
+      name: clamp(r.name),
+      matchCode: typeof r.matchCode === 'string' && /^[A-Z2-9]{4}$/.test(r.matchCode) ? r.matchCode : '',
+      platform: typeof r.platform === 'string' ? r.platform.replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 16) || 'unknown' : 'unknown',
+      addedAt: typeof r.addedAt === 'number' && Number.isFinite(r.addedAt) && r.addedAt > 0 ? r.addedAt : null,
+      expiresAt: r.expiresAt,
+    });
   }
   return rows;
 }

@@ -9,6 +9,14 @@ import { useTheme } from '../theme';
 import { Button, Dot, Row, Txt, haptic } from '../ui';
 import { answerPairRequest, useAgentAttention } from '../agent/attention-store';
 import { livePairRequests } from '../agent/pair-requests';
+import type { PairRequestRow } from '../agent/pair-requests';
+
+/** "An iPhone added to your account on 2 Oct." — what the account knows about it. */
+function describePhone(r: PairRequestRow): string {
+  const kind = r.platform === 'ios' ? 'An iPhone' : r.platform === 'android' ? 'An Android phone' : 'A phone';
+  const when = r.addedAt ? ` added to your account on ${new Date(r.addedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : ' on your account';
+  return `${kind}${when} wants to use this computer.`;
+}
 
 export function PairRequestCards() {
   const theme = useTheme();
@@ -49,8 +57,11 @@ export function PairRequestCards() {
               </Row>
               <Txt variant="body" numberOfLines={1}>{`Allow ${r.name}?`}</Txt>
               <Txt variant="caption" tone="dim" numberOfLines={2}>
-                A phone on your account wants to use this computer. Allow it only if it is yours.
+                {`${describePhone(r)} Allow it only if it is yours${r.matchCode ? ' and it shows this code' : ''}.`}
               </Txt>
+              {r.matchCode ? (
+                <Txt variant="mono" testID={`pair-request-code-${r.id}`} style={{ letterSpacing: 4 }}>{r.matchCode}</Txt>
+              ) : null}
             </View>
             <Button
               testID={`pair-request-deny-${r.id}`} label="Deny" size="sm" variant="ghost"

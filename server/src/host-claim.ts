@@ -19,6 +19,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { AccountsClient, AccountsError, ClaimPoll, claimMessage } from './accounts-client.js';
+import type { PhoneInfo } from './accounts-client.js';
 
 export type LinkState =
   | { readonly kind: 'unlinked' }
@@ -85,6 +86,8 @@ export interface HostLinkDeps {
   /** base64url Ed25519 signature by the node key — the sidecar's `sign`. */
   readonly sign: (message: string) => Promise<string>;
   readonly onAllowList: (allowedNodeIds: readonly string[], relayUrls: readonly string[]) => void;
+  /** Display metadata for the account's phones, from each heartbeat. */
+  readonly onPhones?: (phones: readonly PhoneInfo[]) => void;
   readonly signal?: AbortSignal;
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
@@ -151,6 +154,7 @@ async function step(state: LinkState, deps: HostLinkDeps, nowMs: number): Promis
         const hb = await deps.client.heartbeat(state.hostCredential);
         deps.store.writeCache({ allowedNodeIds: hb.allowedNodeIds, relayUrls: hb.relayUrls, at: nowMs });
         deps.onAllowList(hb.allowedNodeIds, hb.relayUrls);
+        deps.onPhones?.(hb.phones ?? []);
         return [state, HEARTBEAT_MS];
       } catch (e) {
         const next = onHeartbeatFailure(state, e);

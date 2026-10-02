@@ -31,6 +31,8 @@ export interface HostSummary {
    * screen before entering the code (trust on first use, verified by eye).
    */
   readonly fingerprint?: string;
+  /** The host's tunnel node id from /health, checked against the account's. */
+  readonly nodeId?: string;
 }
 
 export interface PairStepProps {

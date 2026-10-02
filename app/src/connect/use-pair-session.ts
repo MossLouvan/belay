@@ -54,11 +54,13 @@ export interface PairSession {
    * (first phone) or wait for one tap. False when this computer does not do
    * account trust for this phone, so the caller falls back to the code.
    */
-  readonly tryAccountPairing: (hostUrl: string) => Promise<boolean>;
+  readonly tryAccountPairing: (hostUrl: string, hostNodeId: string | undefined) => Promise<boolean>;
   /** Cancel on the "Waiting for approval…" screen. */
   readonly cancelApproval: () => void;
   /** Why the last wait ended without a pairing (declined, expired), else null. */
   readonly approvalError: Diagnosis | null;
+  /** The code the computer's prompt shows too, while waiting. */
+  readonly matchCode: string;
 }
 
 /**
@@ -80,6 +82,7 @@ export function usePairSession(
   const [pairError, setPairError] = useState<Diagnosis | null>(null);
 
   const [approvalError, setApprovalError] = useState<Diagnosis | null>(null);
+  const [matchCode, setMatchCode] = useState('');
   const approvalAbort = useRef<AbortController | null>(null);
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const live = useRef(true);
@@ -150,18 +153,23 @@ export function usePairSession(
     }
   }, [finishPairing]);
 
-  const tryAccountPairing = useCallback(async (hostUrl: string): Promise<boolean> => {
+  const tryAccountPairing = useCallback(async (hostUrl: string, hostNodeId: string | undefined): Promise<boolean> => {
     if (!tunnelNodeId || !accountTrust) return false;
     setApprovalError(null);
+    setMatchCode('');
     try {
+      // The tunnel authenticates the node it dialled; the host must agree it
+      // is that node, or this is not the computer the account named.
+      if (hostNodeId !== tunnelNodeId) throw new Error('the computer that answered is not the one linked to your account');
       const start = await askToJoin(hostUrl, deviceNameFor(Platform.OS));
       if (start.kind === 'unsupported') return false;
       if (start.kind === 'error') throw new Error(start.message);
       if (start.kind === 'paired') { await finishPairing(hostUrl, start.result); return true; }
+      setMatchCode(start.matchCode);
       setStage('approval');
       const abort = new AbortController();
       approvalAbort.current = abort;
-      const end = await waitForApproval(hostUrl, start.pendingId, { signal: abort.signal });
+      const end = await waitForApproval(hostUrl, start, { signal: abort.signal });
       approvalAbort.current = null;
       if (!live.current) return true;
       if (end.kind === 'paired') await finishPairing(hostUrl, end.result);
@@ -262,5 +270,6 @@ export function usePairSession(
     tryAccountPairing,
     cancelApproval,
     approvalError,
+    matchCode,
   };
 }

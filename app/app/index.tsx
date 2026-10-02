@@ -15,13 +15,14 @@
 // src/connect/pair-flow.ts. Sibling files inside app/ would register as
 // routes, which is why none of it lives here.
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { Animated } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useConnection } from '../src/connection';
 import { useAccount } from '../src/account/store';
 import { signInRequired } from '../src/account/gate';
 import { mergeComputers } from '../src/account/merge-devices';
+import { tunnelIntentFor } from '../src/account/tunnel-intent';
 import { useTheme } from '../src/theme';
 import { KeyboardAvoider } from '../src/ui';
 import { connectLanding } from '../src/connect/landing';
@@ -39,18 +40,20 @@ export default function Connect() {
   // button that led here just bounces its user straight back. The computer
   // list's own address field arrives with `address` already typed (checked
   // on arrival), or with `scan` when it asked for the scanner.
-  const { add, address, scan, node, trust } = useLocalSearchParams<{ add?: string; address?: string; scan?: string; node?: string; trust?: string }>();
+  const { add, address, scan } = useLocalSearchParams<{ add?: string; address?: string; scan?: string }>();
   const adding = add === '1';
   const arrivedAddress = typeof address === 'string' && address.trim() ? address : null;
-  // A linked computer being paired through the tunnel: the address is a
-  // loopback port, and the saved computer must carry this node id instead.
-  const tunnelNode = typeof node === 'string' && node ? node : null;
-
   const { ready: accountReady, account, devices: accountDevices } = useAccount();
+  // A linked computer being paired through the tunnel: the address is a
+  // loopback port, and the saved computer must carry the node id instead.
+  // Read from memory, never the URL (account/tunnel-intent.ts), and only for
+  // the exact port startPairingOverTunnel dialled, for a node on the account.
+  const tunnel = useMemo(() => tunnelIntentFor(arrivedAddress, accountDevices.map((d) => d.nodeId)), [arrivedAddress, accountDevices]);
+  const tunnelNode = tunnel?.nodeId ?? null;
   // A computer linked to the account but not paired here yet still belongs on
   // the list (its Pair button), not back on "put Belay on your computer".
   const linkedOnly = mergeComputers(devices, accountDevices).linkedOnly.length;
-  const session = usePairSession(addDevice, tunnelNode, tunnelNode !== null && trust === '1');
+  const session = usePairSession(addDevice, tunnelNode, tunnel?.trust === true);
   const check = useAddressCheck({ session, adding, scanRequested: scan === '1', arrivedAddress });
   const { stage, setStage, busy, setBusy, live, completePairing } = session;
   const { fadeAnim, transitionToStage } = useStageFade(setStage);

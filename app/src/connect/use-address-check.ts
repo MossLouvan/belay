@@ -216,6 +216,7 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
         native: result.native !== false,
         paired: Boolean(result.paired),
         ...(fingerprint ? { fingerprint } : {}),
+        ...(result.nodeId ? { nodeId: result.nodeId } : {}),
       });
       setCode('');
       setPairError(null);
@@ -226,7 +227,7 @@ export function useAddressCheck({ session, adding, scanRequested, arrivedAddress
       if (result.accountTrust) {
         setBusy(true);
         try {
-          if (await tryAccountPairing(resolved.url)) return;
+          if (await tryAccountPairing(resolved.url, result.nodeId)) return;
         } finally {
           if (live.current) setBusy(false);
         }

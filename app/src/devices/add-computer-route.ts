@@ -20,10 +20,10 @@ export interface AddComputerRoute {
  * fingerprint; with `trust`, account trust first, else the 6-digit code), and `node` tells it to save the
  * computer under its node id rather than the ephemeral port.
  */
-export function pairOverTunnelRoute(port: number, nodeId: string, trust = false): AddComputerRoute {
-  const params = { add: '1', address: `https://127.0.0.1:${port}`, node: nodeId };
-  // `trust`: ask the host's account trust (POST /pair/account) before any code.
-  return { pathname: '/', params: trust ? { ...params, trust: '1' } : params };
+export function pairOverTunnelRoute(port: number): AddComputerRoute {
+  // Only the address: which node it is, and whether to try account trust,
+  // stay in memory (account/tunnel-intent.ts) where a deep link cannot reach.
+  return { pathname: '/', params: { add: '1', address: `https://127.0.0.1:${port}` } };
 }
 
 export function addComputerRoute(address: string | null): AddComputerRoute | null {

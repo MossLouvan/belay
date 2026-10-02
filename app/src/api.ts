@@ -157,6 +157,8 @@ export interface HostCheck {
    * (the first one at once, later ones with one tap) instead of a code.
    */
   accountTrust?: boolean;
+  /** The host's tunnel node id (64 hex), when its tunnel is up. */
+  nodeId?: string;
   /**
    * True when the host can stream H.264 over UDP (BWP). Absent from hosts
    * older than the flag, which are asked anyway — see screen/bwp-policy.ts.
@@ -204,6 +206,7 @@ export async function checkHost(host: string, signal?: AbortSignal): Promise<Hos
       pairing: j.pairing === 'tailnet' ? 'tailnet' : 'code',
       codeOnRequest: j.codeOnRequest === true,
       accountTrust: j.accountTrust === true,
+      nodeId: typeof j.nodeId === 'string' && /^[0-9a-f]{64}$/.test(j.nodeId) ? j.nodeId : undefined,
       bwp: readBwpCapability(j),
     };
   } catch (e: unknown) {

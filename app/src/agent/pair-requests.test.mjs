@@ -10,8 +10,13 @@ import { livePairRequests, parsePairRequestsPush } from './pair-requests.ts';
 
 const frame = (pairRequests) => JSON.stringify({ type: 'attention', sessions: [], pairRequests });
 
-test('reads id, name and expiry', () => {
-  assert.deepEqual(parsePairRequestsPush(frame([{ id: 'p1', name: 'iPad', expiresAt: 5 }])), [{ id: 'p1', name: 'iPad', expiresAt: 5 }]);
+const ROW = { id: 'p1', name: 'iPad', matchCode: 'K7PQ', platform: 'ios', addedAt: 3, expiresAt: 5 };
+
+test('reads id, name, match code, platform, join date and expiry', () => {
+  assert.deepEqual(parsePairRequestsPush(frame([ROW])), [ROW]);
+  // An older host without the new fields still shows a card, honestly.
+  assert.deepEqual(parsePairRequestsPush(frame([{ id: 'p1', name: 'iPad', expiresAt: 5 }])),
+    [{ id: 'p1', name: 'iPad', matchCode: '', platform: 'unknown', addedAt: null, expiresAt: 5 }]);
   assert.deepEqual(parsePairRequestsPush(frame([])), []);
 });
 

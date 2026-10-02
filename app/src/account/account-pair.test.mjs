@@ -15,7 +15,7 @@ function withFetch(replies) {
   const original = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init) => {
-    calls.push({ url, method: init?.method ?? 'GET' });
+    calls.push({ url, method: init?.method ?? 'GET', secret: init?.headers?.['X-Belay-Poll-Secret'] });
     const [status, body] = replies.length > 1 ? replies.shift() : replies[0];
     return { ok: status >= 200 && status < 300, status, json: async () => body };
   };
@@ -34,9 +34,9 @@ test('first phone: a 200 is a finished pairing', async () => {
 });
 
 test('a later phone: 202 is a pending request', async () => {
-  const f = withFetch([[202, { status: 'pending', pendingId: 'p1', expiresInSec: 300 }]]);
+  const f = withFetch([[202, { status: 'pending', pendingId: 'p1', pollSecret: 's'.repeat(64), matchCode: 'K7PQ', expiresInSec: 300 }]]);
   try {
-    assert.deepEqual(await askToJoin(HOST, 'iPhone'), { kind: 'pending', pendingId: 'p1' });
+    assert.deepEqual(await askToJoin(HOST, 'iPhone'), { kind: 'pending', pendingId: 'p1', pollSecret: 's'.repeat(64), matchCode: 'K7PQ' });
   } finally { f.restore(); }
 });
 
@@ -59,23 +59,26 @@ test('429 surfaces as a readable error', async () => {
 });
 
 const noSleep = async () => {};
+const PENDING = { pendingId: 'p1', pollSecret: 'q'.repeat(64) };
 
 test('waiting: pending, pending, then approved hands back the token', async () => {
   const f = withFetch([[200, { status: 'pending' }], [200, { status: 'pending' }], [200, { ...TOKEN_BODY, status: 'approved' }]]);
   try {
-    const r = await waitForApproval(HOST, 'p1', { sleep: noSleep });
+    const r = await waitForApproval(HOST, PENDING, { sleep: noSleep });
     assert.equal(r.kind, 'paired');
     assert.equal(r.result.token, 't');
     assert.equal(f.calls.length, 3);
     assert.equal(f.calls[0].url, `${HOST}/pair/account/p1`);
+    // Every poll quotes the secret only this phone was given.
+    assert.ok(f.calls.every((c) => c.secret === 'q'.repeat(64)));
   } finally { f.restore(); }
 });
 
 test('waiting: denied and expired end the wait', async () => {
   let f = withFetch([[403, { status: 'denied' }]]);
-  try { assert.equal((await waitForApproval(HOST, 'p1', { sleep: noSleep })).kind, 'denied'); } finally { f.restore(); }
+  try { assert.equal((await waitForApproval(HOST, PENDING, { sleep: noSleep })).kind, 'denied'); } finally { f.restore(); }
   f = withFetch([[404, { status: 'expired' }]]);
-  try { assert.equal((await waitForApproval(HOST, 'p1', { sleep: noSleep })).kind, 'expired'); } finally { f.restore(); }
+  try { assert.equal((await waitForApproval(HOST, PENDING, { sleep: noSleep })).kind, 'expired'); } finally { f.restore(); }
 });
 
 test('waiting: a dropped poll is retried, not fatal', async () => {
@@ -87,7 +90,7 @@ test('waiting: a dropped poll is retried, not fatal', async () => {
     return { ok: true, status: 200, json: async () => ({ ...TOKEN_BODY, status: 'approved' }) };
   };
   try {
-    assert.equal((await waitForApproval(HOST, 'p1', { sleep: noSleep })).kind, 'paired');
+    assert.equal((await waitForApproval(HOST, PENDING, { sleep: noSleep })).kind, 'paired');
   } finally { globalThis.fetch = original; }
 });
 
@@ -95,8 +98,8 @@ test('Cancel: an aborted wait stops polling and withdraws the request', async ()
   const f = withFetch([[200, { status: 'pending' }]]);
   const ctl = new AbortController();
   try {
-    const r = await waitForApproval(HOST, 'p1', { sleep: async () => { ctl.abort(); }, signal: ctl.signal });
+    const r = await waitForApproval(HOST, PENDING, { sleep: async () => { ctl.abort(); }, signal: ctl.signal });
     assert.equal(r.kind, 'cancelled');
-    assert.ok(f.calls.some((c) => c.method === 'DELETE' && c.url === `${HOST}/pair/account/p1`));
+    assert.ok(f.calls.some((c) => c.method === 'DELETE' && c.url === `${HOST}/pair/account/p1` && c.secret === 'q'.repeat(64)));
   } finally { f.restore(); }
 });

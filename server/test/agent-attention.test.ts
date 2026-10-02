@@ -226,7 +226,7 @@ test('hub pushes when a hook row appears and counts connected clients', async ()
 // ---- account trust: phones waiting for one tap -----------------------------
 
 test('hub pushes waiting phones (name and expiry only) as pairRequests', async () => {
-  let waiting: { id: string; name: string; createdAt: number; expiresAt: number }[] = [];
+  let waiting: { id: string; name: string; matchCode: string; platform: string; addedAt: number | null; createdAt: number; expiresAt: number }[] = [];
   let notify: (() => void) | null = null;
   const hub = createAttentionHub({
     list: () => [],
@@ -237,11 +237,11 @@ test('hub pushes waiting phones (name and expiry only) as pairRequests', async (
   const a = fakeSocket();
   hub.handle(a.ws);
   assert.deepEqual(JSON.parse(a.sent[0]).pairRequests, []);
-  waiting = [{ id: 'p1', name: 'iPad', createdAt: 1, expiresAt: 2 }];
+  waiting = [{ id: 'p1', name: 'iPad', matchCode: 'K7PQ', platform: 'ios', addedAt: 5, createdAt: 1, expiresAt: 2 }];
   notify!();
   await tick();
   assert.equal(a.sent.length, 2);
-  assert.deepEqual(JSON.parse(a.sent[1]).pairRequests, [{ id: 'p1', name: 'iPad', expiresAt: 2 }]);
+  assert.deepEqual(JSON.parse(a.sent[1]).pairRequests, [{ id: 'p1', name: 'iPad', matchCode: 'K7PQ', platform: 'ios', addedAt: 5, expiresAt: 2 }]);
   notify!();
   await tick();
   assert.equal(a.sent.length, 2);

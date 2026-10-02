@@ -21,15 +21,24 @@ import { hookRows, hooksStore } from './hooks-store.js';
 import type { HookRow } from './hooks-store.js';
 import type { PendingPhone } from './account-pair.js';
 
-/** A phone waiting for one tap (account-pair.ts): name and deadline only. */
+/**
+ * A phone waiting for one tap (account-pair.ts): what the prompt shows — the
+ * match code the asking phone also shows, the account's platform and join
+ * date, and the deadline. Never its node id or poll secret.
+ */
 export interface PairRequestRow {
   readonly id: string;
   readonly name: string;
+  readonly matchCode: string;
+  readonly platform: string;
+  readonly addedAt: number | null;
   readonly expiresAt: number;
 }
 
 export function pairRequestRows(pending: readonly PendingPhone[]): readonly PairRequestRow[] {
-  return pending.map((p) => ({ id: p.id, name: p.name, expiresAt: p.expiresAt }));
+  return pending.map((p) => ({
+    id: p.id, name: p.name, matchCode: p.matchCode, platform: p.platform, addedAt: p.addedAt, expiresAt: p.expiresAt,
+  }));
 }
 
 /** One session on the wire — the whole story the badge needs. */
