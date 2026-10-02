@@ -8,7 +8,8 @@
 // overwrites, progress bars, `clear`, and SGR colours all behave.
 //
 // It is deliberately NOT a full terminal emulator: there is no alternate
-// screen buffer, no scroll regions and no wide-character handling, so
+// screen buffer and no scroll regions (wide characters get two cells via a
+// small range table, not a full Unicode width library), so
 // full-screen TUIs (vim, htop) render approximately rather than exactly. That
 // trade is intentional — a real emulator is a large dependency, and the common
 // case here is an interactive shell.
@@ -226,8 +227,41 @@ function padTo(line: MutableLine, col: number): void {
   }
 }
 
+/**
+ * Columns a code point occupies. East Asian Wide/Fullwidth and emoji draw two
+ * cells; combining marks, ZWJ, variation selectors and skin tones draw none
+ * and are appended to the cell before them. A small inline table rather than
+ * a full Unicode width library — the ranges below cover what a shell prints.
+ */
+const WIDE_RANGES: readonly (readonly [number, number])[] = [
+  [0x1100, 0x115f], [0x2e80, 0x303e], [0x3041, 0x33ff], [0x3400, 0x4dbf], [0x4e00, 0x9fff],
+  [0xa000, 0xa4cf], [0xac00, 0xd7a3], [0xf900, 0xfaff], [0xfe30, 0xfe4f], [0xff00, 0xff60],
+  [0xffe0, 0xffe6], [0x1f300, 0x1f64f], [0x1f680, 0x1f6ff], [0x1f900, 0x1faff], [0x20000, 0x3fffd],
+];
+const ZERO_RANGES: readonly (readonly [number, number])[] = [
+  [0x0300, 0x036f], [0x200b, 0x200f], [0xfe00, 0xfe0f], [0x1f3fb, 0x1f3ff], [0xe0100, 0xe01ef],
+];
+const inRanges = (cp: number, ranges: readonly (readonly [number, number])[]): boolean =>
+  ranges.some(([lo, hi]) => cp >= lo && cp <= hi);
+
+function charWidth(ch: string): 0 | 1 | 2 {
+  const cp = ch.codePointAt(0) ?? 0;
+  if (cp < 0x300) return 1;
+  if (inRanges(cp, ZERO_RANGES)) return 0;
+  return inRanges(cp, WIDE_RANGES) ? 2 : 1;
+}
+
+/** Writes one code point. A wide one takes its cell plus an empty '' cell. */
 function writeChar(ctx: Ctx, ch: string): void {
-  if (ctx.col >= ctx.cols) {
+  const width = charWidth(ch);
+  if (width === 0) {
+    ctx.row = ensureRow(ctx, ctx.row);
+    const line = ownLine(ctx, ctx.row);
+    const at = ctx.col - 1;
+    if (at >= 0 && at < line.chars.length) line.chars[at] += ch;
+    return;
+  }
+  if (ctx.col + width > ctx.cols) {
     ctx.col = 0;
     ctx.row += 1;
   }
@@ -236,7 +270,11 @@ function writeChar(ctx: Ctx, ch: string): void {
   padTo(line, ctx.col);
   line.chars[ctx.col] = ch;
   line.styles[ctx.col] = ctx.style;
-  ctx.col += 1;
+  if (width === 2) {
+    line.chars[ctx.col + 1] = '';
+    line.styles[ctx.col + 1] = ctx.style;
+  }
+  ctx.col += width;
 }
 
 function handleControl(ctx: Ctx, ch: string): void {
@@ -535,7 +573,15 @@ export function feed(state: TermState, chunk: unknown, options: TermOptions): Te
   let pending = '';
   let i = 0;
   while (i < input.length) {
-    const ch = input[i];
+    // By code point, not UTF-16 unit: a surrogate pair is one glyph and must
+    // land in one cell (#88). A high surrogate ending the chunk waits for its
+    // other half, like a split escape.
+    const cp = input.codePointAt(i) as number;
+    const ch = String.fromCodePoint(cp);
+    if (cp >= 0xd800 && cp <= 0xdbff && i === input.length - 1) {
+      pending = ch;
+      break;
+    }
     if (ch === '\x1b') {
       const match = matchEscape(input.slice(i));
       if (match.kind === 'partial') {
@@ -548,7 +594,7 @@ export function feed(state: TermState, chunk: unknown, options: TermOptions): Te
     }
     if (ch < ' ' || ch === '\x7f') handleControl(ctx, ch);
     else writeChar(ctx, ch);
-    i += 1;
+    i += ch.length;
   }
 
   trim(ctx, maxLines);

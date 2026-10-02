@@ -1,9 +1,17 @@
 // One rendered line of the terminal transcript.
 
 import React, { useMemo } from 'react';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
+import type { TextStyle } from 'react-native';
 import { lineToSpans, spanColors } from './terminal-ansi';
 import type { Span, TermLine } from './terminal-ansi';
+
+// react-native-web renders `numberOfLines={1}` as `white-space: nowrap`,
+// which collapses runs of spaces — indentation and `ls -l` columns vanish
+// (#89). `pre` keeps the single line and every space, and drops the ellipsis
+// that `ellipsizeMode="clip"` never managed to.
+const PRESERVE_SPACES: TextStyle | null =
+  Platform.OS === 'web' ? ({ whiteSpace: 'pre' } as unknown as TextStyle) : null;
 
 export interface TermRowProps {
   line: TermLine;
@@ -24,7 +32,7 @@ export interface TermRowProps {
 
 /** The visible character for a cursor cell — blanks become a full-width NBSP. */
 function cellChar(ch: string | undefined): string {
-  return ch === undefined || ch === ' ' ? '\u00A0' : ch;
+  return !ch || ch === ' ' ? '\u00A0' : ch;
 }
 
 /** A slice of a line, for painting the cursor cell separately. */
@@ -71,7 +79,7 @@ export const TermRow = React.memo(function TermRow({
     };
   }, [hasCursor, cursorCol, line]);
 
-  const base = { fontFamily, fontSize, lineHeight, height: lineHeight, color: fg };
+  const base = [{ fontFamily, fontSize, lineHeight, height: lineHeight, color: fg }, PRESERVE_SPACES];
   if (parts.spans !== null) {
     if (parts.spans.length === 0) return <Text style={base}> </Text>;
     return (
