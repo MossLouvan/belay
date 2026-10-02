@@ -15,7 +15,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.mosslouvan.belay",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "Belay connects to your PC on your local network or Tailscale to control it.",
+        "NSLocalNetworkUsageDescription": "Belay finds your computer on this network so it can connect directly and fast.",
         "ITSAppUsesNonExemptEncryption": true,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
