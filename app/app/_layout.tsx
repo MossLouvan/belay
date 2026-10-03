@@ -18,6 +18,8 @@ import { ConnectionProvider, useConnection } from '../src/connection';
 import { AccountProvider, useAccount } from '../src/account/store';
 import { useTheme } from '../src/theme';
 import { restoreThemeMode } from '../src/settings/theme-mode';
+import { AppLock } from '../src/security/app-lock';
+import { restoreOwnerLock } from '../src/security/owner';
 import { RopeSplash } from '../src/connect/rope-splash';
 import {
   AgentLink, parseAgentLink, planAgentLink, sessionKnown, settlePendingOpen,
@@ -196,6 +198,7 @@ export default function RootLayout() {
   // flashes the wrong palette.
   useEffect(() => {
     let live = true;
+    void restoreOwnerLock();
     restoreThemeMode().finally(() => {
       if (live) setThemeReady(true);
     });
@@ -239,6 +242,7 @@ export default function RootLayout() {
           <ConnectionProvider>
             {ready ? <Routes forced={bootTimedOut} /> : <Boot />}
             <AgentLinkHandler />
+            <AppLock />
           </ConnectionProvider>
         </AccountProvider>
       </SafeAreaProvider>

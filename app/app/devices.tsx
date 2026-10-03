@@ -37,6 +37,8 @@ import { DevicesHeader } from '../src/devices/devices-header';
 import { EmptyComputers } from '../src/devices/empty-computers';
 import { ThemeToggle } from '../src/settings/theme-toggle';
 import { SupportLinks } from '../src/settings/support-links';
+import { LockSettings } from '../src/security/app-lock';
+import { requireOwner } from '../src/security/owner';
 import { AppearanceNav } from '../src/home/appearance-nav';
 import { useDevicePreviews } from '../src/home/use-device-previews';
 import { forgetPreview } from '../src/home/preview-store';
@@ -133,7 +135,7 @@ export default function Devices() {
   }, [switchTo, active, phase]);
 
   const onConfirmForget = useCallback(async () => {
-    if (!pendingForget) return;
+    if (!pendingForget || !(await requireOwner('Forget this computer'))) return;
     const id = pendingForget.id;
     setPendingForget(null);
     // Drop the picture of its desktop in the same breath as the token. A
@@ -157,6 +159,7 @@ export default function Devices() {
             </Caption>
             <ThemeToggle testID="appearance-picker" />
           </View>
+          <LockSettings />
           <SupportLinks testID="support-links" />
           {connectedOver ? <Caption testID="connected-over">{connectedOver}</Caption> : null}
           <Button label="Check again" testID="refresh-devices" variant="secondary" fullWidth onPress={() => { refreshAll(); setOptionsOpen(false); }} />

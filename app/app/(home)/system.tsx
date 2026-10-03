@@ -47,6 +47,8 @@ import { EMPTY_SERIES, isStale, pushSeries } from '../../src/system/history';
 import type { Series } from '../../src/system/history';
 import { fmtBytes } from '../../src/system/format';
 import { ThemeToggle } from '../../src/settings/theme-toggle';
+import { LockSettings } from '../../src/security/app-lock';
+import { requireOwner } from '../../src/security/owner';
 import { ToolPanel } from '../../src/home/panel';
 
 type Rate = 'fast' | 'normal' | 'slow' | 'paused';
@@ -181,7 +183,7 @@ function SystemTab() {
   // devices screen, because undoing it means walking back to the machine for
   // a new code.
   const onConfirmForget = useCallback(async () => {
-    if (!active) return;
+    if (!active || !(await requireOwner('Forget this computer'))) return;
     setConfirmForget(false);
     await forget(active.id);
     router.replace('/');
@@ -324,6 +326,8 @@ function SystemTab() {
             <Label>Appearance</Label>
             <ThemeToggle testID="theme-toggle" />
           </View>
+          <Divider />
+          <LockSettings />
           <Divider />
           <SupportLinks testID="support-links" />
         </Column>
