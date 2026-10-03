@@ -99,9 +99,11 @@ p.mono { margin: 0; }
   border-bottom: var(--hairline) solid var(--border);
   overflow: hidden;
 }
+/* The halo box is the outer ring's size, so the glow takes its own room in
+   the layout and never runs behind the heading under it. */
 .halo {
   position: relative;
-  width: 120px; height: 120px;
+  width: 208px; height: 208px;
   margin-bottom: var(--space-md);
   display: grid; place-items: center;
 }
@@ -111,8 +113,8 @@ p.mono { margin: 0; }
   border-radius: var(--radius-pill);
   background: var(--hero-glow);
 }
-.halo-inner { width: 184px; height: 184px; }
-.halo-outer { width: 272px; height: 272px; opacity: 0.45; }
+.halo-inner { width: 160px; height: 160px; }
+.halo-outer { width: 100%; height: 100%; opacity: 0.45; }
 /* The mascot is a fidget toy, as on the phone: click to flip, keep clicking
    to wind it up. beluga.js drives the swim + spin transform per frame. */
 .beluga {
@@ -158,8 +160,6 @@ p.mono { margin: 0; }
     padding: var(--space-lg) var(--margin) var(--space-lg) var(--space-xl);
   }
   .connect .look-footer { margin-top: var(--space-lg); }
-  .connect .halo-inner { width: 168px; height: 168px; }
-  .connect .halo-outer { width: 232px; height: 232px; }
 }
 .connect-actions { gap: var(--space-sm); }
 .connect-actions #connect { flex: 1; }

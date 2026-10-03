@@ -131,3 +131,9 @@ test('nothing in the renderer references the 3D beluga render', () => {
   }
   assert.match(read('connect.html'), /src="beluga-cartoon\.svg"/, 'the connect hero draws the cartoon beluga');
 });
+
+test('the hero halo box is as big as its outer ring, so the glow never overlaps the heading', () => {
+  const css = read('style.css');
+  assert.match(css, /\.halo-outer \{ width: 100%; height: 100%;/, 'outer ring fills the halo box');
+  assert.doesNotMatch(css, /\.halo-(?:outer|inner) \{[^}]*width: (?:2[1-9]\d|[3-9]\d\d)px/, 'no ring wider than the 208px box');
+});
