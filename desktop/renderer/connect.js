@@ -8,7 +8,7 @@ import { hostOrigin, isTailscaleOrigin } from '../src/url.js';
 import { displaysOf, preferredDisplay } from '../src/displays.js';
 import { windowsOf, windowLabel } from '../src/windows.js';
 import { legendText, modifierMap } from '../src/modmap.js';
-import { EXAMPLE_TAILSCALE_ADDRESS, addressFeedback } from '../src/address-feedback.js';
+import { EXAMPLE_ADDRESS, addressFeedback } from '../src/address-feedback.js';
 import { displayFingerprint, freshNonce, normalizeFingerprint, plaintextOk, proofMatches } from '../src/proof.js';
 import { attachBeluga } from './beluga.js';
 
@@ -239,8 +239,8 @@ async function showPaired() {
 
   if (!displays.some((d) => d.virtual)) {
     $('hint').textContent =
-      'No virtual display found on this host. Opening a physical one takes over the screen '
-      + 'someone at that computer is using — see docs/VIRTUAL-MONITOR.md to add one.';
+      'No virtual display on that computer. Opening this one takes over the screen '
+      + 'whoever is sitting at it is using.';
   }
 }
 
@@ -330,7 +330,7 @@ function syncCodeField() {
 function syncFeedback() {
   const line = addressFeedback($('host').value);
   $('feedback').dataset.tone = line ? line.tone : 'example';
-  $('feedback').textContent = line ? line.text : `e.g. ${EXAMPLE_TAILSCALE_ADDRESS}`;
+  $('feedback').textContent = line ? line.text : `e.g. ${EXAMPLE_ADDRESS}`;
 }
 $('host').addEventListener('input', () => { syncCodeField(); syncFeedback(); });
 syncCodeField();

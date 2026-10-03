@@ -1,8 +1,7 @@
 <!-- The host window: get the phone app, scan the pairing QR, the macOS
-     permissions checklist, and the start-at-login switch. Same tokens and
-     components as connect.html. No data-theme: unlike the viewer this window
-     follows the OS (tokens.css handles prefers-color-scheme), because it sits
-     on the desktop next to System Settings. Both QRs are inline SVG from the
+     permissions checklist, the start-at-login switch and the appearance.
+     Same tokens and components as connect.html; look.js sets the look
+     before the first paint. Both QRs are inline SVG from the
      main process (src/host-status.js) — no network, nothing the CSP has to
      allow. -->
 <html lang="en">
@@ -10,6 +9,7 @@
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; font-src 'self';" />
 <title>Belay</title>
+<script src="look.js"></script>
 <link rel="stylesheet" href="tokens.css" />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="host.css" />
@@ -24,7 +24,7 @@
     </header>
 
     <section class="stack" id="get-app">
-      <p class="subheading"><span class="step">1</span>Get Belay on your iPhone</p>
+      <p class="subheading"><span class="step">1</span>Get Belay on your phone</p>
       <div class="get-app-row">
         <div class="qr qr-sm" id="phone-qr" aria-hidden="true"></div>
         <p class="caption">Point your phone's camera here, or open
@@ -48,8 +48,9 @@
         <input class="input mono" id="signin-code" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required aria-label="6-digit code" />
         <button class="button primary" type="submit" id="signin-code-send">Link this computer</button>
       </form>
-      <button class="track-label" type="button" id="signin-back" hidden>Use a different email</button>
       <p class="caption" id="signin-msg" role="status"></p>
+      <button class="track-label" type="button" id="signin-back" hidden>Use a different email</button>
+      <button class="track-label" type="button" id="show-claim" aria-expanded="false" aria-controls="link-section">Or scan a code in Belay instead</button>
     </section>
 
     <p class="caption" id="linked-to" role="status" hidden></p>
@@ -71,7 +72,7 @@
 
     <section class="stack" id="link-section">
       <p class="subheading" id="link-heading"><span class="step">2</span>Scan this code in Belay</p>
-      <p class="caption" id="link-caption">Tap <strong>Scan</strong> in the app to link this Mac to your account.</p>
+      <p class="caption" id="link-caption">Tap <strong>Scan</strong> in the app to link this computer to your account.</p>
       <div class="qr" id="qr" hidden></div>
       <p class="caption code-line" id="code-line" hidden>or type<span class="code" id="code"></span></p>
       <button class="button primary" type="button" id="pair-another" hidden>Pair another phone</button>
@@ -80,11 +81,11 @@
           (<code>npx belay-host</code>, started at login). Only one can run. Switch to this app and the old one
           is stopped and no longer starts at login.</p>
         <button class="button primary" type="button" id="take-over" hidden>Use Belay.app instead</button>
-        <p class="caption" id="busy-other" hidden>Something is already using Belay's port on this Mac — most likely
-          Belay running in a Terminal window. Quit it there and this app takes over by itself.</p>
+        <p class="caption" id="busy-other" hidden>Something is already using Belay's port on this computer — most likely
+          Belay running in a terminal window. Quit it there and this app takes over by itself.</p>
       </div>
-      <p class="error" id="error" hidden></p>
     </section>
+    <p class="error" id="error" hidden></p>
 
     <section class="stack" id="phones" hidden>
       <p class="subheading">Paired phones</p>
@@ -93,7 +94,8 @@
 
     <section class="stack" id="perms" hidden>
       <p class="subheading"><span class="step">3</span>Permissions</p>
-      <p class="caption">macOS asks once for each. Both land on Belay.</p>
+      <p class="caption perm-ask">macOS asks once for each. Both land on Belay.</p>
+      <p class="caption perm-ok">Screen Recording and Accessibility are allowed.</p>
       <ul class="list" id="perm-list">
         <li class="device-row perm" data-kind="screen">
           <div class="device-text">
@@ -125,11 +127,15 @@
         <input type="checkbox" id="login-item" />
         <p class="toggle-label">Start Belay when I log in</p>
       </label>
-      <p class="caption">Turns on by itself once a phone links. Belay lives in the menu bar.</p>
+      <p class="caption" id="login-caption">Turns on by itself once a phone links. Belay lives in the menu bar.</p>
+      <div class="look-row">
+        <span class="label">Appearance</span>
+        <div class="segments" data-look-picker></div>
+      </div>
     </section>
 
     <div class="row affordances">
-      <button class="track-label" id="viewer" type="button">Connect to a computer instead</button>
+      <button class="track-label" id="viewer" type="button">Control another computer</button>
       <button class="track-label" id="logs" type="button">Open host log</button>
     </div>
   </main>

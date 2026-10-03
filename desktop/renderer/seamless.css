@@ -37,7 +37,7 @@ body:hover #chrome, #chrome:focus-within { opacity: 1; }
   color: var(--hud-ink-dim);
   background: var(--hud-scrim);
   border: var(--hairline) solid var(--hud-hairline);
-  border-radius: var(--radius-xs);
+  border-radius: var(--control-radius);
   cursor: pointer;
   transition: color var(--motion-fast) var(--ease-standard),
               border-color var(--motion-fast) var(--ease-standard);

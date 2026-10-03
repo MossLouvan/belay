@@ -1,8 +1,6 @@
-<!-- data-theme="dark": Belay is dark-first (app/src/theme.ts DARK_FIRST), so
-     the window commits to the ink palette rather than following the OS.
-     Remove the attribute to follow prefers-color-scheme; set "light" to pin
-     paper. test/tokens.test.mjs keeps this in step with the theme. -->
-<html lang="en" data-theme="dark">
+<!-- The look (Harbour, Night, Current, Fieldwork) is the user's choice, set on
+     <html> by look.js before the first paint; nothing is pinned here. -->
+<html lang="en">
 <meta charset="utf-8" />
 <!-- No remote origins are ever loaded as documents or scripts here; the only
      network this page does is fetch/WebSocket to the paired host, which
@@ -10,35 +8,40 @@
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src http: https: ws: wss:;" />
 <title>Belay</title>
+<script src="look.js"></script>
 <link rel="stylesheet" href="tokens.css" />
 <link rel="stylesheet" href="style.css" />
 <body>
-  <main class="page">
+  <main class="page connect">
     <header class="hero">
       <div class="halo">
         <span class="halo-ring halo-outer" aria-hidden="true"></span>
         <span class="halo-ring halo-inner" aria-hidden="true"></span>
         <button class="beluga" id="beluga" type="button" aria-label="Belay mascot"
           title="Click to spin; keep clicking to spin faster">
-          <img src="beluga-cutout.png" alt="" draggable="false" />
+          <!-- Harbour and Night: the cartoon beluga; Current and Fieldwork:
+               the flat mark, as the phone's welcome does (look.heroMascot). -->
+          <img class="beluga-cartoon" src="beluga-cartoon.svg" alt="" draggable="false" />
+          <span class="beluga-mark" aria-hidden="true"></span>
         </button>
       </div>
-      <h1 class="headline">Welcome to <span class="brand">Belay</span></h1>
-      <p class="subtitle" id="subtitle">Connect to a computer running the Belay host.</p>
+      <h1 class="headline">Control another <span class="brand">computer</span></h1>
+      <p class="subtitle" id="subtitle">Use its screen and windows from here. It needs Belay open.</p>
     </header>
 
+    <div class="connect-body">
     <section id="pair" class="stack">
       <p class="subheading">Connect by address</p>
-      <p class="caption">The computer's address on this network or a VPN, or the pairing link from its QR code.</p>
+      <p class="caption">Its address on this network, or the pairing link from its QR code.</p>
 
       <div class="field">
         <label class="label" for="host">Computer address</label>
-        <input id="host" class="input input-lg mono" placeholder="100.101.102.103" autocomplete="off" spellcheck="false" />
-        <div class="feedback" id="feedback" role="status" data-tone="example">e.g. 100.101.102.103</div>
+        <input id="host" class="input input-lg mono" placeholder="192.168.1.20" autocomplete="off" spellcheck="false" />
+        <div class="feedback" id="feedback" role="status" data-tone="example">e.g. 192.168.1.20</div>
       </div>
 
       <div class="field" id="code-field">
-        <label class="label" for="code">Pairing code shown on that computer</label>
+        <label class="label" for="code">Pairing code</label>
         <input id="code" class="input mono" placeholder="123456" inputmode="numeric" autocomplete="off" maxlength="8" />
         <div class="caption" id="code-hint">The 6-digit code that computer shows.</div>
       </div>
@@ -49,20 +52,18 @@
         <div class="caption" id="cert-hint"></div>
       </div>
 
-      <button class="button primary lg full" id="connect" type="button">Connect</button>
-      <div class="status-line mono-dim" id="status" role="status"></div>
-
-      <div class="row affordances">
-        <button class="track-label" id="where" type="button" aria-expanded="false" aria-controls="where-panel">Where do I find it?</button>
+      <div class="row connect-actions">
+        <button class="button primary lg" id="connect" type="button">Connect</button>
+        <button class="button secondary lg" id="where" type="button" aria-expanded="false" aria-controls="where-panel">Where do I find it?</button>
       </div>
+      <div class="status-line mono-dim" id="status" role="status"></div>
       <div class="stack where-panel" id="where-panel" hidden>
         <span class="label">On that computer</span>
         <ol class="steps">
-          <li>Use its local IP from its network settings.</li>
-          <li>Or, if the host runs in a terminal, copy an address from <em>Advanced: connect by address</em>.</li>
-          <li>On a VPN such as Tailscale, use the address that VPN gives that computer.</li>
+          <li>Open its network or Wi-Fi details and use its IP address, like <span class="mono">192.168.1.20</span>.</li>
+          <li>If Belay runs there in a terminal, it prints its addresses under <em>Advanced: connect by address</em>.</li>
+          <li>On a VPN such as Tailscale, use the address the VPN gives it. No code is needed there.</li>
         </ol>
-        <div class="example-address mono" aria-hidden="true">100.101.102.103</div>
       </div>
     </section>
 
@@ -104,6 +105,12 @@
     </section>
 
     <div class="error" id="error" role="alert"></div>
+
+    <footer class="look-footer">
+      <span class="label">Appearance</span>
+      <div class="segments" data-look-picker></div>
+    </footer>
+    </div>
   </main>
   <script type="module" src="connect.js"></script>
 </body>

@@ -22,7 +22,7 @@ function paint(state) {
   $('phone-qr').hidden = !state.phoneAppSvg;
 
   // A code shows whenever the host has a live one — first run, or a phone
-  // asked / "Pair another phone" while others are already paired (#150).
+  // asked / "Pair another phone" while others are already paired (issue 150).
   const showQr = running && Boolean(state.pairingSvg);
   $('qr').hidden = !showQr;
   $('code-line').hidden = !showQr;
@@ -46,11 +46,16 @@ function paint(state) {
   $('linked-to').textContent = state.linkedTo ? `Linked to ${state.linkedTo}` : '';
   $('owner-auth').hidden = !state.ownerAuth;
   $('owner-auth').textContent = state.ownerAuth ?? '';
-  $('link-heading').lastChild.textContent = linked ? 'Linked' : state.claim ? 'Or scan this code in Belay' : !showQr ? 'Scan this code in Belay' : 'Type this code in Belay';
+  $('link-heading').lastChild.textContent = busy ? 'Only one Belay can run' : linked ? 'Linked' : state.claim ? 'Or scan this code in Belay' : !showQr ? 'Scan this code in Belay' : 'Type this code in Belay';
   $('pair-another').hidden = !linked;
   // A code for one more phone needs no account-link instructions under it.
   $('link-caption').hidden = linked || busy || (state.paired && showQr && !state.claim);
-  $('get-app').hidden = linked;
+  // A phone already uses this computer: it has the app, so no install step.
+  $('get-app').hidden = linked || state.paired;
+  // While signing in is offered, the claim QR is the other way in: a small
+  // QR beside its caption, not the page's centrepiece.
+  $('link-section').dataset.alt = String(signIn);
+  $('show-claim').hidden = !signIn || !state.pairingSvg;
   $('busy').hidden = !busy;
   $('busy-agent').hidden = !busy || !state.launchAgent;
   $('take-over').hidden = !busy || !state.launchAgent;
@@ -60,6 +65,8 @@ function paint(state) {
 
   const perms = state.perms;
   $('perms').hidden = !perms.supported;
+  // All granted: one line instead of the checklist (Relaunch still shows).
+  $('perms').dataset.allGranted = String(perms.screen === true && perms.accessibility === true);
   for (const row of document.querySelectorAll('.perm')) {
     const granted = perms[row.dataset.kind] === true;
     row.dataset.granted = String(granted);
@@ -116,7 +123,9 @@ function paintTrust(state, running) {
   $('first-phone').hidden = !(running && state.firstPhone === 'open');
   $('first-phone-closed').hidden = !(running && state.firstPhone === 'closed');
   // Nothing to scan or type for a linked computer waiting on its first phone.
-  $('link-section').hidden = running && (state.firstPhone === 'open' || state.firstPhone === 'closed') && state.phase !== 'busy';
+  // Starting or stopped: nothing to scan yet, so no step 2 without a code.
+  $('link-section').hidden = (running && (state.firstPhone === 'open' || state.firstPhone === 'closed'))
+    || (state.phase === 'starting' || state.phase === 'stopped');
   const phones = running ? state.phones ?? [] : [];
   $('phones').hidden = phones.length === 0;
   $('phone-list').replaceChildren(...phones.map((p) => row(p.name, p.lastSeen ? `Last seen ${new Date(p.lastSeen).toLocaleString()}` : 'Paired', [
@@ -165,6 +174,10 @@ function wireSignIn() {
 }
 
 async function init() {
+  // Windows has a system tray, not a menu bar.
+  if (!/mac/i.test(navigator.platform || '')) {
+    $('login-caption').textContent = 'Turns on by itself once a phone links. Belay lives in the system tray.';
+  }
   paint(await window.belayHost.state());
   window.belayHost.onChange(paint);
 
@@ -187,6 +200,11 @@ async function init() {
   $('pair-another').addEventListener('click', () => window.belayHost.pairAnother());
   $('open-first-phone').addEventListener('click', () => window.belayHost.openFirstPhone());
   $('logs').addEventListener('click', () => window.belayHost.openLogs());
+  $('show-claim').addEventListener('click', () => {
+    const open = $('show-claim').getAttribute('aria-expanded') !== 'true';
+    $('show-claim').setAttribute('aria-expanded', String(open));
+    $('link-section').dataset.open = String(open);
+  });
   wireSignIn();
   // Permissions change outside this window (System Settings); re-read while visible.
   setInterval(async () => { if (document.visibilityState === 'visible') paint(await window.belayHost.state()); }, 3000);

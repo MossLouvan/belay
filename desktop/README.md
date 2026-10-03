@@ -8,7 +8,7 @@ Two roles in one app:
   Terminal), and starts at login once a phone has linked. This is the
   one-download install: `Belay-mac-universal.dmg` / `Belay-Setup.exe` from
   GitHub Releases, see [`docs/RELEASE.md`](../docs/RELEASE.md).
-- **Viewer** ("Connect to a computer…" in the menu): open another computer's
+- **Viewer** ("Control another computer…" in the menu): open another computer's
   displays as ordinary windows on this desktop — resizable, alt-tabbable,
   snappable beside your local apps. Everything below this section is about
   the viewer.
@@ -194,7 +194,7 @@ opened after the change.
 | `src/host-status.js` | pure host pieces: pairing link parse, QR→SVG, status line, login-item rule |
 | `scripts/stage-host.mjs`, `electron-builder.config.mjs`, `build/` | packaging (see `docs/RELEASE.md`) |
 | `preload.cjs` | the renderer's only privileged surface — four IPC calls |
-| `renderer/tokens.css` | GENERATED from `app/src/theme.ts` — every palette, type, spacing, radius, motion and HUD token; dark under `prefers-color-scheme` and `data-theme` |
+| `renderer/tokens.css` | GENERATED from `app/src/theme.ts` — every palette, type, spacing, radius, motion and HUD token; all four looks: Harbour on `:root`, Night under `data-theme="dark"`, Current and Fieldwork under `data-look` |
 | `renderer/fonts/` | the Harbour faces the phone loads (Fredoka 600, Nunito 500/600/700), plus their OFL licences |
 | `scripts/sync-tokens.mjs` | regenerates `renderer/tokens.css` and `src/ground.js` from the phone theme (`npm run sync-tokens`) |
 | `src/ground.js` | GENERATED — the window grounds `main.js` paints before CSS loads |
@@ -228,14 +228,20 @@ when the committed file and the theme disagree — so a theme change on the
 phone that is not followed by a sync breaks the desktop build rather than
 quietly leaving it behind.
 
-The components are the phone's too: the 11px tracked mono label on every
-button, the 44/56px Button, the 60px mono hero Input with its accent rope on
-focus, TrackLabel words with their 2px track, 52px hairline ledger rows, the
-beluga hero on its glow, the Dock's keys and BoxedToggle on the HUD scrim.
-The pages pin `data-theme="dark"` because the app is dark-first
-(`DARK_FIRST` in theme.ts); the light palette is generated and ready, so
-removing the attribute follows the OS and `data-theme="light"` pins paper.
-Streams sit on the same true-dark machine panel in both themes. Every
+The components are the phone's too: the Button in the look's button type,
+the 44/56px Button, the mono hero Input with its accent rope on focus,
+TrackLabel words with their 2px track, 52px hairline ledger rows, the
+SegmentedControl, the cartoon beluga (Harbour, Night) or flat mark (Current,
+Fieldwork) on the hero, the Dock's keys and BoxedToggle on the HUD scrim.
+
+Appearance is the phone's four looks — Harbour, Night, Current, Fieldwork —
+picked in the host and connect windows or the tray's Appearance menu, stored
+in `appearance.json` in userData (`src/look.js`, `main.js`). The default
+follows the OS: Harbour by day, Night when dark. `renderer/look.js` sets
+`data-look`/`data-theme` on `<html>` before the first paint and follows
+changes live. Streams sit on a dark machine panel in every look (Night's,
+or Fieldwork's under the flat looks). `test/renderer-assets.test.mjs` fails
+on a raw hex colour outside tokens.css or any reference to the 3D render. Every
 stylesheet and font is local; the CSPs allow no inline styles and nothing
 remote.
 
