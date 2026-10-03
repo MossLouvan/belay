@@ -29,6 +29,8 @@ export interface H264CaptureArgs {
   readonly fps: number;
   readonly screen?: number;
   readonly virtualDisplay: boolean;
+  /** The phone draws the host pointer itself (`?pointer=1`). */
+  readonly pointer: boolean;
 }
 
 /** Pure: whether a dropped frame should turn into a keyframe request now. */
@@ -58,6 +60,7 @@ export function createH264Relay(
   onGeometry?: (geometry: H264Geometry) => void,
 ): H264Relay {
   let unsubscribe: (() => void) | null = null;
+  let unsubscribePointer: (() => void) | null = null;
   let awaitingKeyframe = true;
   let lastRequestAt = -Infinity;
   let generation = 0;
@@ -96,6 +99,8 @@ export function createH264Relay(
   };
 
   const detach = (): void => {
+    unsubscribePointer?.();
+    unsubscribePointer = null;
     if (!unsubscribe) return;
     unsubscribe();
     unsubscribe = null;
@@ -115,7 +120,7 @@ export function createH264Relay(
       starting += 1;
       let geometry: H264Geometry;
       try {
-        geometry = await native.h264Start(args.width, args.fps, args.quality, args.screen, args.virtualDisplay);
+        geometry = await native.h264Start(args.width, args.fps, args.quality, args.screen, args.virtualDisplay, args.pointer);
       } catch {
         // Not an error the phone needs to read: the host cannot encode (or
         // the helper is too old), and the JPEG loop is already there.
@@ -128,6 +133,10 @@ export function createH264Relay(
       if (!open()) { detach(); return; }
       awaitingKeyframe = true;
       if (!unsubscribe) unsubscribe = native.onVideoFrame(onFrame);
+      unsubscribePointer?.();
+      unsubscribePointer = args.pointer
+        ? native.onPointer((line) => { if (open()) ws.send(JSON.stringify(line)); })
+        : null;
       onGeometry?.(geometry);
       announce('h264', geometry);
       console.log(`[screen] h264 ${geometry.w}x${geometry.h}@${geometry.fps} (source ${geometry.sw}x${geometry.sh})`);

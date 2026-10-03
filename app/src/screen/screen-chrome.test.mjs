@@ -176,6 +176,12 @@ test('the crosshair shows in trackpad mode or after a pad touch, only over a pic
   assert.equal(crosshairShown({ gaming: true, mode: 'trackpad', padCursor: true, hasPicture: true }), false);
 });
 
+test('the real host pointer replaces the crosshair instead of fighting it', () => {
+  assert.equal(crosshairShown({ gaming: false, mode: 'trackpad', padCursor: false, hasPicture: true, hostPointer: true }), false);
+  assert.equal(crosshairShown({ gaming: false, mode: 'touch', padCursor: true, hasPicture: true, hostPointer: true }), false);
+  assert.equal(crosshairShown({ gaming: false, mode: 'trackpad', padCursor: false, hasPicture: true, hostPointer: false }), true);
+});
+
 test('only iOS floats the type row', () => {
   assert.equal(typeRowFloats('ios'), true);
   assert.equal(typeRowFloats('android'), false);

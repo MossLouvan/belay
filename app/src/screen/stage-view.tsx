@@ -18,6 +18,8 @@ import { useLook } from '../design/use-look';
 import { useFrameUri } from './frame-store';
 import { StageActions } from './stage-actions';
 import { RemoteCursors } from './cursors-overlay';
+import { HostPointer } from './host-pointer-overlay';
+import { useHasHostPointer } from './host-pointer-store';
 import type { CursorsState } from './cursors-store';
 import type { QualityPreset, Size } from './model';
 import { PanelState } from './panel-state';
@@ -110,6 +112,7 @@ export function StageView(props: StageViewProps) {
   );
 
   const hasPicture = Boolean(stream.bwp || stream.h264 || stream.hasFrame);
+  const hostPointer = useHasHostPointer() && stream.h264 !== null;
 
   return (
     // ALWAYS flex-start (top-aligned) — centering the PANEL creates black
@@ -196,9 +199,14 @@ export function StageView(props: StageViewProps) {
           ) : stream.hasFrame ? (
             <FrameImage />
           ) : null}
-          {crosshairShown({ gaming: gamingEnabled, mode, padCursor, hasPicture }) ? (
+          {crosshairShown({ gaming: gamingEnabled, mode, padCursor, hasPicture, hostPointer }) ? (
             <Crosshair x={viewport.cursorX} y={viewport.cursorY} color={theme.colors.accent} />
           ) : null}
+          {/* The Mac's own pointer, in every pointer mode: the host stopped
+              baking it into the H.264 frames because downscaled it was a few
+              pixels. Inside the zoom transform, counter-scaled to stay the
+              same size on glass. */}
+          {hostPointer ? <HostPointer stage={stage} zoom={viewport.zoom} /> : null}
           {/* Collaborators' cursors ride INSIDE the zoom transform, so a
               remote pointer stays on the pixel it is pointing at however far
               this user has zoomed in. */}

@@ -150,6 +150,32 @@ export function resolveQualityId(id: QualityId, available: readonly QualityPrese
 
 export const DEFAULT_QUALITY: QualityId = 'balanced';
 
+/** The widest picture Sharp/Ultra ask for on the H.264 path. */
+export const H264_MAX_WIDTH = 2560;
+
+/**
+ * Capture width to request when the host encodes H.264 on the screen socket.
+ *
+ * The `w` in QUALITY is a JPEG-era number: every JPEG frame costs full price,
+ * so 1024 was the sweet spot. Hardware H.264 costs ~1.4 ms a frame at any size
+ * and a still desktop almost nothing on the wire, so 1024 only throws detail
+ * away — a 3420-wide Retina desktop arrived soft and its pointer a few pixels.
+ * Balanced matches the phone's own pixels (nothing to gain past that at 1×
+ * zoom), Sharp/Ultra go to the source up to 2560 for zooming into small text,
+ * Smooth halves the phone for slow links.
+ *
+ * `phonePx` is the phone's long side in physical pixels; `sourceW` the host
+ * display's width when known (0 otherwise — the host caps at the source too).
+ */
+export function h264CaptureWidth(id: QualityId, phonePx: number, sourceW: number): number {
+  if (!(phonePx > 0)) return findQuality(id).w;
+  const wanted = id === 'sharp' || id === 'ultra' ? H264_MAX_WIDTH
+    : id === 'smooth' ? phonePx / 2
+    : phonePx;
+  const even = toEven(wanted);
+  return Math.max(240, sourceW > 0 ? Math.min(even, sourceW & ~1) : even);
+}
+
 export const findQuality = (id: QualityId): QualityPreset =>
   QUALITY.find((preset) => preset.id === id) ?? QUALITY[1];
 

@@ -8,11 +8,13 @@
 
 import { gamingQuality } from '../gamepad/presets';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Dimensions } from 'react-native';
 import { checkHost, getConnection, wsUrl, UnauthorizedError } from '../api';
 import { flushStreamFrames, rememberStreamFrame } from '../home/preview-store';
 import { ReattachLink, shouldReattachOnForeground } from '../foreground';
-import { buildConfigMessage, messageOf, QualityPreset, STREAM, VirtualRequest } from './model';
+import { buildConfigMessage, h264CaptureWidth, messageOf, QualityPreset, STREAM, VirtualRequest } from './model';
+import { parsePointerMessage } from './host-pointer';
+import { applyPointer, clearPointer } from './host-pointer-store';
 import { PROBE_INTERVAL_MS, shouldProbeDuringBackoff } from './retry';
 import { parseStreamMessage, type FramePayload } from './stream-message';
 import { isBinaryFramePayload } from './frame-codec';
@@ -243,6 +245,10 @@ export function useScreenStream(
   // Set once the watchdog gave up on this hook instance: the next connect
   // asks for JPEG outright instead of paying the timeout again.
   const h264Declined = useRef(false);
+  // True while the host is (or was asked to be) encoding H.264 on this socket,
+  // so every `w` sent — URL, retune, reconnect — is the H.264 size rather than
+  // the JPEG preset's. See h264CaptureWidth in ./model.
+  const h264Sized = useRef(false);
   const [stats, setStats] = useState<StreamStats>(EMPTY_STATS);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -279,6 +285,14 @@ export function useScreenStream(
   // honour it.
   const socketUrl = useRef<string | null>(null);
   const reservedPort = useRef(0);
+
+  /** The preset as sent on the wire: H.264 asks for the phone's own pixels. */
+  const wireQuality = useCallback((q: QualityPreset, h264Path: boolean): QualityPreset => {
+    if (!h264Path) return q;
+    const screenDims = Dimensions.get('screen');
+    const phonePx = Math.max(screenDims.width, screenDims.height) * screenDims.scale;
+    return { ...q, w: h264CaptureWidth(q.id, phonePx, counters.current.sourceWidth) };
+  }, []);
 
   const bwpTuning = useRef({preset: quality.bwpPreset, fps: quality.bwpFps});
   useEffect(() => {
@@ -426,11 +440,11 @@ export function useScreenStream(
     const socket = socketRef.current;
     if (!socket || socket.readyState !== SOCKET_OPEN) return;
     try {
-      socket.send(JSON.stringify(buildConfigMessage(quality, screen, virtual)));
+      socket.send(JSON.stringify(buildConfigMessage(wireQuality(quality, h264Sized.current), screen, virtual)));
     } catch (e: unknown) {
       setError(`Could not apply the ${quality.label} preset — ${messageOf(e)}`);
     }
-  }, [quality, screen, virtual]);
+  }, [quality, screen, virtual, wireQuality]);
 
   useEffect(() => {
     if (!active) {
@@ -453,6 +467,8 @@ export function useScreenStream(
       bwpHealth.current = null;
       h264Live.current = false;
       h264ShownRef.current = false;
+      h264Sized.current = false;
+      clearPointer();
       setH264(null);
       setH264Shown(false);
       return;
@@ -561,6 +577,18 @@ export function useScreenStream(
       h264Watchdog = live ? setTimeout(giveUpH264, H264_FIRST_FRAME_TIMEOUT_MS) : undefined;
       const socket = socketRef.current;
       if (socket) socket.binaryType = live ? 'blob' : 'arraybuffer';
+      clearPointer();
+      // Asked for H.264 at the phone's size and got JPEG (a Windows host, or
+      // an encoder that failed): the JPEG loop must not run at 2556 wide.
+      // An announced H.264 source narrower than what was asked is capped by
+      // the host already, so only the JPEG direction needs a retune.
+      const wasSized = h264Sized.current;
+      h264Sized.current = live;
+      if (wasSized && !live && socket && socket.readyState === SOCKET_OPEN) {
+        try {
+          socket.send(JSON.stringify(buildConfigMessage(qualityRef.current, screenRef.current, virtualRef.current)));
+        } catch { /* the next retune or reconnect sends the right size */ }
+      }
       setH264(live ? announced : null);
       setH264Shown(false);
       nativeStream.trace(`codec ${announced.codec} ${announced.w}x${announced.h}; binaryType=${socket?.binaryType ?? 'none'}`);
@@ -579,6 +607,10 @@ export function useScreenStream(
       if (isBinaryFramePayload(event.data)) { offerFrame(event.data); return; }
       const announced = parseCodecMessage(event.data);
       if (announced) { onCodec(announced); return; }
+      // The host's real pointer (./host-pointer) — only while H.264 is live,
+      // since JPEG frames carry the macOS pointer baked in.
+      const pointer = parsePointerMessage(event.data);
+      if (pointer) { if (h264Live.current) applyPointer(pointer); return; }
       // BWP messages first: while the stream is up the host sends no frames at
       // all, so falling through to the frame parser would only ever fail.
       const bwpMsg = parseBwpMessage(event.data);
@@ -754,7 +786,8 @@ export function useScreenStream(
       // re-arms it.
       counters.current.lastFrameAt = 0;
       setPhase(tries === 0 ? 'connecting' : 'reconnecting');
-      const preset = qualityRef.current;
+      h264Sized.current = wantsH264();
+      const preset = wireQuality(qualityRef.current, h264Sized.current);
       const screenIndex = screenRef.current;
       // Reserve the UDP port BEFORE the socket opens. The host must be told
       // where to send before it starts sending; binding afterwards means its
@@ -782,7 +815,10 @@ export function useScreenStream(
             bin: 1,
             // Advertise native H.264 decoding (./h264). A host that cannot
             // encode announces JPEG; an old host ignores it.
-            ...streamCodecParams(wantsH264()),
+            ...streamCodecParams(h264Sized.current),
+            // Draw the host's pointer here, crisp and readable, instead of
+            // the few pixels ScreenCaptureKit bakes in (./host-pointer).
+            ...(h264Sized.current ? { pointer: 1 } : {}),
             // Only named when a monitor was actually chosen; older hosts
             // ignore unknown query params, so this is safe either way.
             ...(screenIndex === undefined ? {} : { screen: screenIndex }),
@@ -823,7 +859,7 @@ export function useScreenStream(
         const v = virtualRef.current;
         if (v !== null && socket.readyState === SOCKET_OPEN) {
           try {
-            socket.send(JSON.stringify(buildConfigMessage(qualityRef.current, screenRef.current, v)));
+            socket.send(JSON.stringify(buildConfigMessage(wireQuality(qualityRef.current, h264Sized.current), screenRef.current, v)));
           } catch { /* a failed send just means the picture stays physical */ }
         }
         // Ask for the H.264 stream when the policy allows it.
@@ -850,6 +886,7 @@ export function useScreenStream(
         h264Live.current = false;
         h264ShownRef.current = false;
         clearTimeout(h264Watchdog);
+        clearPointer();
         setH264(null);
         setH264Shown(false);
         if (event?.code === 4001) {
@@ -927,7 +964,7 @@ export function useScreenStream(
       socket.onclose = null;
       socket.close();
     };
-  }, [active, generation, abandonBwp, requestBwp]);
+  }, [active, generation, abandonBwp, requestBwp, wireQuality]);
 
   const retry = useCallback(() => {
     setError(null);

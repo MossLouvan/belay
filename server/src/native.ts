@@ -210,6 +210,10 @@ class NativeHost {
 
   private gamepadListeners: readonly ((event: unknown) => void)[] = [];
 
+  /** Subscribers to the real pointer the helper pushes while an H.264 stream
+   *  draws it phone-side (`{type:'pointer', x, y, cursor?}`). */
+  private pointerListeners = new Set<(line: Readonly<Record<string, unknown>>) => void>();
+
   gamepadAttach(preset: string): Promise<unknown> { return this.send({cmd:'gamepadattach',preset}); }
   gamepadDetach(): Promise<unknown> { return this.send({cmd:'gamepaddetach'}); }
   gamepadStatus(): Promise<unknown> { return this.send({cmd:'gamepadstatus'}); }
@@ -312,6 +316,10 @@ class NativeHost {
         // frame of system audio, on its way to the phone via audio-routes.ts.
         if (msg.type === 'rumble' || msg.type === 'gamepadstatus') {
           for (const listener of this.gamepadListeners) { try { listener(msg); } catch { /* isolate subscribers */ } }
+          return;
+        }
+        if (msg.type === 'pointer') {
+          for (const listener of this.pointerListeners) { try { listener(msg); } catch { /* isolate subscribers */ } }
           return;
         }
         if (msg.type === 'audio') {
@@ -586,10 +594,18 @@ class NativeHost {
   // verbs (Windows, or a Mac helper built before them) answers `unknown
   // command`, which the relay turns into a JPEG fallback — never a hang.
 
-  h264Start(w: number, fps: number, q: number, screen?: number, virtualDisplay?: boolean): Promise<H264Geometry> {
+  /** `pointer`: leave the pointer out of the frames and push its position
+   *  and image instead (onPointer) — the phone draws it readable. */
+  h264Start(w: number, fps: number, q: number, screen?: number, virtualDisplay?: boolean, pointer?: boolean): Promise<H264Geometry> {
     return this.send<H264Geometry>({
       cmd: 'h264start', w, fps, q, screen, virtualdisplay: virtualDisplay ? true : undefined,
+      pointer: pointer ? true : undefined,
     });
+  }
+
+  onPointer(listener: (line: Readonly<Record<string, unknown>>) => void): () => void {
+    this.pointerListeners.add(listener);
+    return () => { this.pointerListeners.delete(listener); };
   }
 
   h264Stop(): Promise<unknown> { return this.send({ cmd: 'h264stop' }); }

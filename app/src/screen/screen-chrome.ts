@@ -181,11 +181,14 @@ export interface CrosshairInputs {
   /** The deadspace pad drove the cursor a moment ago. */
   readonly padCursor: boolean;
   readonly hasPicture: boolean;
+  /** The host is sending its real pointer (host-pointer.ts), which is drawn
+   *  instead: two pointers a few pixels apart read as neither. */
+  readonly hostPointer?: boolean;
 }
 
 /** The visible cursor: trackpad mode or a recent pad touch, over a real picture. */
-export const crosshairShown = ({ gaming, mode, padCursor, hasPicture }: CrosshairInputs): boolean =>
-  !gaming && (mode === 'trackpad' || padCursor) && hasPicture;
+export const crosshairShown = ({ gaming, mode, padCursor, hasPicture, hostPointer = false }: CrosshairInputs): boolean =>
+  !gaming && !hostPointer && (mode === 'trackpad' || padCursor) && hasPicture;
 
 /**
  * Where the open type row lives is a platform constant (so the Input never
