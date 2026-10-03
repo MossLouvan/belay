@@ -2,7 +2,7 @@
 
 Branch ui/desktop-pass. Rendered from desktop/renderer in Chromium with the preload bridges mocked (connect 720x612, host 480x828 content size = the default windows minus the title bar). Inventory ids (H = host window, V = connect/viewer, D = display, S = seamless) match the PR.
 
- = the real unsigned Electron app driven over CDP: the picker switching looks in the connect window and the host window following live.
+The electron/ folder holds the real unsigned Electron app driven over CDP: the picker switching looks in the connect window and the host window following live.
 
 | State | Harbour | Night | Current | Fieldwork |
 |---|---|---|---|---|
