@@ -10,6 +10,7 @@ import { CLAIM_CODE_RE, claimCode, fromBase64url, fromHex, newId, randomCredenti
 import { CLAIM_SIG_SKEW_S, CLAIM_TTL_MS, type Env } from '../env.js';
 import { HttpError, NODE_ID_RE, clientIp, json, maskEmail, notFound, readJson, requireInteger, requireString, unauthorized } from '../http.js';
 import { LIMITS, enforceLimit } from '../rate-limit.js';
+import { sendSecurityEmail } from '../security-email.js';
 
 interface ClaimRow {
   readonly code: string;
@@ -91,6 +92,7 @@ export async function acceptClaim(req: Request, env: Env, rawCode: string): Prom
   ]);
   const device = results[results.length - 1].results[0] as DeviceRow | undefined;
   if (!device) throw notFound('claim not found');
+  await sendSecurityEmail(env, req, account, { kind: 'computer-linked', device });
   return json({ device: deviceJson(device) });
 }
 

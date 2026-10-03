@@ -1,18 +1,22 @@
 // Minimal D1Database over node:sqlite so handlers run against real SQL,
-// including the migration's FK cascades. Covers the subset the service uses:
+// including the migrations' FK cascades. Covers the subset the service uses:
 // prepare/bind/first/all/run and batch.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
-const MIGRATION = readFileSync(new URL('../migrations/0001_init.sql', import.meta.url), 'utf8');
+const MIGRATIONS_DIR = new URL('../migrations/', import.meta.url);
+const MIGRATIONS = readdirSync(MIGRATIONS_DIR)
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
+  .map((f) => readFileSync(new URL(f, MIGRATIONS_DIR), 'utf8'));
 
 type Row = Record<string, unknown>;
 
 export function fakeD1(): D1Database {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON');
-  db.exec(MIGRATION);
+  for (const sql of MIGRATIONS) db.exec(sql);
 
   const prepare = (sql: string, args: unknown[] = []): D1PreparedStatement => {
     const stmt = db.prepare(sql);

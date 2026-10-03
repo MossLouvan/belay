@@ -1,10 +1,11 @@
-// POST /hosts/heartbeat (host credential), POST /hosts/link (session)
+// POST /hosts/heartbeat and /hosts/events (host credential), POST /hosts/link (session)
 
-import { deviceJson, requireHost, requireSession, type DeviceRow } from '../auth.js';
+import { deviceJson, requireHost, requireSession, type AccountRow, type DeviceRow } from '../auth.js';
 import { newId, randomCredential, sha256Hex } from '../crypto.js';
 import { splitList, type Env } from '../env.js';
-import { HttpError, NODE_ID_RE, clientIp, json, maskEmail, readJson, requireString } from '../http.js';
+import { HttpError, NODE_ID_RE, bad, clientIp, json, maskEmail, noContent, readJson, requireString } from '../http.js';
 import { LIMITS, enforceLimit } from '../rate-limit.js';
+import { sendSecurityEmail } from '../security-email.js';
 import { requireProofOfPossession } from './claims.js';
 
 export async function heartbeat(req: Request, env: Env): Promise<Response> {
@@ -65,5 +66,27 @@ export async function linkHost(req: Request, env: Env): Promise<Response> {
     const winner = await env.DB.prepare('SELECT id FROM devices WHERE account_id = ?1 AND node_id = ?2').bind(account.id, nodeId).first<{ id: string }>();
     throw deviceExists(winner?.id ?? 'unknown');
   }
+  await sendSecurityEmail(env, req, account, { kind: 'computer-linked', device });
   return json({ device: deviceJson(device), hostCredential, linkedBy: maskEmail(account.email) });
+}
+
+// The host's match-code alphabet (server/src/account-pair.ts): no 0/O, 1/I/L.
+const MATCH_CODE_RE = /^[A-HJKMNP-Z2-9]{4}$/;
+
+/**
+ * A host reports something the owner should hear about by email. Today only
+ * `phone-request`: a phone is waiting for approval on this computer. Always
+ * 204 once authenticated and well-formed; whether an email goes out (opt-out,
+ * no address, per-host limit) is not the host's business.
+ */
+export async function hostEvent(req: Request, env: Env): Promise<Response> {
+  const host = await requireHost(req, env.DB);
+  await enforceLimit(env.DB, `ip:${clientIp(req)}`, LIMITS.ip);
+  const body = await readJson(req);
+  if (body.type !== 'phone-request') throw bad("type must be 'phone-request'");
+  const phoneName = requireString(body, 'phoneName', 100);
+  const matchCode = requireString(body, 'matchCode', 4, MATCH_CODE_RE);
+  const account = await env.DB.prepare('SELECT * FROM accounts WHERE id = ?1').bind(host.account_id).first<AccountRow>();
+  if (account) await sendSecurityEmail(env, req, account, { kind: 'phone-request', host, phoneName, matchCode });
+  return noContent();
 }

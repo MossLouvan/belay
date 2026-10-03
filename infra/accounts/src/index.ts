@@ -5,8 +5,8 @@ import { HttpError, errorResponse, json } from './http.js';
 import { acceptClaim, createClaim, pollClaim } from './routes/claims.js';
 import { createDevice, deleteDevice, listDevices } from './routes/devices.js';
 import { emailStart, emailVerify } from './routes/email.js';
-import { heartbeat, linkHost } from './routes/hosts.js';
-import { deleteMe, getMe, logout } from './routes/me.js';
+import { heartbeat, hostEvent, linkHost } from './routes/hosts.js';
+import { deleteMe, getMe, logout, patchMe, revokeAllSessions } from './routes/me.js';
 import { appleAuth, googleAuth, issueNonce } from './routes/oidc.js';
 
 type Handler = (req: Request, env: Env, ...params: string[]) => Promise<Response>;
@@ -19,7 +19,9 @@ const routes: ReadonlyArray<readonly [method: string, pattern: RegExp, handler: 
   ['POST', /^\/v1\/auth\/google$/, googleAuth],
   ['POST', /^\/v1\/auth\/logout$/, logout],
   ['GET', /^\/v1\/me$/, getMe],
+  ['PATCH', /^\/v1\/me$/, patchMe],
   ['DELETE', /^\/v1\/me$/, deleteMe],
+  ['POST', /^\/v1\/me\/sessions\/revoke-all$/, revokeAllSessions],
   ['POST', /^\/v1\/devices$/, createDevice],
   ['GET', /^\/v1\/devices$/, listDevices],
   ['DELETE', /^\/v1\/devices\/([^/]+)$/, deleteDevice],
@@ -28,6 +30,7 @@ const routes: ReadonlyArray<readonly [method: string, pattern: RegExp, handler: 
   ['GET', /^\/v1\/claims\/([^/]+)$/, pollClaim],
   ['POST', /^\/v1\/hosts\/heartbeat$/, heartbeat],
   ['POST', /^\/v1\/hosts\/link$/, linkHost],
+  ['POST', /^\/v1\/hosts\/events$/, hostEvent],
 ];
 
 function decodeParam(raw: string): string {

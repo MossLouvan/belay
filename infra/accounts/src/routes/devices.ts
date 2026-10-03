@@ -3,6 +3,7 @@
 import { deviceJson, requireSession, type DeviceRow } from '../auth.js';
 import { newId } from '../crypto.js';
 import type { Env } from '../env.js';
+import { sendSecurityEmail } from '../security-email.js';
 import { NODE_ID_RE, bad, json, noContent, notFound, optionalString, readJson, requireString } from '../http.js';
 
 /** Registers (or re-registers, keyed by nodeId) this phone's tunnel identity. */
@@ -14,6 +15,7 @@ export async function createDevice(req: Request, env: Env): Promise<Response> {
   const nodeId = requireString(body, 'nodeId', 64, NODE_ID_RE);
   const platform = optionalString(body, 'platform', 32, 'unknown');
   const now = Date.now();
+  const id = newId();
 
   const device = await env.DB.prepare(
     `INSERT INTO devices (id, account_id, kind, name, platform, node_id, last_seen_at, created_at)
@@ -21,9 +23,11 @@ export async function createDevice(req: Request, env: Env): Promise<Response> {
      ON CONFLICT(account_id, node_id) DO UPDATE SET name = excluded.name, platform = excluded.platform, last_seen_at = excluded.last_seen_at
      RETURNING *`,
   )
-    .bind(newId(), account.id, name, platform, nodeId, now)
+    .bind(id, account.id, name, platform, nodeId, now)
     .first<DeviceRow>();
   if (!device) throw new Error('device upsert returned nothing');
+  // A re-registration keeps the row's original id: only a new phone alerts.
+  if (device.id === id) await sendSecurityEmail(env, req, account, { kind: 'phone-added', device });
   return json({ device: deviceJson(device) });
 }
 
