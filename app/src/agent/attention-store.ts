@@ -37,6 +37,7 @@ import {
 import { applyHooksPush, parseHooksPush } from './hook-model';
 import { parsePairRequestsPush } from './pair-requests';
 import type { PairRequestRow } from './pair-requests';
+import { requireOwner } from '../security/owner';
 
 export interface AttentionState {
   /** Latest session list; null until the first successful fetch. */
@@ -185,6 +186,7 @@ export async function decideHook(id: string, allow: boolean, choice?: string): P
  * 404 (it lapsed, or Belay.app answered first) is not an error to show.
  */
 export async function answerPairRequest(id: string, allow: boolean): Promise<void> {
+  if (allow && !(await requireOwner('Allow a new phone to use your computer'))) return;
   setState({ pairRequests: state.pairRequests.filter((r) => r.id !== id) });
   try { await api.approvePhone(id, allow); } catch { /* lapsed or already answered; the push resyncs */ }
 }

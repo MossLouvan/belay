@@ -30,6 +30,7 @@
     "expo-haptics": "~57.0.2",
     "expo-image-picker": "~57.0.14",
     "expo-linking": "~57.0.8",
+    "expo-local-authentication": "~57.0.3",
     "expo-modules-core": "~57.0.14",
     "expo-router": "~57.0.17",
     "expo-screen-orientation": "~57.0.2",

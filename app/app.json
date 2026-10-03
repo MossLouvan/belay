@@ -88,7 +88,13 @@
           "cameraPermission": "Belay uses the camera to take a photo to send to Claude on your computer."
         }
       ],
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Belay uses Face ID to make sure it's you before controlling your computer."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

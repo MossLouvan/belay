@@ -11,6 +11,7 @@ import { useTheme } from '../theme';
 import { errorMessage } from '../connect/pair-flow';
 import { useConnection } from '../connection';
 import { useAccount } from './store';
+import { requireOwner } from '../security/owner';
 import { isTunnelAvailable } from '../../modules/belay-stream/src/tunnel';
 
 export interface AccountRowsProps {
@@ -74,6 +75,7 @@ export function DeleteAccountSheet({ visible, onClose }: DeleteAccountSheetProps
   const [error, setError] = useState<string | null>(null);
 
   const onConfirm = useCallback(async () => {
+    if (!(await requireOwner('Delete your Belay account'))) return;
     setBusy(true);
     setError(null);
     try {

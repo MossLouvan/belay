@@ -23,6 +23,7 @@ import { editDiff, writeDiff } from '../changes/diff-format';
 import { alwaysSectionLabel, approvalHeading, isDanger, previewPath, renderApproval } from './approval-model';
 import { getApprovalsWaiting, subscribeApprovalsWaiting, waitingLabel } from './approval-queue';
 import { countdown, expiryUrgent } from './attention';
+import { requireOwner } from '../security/owner';
 
 /** Tallest the diff / content panel may stand before it scrolls in place. */
 const PREVIEW_MAX_HEIGHT = 260;
@@ -92,8 +93,14 @@ export interface ApprovalCardProps {
 
 const DEFAULT_EXPIRY_LABEL = 'auto-denies in';
 
-export function ApprovalCard({ pending, now, onAnswer, expiryLabel = DEFAULT_EXPIRY_LABEL, stackedCount, compact = false }: ApprovalCardProps) {
+export function ApprovalCard({ pending, now, onAnswer: answerNow, expiryLabel = DEFAULT_EXPIRY_LABEL, stackedCount, compact = false }: ApprovalCardProps) {
   const theme = useTheme();
+  // Every allow — tap, hold, or a scoped "always" — needs the owner's face;
+  // Deny never does. Both Belay and terminal (hook) sessions come through here.
+  const onAnswer = (allow: boolean, choiceId?: string) => {
+    if (!allow) { answerNow(false); return; }
+    void requireOwner('Allow this action on your computer').then((ok) => { if (ok) answerNow(true, choiceId); });
+  };
   const [showInput, setShowInput] = useState(false);
   const [showChoices, setShowChoices] = useState(false);
   // Asks queued behind this one (Claude's parallel tool use). Fed by the
