@@ -441,6 +441,7 @@ function StreamSessionView({ id, onBack }: SessionViewProps) {
                 paddingHorizontal: theme.space.sm,
                 paddingRight: composer.showDismiss ? theme.layout.minTouch : theme.space.sm,
                 paddingVertical: theme.space.sm,
+                fontFamily: theme.font.sans,
                 fontSize: 15,
                 lineHeight: 20,
               }}

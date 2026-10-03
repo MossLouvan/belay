@@ -19,7 +19,7 @@ import type {
   StyleProp,
   ViewStyle,
 } from 'react-native';
-import { getTheme, useTheme } from '../theme';
+import { HUD, getTheme, useTheme } from '../theme';
 import type { Theme } from '../theme';
 import { Banner, Column, Micro, Row, Txt, haptic, useReducedMotion } from '../ui';
 import { KEYS, labelFor } from './model';
@@ -43,27 +43,8 @@ export const NO_BROWSER_GESTURES = { touchAction: 'none', userSelect: 'none' } a
 
 export const FILL = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const;
 
-/**
- * Palette for chrome that floats over a live desktop capture. It cannot borrow
- * the theme's `overlay`: that is tuned to sit on a known app surface, and at
- * 0.45 alpha in light mode a white desktop composites to L≈0.294, which drops
- * #F3F6FC to 2.8:1 and the faint ink to 1.9:1 — both failing AA.
- *
- * These values are fixed instead of themed, and chosen for the worst case
- * backdrop (pure white). Composited: 0.86·(6,8,13) + 0.14·(255,255,255) =
- * (40.9,42.6,46.9), L = 0.0238.
- *   #F3F6FC (L 0.9200) -> (0.9200+0.05)/(0.0238+0.05) = 13.1:1
- *   #AEB9CC (L 0.4806) -> (0.4806+0.05)/(0.0238+0.05) =  7.2:1
- * Against a pure black desktop (the other extreme, L = 0.0021) they are 19.0:1
- * and 10.2:1. Every value in between is bounded by these, so both inks clear
- * WCAG AAA for body text over any frame the host can send, in either theme.
- */
-export const HUD = Object.freeze({
-  scrim: 'rgba(6, 8, 13, 0.86)',
-  ink: '#F3F6FC',
-  inkDim: '#AEB9CC',
-  hairline: 'rgba(243, 246, 252, 0.12)',
-});
+/** Fixed chrome over a live capture; defined with the other tokens in ../theme. */
+export { HUD };
 
 // --- view-drawn glyphs -------------------------------------------------------
 // All built from 2pt bars with borderRadius 1, exactly like `CloseGlyph` in

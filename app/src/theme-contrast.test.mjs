@@ -32,7 +32,7 @@ const AA_TEXT = 4.5;
 const TEXT = ['text', 'textDim', 'textFaint'];
 const BACKDROPS = ['bg', 'surface', 'surfaceAlt'];
 
-for (const name of ['currentPalette', 'fieldworkPalette', 'harbourPalette', 'harbourNightPalette']) {
+for (const name of ['currentPalette', 'currentMachinePalette', 'fieldworkPalette', 'harbourPalette', 'harbourNightPalette']) {
   const p = palette(name);
 
   test(`${name}: text tokens meet AA on every backdrop`, () => {

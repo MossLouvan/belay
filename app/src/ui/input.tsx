@@ -177,7 +177,11 @@ export function Input({
             fontSize: metrics.fontSize,
             lineHeight: metrics.lineHeight,
             paddingVertical: multiline ? 0 : metrics.paddingVertical,
-            fontFamily: mono ? theme.font.mono : undefined,
+            // The look's text face (Nunito under Harbour), not the browser/OS default.
+            fontFamily: mono ? theme.font.mono : theme.font.sans,
+            // The field draws its own focus (hairline + rope); the browser's
+            // blue ring on web would sit off-palette inside it.
+            ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null),
           }}
         />
         {trailing ? <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">{trailing}</View> : null}
