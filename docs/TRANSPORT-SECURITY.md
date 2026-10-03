@@ -19,8 +19,8 @@ ATS exception described below because of that plain-HTTP-over-Tailscale path.
   the `/pair` reply and in `/health`, and is printed as the `Cert` banner line.
   The phone pins it natively (`app/modules/belay-stream/ios/BelayPinModule.swift`:
   a server-trust challenge handler added to React's `RCTHTTPRequestHandler`
-  for fetch/Image/XHR, SocketRocket's `SR_SSLPinnedCertificates` for
-  WebSocket, and react-native-webview's `customCertificatesForHost` for the
+  for fetch/Image/XHR, SocketRocket's `SR_SSLPinnedCertificates` plus a
+  replacement for its pinning policy (upstream's raises) for WebSocket, and react-native-webview's `customCertificatesForHost` for the
   PDF viewer). The desktop pins through Electron's
   `session.setCertificateVerifyProc` (`desktop/src/pins.js`). A pinned host
   presenting any other certificate is refused; unpinned hosts get the

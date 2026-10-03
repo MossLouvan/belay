@@ -198,11 +198,18 @@ final class PinStore {
     }
 
     /// Replace SocketRocket's `-[NSURLRequest SR_SSLPinnedCertificates]` so a
-    /// request to a pinned host pins the cached leaf. SocketRocket then
-    /// disables chain validation and compares DER byte for byte; a pinned host
-    /// with no cached leaf yet gets an empty list, which SocketRocket refuses
-    /// — fail closed, never open.
+    /// request to a pinned host pins the cached leaf. A pinned host with no
+    /// cached leaf yet gets an empty list, which the policy below refuses —
+    /// fail closed, never open.
+    ///
+    /// Only once SocketRocket's pinning policy is replaced: upstream
+    /// `+[SRSecurityPolicy pinnningPolicyWithCertificates:]` is deprecated and
+    /// raises NSInvalidArgumentException unconditionally, and SRWebSocket calls
+    /// it for any non-nil list, so a socket to a pinned host aborted the app.
+    /// Without the policy the getter stays stock: system trust, which refuses
+    /// the self-signed host — still closed.
     private func installSocketRocketPins() {
+        guard installSocketRocketPolicy() else { return }
         let selector = NSSelectorFromString("SR_SSLPinnedCertificates")
         guard let original = class_getInstanceMethod(NSURLRequest.self, selector) else { return }
         let originalImp = method_getImplementation(original)
@@ -220,6 +227,50 @@ final class PinStore {
             return callOriginal(request, selector)
         }
         method_setImplementation(original, imp_implementationWithBlock(unsafeBitCast(block, to: AnyObject.self)))
+    }
+
+    private static var socketPinsKey: UInt8 = 0
+
+    /// `pinnningPolicyWithCertificates:` → a plain SRSecurityPolicy with chain
+    /// validation off (the host is self-signed) carrying the list, and
+    /// `evaluateServerTrust:forDomain:` → for such a policy, accept only a leaf
+    /// whose DER is in the list. Policies without a list keep stock behaviour.
+    private func installSocketRocketPolicy() -> Bool {
+        guard let policyClass = NSClassFromString("SRSecurityPolicy") else { return false }
+        let factorySel = NSSelectorFromString("pinnningPolicyWithCertificates:")
+        let evaluateSel = NSSelectorFromString("evaluateServerTrust:forDomain:")
+        let allocSel = NSSelectorFromString("alloc")
+        let initSel = NSSelectorFromString("initWithCertificateChainValidationEnabled:")
+        guard let factory = class_getClassMethod(policyClass, factorySel),
+              let evaluate = class_getInstanceMethod(policyClass, evaluateSel),
+              let alloc = class_getClassMethod(policyClass, allocSel),
+              let initializer = class_getInstanceMethod(policyClass, initSel) else { return false }
+
+        // alloc returns +1; init consumes it and returns +1 (ARC's init family).
+        typealias Alloc = @convention(c) (AnyClass, Selector) -> Unmanaged<AnyObject>
+        typealias Init = @convention(c) (Unmanaged<AnyObject>, Selector, Bool) -> Unmanaged<AnyObject>?
+        let callAlloc = unsafeBitCast(method_getImplementation(alloc), to: Alloc.self)
+        let callInit = unsafeBitCast(method_getImplementation(initializer), to: Init.self)
+        let makePolicy: @convention(block) (AnyClass, NSArray?) -> AnyObject? = { _, certificates in
+            guard let policy = callInit(callAlloc(policyClass, allocSel), initSel, false)?.takeRetainedValue() else { return nil }
+            objc_setAssociatedObject(policy, &PinStore.socketPinsKey, certificates ?? [] as NSArray, .OBJC_ASSOCIATION_RETAIN)
+            return policy
+        }
+
+        typealias Evaluate = @convention(c) (AnyObject, Selector, SecTrust, NSString?) -> Bool
+        let callEvaluate = unsafeBitCast(method_getImplementation(evaluate), to: Evaluate.self)
+        let evaluateBlock: @convention(block) (AnyObject, SecTrust, NSString?) -> Bool = { policy, trust, domain in
+            guard let pinned = objc_getAssociatedObject(policy, &PinStore.socketPinsKey) as? NSArray else {
+                return callEvaluate(policy, evaluateSel, trust, domain)
+            }
+            guard let leaf = PinStore.leafCertificate(trust) else { return false }
+            let presented = SecCertificateCopyData(leaf) as Data
+            return pinned.contains { SecCertificateCopyData($0 as! SecCertificate) as Data == presented }
+        }
+
+        method_setImplementation(evaluate, imp_implementationWithBlock(unsafeBitCast(evaluateBlock, to: AnyObject.self)))
+        method_setImplementation(factory, imp_implementationWithBlock(unsafeBitCast(makePolicy, to: AnyObject.self)))
+        return true
     }
 }
 
