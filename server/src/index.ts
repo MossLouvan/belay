@@ -40,7 +40,7 @@ import { notifyPairAttempt, notifyDesktopConnect } from './pair-notify.js';
 import { BwpSession, bwpAvailable } from './bwp-stream.js';
 import { createTunnelListener, newStreamSecret } from './tunnel-listener.js';
 import { startTunnel, tunnelAvailable, Tunnel } from './tunnel.js';
-import { AccountsError, fetchAccountsClient } from './accounts-client.js';
+import { AccountsError, fetchAccountsClient, reportPhoneRequest } from './accounts-client.js';
 import { diskLinkStore, linkWithSession, runHostLink } from './host-claim.js';
 import qrcode from 'qrcode-terminal';
 import { createTicketStore } from './tickets.js';
@@ -1114,6 +1114,9 @@ accountPairing.onChange(() => {
   for (const p of pending) {
     if (announcedPending.has(p.id)) continue;
     void native.notify('Belay — add a phone?', `${safeName(p.name)} wants to use this computer. Allow it in Belay or on a phone that is already paired.`, '', 20).catch(() => {});
+    // The owner also gets an email (the accounts service rate-limits it per host).
+    const cred = diskLinkStore().readCredential();
+    if (cred) void reportPhoneRequest(cred, { phoneName: safeName(p.name), matchCode: p.matchCode });
   }
   announcedPending = new Set(pending.map((p) => p.id));
 });
