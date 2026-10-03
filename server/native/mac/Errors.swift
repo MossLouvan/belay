@@ -20,6 +20,7 @@ enum HostErrorCode: String {
     case encode = "E_ENCODE"
     case input = "E_INPUT"
     case internalFailure = "E_INTERNAL"
+    case ownerAuth = "E_OWNER_AUTH"
 }
 
 /// An error with everything the reply needs. `details` is merged into the JSON

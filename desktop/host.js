@@ -27,7 +27,7 @@ import {
 import { GROUND } from './src/ground.js';
 import {
   PHONE_APP_URL, livePairing, loginItemAfterHealth, pairingFromMessage, parsePairing, pendingFromMessage, phonesFromMessage,
-  qrSvg, readHealth, statusLine, firstPhoneState,
+  qrSvg, readHealth, statusLine, firstPhoneState, ownerAuthNotice,
 } from './src/host-status.js';
 import { launchAgentInstalled, stopLaunchAgent } from './src/launch-agent.js';
 
@@ -97,7 +97,7 @@ export function startHost({ openViewer }) {
   let quitting = false;
   let hostWindow = null;
   let tray = null;
-  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, claim: null, linkedTo: null, accountLinked: false, firstPhoneUntil: 0, phones: [], pendingPhones: [], perms: permissions() };
+  let state = { phase: 'starting', port, devices: 0, native: false, paired: false, pairing: null, claim: null, linkedTo: null, accountLinked: false, firstPhoneUntil: 0, phones: [], pendingPhones: [], ownerAuth: null, perms: permissions() };
   const signIn = signInConfig();
   const signInProviders = providers(signIn);
   const phoneAppSvg = qrSvg(qrModules(PHONE_APP_URL));
@@ -215,6 +215,10 @@ export function startHost({ openViewer }) {
     } else if (data.type === 'devices') {
       const { linked, phones, firstPhoneUntil } = phonesFromMessage(data);
       update({ accountLinked: linked, firstPhoneUntil, phones, devices: phones.length, paired: phones.length > 0, pairing: phones.length > state.devices ? null : state.pairing });
+    } else if (data.type === 'owner-auth') {
+      // The host asked for Touch ID or the password before a gated command;
+      // a refusal leaves everything as it was and says "Not approved".
+      update({ ownerAuth: ownerAuthNotice(data) });
     } else if (data.type === 'link-result') {
       linkWaiter?.(data);
     } else if (data.type === 'listening') {
@@ -298,15 +302,19 @@ export function startHost({ openViewer }) {
   });
 
   ipcMain.handle('host:state', () => snapshot());
-  // Account trust: the person is at this computer, so Allow/Deny and Remove go
-  // straight to the host. The ids are checked here and again in the host.
+  // Account trust: Deny and Remove go straight to the host. Allow, "Let a
+  // phone connect" and "Pair another phone" are relayed as-is: the host itself
+  // asks for Touch ID or the Mac password (server/src/app-commands.ts) and only
+  // then acts, so nothing here or in the page can skip it. The ids are checked
+  // here and again in the host.
   ipcMain.handle('host:decidePhone', (_event, { pendingId, allow } = {}) => {
     if (typeof pendingId !== 'string' || !/^[0-9a-f]{32}$/.test(pendingId) || typeof allow !== 'boolean') return false;
     child?.postMessage({ type: 'pair-decide', pendingId, allow });
-    update({ pendingPhones: state.pendingPhones.filter((p) => p.id !== pendingId) });
+    // An Allow stays listed until the host's pair-pending says it is settled.
+    if (!allow) update({ pendingPhones: state.pendingPhones.filter((p) => p.id !== pendingId) });
     return Boolean(child);
   });
-  // "Let a phone connect": reopen the first-phone window for 15 minutes.
+  // "Let a phone connect": reopen the first-phone window for 15 minutes (owner check in the host).
   ipcMain.handle('host:openFirstPhone', () => {
     child?.postMessage({ type: 'open-first-phone' });
     return Boolean(child);

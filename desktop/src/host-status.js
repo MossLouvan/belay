@@ -142,3 +142,14 @@ export function firstPhoneState(state, now) {
   if (state.accountLinked !== true || state.devices !== 0) return 'none';
   return state.firstPhoneUntil > now ? 'open' : 'closed';
 }
+
+/**
+ * The host's answer to a gated command (Allow, "Let a phone connect", "Pair
+ * another phone"): a line for the window when the owner check failed or was
+ * cancelled, null when it passed.
+ */
+export function ownerAuthNotice(msg) {
+  if (msg?.ok === true) return null;
+  const detail = typeof msg?.error === 'string' ? msg.error.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().slice(0, 120) : '';
+  return detail ? `Not approved. ${detail}` : 'Not approved.';
+}

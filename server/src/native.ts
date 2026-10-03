@@ -67,6 +67,8 @@ const NATIVE_DIR = join(__dirname, '..', 'native');
  * precisely during wake-from-sleep when recovery matters most.
  */
 const CALL_TIMEOUT_MS = 15_000;
+/** The owner-auth sheet waits on a person, not the helper. */
+const OWNER_AUTH_TIMEOUT_MS = 120_000;
 
 interface HelperTarget {
   /** Absolute path to the compiled helper for this platform. */
@@ -391,7 +393,7 @@ class NativeHost {
     });
   }
 
-  private send<T = any>(cmd: object): Promise<T> {
+  private send<T = any>(cmd: object, timeoutMs = CALL_TIMEOUT_MS): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       if (!this.proc || !this.ready) { reject(new Error('native host not running')); return; }
       const id = this.nextId++;
@@ -402,7 +404,7 @@ class NativeHost {
       // timer could hold a clean exit open for the full timeout.
       const timer = setTimeout(() => {
         if (this.pending.delete(id)) reject(new Error('native host timeout'));
-      }, CALL_TIMEOUT_MS);
+      }, timeoutMs);
       timer.unref();
 
       const settle: Pending = {
@@ -413,6 +415,14 @@ class NativeHost {
 
       this.proc.stdin.write(JSON.stringify({ id, ...cmd }) + '\n');
     });
+  }
+
+  /**
+   * macOS: Touch ID or the login password (LAContext in the helper). Resolves
+   * only on success; a cancel, a wrong password or no helper rejects.
+   */
+  authOwner(reason: string): Promise<{ ok: true }> {
+    return this.send({ cmd: 'authowner', reason }, OWNER_AUTH_TIMEOUT_MS).then(() => ({ ok: true as const }));
   }
 
   info(): Promise<ScreenInfo> { return this.send<ScreenInfo>({ cmd: 'info' }); }

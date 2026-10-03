@@ -8,6 +8,7 @@
 //   info | capture | move | down | up | click | scroll | key | text | ping
 //   clipboard (get/set — two-way clipboard sync with the phone)
 //   audiostart | audiostop | audiostatus  (driverless system-audio loopback)
+//   authowner  (Touch ID or the login password; replies when the person answers)
 //
 // The loop is single-threaded and synchronous for everything except input.
 // Node writes every command the moment it has it, and the helper answered them
@@ -127,6 +128,7 @@ private func handle(_ command: Command) throws {
     case "h264key": h264.requestKeyframe(); replies.ok(id: command.id)
     case "h264status": replies.ok(id: command.id, h264.status())
     case "ping": replies.ok(id: command.id, ["pong": true])
+    case "authowner": try OwnerAuth.handle(command, replies: replies)
     case "webrtc":
         #if BELAY_WEBRTC_BUILD
         try webrtc.handle(command)
