@@ -9,7 +9,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 
-import { Banner, Button, Caption, Heading, MachinePanel, Row, Txt } from '../ui';
+import { Banner, Button, Caption, Heading, MachinePanel, Txt } from '../ui';
 import { useTheme } from '../theme';
 import { parsePairLink } from './pair-link';
 import type { ParsedPairLink } from './pair-link';
@@ -69,16 +69,16 @@ export function ScanStep<T = ParsedPairLink>({
           Belay needs the camera to read the QR code shown on your computer.
           It is only used while this screen is open.
         </Txt>
-        <Row gap="sm">
-          <View style={{ flex: 1 }}>
-            <Button
-              label={permission.canAskAgain ? 'Allow camera' : 'Open Settings'}
-              fullWidth
-              onPress={() => void requestPermission()}
-            />
-          </View>
-          <Button label={cancelLabel} variant="ghost" onPress={onCancel} />
-        </Row>
+        {/* Stacked: a long cancel label ("Connect by address instead")
+            beside the pill squeezed "Allow camera" to "Allow c…". */}
+        <View style={{ gap: theme.space.xs }}>
+          <Button
+            label={permission.canAskAgain ? 'Allow camera' : 'Open Settings'}
+            fullWidth
+            onPress={() => void requestPermission()}
+          />
+          <Button label={cancelLabel} variant="ghost" fullWidth onPress={onCancel} />
+        </View>
         {!permission.canAskAgain ? (
           <Caption>
             Camera access was declined before, so it has to be re-enabled in iOS

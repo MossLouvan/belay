@@ -155,7 +155,7 @@ export default function Devices() {
         <View style={{ gap: theme.space.md }}>
           <View>
             <Caption style={{ marginBottom: theme.space.sm }}>
-              Current is light and clear. Fieldwork is dark and tactile.
+              Harbour is warm daylight and Night its dark twin. Current is light and clear; Fieldwork is dark and tactile.
             </Caption>
             <ThemeToggle testID="appearance-picker" />
           </View>
