@@ -38,7 +38,9 @@
 //
 // Cursor compositing is done by ScreenCaptureKit itself (`showsCursor`), which
 // is more correct than drawing it ourselves — it gets the right cursor image,
-// hotspot and Retina scale for free.
+// hotspot and Retina scale for free. The one exception is an H.264 stream whose
+// phone draws the pointer itself (PointerWatch.swift): downscaled with the
+// desktop the baked-in pointer is a few pixels, so that stream turns it off.
 
 import CoreGraphics
 import CoreMedia
@@ -62,6 +64,8 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
         let width: Int
         let height: Int
         let fps: Int32
+        /// False only while a phone draws the pointer itself.
+        var showsCursor = true
     }
 
     let displayID: CGDirectDisplayID
@@ -119,7 +123,7 @@ final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate {
         config.width = max(1, output?.width ?? geometry.pixelWidth)
         config.height = max(1, output?.height ?? geometry.pixelHeight)
         config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.showsCursor = true
+        config.showsCursor = output?.showsCursor ?? true
         config.scalesToFit = false
         config.queueDepth = DisplayStream.queueDepth
         config.minimumFrameInterval = CMTime(value: 1, timescale: output?.fps ?? DisplayStream.defaultFramesPerSecond)
@@ -372,8 +376,13 @@ final class CaptureEngine {
     private func ensureStream(for geometry: DisplayGeometry, available: [CGDirectDisplayID: SCDisplay],
                               output: DisplayStream.Output? = nil) throws -> DisplayStream {
         let existing = streams[geometry.id]
+        // The JPEG path takes any size, but not a pointerless picture: once the
+        // H.264 sink that hid the pointer is gone, restart with it back on.
+        var restored = existing?.output
+        let pointerless = output == nil && existing?.currentEncoderSink == nil && restored?.showsCursor == false
+        if pointerless { restored?.showsCursor = true }
         if let existing, existing.isRunning, !existing.isStale(for: geometry), !Self.isStalled(existing),
-           output == nil || output == existing.output {
+           !pointerless, output == nil || output == existing.output {
             return existing
         }
         let inheritedSink = existing?.currentEncoderSink
@@ -383,7 +392,7 @@ final class CaptureEngine {
         }
         let stream = DisplayStream(displayID: geometry.id)
         stream.setEncoderSink(inheritedSink)
-        try stream.start(display: scDisplay, geometry: geometry, output: output ?? existing?.output,
+        try stream.start(display: scDisplay, geometry: geometry, output: output ?? restored,
                          timeout: Self.startTimeout)
         streams[geometry.id] = stream
         return stream

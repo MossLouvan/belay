@@ -48,7 +48,7 @@ private let webrtc = WebRTCVerb(replies: replies, capture: capture, input: input
 private let audio = SystemAudioCapture(replies: replies)
 // H.264 over the screen socket (encode/H264Session.swift): frames leave on
 // file descriptor 3, never on stdout.
-private let h264 = H264Session(capture: capture)
+private let h264 = H264Session(capture: capture, pointer: PointerWatch(push: { replies.push($0) }))
 private let h264FpsRange = 1...120
 
 private func run() {
@@ -244,7 +244,8 @@ private func handleH264Start(_ command: Command) throws {
     let width = try command.int("w", default: defaultCaptureWidth, clampedTo: captureWidthRange)
     let quality = try command.int("q", default: defaultCaptureQuality, clampedTo: captureQualityRange)
     let fps = try command.int("fps", default: 30, clampedTo: h264FpsRange)
-    let geometry = try h264.start(display: try selectedDisplay(command), width: width, fps: fps, quality: quality)
+    let geometry = try h264.start(display: try selectedDisplay(command), width: width, fps: fps, quality: quality,
+                                  drawsPointer: try command.bool("pointer"))
     var payload = H264Session.payload(geometry)
     payload["fps"] = fps
     replies.ok(id: command.id, payload)

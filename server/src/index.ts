@@ -1862,6 +1862,7 @@ function handleScreen(ws: WebSocket, url: URL, peerAddress?: string) {
     ? createH264Relay(ws, () => ({
         width: params.width, quality: params.quality, fps: params.fps, screen: params.screen,
         virtualDisplay: selectCaptureMode(activeReq, virtualUp).virtual !== null,
+        pointer: url.searchParams.get('pointer') === '1',
       }), FRAME_BUFFER_CAP, (g) => { if (g.sw > 0 && g.sh > 0 && !virtualUp) lastAspect = g.sw / g.sh; })
     : null;
   const retuneH264 = (): void => { if (h264?.active) void h264.start(); };

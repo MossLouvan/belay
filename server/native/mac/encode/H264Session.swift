@@ -32,6 +32,7 @@ final class H264Session {
     }
 
     private let capture: CaptureEngine
+    private let pointer: PointerWatch
     private let pipe = FileHandle(fileDescriptor: H264Session.videoPipeDescriptor, closeOnDealloc: false)
     private let writeLock = NSLock()
     private let lock = NSLock()
@@ -44,8 +45,9 @@ final class H264Session {
     private var idleTimer: DispatchSourceTimer?
     private var lastError: String?
 
-    init(capture: CaptureEngine) {
+    init(capture: CaptureEngine, pointer: PointerWatch) {
         self.capture = capture
+        self.pointer = pointer
     }
 
     var isActive: Bool {
@@ -54,9 +56,12 @@ final class H264Session {
     }
 
     /// Start (or retune) the stream. Returns the encoded and source sizes.
-    func start(display: DisplayGeometry, width: Int, fps: Int, quality: Int) throws -> Geometry {
+    /// `drawsPointer`: the phone draws the pointer from PointerWatch's pushes,
+    /// so the frames leave it out.
+    func start(display: DisplayGeometry, width: Int, fps: Int, quality: Int, drawsPointer: Bool = false) throws -> Geometry {
         let geometry = Self.fit(width: width, into: display)
-        let output = DisplayStream.Output(width: geometry.width, height: geometry.height, fps: Int32(fps))
+        let output = DisplayStream.Output(width: geometry.width, height: geometry.height, fps: Int32(fps),
+                                          showsCursor: !drawsPointer)
         lock.lock()
         self.fps = fps
         self.quality = quality
@@ -68,10 +73,12 @@ final class H264Session {
         }
         try rebuildEncoder(for: geometry)
         startIdleTimer()
+        if drawsPointer { pointer.start(bounds: display.bounds) } else { pointer.stop() }
         return geometry
     }
 
     func stop() {
+        pointer.stop()
         capture.detachEncoderSinks()
         lock.lock()
         let old = encoder
@@ -115,11 +122,20 @@ final class H264Session {
     }
 
     /// ponytail: a fixed bitrate ladder from the JPEG quality knob (q 20..90 →
-    /// ~0.06..0.13 bits per pixel per frame). Upgrade to a phone-driven ABR
-    /// setpoint when a congestion signal exists on this socket.
-    private static func bitrate(width: Int, height: Int, fps: Int, quality: Int) -> Int {
+    /// ~0.06..0.13 bits per pixel per frame at 1024x662). Upgrade to a
+    /// phone-driven ABR setpoint when a congestion signal exists on this socket.
+    ///
+    /// Bits per pixel fall with the square root of the pixel count past that
+    /// reference: desktop content is flat areas and sharp edges, and four
+    /// times the pixels of the same windows is nowhere near four times the
+    /// information. Linear scaling asked ~11 Mbps of a phone-sized stream
+    /// that looks the same at ~4.5.
+    static let referencePixels = 1024.0 * 662.0
+    static func bitrate(width: Int, height: Int, fps: Int, quality: Int) -> Int {
+        let pixels = Double(width * height)
         let bitsPerPixel = 0.04 + Double(min(max(quality, 1), 100)) / 100.0 * 0.10
-        return Int(Double(width * height * fps) * bitsPerPixel)
+        let density = pixels > referencePixels ? (referencePixels / pixels).squareRoot() : 1
+        return Int(pixels * Double(fps) * bitsPerPixel * density)
     }
 
     private func rebuildEncoder(for geometry: Geometry) throws {
