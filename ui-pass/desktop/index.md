@@ -1,6 +1,6 @@
 # Belay desktop UI pass: every page in all four looks
 
-Branch ui/desktop-pass. Rendered from desktop/renderer in Chromium with the preload bridges mocked (connect 720x612, host 480x828 content size = the default windows minus the title bar). Inventory ids (H = host window, V = connect/viewer, D = display, S = seamless) match the PR.
+Branch ui/desktop-pass. Rendered from desktop/renderer in Chromium with the preload bridges mocked (connect 720x612, host 480x828 content size = the default windows minus the title bar). Halo fix (re-shot): the connect hero's glow now sits fully above the heading, with a measured 16px gap in every V shot, including the narrow 560px and 480px windows (V10, V11). Inventory ids (H = host window, V = connect/viewer, D = display, S = seamless) match the PR.
 
 The electron/ folder holds the real unsigned Electron app driven over CDP: the picker switching looks in the connect window and the host window following live.
 
@@ -40,6 +40,8 @@ The electron/ folder holds the real unsigned Electron app driven over CDP: the p
 | V08-paired-scrolled | ![harbour](harbour/V08-paired-scrolled.png) | ![night](night/V08-paired-scrolled.png) | ![current](current/V08-paired-scrolled.png) | ![fieldwork](fieldwork/V08-paired-scrolled.png) |
 | V08-paired | ![harbour](harbour/V08-paired.png) | ![night](night/V08-paired.png) | ![current](current/V08-paired.png) | ![fieldwork](fieldwork/V08-paired.png) |
 | V09-paired-no-virtual-scrolled | ![harbour](harbour/V09-paired-no-virtual-scrolled.png) | ![night](night/V09-paired-no-virtual-scrolled.png) | ![current](current/V09-paired-no-virtual-scrolled.png) | ![fieldwork](fieldwork/V09-paired-no-virtual-scrolled.png) |
+| V10-narrow-560 | ![harbour](harbour/V10-narrow-560.png) | ![night](night/V10-narrow-560.png) | ![current](current/V10-narrow-560.png) | ![fieldwork](fieldwork/V10-narrow-560.png) |
+| V11-narrow-480 | ![harbour](harbour/V11-narrow-480.png) | ![night](night/V11-narrow-480.png) | ![current](current/V11-narrow-480.png) | ![fieldwork](fieldwork/V11-narrow-480.png) |
 | V09-paired-no-virtual | ![harbour](harbour/V09-paired-no-virtual.png) | ![night](night/V09-paired-no-virtual.png) | ![current](current/V09-paired-no-virtual.png) | ![fieldwork](fieldwork/V09-paired-no-virtual.png) |
 
 ## Real Electron
