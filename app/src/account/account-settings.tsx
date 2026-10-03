@@ -1,12 +1,15 @@
 // The account rows in the computers list's Options sheet, and the Delete
 // Account confirmation. Deleting is DELETE /me — the account, its devices and
 // sessions go on the server (App Store 5.1.1(v)) — then every local trace.
+// Sign out everywhere ends every session on the account (the "Not you?" step
+// in the security emails); the Security emails toggle is PATCH /me.
 
 import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
 
-import { Button, Caption, Label, Row, Rule, Sheet, Txt, haptic } from '../ui';
+import { Button, Caption, Label, Row, Rule, SegmentedControl, Sheet, Txt, haptic } from '../ui';
+import type { SegmentOption } from '../ui';
 import { useTheme } from '../theme';
 import { errorMessage } from '../connect/pair-flow';
 import { useConnection } from '../connection';
@@ -19,10 +22,43 @@ export interface AccountRowsProps {
   readonly onRequestDelete: () => void;
 }
 
-/** Who is signed in, with Sign out and Delete account — or Sign in when nobody is. */
+const ON_OFF: readonly SegmentOption<'on' | 'off'>[] = [
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+];
+
+/** Who is signed in, with Sign out (here or everywhere), security emails and Delete account — or Sign in when nobody is. */
 export function AccountRows({ onLeave, onRequestDelete }: AccountRowsProps) {
   const theme = useTheme();
-  const { account, signOut } = useAccount();
+  const { account, signOut, signOutEverywhere, setSecurityEmails } = useAccount();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onSignOutEverywhere = useCallback(async () => {
+    haptic('light');
+    setBusy(true);
+    setError(null);
+    try {
+      await signOutEverywhere();
+      onLeave();
+      router.replace('/');
+    } catch (e: unknown) {
+      haptic('error');
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [signOutEverywhere, onLeave]);
+
+  const onSecurityEmails = useCallback(async (next: 'on' | 'off') => {
+    setError(null);
+    try {
+      await setSecurityEmails(next === 'on');
+    } catch (e: unknown) {
+      haptic('error');
+      setError(errorMessage(e));
+    }
+  }, [setSecurityEmails]);
 
   const onSignOut = useCallback(async () => {
     haptic('light');
@@ -51,12 +87,24 @@ export function AccountRows({ onLeave, onRequestDelete }: AccountRowsProps) {
       <Txt variant="mono" testID="account-email">{account.email ?? 'Signed in'}</Txt>
       <Row gap="sm">
         <View style={{ flex: 1 }}>
-          <Button label="Sign out" testID="sign-out" variant="secondary" fullWidth onPress={() => void onSignOut()} />
+          <Button label="Sign out" testID="sign-out" variant="secondary" fullWidth disabled={busy} onPress={() => void onSignOut()} />
         </View>
         <View style={{ flex: 1 }}>
-          <Button label="Delete account" testID="delete-account" variant="ghost" fullWidth onPress={() => { onLeave(); onRequestDelete(); }} />
+          <Button label="Sign out everywhere" testID="sign-out-everywhere" variant="secondary" fullWidth loading={busy} onPress={() => void onSignOutEverywhere()} />
         </View>
       </Row>
+      <Caption>Security emails: a message to {account.email ?? 'your address'} when a phone or computer is added, someone signs in, or a phone asks for approval.</Caption>
+      <SegmentedControl
+        options={ON_OFF}
+        value={account.securityEmails === false ? 'off' : 'on'}
+        onChange={(next) => void onSecurityEmails(next)}
+        accessibilityLabel="Security emails"
+        role="radio"
+        disabled={!account.email}
+        testID="security-emails"
+      />
+      {error ? <Txt variant="caption" tone="bad" testID="account-error">{error}</Txt> : null}
+      <Button label="Delete account" testID="delete-account" variant="ghost" fullWidth disabled={busy} onPress={() => { onLeave(); onRequestDelete(); }} />
     </View>
   );
 }

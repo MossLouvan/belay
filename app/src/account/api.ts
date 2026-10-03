@@ -19,6 +19,8 @@ export interface Account {
   readonly email: string | null;
   /** ISO date. */
   readonly createdAt?: string;
+  /** Security alert emails (new sign-in, phone, computer, approval request). Absent = on. */
+  readonly securityEmails?: boolean;
 }
 
 export interface AccountDevice {
@@ -93,6 +95,10 @@ export interface AccountsApi {
   me(): Promise<Account>;
   /** Deletes the session server-side. */
   logout(): Promise<void>;
+  /** Sign out everywhere: every session of the account, this one included. */
+  revokeAllSessions(): Promise<void>;
+  /** PATCH /me {securityEmails}; returns the updated account. */
+  setSecurityEmails(on: boolean): Promise<Account>;
   deleteMe(): Promise<void>;
   /** Upserts by nodeId on the server, so calling it again is harmless. */
   registerPhone(name: string, nodeId: string, platform?: string): Promise<AccountDevice>;
@@ -156,6 +162,8 @@ export function createAccountsApi(deps: AccountsDeps): AccountsApi {
     signInGoogle: (idToken) => call('POST', '/auth/google', { body: { idToken } }),
     me: async () => (await call<{ account: Account }>('GET', '/me', { auth: true })).account,
     logout: () => call('POST', '/auth/logout', { auth: true }),
+    revokeAllSessions: () => call('POST', '/me/sessions/revoke-all', { auth: true }),
+    setSecurityEmails: async (on) => (await call<{ account: Account }>('PATCH', '/me', { auth: true, body: { securityEmails: on } })).account,
     deleteMe: () => call('DELETE', '/me', { auth: true }),
     registerPhone: async (name, nodeId, platform) =>
       (await call<{ device: AccountDevice }>('POST', '/devices', { auth: true, body: { kind: 'phone', name, nodeId, ...(platform ? { platform } : {}) } })).device,
