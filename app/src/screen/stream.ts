@@ -610,7 +610,12 @@ export function useScreenStream(
       // The host's real pointer (./host-pointer) — only while H.264 is live,
       // since JPEG frames carry the macOS pointer baked in.
       const pointer = parsePointerMessage(event.data);
-      if (pointer) { if (h264Live.current) applyPointer(pointer); return; }
+      if (pointer) {
+        if (!h264Live.current) return;
+        if (pointer.cursor) nativeStream.trace(`pointer shape ${pointer.cursor.w}x${pointer.cursor.h} at ${pointer.x.toFixed(3)},${pointer.y.toFixed(3)}`);
+        applyPointer(pointer);
+        return;
+      }
       // BWP messages first: while the stream is up the host sends no frames at
       // all, so falling through to the frame parser would only ever fail.
       const bwpMsg = parseBwpMessage(event.data);
