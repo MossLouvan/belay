@@ -5,8 +5,8 @@ import { emailCode, sha256Hex } from '../crypto.js';
 import { EMAIL_CODE_MAX_ATTEMPTS, EMAIL_CODE_REUSE_MS, EMAIL_CODE_TTL_MS, type Env } from '../env.js';
 import { HttpError, clientIp, json, noContent, readJson, requireEmail, requireString } from '../http.js';
 import { LIMITS, enforceLimit } from '../rate-limit.js';
-
-const RESEND_URL = 'https://api.resend.com/emails';
+import { postResend } from '../resend.js';
+import { sendSecurityEmail } from '../security-email.js';
 
 const codeHash = (email: string, code: string): Promise<string> => sha256Hex(`${email}:${code}`);
 
@@ -15,15 +15,10 @@ const isReviewer = (env: Env, email: string): boolean =>
 
 async function sendCode(env: Env, email: string, code: string): Promise<void> {
   if (!env.RESEND_API_KEY) throw new HttpError(500, 'misconfigured', 'RESEND_API_KEY is not set');
-  const res = await fetch(RESEND_URL, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      from: env.EMAIL_FROM,
-      to: [email],
-      subject: `${code} is your Belay sign-in code`,
-      text: `Your Belay sign-in code is ${code}. It expires in 10 minutes.\n\nIf you did not request this, ignore this email.`,
-    }),
+  const res = await postResend(env, {
+    to: email,
+    subject: `${code} is your Belay sign-in code`,
+    text: `Your Belay sign-in code is ${code}. It expires in 10 minutes.\n\nIf you did not request this, ignore this email.`,
   });
   if (!res.ok) {
     console.error('resend failed', res.status, await res.text().catch(() => ''));
@@ -81,5 +76,6 @@ export async function emailVerify(req: Request, env: Env): Promise<Response> {
   await checkCode(env, email, code);
   const account = await findOrCreateAccount(env.DB, 'email', email, email);
   const session = await createSession(env.DB, account.id);
+  await sendSecurityEmail(env, req, account, { kind: 'sign-in', method: 'email' });
   return json({ session, account: accountJson(account) });
 }

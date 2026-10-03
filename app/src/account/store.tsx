@@ -1,5 +1,6 @@
 // App-wide account state: the stored session, the account's device list, and
-// the three things a screen can ask for — sign in, sign out, delete.
+// what a screen can ask for — sign in, sign out (here or everywhere), delete,
+// and the security-emails setting.
 //
 // The session credential never leaves session.ts except as the bearer the
 // API client reads through `session()`; screens see only `account`.
@@ -30,6 +31,10 @@ interface Ctx {
   /** Store a fresh session from any of the three sign-in routes. */
   signIn: (result: SessionResult) => Promise<void>;
   signOut: () => Promise<void>;
+  /** POST /me/sessions/revoke-all, then forget locally. Throws when the server could not be reached. */
+  signOutEverywhere: () => Promise<void>;
+  /** PATCH /me {securityEmails}; the stored account follows. */
+  setSecurityEmails: (on: boolean) => Promise<void>;
   /** DELETE /devices/:id — unlinks a computer from the account. */
   removeDevice: (id: string) => Promise<void>;
   /** DELETE /me, then forget everything local. */
@@ -40,7 +45,7 @@ interface Ctx {
 const noop = async () => undefined;
 const AccountContext = createContext<Ctx>({
   ready: false, account: null, devices: [], api: createAccountsApi({ session: () => null }),
-  signIn: noop, signOut: noop, removeDevice: noop, deleteAccount: noop, refreshDevices: noop,
+  signIn: noop, signOut: noop, signOutEverywhere: noop, setSecurityEmails: noop, removeDevice: noop, deleteAccount: noop, refreshDevices: noop,
 });
 
 export function AccountProvider({ children }: { children: React.ReactNode }) {
@@ -112,6 +117,24 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     await forgetLocally();
   }, [api, forgetLocally]);
 
+  /** Unlike signOut, a failure is reported: "everywhere" must not be pretended. A dead session is already signed out. */
+  const signOutEverywhere = useCallback(async () => {
+    try {
+      await api.revokeAllSessions();
+    } catch (e: unknown) {
+      if (!(e instanceof AccountsError && e.code === 'unauthorized')) throw e;
+    }
+    await forgetLocally();
+  }, [api, forgetLocally]);
+
+  // ponytail: the toggle shows what this phone last saw; a change made on
+  // another phone appears after the next sign-in. Refresh via GET /me if that matters.
+  const setSecurityEmails = useCallback(async (on: boolean) => {
+    const updated = await api.setSecurityEmails(on);
+    setAccount(updated);
+    if (sessionRef.current) await saveSession({ session: sessionRef.current, account: updated });
+  }, [api]);
+
   const removeDevice = useCallback(async (id: string) => {
     await api.removeDevice(id);
     await refreshDevices();
@@ -123,8 +146,8 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
   }, [api, forgetLocally]);
 
   const value = useMemo<Ctx>(() => ({
-    ready, account, devices, api, signIn, signOut, removeDevice, deleteAccount, refreshDevices,
-  }), [ready, account, devices, api, signIn, signOut, removeDevice, deleteAccount, refreshDevices]);
+    ready, account, devices, api, signIn, signOut, signOutEverywhere, setSecurityEmails, removeDevice, deleteAccount, refreshDevices,
+  }), [ready, account, devices, api, signIn, signOut, signOutEverywhere, setSecurityEmails, removeDevice, deleteAccount, refreshDevices]);
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
 }

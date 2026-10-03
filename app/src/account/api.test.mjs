@@ -100,6 +100,20 @@ test('register phone, accept claim and delete account use the contract paths', a
   assert.equal(calls[4].init.headers.authorization, `Bearer ${SESSION}`);
 });
 
+test('sign out everywhere and the security-emails toggle use the contract paths', async () => {
+  const account = { id: 'a1', email: 'a@b.c', securityEmails: false };
+  const { fetch, calls } = mockFetch({ status: 204 }, { body: { account } });
+  const a = api(fetch);
+  await a.revokeAllSessions();
+  assert.equal(calls[0].url, `${DEFAULT_ACCOUNTS_URL}/me/sessions/revoke-all`);
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.headers.authorization, `Bearer ${SESSION}`);
+  assert.deepEqual(await a.setSecurityEmails(false), account);
+  assert.equal(calls[1].url, `${DEFAULT_ACCOUNTS_URL}/me`);
+  assert.equal(calls[1].init.method, 'PATCH');
+  assert.deepEqual(calls[1].body, { securityEmails: false });
+});
+
 test('accepting a claim: 409 is "already linked", 404 is one friendly message for any bad code', async () => {
   const { fetch } = mockFetch(
     { status: 409, body: { error: 'already linked', code: 'device_exists' } },

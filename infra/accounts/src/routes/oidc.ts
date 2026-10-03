@@ -6,6 +6,7 @@ import { NONCE_TTL_MS, splitList, type Env } from '../env.js';
 import { HttpError, clientIp, json, readJson, requireString } from '../http.js';
 import { verifyIdToken, type IdTokenClaims } from '../jwt.js';
 import { LIMITS, enforceLimit } from '../rate-limit.js';
+import { sendSecurityEmail } from '../security-email.js';
 
 export const APPLE = { jwksUrl: 'https://appleid.apple.com/auth/keys', issuers: ['https://appleid.apple.com'] } as const;
 export const GOOGLE = {
@@ -20,9 +21,10 @@ const verifiedEmail = (claims: IdTokenClaims): string | null => {
   return verified && typeof claims.email === 'string' ? claims.email.toLowerCase() : null;
 };
 
-async function signIn(env: Env, provider: 'apple' | 'google', claims: IdTokenClaims): Promise<Response> {
+async function signIn(req: Request, env: Env, provider: 'apple' | 'google', claims: IdTokenClaims): Promise<Response> {
   const account = await findOrCreateAccount(env.DB, provider, claims.sub, verifiedEmail(claims));
   const session = await createSession(env.DB, account.id);
+  await sendSecurityEmail(env, req, account, { kind: 'sign-in', method: provider });
   return json({ session, account: accountJson(account) });
 }
 
@@ -51,7 +53,7 @@ export async function appleAuth(req: Request, env: Env): Promise<Response> {
   const claims = await verifyIdToken(identityToken, { ...APPLE, audiences: splitList(env.APPLE_AUDIENCE) });
   if (claims.nonce !== (await sha256Hex(nonce))) throw new HttpError(401, 'invalid_token', 'nonce mismatch');
   await consumeNonce(env, nonce);
-  return signIn(env, 'apple', claims);
+  return signIn(req, env, 'apple', claims);
 }
 
 /** Google has no nonce in the native flow; remember accepted tokens until they expire. */
@@ -71,5 +73,5 @@ export async function googleAuth(req: Request, env: Env): Promise<Response> {
   if (audiences.length === 0) throw new HttpError(500, 'misconfigured', 'GOOGLE_AUDIENCES is not set');
   const claims = await verifyIdToken(idToken, { ...GOOGLE, audiences });
   await rejectReplay(env, idToken, claims);
-  return signIn(env, 'google', claims);
+  return signIn(req, env, 'google', claims);
 }

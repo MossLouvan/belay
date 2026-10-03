@@ -21,12 +21,14 @@ npm run dev       # wrangler dev, local D1 (run migrate:local first)
 | `src/auth.ts` | sessions (90 d sliding), host credentials, account lookup/linking |
 | `src/jwt.ts` | Apple/Google ID-token verification via WebCrypto + cached JWKS |
 | `src/rate-limit.ts` | fixed-window counter in D1 (per IP, per email) |
+| `src/security-email.ts` | security alert emails (new sign-in, phone, computer, phone approval request) |
+| `src/resend.ts` | the one Resend `fetch` |
 | `migrations/` | D1 schema |
 
 ## Auth headers
 
 - Session routes (incl. `POST /auth/logout`): `Authorization: Bearer <session>`
-- `POST /hosts/heartbeat`: `Authorization: Bearer <hostCredential>`
+- `POST /hosts/heartbeat`, `POST /hosts/events`: `Authorization: Bearer <hostCredential>`
 - `POST /hosts/link`: `Authorization: Bearer <session>` (a signed-in computer links itself; returns `hostCredential` once)
 - `GET /claims/:code`: `X-Host-Secret: <hostSecret>`
 
@@ -81,4 +83,9 @@ followed by `npm run migrate`.
   and 10 verifies per email+IP per 10 min, 10 claim accepts per account per
   10 min. The counter is a fixed window in D1. A code younger than 2 min is
   kept rather than overwritten by a new start request.
-- Sessions: 90 d sliding, 365 d absolute; `POST /auth/logout` revokes one.
+- Sessions: 90 d sliding, 365 d absolute; `POST /auth/logout` revokes one,
+  `POST /me/sessions/revoke-all` revokes all of them.
+- Security emails (`src/security-email.ts`, opt-out `PATCH /me {securityEmails}`):
+  sign-in at most 1 per 10 min per account, phone-request 1 per 10 min per
+  host, new phone/computer 5 per 10 min per account. A failed send is logged,
+  never returned to the caller.

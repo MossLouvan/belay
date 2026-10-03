@@ -4,11 +4,21 @@ import type { Env } from '../src/env.js';
 import { claimMessage } from '../src/routes/claims.js';
 import { fakeD1 } from './fake-d1.js';
 
+// No test reaches the network: Resend calls made outside mockResend() are
+// swallowed (the security-email paths fire on many routes), anything else throws.
+globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  if (url.startsWith('https://api.resend.com/')) return new Response('{"id":"x"}');
+  throw new Error(`unexpected fetch ${url}`);
+}) as typeof fetch;
+
 export interface CallOptions {
   readonly body?: unknown;
   readonly token?: string;
   readonly headers?: Record<string, string>;
   readonly ip?: string;
+  /** Cloudflare's request.cf (city/country), absent in Node unless set here. */
+  readonly cf?: Record<string, string>;
 }
 
 export function app(overrides: Partial<Env> = {}) {
@@ -34,6 +44,7 @@ export function app(overrides: Partial<Env> = {}) {
       headers,
       body: opts.body !== undefined ? (typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)) : undefined,
     });
+    if (opts.cf) Object.defineProperty(req, 'cf', { value: opts.cf });
     const res = await handle(req, env);
     const text = await res.text();
     return { status: res.status, body: text ? JSON.parse(text) : null };
@@ -42,18 +53,34 @@ export function app(overrides: Partial<Env> = {}) {
   return { env, call };
 }
 
-/** Replaces global fetch, capturing Resend sends; returns the sent codes. */
-export function mockResend(status = 200): { codes: string[]; restore: () => void } {
+export interface SentEmail {
+  readonly to: string[];
+  readonly subject: string;
+  readonly text: string;
+  readonly html?: string;
+}
+
+/**
+ * Replaces global fetch, capturing Resend sends. `codes` are the sign-in
+ * codes only; `alerts` are the security emails; `sent` is everything.
+ * `status` 0 makes fetch itself throw (network failure).
+ */
+export function mockResend(status = 200): { codes: string[]; alerts: SentEmail[]; sent: SentEmail[]; restore: () => void } {
   const codes: string[] = [];
+  const alerts: SentEmail[] = [];
+  const sent: SentEmail[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (!url.startsWith('https://api.resend.com/')) throw new Error(`unexpected fetch ${url}`);
-    const sent = JSON.parse(String(init?.body)) as { subject: string };
-    codes.push(sent.subject.slice(0, 6));
+    const mail = JSON.parse(String(init?.body)) as SentEmail;
+    sent.push(mail);
+    if (/^\d{6} is your Belay sign-in code$/.test(mail.subject)) codes.push(mail.subject.slice(0, 6));
+    else alerts.push(mail);
+    if (status === 0) throw new TypeError('network down');
     return new Response(status === 200 ? '{"id":"x"}' : 'nope', { status });
   }) as typeof fetch;
-  return { codes, restore: () => (globalThis.fetch = original) };
+  return { codes, alerts, sent, restore: () => (globalThis.fetch = original) };
 }
 
 /** An iroh-style node: Ed25519 keypair, nodeId = 64 lowercase hex chars. */

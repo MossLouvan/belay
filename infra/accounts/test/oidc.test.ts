@@ -21,10 +21,17 @@ async function sign(payload: Record<string, unknown>): Promise<string> {
 }
 
 const originalFetch = globalThis.fetch;
+/** Security alert recipients seen this test. */
+let alertedTo: string[][] = [];
 beforeEach(() => {
   clearJwksCache();
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  alertedTo = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
+    if (url.startsWith('https://api.resend.com/')) {
+      alertedTo.push((JSON.parse(String(init?.body)) as { to: string[] }).to);
+      return new Response('{"id":"x"}');
+    }
     assert.ok(url === APPLE.jwksUrl || url === GOOGLE.jwksUrl, `unexpected fetch ${url}`);
     return new Response(JSON.stringify({ keys: [jwk] }));
   }) as typeof fetch;
@@ -41,6 +48,7 @@ test('apple: verifies token + nonce, creates an account, then signs the same acc
   const first = await a.call('POST', '/v1/auth/apple', { body: { identityToken, nonce } });
   assert.equal(first.status, 200);
   assert.equal(first.body.account.email, 'a@privaterelay.appleid.com');
+  assert.deepEqual(alertedTo, [['a@privaterelay.appleid.com']], 'the sign-in alert goes to the private relay address');
 
   // M1: the nonce is single-use, so the same token+nonce cannot be replayed
   const replay = await a.call('POST', '/v1/auth/apple', { body: { identityToken, nonce } });

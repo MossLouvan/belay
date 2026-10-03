@@ -151,3 +151,28 @@ export function fetchAccountsClient(baseUrl: string = accountsUrl()): AccountsCl
       parseLink(await call(`${baseUrl}/hosts/link`, { method: 'POST', body: JSON.stringify(body), headers: { authorization: `Bearer ${session}` } })),
   };
 }
+
+/**
+ * POST /hosts/events: tell the accounts service a phone is waiting for
+ * approval here, so it can email the owner (it decides whether and how
+ * often). Best effort: false on any failure, never throws, never blocks
+ * the pairing flow.
+ */
+export async function reportPhoneRequest(
+  hostCredential: string,
+  event: { readonly phoneName: string; readonly matchCode: string },
+  baseUrl: string = accountsUrl(),
+): Promise<boolean> {
+  try {
+    await call(`${baseUrl}/hosts/events`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'phone-request', ...event }),
+      headers: { authorization: `Bearer ${hostCredential}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    return true;
+  } catch (e) {
+    console.warn(`[accounts] phone-request event not sent: ${e instanceof Error ? e.message : String(e)}`);
+    return false;
+  }
+}

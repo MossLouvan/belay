@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseHeartbeat, parseLink, parsePoll } from '../src/accounts-client.js';
+import { parseHeartbeat, parseLink, parsePoll, reportPhoneRequest } from '../src/accounts-client.js';
 
 const ID = 'ab'.repeat(32);
 
@@ -48,4 +48,27 @@ test('parseLink needs a hostCredential and keeps the masked linkedBy', () => {
   assert.deepEqual(parseLink({ hostCredential: cred, linkedBy: null }), { hostCredential: cred });
   assert.throws(() => parseLink({}), /hostCredential/);
   assert.throws(() => parseLink({ hostCredential: 'has space' }), /hostCredential/);
+});
+
+test('reportPhoneRequest posts the phone-request event with the host credential, and never throws', async () => {
+  const original = globalThis.fetch;
+  const calls: { url: string; init: RequestInit }[] = [];
+  try {
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+    assert.equal(await reportPhoneRequest('cred-1', { phoneName: 'Pixel', matchCode: 'K7QX' }, 'https://api.test/v1'), true);
+    assert.equal(calls[0].url, 'https://api.test/v1/hosts/events');
+    assert.equal(calls[0].init.method, 'POST');
+    assert.equal((calls[0].init.headers as Record<string, string>).authorization, 'Bearer cred-1');
+    assert.deepEqual(JSON.parse(String(calls[0].init.body)), { type: 'phone-request', phoneName: 'Pixel', matchCode: 'K7QX' });
+
+    globalThis.fetch = (async () => new Response('{"error":"nope","code":"unauthorized"}', { status: 401 })) as typeof fetch;
+    assert.equal(await reportPhoneRequest('cred-1', { phoneName: 'Pixel', matchCode: 'K7QX' }, 'https://api.test/v1'), false);
+    globalThis.fetch = (async () => { throw new TypeError('offline'); }) as typeof fetch;
+    assert.equal(await reportPhoneRequest('cred-1', { phoneName: 'Pixel', matchCode: 'K7QX' }, 'https://api.test/v1'), false);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

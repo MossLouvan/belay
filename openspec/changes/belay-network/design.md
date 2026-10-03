@@ -10,6 +10,8 @@
 | POST | /auth/google | none | `{idToken}` → `{session, account}`. JWKS-verified; aud = our client ids; each token is accepted once (sha256 kept until exp) |
 | POST | /auth/logout | session | `{}` → 204. Deletes this session |
 | GET | /me | session | → `{account}` |
+| PATCH | /me | session | `{securityEmails: boolean}` → `{account}`. The per-account switch for security emails (default on) |
+| POST | /me/sessions/revoke-all | session | `{}` → 204. Sign out everywhere: deletes every session of the account, the caller's included. Linked computers (host credentials) and registered phones stay; removing those is `DELETE /devices/:id` |
 | DELETE | /me | session | → 204. Deletes the account, devices and sessions (App Store 5.1.1(v)) |
 | POST | /devices | session | `{kind:'phone', name, nodeId}` → `{device}` (registers this phone's tunnel identity) |
 | GET | /devices | session | → `{devices:[{id, kind, name, platform, nodeId, lastSeenAt}]}` |
@@ -18,14 +20,25 @@
 | POST | /claims/:code/accept | session | phone → `{device}` (links the host to the account). 404 for unknown, expired OR already-taken codes; 409 `device_exists` if the account already has a host with that nodeId and a live credential (DELETE /devices/:id first). Limited 10/10 min per account |
 | GET | /claims/:code | `X-Host-Secret` | host polls → `{status:'pending'|'claimed'|'expired', claimedBy?, hostCredential?}`. `claimedBy` = masked email of the linking account (`us***@example.com`) |
 | POST | /hosts/heartbeat | host credential | `{}` → `{allowedNodeIds:[...phone nodeIds on the account], relayUrls:[...], phones:[{nodeId, platform, createdAt}]}`. `phones` is display metadata for the host's "Allow this phone?" prompt only; admission is `allowedNodeIds` alone |
+| POST | /hosts/events | host credential | `{type:'phone-request', phoneName (≤100), matchCode (4 chars of the host's match alphabet)}` → 204. The host reports a pending account-pair request so the owner is emailed. 204 whether or not an email goes out (opt-out, no address, rate limit) |
 | POST | /hosts/link | session | computer signed in to the account links itself, no QR: `{nodeId, name, platform, ts, sig}` (same proof of possession as POST /claims) → `{device, hostCredential, linkedBy}`. `hostCredential` is returned ONCE (only its hash is stored); `linkedBy` = masked email. 409 `device_exists` if the account already has a host with that nodeId and a live credential; a half-linked row (claim accepted, never polled) is replaced. Limited 60/min per IP and 10/10 min per account |
 
 - Session and host credentials: 32 random bytes base64url, stored SHA-256 hashed in D1, shown once. Sessions last 90 days with sliding expiry and an absolute maximum of 365 days from creation.
 - `nodeId` encoding everywhere in this API: the 32-byte Ed25519 public key as exactly 64 lowercase hex chars (iroh's `NodeId` `Display`). Base32 is not accepted; clients must use the hex form.
-- Auth headers (clarification, 2026-10-02): `session` and `host credential` rows both use `Authorization: Bearer <token>`; `GET /claims/:code` uses `X-Host-Secret`. `POST /devices` also accepts an optional `platform` (defaults to `unknown`) and upserts by `nodeId`. The host credential is returned by the FIRST `GET /claims/:code` after acceptance only; later polls return `{status:'claimed'}` without it. Account JSON is `{id, email|null, createdAt}`.
+- Auth headers (clarification, 2026-10-02): `session` and `host credential` rows both use `Authorization: Bearer <token>`; `GET /claims/:code` uses `X-Host-Secret`. `POST /devices` also accepts an optional `platform` (defaults to `unknown`) and upserts by `nodeId`. The host credential is returned by the FIRST `GET /claims/:code` after acceptance only; later polls return `{status:'claimed'}` without it. Account JSON is `{id, email|null, createdAt, securityEmails}`.
 - Claim QR payload: `belay://claim?c=<code>&n=<nodeId>`. The phone checks that the nodeId it later dials equals the claimed one.
 - Reviewer: env `REVIEW_EMAIL` + `REVIEW_CODE` (secret) accepts a fixed code for that one address.
 - Secrets only via `wrangler secret`; none in the repo. Rate limiting on every unauthenticated route.
+
+### Security emails (2026-10-03)
+The owner hears about every change to who can reach their computers, by email, quickly.
+- Sent on: a sign-in (email code, Apple, Google; every sign-in, since sign-in requests carry no device identity, limited to one email per 10 min per account), a new phone (`POST /devices` that inserts; a re-registration of the same nodeId does not), a new computer (claim accept or `/hosts/link`), and a pending account-pair request (`POST /hosts/events`, sent by the host when a request is created; one email per 10 min per host). New phone/computer emails are capped at 5 per 10 min per account.
+- To the account's stored email only, Apple private relay addresses included. Accounts with no email get nothing. `securityEmails` off (`PATCH /me`) stops all of them; switching it off sends one last email saying so, so a stolen session cannot silence the alerts unnoticed.
+- Content: plain text and a simple HTML part, "Belay" as text (no remote images). What happened, when (UTC), which device (name and platform; for a sign-in, a User-Agent guess such as "iPhone"), and an approximate location ONLY from Cloudflare's `request.cf` city/country, used for this email and never stored. The phone-request email omits location (the request comes from the computer) and shows the match code.
+- "Not you?": a link to `https://gobelay.com/security`, a static help page (remove the device in the app, then Sign out everywhere). No link in an email performs an action; every destructive step needs a signed-in session in the app (`DELETE /devices/:id`, `POST /me/sessions/revoke-all`).
+- Names are user-chosen: control characters stripped, clamped, HTML-escaped.
+- Failures never block the user action: the Resend call has a 5 s timeout, errors are logged (`console.error`), the route answers as usual. The host's `/hosts/events` call is fire-and-forget.
+- The app's Account section has Sign out, Sign out everywhere, and a Security emails On/Off switch.
 
 ### Tunnel
 - Each device has a persistent tunnel keypair. The host keeps it at `~/.belay/net-key` (0600). The phone keeps it in the iOS Keychain or Android Keystore, passed into FFI.

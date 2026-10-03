@@ -21,13 +21,24 @@ export const LIMITS = {
   emailStart: { max: 5, windowMs: 10 * 60_000 },
   emailVerify: { max: 10, windowMs: 10 * 60_000 },
   claimAccept: { max: 10, windowMs: 10 * 60_000 },
+  // Security alert emails (security-email.ts): a sign-in alert at most once
+  // per 10 min per account, a phone-request alert once per 10 min per host,
+  // and new-device alerts capped so a stolen session cannot flood the inbox.
+  alertSignIn: { max: 1, windowMs: 10 * 60_000 },
+  alertHostEvent: { max: 1, windowMs: 10 * 60_000 },
+  alertDevice: { max: 5, windowMs: 10 * 60_000 },
 } as const satisfies Record<string, Limit>;
+
+/** Counts a hit on `key`; false once it exceeds `limit.max` in the current window. */
+export async function withinLimit(db: D1Database, key: string, limit: Limit, now = Date.now()): Promise<boolean> {
+  const windowStart = now - (now % limit.windowMs);
+  const count = await db.prepare(UPSERT).bind(key, windowStart).first<number>('count');
+  return count !== null && count <= limit.max;
+}
 
 /** Throws 429 when `key` exceeds `limit.max` hits in the current window. */
 export async function enforceLimit(db: D1Database, key: string, limit: Limit, now = Date.now()): Promise<void> {
-  const windowStart = now - (now % limit.windowMs);
-  const count = await db.prepare(UPSERT).bind(key, windowStart).first<number>('count');
-  if (count === null || count > limit.max) {
+  if (!(await withinLimit(db, key, limit, now))) {
     throw new HttpError(429, 'rate_limited', 'too many requests, try again later');
   }
 }
