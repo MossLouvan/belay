@@ -5,12 +5,12 @@
 // quiet advanced door underneath.
 //
 // The welcome is the app's first frame, so it earns the one hero moment the
-// motion doctrine allows: the beluga mascot swims in its idle loop inside a
-// soft blue halo (tap it and it does a flip), "Welcome to Belay" sits below in
+// motion doctrine allows: the cartoon beluga settles in inside a
+// soft halo, "Put Belay on your computer" sits below in
 // a calm sentence-case voice — deliberately not the 900-weight uppercase
 // display, premium here means quiet — and a single accent button leads on.
 // The page ground is the `heroBg` token, the ocean-tinted sibling of `bg`, so
-// the white-beluga-in-blue-water video and the blue-rope brand share one
+// the cream beluga and the rope brand share one
 // palette instead of the mascot floating on a neutral page.
 //
 // Entrance: mascot → headline → CTA, each a 400ms fade with an 8pt rise
@@ -18,7 +18,7 @@
 // renders everything in place with no animation.
 
 import React, { useEffect } from 'react';
-import { Image, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import type { TextStyle } from 'react-native';
 import Animated, {
   Easing,
@@ -28,8 +28,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useTheme } from '../theme';
-import { BelugaAvatar, Button, Swash, Txt, useReducedMotion } from '../ui';
-import { useLook } from '../design/use-look';
+import { BelugaIllustration, Button, Swash, Txt, useReducedMotion } from '../ui';
 import { HERO_ENTRANCE, haloLayers } from './welcome-hero';
 
 interface WelcomeScreenProps {
@@ -39,14 +38,8 @@ interface WelcomeScreenProps {
   onAdvanced: () => void;
 }
 
-/** Mascot width, pt. Generous — this screen is the beluga's stage. */
-const MASCOT_SIZE = 40;
-
-/** Harbour's full mascot: the beluga with its blue carabiner collar, pt wide. */
-const HERO_MASCOT_WIDTH = 132;
-/** assets/beluga-cutout.png is 642×537. */
-const HERO_MASCOT_ASPECT = 537 / 642;
-const BELUGA_CUTOUT = require('../../assets/beluga-cutout.png');
+/** The cartoon beluga's width, pt. Generous — this screen is the beluga's stage. */
+const MASCOT_SIZE = 150;
 
 /** The one easing the app moves on (theme `easing.standard`), as a worklet. */
 const EASE_STANDARD = Easing.bezier(0.2, 0, 0, 1);
@@ -75,26 +68,20 @@ function useHeroEntrance(delayMs: number, reduced: boolean) {
   }));
 }
 
-// BelugaAvatar is only pressable when given a handler; the flip itself is the
-// whole payoff here, so the handler has nothing left to do.
-const NOOP = (): void => undefined;
-
 /**
  * The beluga hero. Mascot swimming in a blue halo (tap for a flip), "Put Belay
  * on your computer", one line of how, one way forward and one advanced door.
  */
 export function WelcomeScreen({ onLink, onAdvanced }: WelcomeScreenProps) {
   const theme = useTheme();
-  const look = useLook();
   const reduced = useReducedMotion();
 
   const mascotStyle = useHeroEntrance(HERO_ENTRANCE.mascotDelayMs, reduced);
   const headlineStyle = useHeroEntrance(HERO_ENTRANCE.headlineDelayMs, reduced);
   const ctaStyle = useHeroEntrance(HERO_ENTRANCE.ctaDelayMs, reduced);
 
-  const mascotSize = look.heroMascot ? HERO_MASCOT_WIDTH : MASCOT_SIZE;
-  const halo = haloLayers(mascotSize);
-  const stageSize = halo[0]?.diameter ?? mascotSize;
+  const halo = haloLayers(MASCOT_SIZE);
+  const stageSize = halo[0]?.diameter ?? MASCOT_SIZE;
 
   // Sentence-case hero type: the display slot without the shouting — weight
   // 700 instead of 900, no uppercase. Shared between the two headline spans so
@@ -156,25 +143,10 @@ export function WelcomeScreen({ onLink, onAdvanced }: WelcomeScreenProps) {
           />
         ))}
 
-        {/* The cutout floats straight on the glow — no ring, no porthole.
-            The beluga's own rope collar is the only outline it needs. */}
-        {look.heroMascot ? (
-          <Image
-            source={BELUGA_CUTOUT}
-            accessibilityLabel="Belay's beluga mascot"
-            accessibilityRole="image"
-            testID="welcome-beluga"
-            style={{ width: HERO_MASCOT_WIDTH, height: HERO_MASCOT_WIDTH * HERO_MASCOT_ASPECT }}
-            resizeMode="contain"
-          />
-        ) : (
-          <BelugaAvatar
-            size={MASCOT_SIZE}
-            onPress={NOOP}
-            accessibilityLabel="Belay's beluga mascot"
-            testID="welcome-beluga"
-          />
-        )}
+        {/* The cartoon floats straight on the glow — no ring, no porthole. */}
+        <View testID="welcome-beluga">
+          <BelugaIllustration size={MASCOT_SIZE} accessibilityLabel="Belay's beluga mascot" />
+        </View>
       </Animated.View>
 
       {/* Headline + one line of what this is. */}
