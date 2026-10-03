@@ -122,6 +122,10 @@ export interface Palette {
   readonly swash: string;
   /** A CSS box-shadow for raised surfaces (cards, cloud pills), or 'none'. */
   readonly depth: string;
+  /** The primary pill's own glow + lift (Harbour's lantern), or 'none'. */
+  readonly ctaGlow: string;
+  /** The sheen painted over the top of the primary fill. */
+  readonly ctaSheen: string;
 }
 
 // Contrast verified with a WCAG 2.1 relative-luminance check against the worst
@@ -172,6 +176,7 @@ export const lightPalette: Palette = Object.freeze({
   heroGlow: 'rgba(46, 124, 246, 0.10)',
   shadow: '#000000',
   ctaTop: '#1D6FE0', ctaBottom: '#1D6FE0', onCta: '#FFFFFF', swash: 'transparent', depth: 'none',
+  ctaGlow: 'none', ctaSheen: '#FFFFFF',
 });
 
 /** Dark — "ink". Premium near-black with soft glass surfaces and restrained accent. */
@@ -216,6 +221,7 @@ export const darkPalette: Palette = Object.freeze({
   heroGlow: 'rgba(91, 156, 248, 0.14)',
   shadow: '#000000',
   ctaTop: '#3B82F6', ctaBottom: '#3B82F6', onCta: '#FFFFFF', swash: 'transparent', depth: 'none',
+  ctaGlow: 'none', ctaSheen: '#FFFFFF',
 });
 
 /**
@@ -462,6 +468,18 @@ export const currentPalette: Palette = Object.freeze({ ...lightPalette,
 });
 
 /**
+ * Current's machine chrome. Current is light-only, but the HUD and dock that
+ * float over the stream always read the dark theme (`getTheme('dark')`):
+ * that used to be Fieldwork, so Current's fullscreen dock lit up orange.
+ * This is Fieldwork's dark ground with Current's blue in the accent roles.
+ */
+export const currentMachinePalette: Palette = Object.freeze({ ...fieldworkPalette,
+  accent: '#7FB0FF', accentGraphic: '#5B9CF8', accentPress: '#6A9EF0', onAccent: '#0B1220',
+  ctaTop: '#2F6FE0', ctaBottom: '#2F6FE0', onCta: '#FFFFFF',
+  accentDim: 'rgba(91, 156, 248, 0.25)', accentSoft: '#1E2A40', onAccentSoft: '#9CC2FF', focus: '#7FB0FF',
+});
+
+/**
  * Harbour — gobelay.com's palette (belay-site globals.css `[data-harbour]`):
  * a misty warm sky for the page, lamplit cream cards, deep slate-navy ink,
  * lagoon for links and marks, and the lantern-amber gradient on the one
@@ -487,6 +505,7 @@ export const harbourPalette: Palette = Object.freeze({ ...lightPalette,
   swash: '#FFD99A',
   // Shadows belong to the sea, never black (site: --color-sea-shadow).
   depth: '0px 10px 24px -14px rgba(47, 74, 82, 0.38), 0px 1px 2px rgba(47, 74, 82, 0.08)',
+  ctaGlow: '0px 0px 22px -6px rgba(255, 203, 126, 0.7), 0px 14px 22px -14px rgba(150, 100, 40, 0.45)',
 });
 
 /** Harbour at night: the same harbour under a deep sea-slate sky, the lantern still lit. */
@@ -506,6 +525,7 @@ export const harbourNightPalette: Palette = Object.freeze({ ...darkPalette,
   ctaTop: '#FFD68F', ctaBottom: '#F5B354', onCta: '#1A3A45',
   swash: 'rgba(255, 203, 126, 0.30)',
   depth: '0px 12px 28px -16px rgba(0, 0, 0, 0.7), inset 0px 1px 0px rgba(255, 255, 255, 0.05)',
+  ctaGlow: '0px 0px 22px -6px rgba(255, 203, 126, 0.7), 0px 14px 22px -14px rgba(150, 100, 40, 0.45)',
 });
 
 /** Harbour's voice: Fredoka (rounded display) for headings and the pill's
@@ -545,7 +565,7 @@ export const harbourNightTheme: Theme = buildTheme('dark', harbourNightPalette, 
 
 const THEMES: Readonly<Record<LookName, Readonly<Record<ColorScheme, Theme>>>> = Object.freeze({
   harbour: Object.freeze({ light: harbourTheme, dark: harbourNightTheme }),
-  current: Object.freeze({ light: lightTheme, dark: darkTheme }),
+  current: Object.freeze({ light: lightTheme, dark: buildTheme('dark', currentMachinePalette) }),
   fieldwork: Object.freeze({ light: lightTheme, dark: darkTheme }),
 });
 
@@ -659,6 +679,28 @@ export function useTheme(): Theme {
   const { look, scheme } = useAppearance();
   return THEMES[look][scheme];
 }
+
+/**
+ * Palette for chrome that floats over a live desktop capture. It cannot borrow
+ * the theme's `overlay`: that is tuned to sit on a known app surface, and at
+ * 0.45 alpha in light mode a white desktop composites to L≈0.294, which drops
+ * #F3F6FC to 2.8:1 and the faint ink to 1.9:1 — both failing AA.
+ *
+ * These values are fixed instead of themed, and chosen for the worst case
+ * backdrop (pure white). Composited: 0.86·(6,8,13) + 0.14·(255,255,255) =
+ * (40.9,42.6,46.9), L = 0.0238.
+ *   #F3F6FC (L 0.9200) -> (0.9200+0.05)/(0.0238+0.05) = 13.1:1
+ *   #AEB9CC (L 0.4806) -> (0.4806+0.05)/(0.0238+0.05) =  7.2:1
+ * Against a pure black desktop (the other extreme, L = 0.0021) they are 19.0:1
+ * and 10.2:1. Every value in between is bounded by these, so both inks clear
+ * WCAG AAA for body text over any frame the host can send, in either theme.
+ */
+export const HUD = Object.freeze({
+  scrim: 'rgba(6, 8, 13, 0.86)',
+  ink: '#F3F6FC',
+  inkDim: '#AEB9CC',
+  hairline: 'rgba(243, 246, 252, 0.12)',
+});
 
 /**
  * Legacy export. Resolves to the dark palette so pre-existing screens that read

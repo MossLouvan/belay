@@ -81,15 +81,12 @@ interface SizeStyle {
 //
 // Height discipline per REVAMP-SPEC §5.10: sm 36 / md 44. The 44pt touch
 // target survives via hitSlop on any size shorter than `layout.minTouch`.
-/** Harbour's lantern glow and lift under the amber pill (site .setup-pill). */
-const CTA_GLOW = '0px 0px 22px -6px rgba(255, 203, 126, 0.7), 0px 14px 22px -14px rgba(150, 100, 40, 0.45)';
-
 /**
  * The lantern-amber body of Harbour's primary pill: the top-to-bottom amber,
  * then the site's sheen fading out above the words. Drawn behind the label,
  * clipped to the pill, invisible to touch and assistive tech.
  */
-function CtaFill({ top, bottom }: { top: string; bottom: string }) {
+function CtaFill({ top, bottom, sheen }: { top: string; bottom: string; sheen: string }) {
   return (
     <View pointerEvents="none" accessibilityElementsHidden style={[StyleSheet.absoluteFill, { borderRadius: 999, overflow: 'hidden' }]}>
       <Svg width="100%" height="100%" preserveAspectRatio="none">
@@ -99,9 +96,9 @@ function CtaFill({ top, bottom }: { top: string; bottom: string }) {
             <Stop offset="1" stopColor={bottom} />
           </LinearGradient>
           <LinearGradient id="belay-cta-sheen" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.55} />
-            <Stop offset="0.42" stopColor="#FFFFFF" stopOpacity={0.16} />
-            <Stop offset="0.52" stopColor="#FFFFFF" stopOpacity={0} />
+            <Stop offset="0" stopColor={sheen} stopOpacity={0.55} />
+            <Stop offset="0.42" stopColor={sheen} stopOpacity={0.16} />
+            <Stop offset="0.52" stopColor={sheen} stopOpacity={0} />
           </LinearGradient>
         </Defs>
         <Rect width="100%" height="100%" fill="url(#belay-cta)" />
@@ -205,7 +202,7 @@ export function Button({
           borderColor: v.border,
           borderWidth: v.border === 'transparent' ? 0 : theme.layout.hairline,
           borderRadius: look.controlRadius,
-          boxShadow: raised ? (variant === 'primary' ? CTA_GLOW : theme.colors.depth) : undefined,
+          boxShadow: raised ? (variant === 'primary' ? theme.colors.ctaGlow : theme.colors.depth) : undefined,
           minHeight: s.minHeight,
           paddingHorizontal: s.paddingHorizontal,
           paddingVertical: theme.space.sm,
@@ -229,7 +226,7 @@ export function Button({
     >
       {({ pressed }) =>
         <>
-        {gradient && !pressed ? <CtaFill top={theme.colors.ctaTop} bottom={theme.colors.ctaBottom} /> : null}
+        {gradient && !pressed ? <CtaFill top={theme.colors.ctaTop} bottom={theme.colors.ctaBottom} sheen={theme.colors.ctaSheen} /> : null}
         {loading ? (
           <ActivityIndicator color={v.foreground} accessibilityElementsHidden />
         ) : (

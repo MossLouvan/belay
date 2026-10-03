@@ -8,7 +8,7 @@ import { Alert, AppState, Platform, StyleSheet, Switch, View } from 'react-nativ
 import { useTheme } from '../theme';
 import { Button, Caption, Heading, Label, ListItem, SegmentedControl } from '../ui';
 import type { SegmentOption } from '../ui';
-import { BelugaAvatar } from '../ui/beluga-avatar';
+import { BelugaIllustration } from '../ui/beluga-illustration';
 import { shouldLock } from './owner-gate';
 import {
   LOCK_TIMEOUTS_MS, isLockEnabled, markLockNoticeShown, refreshAvailability, requireOwner,
@@ -19,7 +19,6 @@ const UNLOCK_REASON = 'Unlock Belay';
 
 /** Covers the app while locked. Mounted once, from the root layout. */
 export function AppLock() {
-  const theme = useTheme();
   const { ready, available, enabled, timeoutMs, noticeShown } = useOwnerLock();
   const [locked, setLocked] = useState(Platform.OS !== 'web');
   // Null until the app first leaves: a cold start always locks.
@@ -68,6 +67,12 @@ export function AppLock() {
   }, [tryUnlock]);
 
   if (!locked || (ready && !(available && enabled))) return null;
+  return <LockCover onUnlock={ready ? () => void tryUnlock() : undefined} />;
+}
+
+/** The cover itself: the cartoon beluga, one line of why, one button. */
+export function LockCover({ onUnlock }: { onUnlock?: () => void }) {
+  const theme = useTheme();
   return (
     <View
       testID="app-lock"
@@ -80,10 +85,10 @@ export function AppLock() {
         padding: theme.layout.margin,
       }]}
     >
-      <BelugaAvatar size={40} />
+      <BelugaIllustration size={140} />
       <Heading>Unlock Belay</Heading>
       <Caption style={{ textAlign: 'center' }}>So only you can control your computer from this phone.</Caption>
-      {ready ? <Button testID="app-unlock" label="Unlock" onPress={() => void tryUnlock()} /> : null}
+      {onUnlock ? <Button testID="app-unlock" label="Unlock" onPress={onUnlock} /> : null}
     </View>
   );
 }

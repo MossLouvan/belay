@@ -766,8 +766,9 @@ In the app it is `BelugaAvatar` (`app/src/ui/beluga-avatar.tsx`), in the desktop
 a CSS mask over `desktop/renderer/beluga-mark.svg`. The lockup is the mark plus the
 "Belay" wordmark in the accent (`Brand`, the desktop host header). Every icon (iOS,
 splash, Android adaptive, web favicon, macOS app icon, menu-bar `trayTemplate`) is
-built from it by `bash app/scripts/build-icons.sh`. The detailed `beluga-cutout.png`
-stays for big hero placements only.
+built from it by `bash app/scripts/build-icons.sh`. Big hero placements in the
+app use the cartoon (`BelugaIllustration`, `app/assets/beluga-cartoon.svg`); the 3D
+render cutout is website-only and the app never references it.
 
 ## 13. Never do this
 

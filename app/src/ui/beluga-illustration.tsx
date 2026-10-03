@@ -6,6 +6,7 @@
 // on BelugaAvatar's silhouette.
 
 import React from 'react';
+import { View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 
 // ponytail: inlined copy of assets/beluga-cartoon.svg; edit both together.
@@ -42,14 +43,11 @@ export interface BelugaIllustrationProps {
 }
 
 export function BelugaIllustration({ size = 160, accessibilityLabel = 'Belay beluga' }: BelugaIllustrationProps) {
+  // The a11y props sit on a View: on web SvgXml forwards them to the DOM as
+  // invalid attributes.
   return (
-    <SvgXml
-      xml={BELUGA_CARTOON_XML}
-      width={size}
-      height={size * ASPECT}
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={accessibilityLabel}
-    />
+    <View accessible accessibilityRole="image" accessibilityLabel={accessibilityLabel}>
+      <SvgXml xml={BELUGA_CARTOON_XML} width={size} height={size * ASPECT} />
+    </View>
   );
 }

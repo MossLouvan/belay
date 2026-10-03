@@ -8,7 +8,7 @@
 
 import React from 'react';
 import { View } from 'react-native';
-import { Screen, Txt } from '../ui';
+import { BelugaIllustration, Screen, Txt } from '../ui';
 import { useTheme } from '../theme';
 import { useLook } from '../design/use-look';
 import { DevicesHeader } from './devices-header';
@@ -43,6 +43,9 @@ export function EmptyComputers({ onAdd, onOpenOptions }: EmptyComputersProps) {
             gap: theme.space.xs,
           }}
         >
+          <View style={{ alignSelf: 'center', paddingBottom: theme.space.xs }}>
+            <BelugaIllustration size={112} />
+          </View>
           <Txt variant="subheading">Put Belay on your computer</Txt>
           <Txt variant="body" tone="dim">
             Get it at gobelay.com and open it, then tap Add computer and scan the QR code it

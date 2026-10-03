@@ -65,6 +65,7 @@ export { StatusBadge, TransitionRing } from './status-badge';
 export type { StatusBadgeProps, StatusBadgeVariant } from './status-badge';
 
 export { BelugaAvatar } from './beluga-avatar';
+export { BelugaIllustration } from './beluga-illustration';
 export type { BelugaAvatarProps } from './beluga-avatar';
 
 export { useKeyboardLift, useKeyboardShown } from './keyboard-lift';

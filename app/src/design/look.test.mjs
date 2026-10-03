@@ -23,12 +23,11 @@ test('looks: every entry is frozen', () => {
 
 test('looks: Harbour keeps Current\'s layout and changes only the dressing', () => {
   const { harbour, current } = looks;
-  const dressing = new Set(['name', 'cardRadius', 'controlRadius', 'segmentSoft', 'heroMascot']);
+  const dressing = new Set(['name', 'cardRadius', 'controlRadius', 'segmentSoft']);
   for (const key of Object.keys(current)) {
     if (!dressing.has(key)) assert.equal(harbour[key], current[key], key);
   }
   assert.equal(harbour.controlRadius, 999, 'pill controls');
-  assert.equal(harbour.heroMascot, true);
 });
 
 test('looks: the two appearances differ on every shape switch that has one', () => {

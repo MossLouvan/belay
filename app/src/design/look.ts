@@ -54,9 +54,6 @@ export interface Look {
   /** Device rows lead with a wide 16:10 preview tile (Fieldwork) rather than a
    *  square line glyph (Current). */
   readonly deviceThumbWide: boolean;
-  /** The welcome hero shows the full mascot (the beluga with its blue
-   *  carabiner collar) rather than the flat silhouette mark. */
-  readonly heroMascot: boolean;
 }
 
 const CURRENT: Look = Object.freeze({
@@ -75,7 +72,6 @@ const CURRENT: Look = Object.freeze({
   segmentSoft: false,
   headerAction: 'add',
   deviceThumbWide: false,
-  heroMascot: false,
 });
 
 const FIELDWORK: Look = Object.freeze({
@@ -94,7 +90,6 @@ const FIELDWORK: Look = Object.freeze({
   segmentSoft: true,
   headerAction: 'menu',
   deviceThumbWide: true,
-  heroMascot: false,
 });
 
 /**
@@ -108,7 +103,6 @@ const HARBOUR: Look = Object.freeze({
   cardRadius: 24,
   controlRadius: 999,
   segmentSoft: true,
-  heroMascot: true,
 });
 
 export const looks: Readonly<Record<LookName, Look>> = Object.freeze({
