@@ -44,6 +44,8 @@ function paint(state) {
   $('signin-google').hidden = !state.signInProviders?.google;
   $('linked-to').hidden = !state.linkedTo;
   $('linked-to').textContent = state.linkedTo ? `Linked to ${state.linkedTo}` : '';
+  $('owner-auth').hidden = !state.ownerAuth;
+  $('owner-auth').textContent = state.ownerAuth ?? '';
   $('link-heading').lastChild.textContent = linked ? 'Linked' : state.claim ? 'Or scan this code in Belay' : !showQr ? 'Scan this code in Belay' : 'Type this code in Belay';
   $('pair-another').hidden = !linked;
   // A code for one more phone needs no account-link instructions under it.
