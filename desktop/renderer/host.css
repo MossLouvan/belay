@@ -23,7 +23,8 @@
 .qr {
   width: 152px; height: 152px; padding: var(--space-xs);
   margin: var(--space-sm) auto 0;
-  background: #fff; color: #000;
+  /* Paper, not a token: a phone camera reads dark-on-light in every look. */
+  background: white; color: black;
   border-radius: var(--radius-md);
 }
 .qr svg { display: block; width: 100%; height: 100%; }
@@ -44,9 +45,29 @@
 .perm { gap: var(--space-xs); }
 .perm[data-granted="true"] [data-role="request"],
 .perm[data-granted="true"] [data-role="open"] { display: none; }
+.perm:not([data-granted="true"]) .badge { display: none; }
 .perm[data-granted="true"] .badge { color: var(--accent); border-color: var(--accent-dim); }
+/* Both granted: the checklist folds to one line. */
+#perms .perm-ok, #perms[data-all-granted="true"] .perm-ask, #perms[data-all-granted="true"] #perm-list { display: none; }
+#perms[data-all-granted="true"] .perm-ok { display: block; }
+
+/* While sign-in is the main way in, the claim QR waits behind "Or scan a
+   code in Belay instead", then sits small beside its caption. */
+#link-section[data-alt="true"]:not([data-open="true"]) { display: none; }
+#signin .track-label { min-height: 32px; margin-right: var(--space-md); }
+.perm .device-text { flex: 1; }
+#link-section[data-alt="true"] {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-md); align-items: center;
+}
+#link-section[data-alt="true"] > * { grid-column: 1 / -1; margin-top: 0; }
+#link-section[data-alt="true"] > #link-heading { margin-bottom: var(--space-xs); }
+#link-section[data-alt="true"] > #qr { grid-column: 1; grid-row: 2; width: 112px; height: 112px; margin: 0; }
+#link-section[data-alt="true"] > #link-caption { grid-column: 2; grid-row: 2; }
+#link-section[data-alt="true"] > #code-line { display: none; }
 
 .signin-providers .button { flex: 1; }
 #signin form .input { flex: 1; min-width: 0; }
 #signin-msg:empty { display: none; }
 .host-title .brand { color: var(--text); }
+/* "Not approved." after a refused Touch ID / password check. */
+#owner-auth { color: var(--bad); }

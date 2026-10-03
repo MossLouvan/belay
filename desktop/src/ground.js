@@ -2,12 +2,13 @@
 // Do not edit by hand — run `npm run sync-tokens`.
 //
 // The colour Electron paints behind each window before the renderer loads,
-// so the first frame is already the right ground instead of a white flash.
-// `darkFirst` mirrors the app's DARK_FIRST: when true the page windows
-// commit to the dark ground whatever the OS says, as the phone does.
+// so the first frame is already the right ground instead of a white flash:
+// the page ground of each of the four appearances, and the machine black a
+// stream sits on.
 export const GROUND = Object.freeze({
-  light: '#ECE9E3',
-  dark: '#0E1C24',
+  harbour: '#ECE9E3',
+  night: '#0E1C24',
+  current: '#F5F8FC',
+  fieldwork: '#191B1C',
   machine: '#071117',
-  darkFirst: true,
 });

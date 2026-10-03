@@ -6,7 +6,6 @@
 // the TypeScript itself; the only obstacle is that theme.ts imports react and
 // react-native, which are redirected to the two tiny stubs in ./stubs.
 
-import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -19,8 +18,12 @@ export const THEME_PATH = resolve(here, '..', '..', 'app', 'src', 'theme.ts');
 /** Every export the desktop tokens are built from. */
 export const THEME_EXPORTS = Object.freeze([
   'harbourPalette', 'harbourNightPalette', 'harbourFont', 'harbourType',
+  'currentPalette', 'fieldworkPalette', 'font', 'type',
   'radius', 'space', 'layout', 'motion', 'easing',
 ]);
+
+/** The looks module (shape switches: card and control radii). */
+export const LOOK_PATH = resolve(dirname(THEME_PATH), 'design', 'look.ts');
 
 const APP_SRC_URL = pathToFileURL(dirname(THEME_PATH)).href + '/';
 
@@ -52,10 +55,12 @@ function registerStubs() {
 }
 
 /**
- * The evaluated theme module. The desktop wears Harbour (gobelay.com's
- * look, the app's default): `harbourPalette`/`harbourNightPalette` and
- * `harbourFont`/`harbourType`, plus `radius`, `space`, `layout`, `motion`,
- * `easing`. Throws if the file
+ * The evaluated theme module, with the app's `looks` (design/look.ts) added
+ * as `theme.looks`. The desktop wears all four appearances: Harbour by day
+ * and at night (`harbourPalette`/`harbourNightPalette`, `harbourFont`/
+ * `harbourType`) and the two flat looks, Current (`currentPalette`) and
+ * Fieldwork (`fieldworkPalette`) on the app's own `font`/`type`, plus
+ * `radius`, `space`, `layout`, `motion`, `easing`. Throws if the file
  * is missing or no longer evaluates — a broken theme must break the build,
  * not silently freeze the desktop on stale tokens.
  */
@@ -64,22 +69,7 @@ export async function loadTheme() {
   const theme = await import(pathToFileURL(THEME_PATH).href);
   const missing = THEME_EXPORTS.filter((key) => theme[key] === undefined);
   if (missing.length > 0) throw new Error(`theme.ts no longer exports: ${missing.join(', ')}`);
-  return theme;
+  const { looks } = await import(pathToFileURL(LOOK_PATH).href);
+  if (!looks?.harbour || !looks?.current || !looks?.fieldwork) throw new Error('design/look.ts no longer exports the three looks');
+  return Object.freeze({ ...theme, looks });
 }
-
-const DARK_FIRST_LITERAL = /^const DARK_FIRST = (true|false);$/m;
-
-/**
- * Whether the app commits to dark regardless of the OS (`DARK_FIRST` in
- * theme.ts, a module-private const, so it is read from the source text).
- * Throws when the declaration moves: the desktop's windows pin their theme
- * on this, and guessing would let the two products drift apart quietly.
- */
-export function parseDarkFirst(source) {
-  const match = source.match(DARK_FIRST_LITERAL);
-  if (!match) throw new Error('theme.ts no longer declares `const DARK_FIRST = true|false;`');
-  return match[1] === 'true';
-}
-
-/** `DARK_FIRST` from the theme on disk. */
-export const loadDarkFirst = () => parseDarkFirst(readFileSync(THEME_PATH, 'utf8'));

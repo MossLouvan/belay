@@ -19,11 +19,13 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, safeStorage, screen, session, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 import { clearSession, keymapModeOf, migrateLegacySession, readSession, writeSession } from './src/session.js';
 import { fitWindow } from './src/displays.js';
 import { cascadeOffset, initialSize, windowLabel } from './src/windows.js';
 import { GROUND } from './src/ground.js';
+import { LOOK_CHOICES, normalizeMode, resolveLook } from './src/look.js';
 import { createPinStore, probeFingerprint } from './src/pins.js';
 import { startHost } from './host.js';
 
@@ -52,14 +54,43 @@ const preload = join(__dirname, 'preload.cjs');
 /** Every display window, so a "disconnect" can close them all at once. */
 const displayWindows = new Set();
 
-// The Ledger grounds come from src/ground.js, generated from the phone's
-// theme, because the frame's first paint happens before any CSS loads and a
-// flash of the wrong theme is exactly the mismatch the paint colour exists to
-// prevent. `machine` is the panel colour a stream sits on — dark in both
-// themes, like the phone's. The renderer pins data-theme the same way
-// (renderer/*.html), so the first paint and the page agree.
-const pageGround = () =>
-  (GROUND.darkFirst || nativeTheme.shouldUseDarkColors ? GROUND.dark : GROUND.light);
+// ── appearance: Harbour, Night, Current or Fieldwork (src/look.js) ────────
+// One choice for every window, stored beside the session. Explicit looks pin
+// nativeTheme too, so the title bar, menus and form controls match the page;
+// 'system' (the default) leaves the OS in charge and Harbour follows it into
+// Night. Every window hears a change at once through 'look:changed'.
+const LOOK_FILE = 'appearance.json';
+let lookMode = 'system';
+const lookListeners = new Set();
+
+const currentLook = () => resolveLook(lookMode, nativeTheme.shouldUseDarkColors);
+
+function broadcastLook() {
+  const look = currentLook();
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send('look:changed', look);
+  for (const listener of lookListeners) listener(look);
+}
+
+function setLook(mode, userData) {
+  lookMode = normalizeMode(mode);
+  nativeTheme.themeSource = lookMode === 'system' ? 'system' : currentLook().scheme;
+  if (userData) {
+    try { writeFileSync(join(userData, LOOK_FILE), JSON.stringify({ mode: lookMode })); } catch (e) {
+      console.error(`[look] could not save the appearance: ${e?.message ?? e}`);
+    }
+  }
+  broadcastLook();
+}
+
+function loadLook(userData) {
+  try { lookMode = normalizeMode(JSON.parse(readFileSync(join(userData, LOOK_FILE), 'utf8')).mode); } catch { /* first run: system */ }
+  nativeTheme.themeSource = lookMode === 'system' ? 'system' : currentLook().scheme;
+}
+
+// The ground Electron paints before the page's CSS loads, so the first frame
+// is already the chosen look rather than a flash of another one. `machine`
+// is the panel colour a stream sits on — dark in every look.
+const pageGround = () => GROUND[currentLook().name];
 
 function createConnectWindow() {
   const win = new BrowserWindow({
@@ -69,6 +100,9 @@ function createConnectWindow() {
     minHeight: 420,
     title: 'Belay',
     backgroundColor: pageGround(),
+    // Windows/Linux: no File/Edit/View bar over the page; Alt shows it, and
+    // its accelerators (copy, paste) work either way. Ignored on macOS.
+    autoHideMenuBar: true,
     webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.loadFile(join(__dirname, 'renderer', 'connect.html'));
@@ -103,6 +137,7 @@ function createDisplayWindow(session, display) {
     height,
     title: `${session.label || session.host} · ${display.name}`,
     backgroundColor: GROUND.machine,
+    autoHideMenuBar: true,
     webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   if (display.w > 0 && display.h > 0) win.setAspectRatio(display.w / display.h);
@@ -169,6 +204,13 @@ function createSeamlessWindow(session, remote, index = 0) {
 
 app.whenReady().then(() => {
   const userData = app.getPath('userData');
+
+  loadLook(userData);
+  // Sync on purpose: renderer/look.js applies the look in <head>, before the
+  // first paint, and a promise would resolve after it.
+  ipcMain.on('look:get', (event) => { event.returnValue = currentLook(); });
+  ipcMain.handle('look:set', (_event, mode) => { setLook(mode, userData); return currentLook(); });
+  nativeTheme.on('updated', () => { if (lookMode === 'system') broadcastLook(); });
 
   session.defaultSession.setCertificateVerifyProc((request, callback) => callback(pins.decide(request)));
   const saved = readSession(userData, safeStorage);
@@ -256,7 +298,14 @@ app.whenReady().then(() => {
   // The host role: menu bar item, QR window, permissions, login item. The
   // viewer (connect window) stays one menu entry away — a Mac can still open
   // another computer's displays as windows, host or not.
-  const openHostWindow = startHost({ openViewer: createConnectWindow });
+  const look = Object.freeze({
+    choices: LOOK_CHOICES,
+    current: currentLook,
+    ground: pageGround,
+    set: (mode) => setLook(mode, userData),
+    subscribe: (listener) => lookListeners.add(listener),
+  });
+  const openHostWindow = startHost({ openViewer: createConnectWindow, look });
   app.on('second-instance', () => openHostWindow());
 
   app.on('activate', () => {

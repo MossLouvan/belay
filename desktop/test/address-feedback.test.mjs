@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { EXAMPLE_TAILSCALE_ADDRESS, addressFeedback } from '../src/address-feedback.js';
+import { EXAMPLE_ADDRESS, addressFeedback } from '../src/address-feedback.js';
 
 test('an empty field has nothing to say yet', () => {
   assert.equal(addressFeedback(''), null);
@@ -24,13 +24,13 @@ test('a MagicDNS name is a Tailscale name', () => {
 test('a half-typed address is encouraged, whatever it starts with', () => {
   assert.equal(addressFeedback('1').tone, 'dim');
   assert.equal(addressFeedback('100.101').tone, 'dim');
-  assert.match(addressFeedback('100.101').text, new RegExp(EXAMPLE_TAILSCALE_ADDRESS));
+  assert.match(addressFeedback('100.101').text, new RegExp(EXAMPLE_ADDRESS));
   assert.equal(addressFeedback('192.168').tone, 'dim');
 });
 
-test('a LAN address works but only on the same network', () => {
+test('a LAN address is the normal case and says it needs the same network', () => {
   const line = addressFeedback('192.168.1.20:8787');
-  assert.equal(line.tone, 'warn');
+  assert.equal(line.tone, 'good');
   assert.match(line.text, /same network/);
 });
 

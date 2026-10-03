@@ -101,3 +101,39 @@ test('the bundled font directory holds only the four Harbour faces and their lic
     'Nunito_700Bold.ttf',
   ]);
 });
+
+// The look pass (Harbour, Night, Current, Fieldwork): colour comes from
+// tokens.css alone, and the 3D beluga render stays on the website — the
+// desktop draws the cartoon beluga (beluga-cartoon.svg) and the flat mark.
+const SOURCE = /\.(?:css|html|js)$/;
+const rendererSources = () => readdirSync(rendererDir).filter((file) => SOURCE.test(file));
+
+/** Raw hex colours (#abc, #aabbcc, #aabbccdd) in a source, comments included. */
+export const hexColours = (text) => [...text.matchAll(/#[0-9a-f]{3,8}\b/gi)]
+  .map(([hex]) => hex)
+  .filter((hex) => [4, 7, 9].includes(hex.length));
+
+test('hexColours finds colours and not much else', () => {
+  assert.deepEqual(hexColours('a { color: #fff; b: #A1B2C3; c: #11223344 }'), ['#fff', '#A1B2C3', '#11223344']);
+  assert.deepEqual(hexColours('href="#where-panel" #12345 #1'), []);
+});
+
+test('no renderer page, stylesheet or script outside tokens.css carries a raw hex colour', () => {
+  for (const file of rendererSources().filter((f) => f !== 'tokens.css')) {
+    assert.deepEqual(hexColours(read(file)), [], `${file} hardcodes a colour; use a token from tokens.css`);
+  }
+});
+
+test('nothing in the renderer references the 3D beluga render', () => {
+  assert.ok(!existsSync(resolve(rendererDir, 'beluga-cutout.png')), 'renderer/beluga-cutout.png is gone');
+  for (const file of rendererSources()) {
+    assert.doesNotMatch(read(file), /beluga-cutout/, `${file} references beluga-cutout`);
+  }
+  assert.match(read('connect.html'), /src="beluga-cartoon\.svg"/, 'the connect hero draws the cartoon beluga');
+});
+
+test('the hero halo box is as big as its outer ring, so the glow never overlaps the heading', () => {
+  const css = read('style.css');
+  assert.match(css, /\.halo-outer \{ width: 100%; height: 100%;/, 'outer ring fills the halo box');
+  assert.doesNotMatch(css, /\.halo-(?:outer|inner) \{[^}]*width: (?:2[1-9]\d|[3-9]\d\d)px/, 'no ring wider than the 208px box');
+});

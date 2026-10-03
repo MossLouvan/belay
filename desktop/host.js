@@ -12,7 +12,7 @@
 // helper it spawns to this bundle, which is the whole point of shipping an app.
 
 import {
-  app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, nativeTheme, shell, systemPreferences, Tray, utilityProcess,
+  app, BrowserWindow, desktopCapturer, ipcMain, Menu, nativeImage, shell, systemPreferences, Tray, utilityProcess,
 } from 'electron';
 import { execFile } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -24,7 +24,6 @@ import { promisify } from 'node:util';
 import {
   accountsBase, appleSignIn, emailStart, emailVerify, googleSignIn, providers, signInConfig,
 } from './src/account-signin.js';
-import { GROUND } from './src/ground.js';
 import {
   PHONE_APP_URL, livePairing, loginItemAfterHealth, pairingFromMessage, parsePairing, pendingFromMessage, phonesFromMessage,
   qrSvg, readHealth, statusLine, firstPhoneState, ownerAuthNotice,
@@ -88,7 +87,7 @@ function permissions() {
  * Start the host role. `openViewer` opens the existing connect window, so the
  * menu can offer both roles. Returns the window opener for `activate`.
  */
-export function startHost({ openViewer }) {
+export function startHost({ openViewer, look }) {
   const userData = app.getPath('userData');
   const prefsFile = join(userData, PREFS_FILE);
   const port = Number(process.env.BELAY_PORT || process.env.TETHER_PORT || DEFAULT_PORT);
@@ -252,9 +251,9 @@ export function startHost({ openViewer }) {
       minWidth: 440,
       minHeight: 720,
       title: 'Belay',
-      // Follows the OS, unlike the viewer: this window sits on the desktop
-      // next to System Settings, so it should look like it belongs there.
-      backgroundColor: nativeTheme.shouldUseDarkColors ? GROUND.dark : GROUND.light,
+      // The chosen look's ground (Harbour/Night follow the OS by default).
+      backgroundColor: look.ground(),
+      autoHideMenuBar: true,
       webPreferences: {
         preload: join(__dirname, 'preload-host.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
       },
@@ -369,8 +368,11 @@ export function startHost({ openViewer }) {
       { type: 'separator' },
       { label: state.paired ? 'Show status & QR…' : 'Link a phone (QR)…', click: openHostWindow },
       ...(state.paired ? [{ label: 'Pair another phone…', click: pairAnother }] : []),
-      { label: 'Connect to a computer…', click: openViewer },
+      { label: 'Control another computer…', click: openViewer },
       { type: 'separator' },
+      { label: 'Appearance', submenu: look.choices.map(({ mode, label }) => ({
+        label, type: 'radio', checked: look.current().name === mode, click: () => look.set(mode),
+      })) },
       { label: 'Start at login', type: 'checkbox', checked: prefs.openAtLogin === true,
         click: (item) => savePrefs({ ...prefs, openAtLogin: item.checked }) },
       { label: 'Open host log', click: () => shell.openPath(join(userData, LOG_FILE)) },
@@ -387,6 +389,7 @@ export function startHost({ openViewer }) {
     : nativeImage.createFromPath(join(__dirname, 'build', 'icon.png')).resize({ width: 18, height: 18 });
   if (process.platform === 'darwin') trayIcon.setTemplateImage(true);
   tray = new Tray(trayIcon);
+  look.subscribe(() => refreshTray());
   tray.on('click', () => { if (process.platform !== 'darwin') openHostWindow(); });
   refreshTray();
 

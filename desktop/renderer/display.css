@@ -68,7 +68,7 @@ body { margin: 0; background: var(--machine); overflow: hidden; }
   color: var(--hud-ink);
   background: transparent;
   border: var(--hairline) solid var(--hud-hairline);
-  border-radius: var(--radius-xs);
+  border-radius: var(--control-radius);
   cursor: pointer;
   white-space: nowrap;
   transition: background-color var(--motion-fast) var(--ease-standard),

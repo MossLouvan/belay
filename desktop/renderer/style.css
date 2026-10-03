@@ -1,10 +1,13 @@
-/* The connect window, in the phone app's Ledger voice (docs/DESIGN.md):
+/* The connect and host windows, in the phone app's voice (docs/DESIGN.md):
    one surface, no cards, typography is the hierarchy. Every value here is a
    token from tokens.css — generated from app/src/theme.ts — so this file
-   only chooses which token goes where, never what a colour or size is.
+   only chooses which token goes where, never what a colour or size is. The
+   look (Harbour, Night, Current, Fieldwork) is tokens.css's business; the
+   only per-look rules here are Harbour's lantern sheen and the hero art.
 
    Harbour (gobelay.com): Fredoka headings, the lantern-amber primary pill,
-   soft cloud pills for the rest. Two voices: sans (Nunito, with Fredoka
+   soft cloud pills for the rest. Current and Fieldwork: the app's flat
+   faces, a solid accent primary, the look's control radius. Two voices: sans (Nunito, with Fredoka
    for headings) is Belay speaking, mono is the computer
    speaking. Anything tappable that is only text carries the 2px track
    (§11.1): slack `--track-rest` at rest, `--accent-graphic` under load. */
@@ -96,9 +99,11 @@ p.mono { margin: 0; }
   border-bottom: var(--hairline) solid var(--border);
   overflow: hidden;
 }
+/* The halo box is the outer ring's size, so the glow takes its own room in
+   the layout and never runs behind the heading under it. */
 .halo {
   position: relative;
-  width: 120px; height: 120px;
+  width: 208px; height: 208px;
   margin-bottom: var(--space-md);
   display: grid; place-items: center;
 }
@@ -108,8 +113,8 @@ p.mono { margin: 0; }
   border-radius: var(--radius-pill);
   background: var(--hero-glow);
 }
-.halo-inner { width: 184px; height: 184px; }
-.halo-outer { width: 272px; height: 272px; opacity: 0.45; }
+.halo-inner { width: 160px; height: 160px; }
+.halo-outer { width: 100%; height: 100%; opacity: 0.45; }
 /* The mascot is a fidget toy, as on the phone: click to flip, keep clicking
    to wind it up. beluga.js drives the swim + spin transform per frame. */
 .beluga {
@@ -122,10 +127,42 @@ p.mono { margin: 0; }
 }
 .beluga:active { opacity: 0.7; }
 .beluga:focus-visible { outline: 2px solid var(--accent-graphic); outline-offset: 4px; }
-.beluga img {
-  width: 120px; height: 120px; object-fit: contain;
+.beluga-cartoon {
+  width: 120px; height: 105px; object-fit: contain;
   user-select: none; -webkit-user-drag: none; pointer-events: none;
 }
+/* The flat mark, in the look's accent, for Current and Fieldwork. */
+.beluga-mark {
+  display: none;
+  width: 64px; height: 64px; background: var(--accent);
+  -webkit-mask: url(beluga-mark.svg) center / contain no-repeat;
+  mask: url(beluga-mark.svg) center / contain no-repeat;
+  pointer-events: none;
+}
+:root[data-look="current"] .beluga-cartoon, :root[data-look="fieldwork"] .beluga-cartoon { display: none; }
+:root[data-look="current"] .beluga-mark, :root[data-look="fieldwork"] .beluga-mark { display: block; }
+/* The connect window is wide and short (720×640): from 640px across, the
+   hero becomes a column of its own beside the form, and only the form side
+   scrolls when a list is long. Narrower, it stacks as on the phone. */
+@media (min-width: 640px) {
+  .connect {
+    display: flex; max-width: none; height: 100vh; padding: 0;
+  }
+  .connect > .hero {
+    flex: none; width: 248px; margin: 0;
+    justify-content: center;
+    padding: var(--space-lg) var(--space-md);
+    border-bottom: 0; border-right: var(--hairline) solid var(--border);
+  }
+  .connect .headline { font-size: var(--type-title-size); line-height: var(--type-title-line); }
+  .connect-body {
+    flex: 1; min-width: 0; overflow-y: auto;
+    padding: var(--space-lg) var(--margin) var(--space-lg) var(--space-xl);
+  }
+  .connect .look-footer { margin-top: var(--space-lg); }
+}
+.connect-actions { gap: var(--space-sm); }
+.connect-actions #connect { flex: 1; }
 /* Entrance: a 400ms fade with an 8px rise, staggered like the phone's
    (0 / 140 / 280ms). Reduced motion renders everything in place. */
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -158,7 +195,7 @@ p.mono { margin: 0; }
 .input:focus { outline: none; border-color: var(--focus); background-size: 100% var(--rule); }
 .input:disabled { opacity: 0.45; }
 .input-lg {
-  min-height: 60px; padding: 0 16px;
+  min-height: 56px; padding: 0 16px;
   font-size: 22px; line-height: 28px;
 }
 .field .caption { margin-top: var(--space-xxs); }
@@ -181,19 +218,19 @@ p.mono { margin: 0; }
 .feedback[data-tone="warn"] { color: var(--warn); }
 .feedback[data-tone="bad"] { color: var(--bad); }
 
-/* --- buttons: the app's Button; every label is the 11px tracked mono ------- */
+/* --- buttons: the app's Button, in its button type (Fredoka under Harbour) - */
 .button, button.actions {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--space-xs);
   min-height: var(--min-touch); padding: 0 18px;
-  font-family: var(--type-label-family);
-  font-size: var(--type-label-size); line-height: var(--type-label-line);
-  letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-transform);
-  font-weight: var(--type-label-weight);
+  font-family: var(--type-button-family);
+  font-size: var(--type-button-size); line-height: var(--type-button-line);
+  letter-spacing: var(--type-button-tracking); text-transform: var(--type-button-transform);
+  font-weight: var(--type-button-weight);
   color: var(--text);
   /* the soft cloud pill: card fill, a quiet rule, the sea's shadow */
   background: var(--surface);
   border: var(--hairline) solid var(--border);
-  border-radius: var(--radius-pill);
+  border-radius: var(--control-radius);
   box-shadow: var(--depth);
   cursor: pointer;
   white-space: nowrap;
@@ -203,20 +240,31 @@ p.mono { margin: 0; }
 }
 .button:active { opacity: var(--press-opacity); }
 .button:disabled, button.actions:disabled { opacity: 0.45; cursor: default; }
-.button.sm { min-height: 36px; padding: 0 14px; }
+.button.sm {
+  min-height: 36px; padding: 0 14px;
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size); line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+}
 .button.lg { min-height: 56px; padding: 0 22px; }
 .button.full { width: 100%; }
 .button.primary {
   color: var(--on-cta);
-  /* lantern amber with the site's sheen above the words (belay-site .setup-pill) */
+  background: linear-gradient(180deg, var(--cta-top), var(--cta-bottom));
+  border-color: transparent;
+  box-shadow: none;
+}
+/* Harbour and Night: lantern amber with the site's sheen above the words
+   (belay-site .setup-pill). The flat looks keep a solid accent. */
+:root:not([data-look="current"], [data-look="fieldwork"]) .button.primary {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.5) 0%, rgb(255 255 255 / 0.14) 42%, rgb(255 255 255 / 0) 52%),
     linear-gradient(180deg, var(--cta-top), var(--cta-bottom));
-  border-color: transparent;
   box-shadow: inset 0 1.25px 0 rgb(255 252 242 / 0.9), 0 0 22px -6px rgb(255 203 126 / 0.6), 0 14px 22px -14px rgb(150 100 40 / 0.45);
 }
 .button.primary:active { opacity: 1; background: var(--cta-bottom); }
-.button.primary:disabled { opacity: 1; background: var(--accent-dim); box-shadow: none; }
+:root .button.primary:disabled { opacity: 1; color: var(--text-faint); background: var(--surface-alt); box-shadow: none; }
+.button.secondary[aria-expanded="true"] { border-color: var(--border-strong); background: var(--surface-alt); }
 .button.subtle { color: var(--on-accent-soft); background: var(--accent-soft); border-color: transparent; box-shadow: none; }
 /* ghost: no box, so it carries the resting track that says "tappable" */
 .button.ghost {
@@ -247,18 +295,9 @@ p.mono { margin: 0; }
 .status-line { min-height: var(--type-mono-small-line); }
 .status-line:empty { display: none; }
 
-.where-panel { padding: var(--space-md) 0; border-top: var(--hairline) solid var(--border); }
+.where-panel { padding: var(--space-xs) 0 0; }
 .steps { margin: 0; padding-left: var(--space-lg); color: var(--text-dim); }
 .steps li + li { margin-top: var(--space-xxs); }
-.example-address {
-  display: inline-block;
-  padding: var(--space-sm) var(--space-md);
-  font-size: 22px; line-height: 28px;
-  color: var(--accent);
-  background: var(--surface-alt);
-  border: var(--hairline) solid var(--border);
-  border-radius: var(--radius-xs);
-}
 
 /* --- ledger sections: label, rule, rows ------------------------------------ */
 .section-head {
@@ -325,7 +364,38 @@ button.actions { margin-top: var(--space-xs); }
   margin-bottom: var(--space-xxs);
 }
 
+/* --- the appearance picker: the app's SegmentedControl --------------------- */
+.segments {
+  display: inline-flex; gap: var(--space-xxs); padding: var(--space-xxs);
+  background: var(--surface-alt);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--control-radius);
+}
+.segment {
+  min-height: 32px; padding: 0 var(--space-sm);
+  font-family: var(--type-label-family);
+  font-size: var(--type-label-size); line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+  color: var(--text-dim);
+  background: transparent; border: 0;
+  border-radius: var(--control-radius);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.segment:hover { color: var(--text); }
+/* Selected: lamplight soft fill (Harbour, Fieldwork: segmentSoft), solid
+   accent under Current. */
+.segment[aria-checked="true"] { color: var(--on-accent-soft); background: var(--accent-soft); }
+:root[data-look="current"] .segment[aria-checked="true"] { color: var(--on-accent); background: var(--accent); }
+.look-footer {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); flex-wrap: wrap;
+  margin-top: var(--space-xl); padding-top: var(--space-md);
+  border-top: var(--hairline) solid var(--border);
+}
+.look-footer .label, .look-row .label { margin: 0; }
+.look-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); flex-wrap: wrap; }
+
 @media (prefers-reduced-motion: reduce) {
   .halo, .headline, .subtitle { animation: none; }
-  .input, .button, .track-label { transition: none; }
+  .input, .button, .track-label, .segment { transition: none; }
 }
