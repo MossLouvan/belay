@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 import { renderGroundJs } from './ground-js.mjs';
 import { loadHud } from './hud-source.mjs';
-import { loadDarkFirst, loadTheme } from './theme-source.mjs';
+import { loadTheme } from './theme-source.mjs';
 import { renderTokensCss } from './tokens-css.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -30,11 +30,9 @@ export const OUTPUTS = Object.freeze({
 export async function generate() {
   const theme = await loadTheme();
   const hud = loadHud();
-  const darkFirst = loadDarkFirst();
   return Object.freeze({
     css: renderTokensCss(theme, hud),
-    ground: renderGroundJs(theme, darkFirst),
-    darkFirst,
+    ground: renderGroundJs(theme),
   });
 }
 

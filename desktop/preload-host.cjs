@@ -29,3 +29,13 @@ contextBridge.exposeInMainWorld('belayHost', {
   /** name: 'apple' | 'google' — opens the system browser. */
   signInWith: (name) => ipcRenderer.invoke('host:signin:provider', String(name)),
 });
+
+// The appearance (Harbour, Night, Current, Fieldwork), read by renderer/look.js.
+// Duplicated in both preloads: a sandboxed preload cannot require a sibling.
+contextBridge.exposeInMainWorld('belayLook', {
+  /** `{ mode, name, look, scheme }` — sync, so the page paints in it first time. */
+  current: () => ipcRenderer.sendSync('look:get'),
+  /** mode: 'harbour' | 'night' | 'current' | 'fieldwork' */
+  set: (mode) => ipcRenderer.invoke('look:set', String(mode)),
+  onChange: (fn) => { ipcRenderer.on('look:changed', (_event, look) => fn(look)); },
+});

@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import { groundFromTheme, renderGroundJs } from '../scripts/ground-js.mjs';
 import { HUD_KEYS, loadHud, parseHud } from '../scripts/hud-source.mjs';
 import { OUTPUTS, generate } from '../scripts/sync-tokens.mjs';
-import { loadDarkFirst, loadTheme, parseDarkFirst } from '../scripts/theme-source.mjs';
+import { loadTheme } from '../scripts/theme-source.mjs';
 import { FONT_FACES, displayStack, faceOf, familyVar, kebab, parseTokensCss, renderTokensCss, sansStack } from '../scripts/tokens-css.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -127,14 +127,29 @@ test('parseHud lifts the literal and refuses a missing key', () => {
   assert.throws(() => parseHud('nothing here'), /no longer declares/);
 });
 
-test('ground colours are the page bg per scheme and the machine black', () => {
-  assert.deepEqual(groundFromTheme(theme, true), {
-    light: theme.harbourPalette.bg,
-    dark: theme.harbourNightPalette.bg,
+test('ground colours are the page bg per look and the machine black', () => {
+  assert.deepEqual(groundFromTheme(theme), {
+    harbour: theme.harbourPalette.bg,
+    night: theme.harbourNightPalette.bg,
+    current: theme.currentPalette.bg,
+    fieldwork: theme.fieldworkPalette.bg,
     machine: theme.harbourNightPalette.machine,
-    darkFirst: true,
   });
-  assert.match(renderGroundJs(theme, false), /darkFirst: false,/);
+  assert.match(renderGroundJs(theme), /fieldwork: '#[0-9A-F]{6}',/i);
+});
+
+test('Current and Fieldwork carry their palettes, the flat faces and their radii', () => {
+  const blocks = parseTokensCss(onDisk.css);
+  for (const [name, palette] of [['current', theme.currentPalette], ['fieldwork', theme.fieldworkPalette]]) {
+    const block = blocks[`:root[data-look="${name}"]`];
+    assert.ok(block, `${name} block present`);
+    for (const [role, value] of Object.entries(palette)) assert.equal(block[kebab(role)], value, `--${kebab(role)} in ${name}`);
+    assert.equal(block.sans, sansStack(theme.font));
+    assert.equal(block['type-button-weight'], String(theme.type.button.fontWeight));
+    assert.equal(block['control-radius'], `${theme.looks[name].controlRadius}px`);
+    assert.equal(block['card-radius'], `${theme.looks[name].cardRadius}px`);
+  }
+  assert.equal(blocks[':root']['control-radius'], `${theme.looks.harbour.controlRadius}px`);
 });
 
 test('faceOf reads expo-google-fonts face names and nothing else', () => {
@@ -144,18 +159,13 @@ test('faceOf reads expo-google-fonts face names and nothing else', () => {
   assert.equal(faceOf('ui-monospace, Menlo'), null);
 });
 
-test('parseDarkFirst reads the module-private flag and refuses its absence', () => {
-  assert.equal(parseDarkFirst('const DARK_FIRST = true;'), true);
-  assert.equal(parseDarkFirst('// x\nconst DARK_FIRST = false;\n'), false);
-  assert.throws(() => parseDarkFirst('const DARK_FIRST = maybe;'), /no longer declares/);
-});
-
-test('every renderer page pins data-theme the way the app resolves its scheme', () => {
-  const darkFirst = loadDarkFirst();
-  for (const page of ['connect.html', 'display.html', 'seamless.html']) {
+test('every renderer page takes its look from look.js, before its stylesheets', () => {
+  for (const page of ['connect.html', 'display.html', 'seamless.html', 'host.html']) {
     const html = readFileSync(resolve(rendererDir, page), 'utf8');
-    const pinned = /<html[^>]*\sdata-theme="dark"/.test(html);
-    assert.equal(pinned, darkFirst, `${page} data-theme="dark" iff DARK_FIRST`);
+    const script = html.indexOf('<script src="look.js"></script>');
+    assert.ok(script > 0, `${page} loads look.js`);
+    assert.ok(script < html.indexOf('tokens.css'), `${page} applies the look before tokens.css`);
+    assert.doesNotMatch(html, /<html[^>]*data-look=/, `${page} pins no look`);
   }
 });
 
