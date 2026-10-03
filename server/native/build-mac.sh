@@ -42,7 +42,7 @@ trap 'rm -rf "$work"' EXIT
 common_flags=(-O -swift-version 5 -framework ScreenCaptureKit -framework CoreGraphics
               -framework ImageIO -framework ApplicationServices -framework CoreMedia
               -framework CoreVideo -framework UniformTypeIdentifiers -framework AppKit
-              -framework VideoToolbox)
+              -framework VideoToolbox -framework LocalAuthentication)
 
 # ── WebRTC path (opt-in, HARDWARE-GATED) ─────────────────────────────────────
 # The default build globs mac/*.swift and mac/encode/ (the VideoToolbox

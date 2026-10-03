@@ -91,6 +91,7 @@ import { createCursorRegistry } from './cursors.js';
 import { createCursorHub } from './cursor-channel.js';
 import { createInputFloor, denialBody, isLocalActivity } from './input-floor.js';
 import { onAppMessage, postToApp, qrModules } from './host-ipc.js';
+import { createAppCommands } from './app-commands.js';
 import type { FloorDenied } from './input-floor.js';
 import { registerImageRoutes } from './image-routes.js';
 import { registerThumbnailRoutes } from './thumbnail.js';
@@ -2320,21 +2321,22 @@ async function linkFromApp(session: unknown): Promise<void> {
   }
 }
 
-// Belay.app's "Pair another phone": the person is at this computer, so no gate.
-onAppMessage((message) => {
-  if (message.type === 'pair-code') showCodeOnDemand();
-  if (message.type === 'link-session') void linkFromApp(message.session);
-  // The person is at this computer: Allow/Deny and Remove need no token.
-  if (message.type === 'pair-decide' && typeof message.pendingId === 'string' && typeof message.allow === 'boolean') {
-    accountPairing.decide(message.pendingId, message.allow, { allowList: tunnelAllowList, linked: accountLinked() });
-  }
-  // "Let a phone connect": the owner at this computer reopens the first-phone
-  // window for 15 minutes (only meaningful with no phone paired).
-  if (message.type === 'open-first-phone') { openFirstPhoneWindow(); announceDevices(); }
-  if (message.type === 'device-remove' && typeof message.tokenPrefix === 'string' && message.tokenPrefix.length >= MIN_REVOKE_PREFIX) {
-    revokeAndDisconnect(message.tokenPrefix);
-  }
+// Belay.app's commands. Allow, "Let a phone connect" and "Pair another phone"
+// wait for the owner to pass Touch ID or the Mac password (app-commands.ts).
+// TODO(windows): Windows Hello via UserConsentVerifier needs WinRT references
+// the csc build (native/build.ps1) does not have yet; until then Windows lets
+// these through unasked, as before.
+const handleAppCommand = createAppCommands({
+  authOwner: (reason) => process.platform === 'darwin' ? native.authOwner(reason) : Promise.resolve({ ok: true }),
+  decide: (pendingId, allow) => accountPairing.decide(pendingId, allow, { allowList: tunnelAllowList, linked: accountLinked() }),
+  // "Let a phone connect": reopen the first-phone window for 15 minutes.
+  openFirstPhone: () => { openFirstPhoneWindow(); announceDevices(); },
+  showCode: () => { showCodeOnDemand(); },
+  removePhone: (tokenPrefix) => { if (tokenPrefix.length >= MIN_REVOKE_PREFIX) revokeAndDisconnect(tokenPrefix); },
+  link: (session) => { void linkFromApp(session); },
+  reply: postToApp,
 });
+onAppMessage((message) => { void handleAppCommand(message); });
 setInterval(() => {
   if (deviceCount() > 0) return;
   ensureCode();
